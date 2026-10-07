@@ -1,0 +1,18 @@
+[package]
+name = "mpai-resources"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mpai.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+futures-util.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+storage.workspace = true

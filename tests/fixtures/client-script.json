@@ -1,0 +1,10 @@
+{
+  "turns": [
+    {
+      "steps": [
+        {"type":"text","text":"client-ready","itemId":"client-message"},
+        {"type":"end","reason":"completed"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+[package]
+name = "mpai-permissions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mpai.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+futures-util.workspace = true

@@ -1,0 +1,8 @@
+#!/bin/sh
+# Isolated GUI fixture: use the installed CLI with a bounded prompt and tool catalog.
+set -eu
+: "${MPAI_CLAUDE_REAL_EXECUTABLE:=${MPAI_CLAUDE_EXECUTABLE:-}}"
+: "${MPAI_CLAUDE_REAL_EXECUTABLE:?Set MPAI_CLAUDE_REAL_EXECUTABLE to the real Claude Code executable}"
+exec "$MPAI_CLAUDE_REAL_EXECUTABLE" --bare \
+  --system-prompt "Follow the user's instructions. Use the available tools when requested. Never invent file contents or claim a tool ran without using it." \
+  --tools "${MPAI_CLAUDE_TOOLS:-Read,Edit,Write,Bash}" "$@"

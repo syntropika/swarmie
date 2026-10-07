@@ -1,0 +1,30 @@
+/target/
+*.tmp
+/tests/fixtures/harnesses/node_modules/
+/tests/fixtures/harnesses/antigravity/
+/tests/fixtures/harnesses/qwen-provider-state/
+/tests/fixtures/native-os/vendor/
+/tests/fixtures/resources-gui/vendor/
+**/__pycache__/
+
+# Dependencies and generated build output.
+**/node_modules/
+**/target/
+**/dist/
+*.pyc
+.DS_Store
+
+# Local credentials, runtime state, and design review sessions.
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+**/.impeccable/live/
+**/.impeccable/config.local.json
+**/.impeccable/hook.cache.json
+**/.impeccable/hook.pending.json
+
+# Generated native harness smoke-test data, not source fixtures.
+/tests/fixtures/harnesses/*-smoke/

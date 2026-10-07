@@ -1,0 +1,1523 @@
+use super::*;
+use async_trait::async_trait;
+use std::{collections::BTreeMap, sync::Arc};
+use tokio::sync::RwLock;
+
+pub struct ClaudeHarness;
+fn configuration_for(init: &Value, config: &Value) -> Value {
+    let mut fields = vec![
+        settings::select(
+            "model",
+            "Model",
+            config["model"].clone(),
+            settings::model_choices(&init["models"]),
+        ),
+        settings::select(
+            "permissionMode",
+            "Permissions",
+            config["permissionMode"].clone(),
+            settings::choices(&[
+                "default",
+                "acceptEdits",
+                "plan",
+                "dontAsk",
+                "bypassPermissions",
+            ]),
+        ),
+    ];
+    if let Some(model) = init["models"]
+        .as_array()
+        .and_then(|a| a.iter().find(|m| m["value"] == config["model"]))
+    {
+        if let Some(levels) = model["supportedEffortLevels"].as_array() {
+            fields.push(settings::select(
+                "effort",
+                "Thinking",
+                config["effort"].clone(),
+                json!(
+                    levels
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(|id| json!({"id":id,"label":id}))
+                        .collect::<Vec<_>>()
+                ),
+            ));
+        }
+        if model["supportsFastMode"] == true {
+            fields.push(json!({"id":"fast","label":"Fast mode","type":"boolean","value":config["fast"],"live":true}));
+        }
+    }
+    json!(fields)
+}
+
+fn mcp_servers(servers: &[McpServer]) -> Value {
+    let entries: serde_json::Map<String, Value> = servers
+        .iter()
+        .map(|server| {
+            let transport = match &server.transport {
+                McpTransport::Stdio { command, args, env } => {
+                    json!({"command":command,"args":args,"env":env})
+                }
+                McpTransport::Http { url, headers } => {
+                    json!({"type":"http","url":url,"headers":headers})
+                }
+                McpTransport::Sse { url, headers } => {
+                    json!({"type":"sse","url":url,"headers":headers})
+                }
+            };
+            (server.name.clone(), transport)
+        })
+        .collect();
+    json!(entries)
+}
+fn result_error(frame: &Value) -> String {
+    if let Some(message) = frame["result"]
+        .as_str()
+        .filter(|message| !message.trim().is_empty())
+    {
+        return message.into();
+    }
+    if let Some(errors) = frame["errors"].as_array() {
+        let messages: Vec<_> = errors
+            .iter()
+            .filter_map(Value::as_str)
+            .filter(|message| !message.trim().is_empty())
+            .collect();
+        if !messages.is_empty() {
+            return messages.join("\n");
+        }
+    }
+    if let Some(message) = frame["errors"]
+        .as_str()
+        .filter(|message| !message.trim().is_empty())
+    {
+        return message.into();
+    }
+    "Claude failed without an error message. Check its authentication and provider configuration."
+        .into()
+}
+fn command_catalog(value: &Value) -> Value {
+    value.as_array().map_or(Value::Null, |commands| json!(commands.iter().filter_map(|command| Some(json!({"name":command["name"].as_str().or_else(||command.as_str())?,"description":command["description"],"source":"native","metadata":command}))).collect::<Vec<_>>()))
+}
+fn unix_time(value: &Value) -> Option<i64> {
+    time::OffsetDateTime::parse(
+        value.as_str()?,
+        &time::format_description::well_known::Rfc3339,
+    )
+    .ok()
+    .map(|date| date.unix_timestamp())
+}
+fn quota_windows(receipt: &Value) -> Result<Value> {
+    let limits = &receipt["rate_limits"];
+    let mut windows = vec![];
+    if let Some(entries) = limits["limits"].as_array() {
+        for (index, limit) in entries.iter().enumerate() {
+            let Some(used) = limit["percent"]
+                .as_f64()
+                .filter(|number| number.is_finite())
+            else {
+                continue;
+            };
+            let used = used.clamp(0.0, 100.0);
+            windows.push(json!({"id":limit["id"].as_str().or(limit["kind"].as_str()).map(String::from).unwrap_or_else(||index.to_string()),"label":limit["group"].as_str().or(limit["kind"].as_str()),"usedPercent":used,"remainingPercent":100.0-used,"resetsAt":unix_time(&limit["resets_at"]),"metadata":limit}));
+        }
+    } else {
+        for (id, label) in [("five_hour", "Session"), ("seven_day", "Week")] {
+            let window = &limits[id];
+            let Some(used) = window["utilization"]
+                .as_f64()
+                .filter(|number| number.is_finite())
+            else {
+                continue;
+            };
+            let used = used.clamp(0.0, 100.0);
+            windows.push(json!({"id":id,"label":label,"usedPercent":used,"remainingPercent":100.0-used,"resetsAt":unix_time(&window["resets_at"]),"metadata":window}));
+        }
+    }
+    if windows.is_empty() {
+        return Err(Error::Unsupported(
+            "Claude account quotas for this login".into(),
+        ));
+    }
+    let credit = &limits["cedar_ember"];
+    let reset_credits = if credit["eligible"] == true {
+        let now = time::OffsetDateTime::now_utc().unix_timestamp();
+        let grants: Vec<_> = credit["grants"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|grant| {
+                grant["paused"] != true
+                    && grant["usable_now"] == true
+                    && (grant["ends_at"].is_null()
+                        || unix_time(&grant["ends_at"]).is_some_and(|end| end > now))
+            })
+            .collect();
+        let next = credit["next_grant_id"]
+            .as_str()
+            .and_then(|id| grants.iter().find(|grant| grant["id"] == id));
+        json!({"available":next.map(|_|grants.iter().filter_map(|grant|grant["resets_left"].as_u64()).fold(0u64,u64::saturating_add)).unwrap_or(0),"nextExpiresAt":next.and_then(|grant|unix_time(&grant["ends_at"])),"metadata":credit})
+    } else {
+        Value::Null
+    };
+    Ok(
+        json!({"provider":"claude","plan":receipt["subscription_type"],"windows":windows,"resetCredits":reset_credits}),
+    )
+}
+
+fn capabilities() -> Capabilities {
+    Capabilities {
+        resume: true,
+        fork: true,
+        cancel: true,
+        permissions: true,
+        reasoning: true,
+        usage: true,
+        models: true,
+        configure: true,
+        images: true,
+        rollback: true,
+        compact: true,
+        metadata: BTreeMap::from([
+            ("mcpTransports".into(), json!(["stdio", "http", "sse"])),
+            ("toolsDisabled".into(), json!(true)),
+            ("outputSchema".into(), json!(true)),
+            ("ephemeral".into(), json!(true)),
+            ("forkAtMessage".into(), json!(true)),
+            ("quotas".into(), json!(true)),
+            ("commands".into(), json!(true)),
+        ]),
+        ..Default::default()
+    }
+}
+#[async_trait]
+impl Harness for ClaudeHarness {
+    fn id(&self) -> &str {
+        "claude"
+    }
+    async fn detect(&self) -> Result<Detection> {
+        Ok(detection("claude", "claude", capabilities()))
+    }
+    async fn probe(&self) -> Result<HarnessProbe> {
+        readiness::probe(self.detect().await?, Some(&["auth", "status", "--json"])).await
+    }
+    async fn account_quotas(&self, query: &AccountQuery) -> Result<Value> {
+        let options = query.connection_options();
+        let args = [
+            "--print",
+            "--verbose",
+            "--input-format",
+            "stream-json",
+            "--output-format",
+            "stream-json",
+        ]
+        .map(String::from)
+        .to_vec();
+        let (exe, mut args) = launch(&options, "claude", args);
+        args.extend(
+            [
+                "--no-session-persistence",
+                "--bare",
+                "--tools",
+                "",
+                "--strict-mcp-config",
+                "--disable-slash-commands",
+            ]
+            .map(String::from),
+        );
+        let env = execution_env(&options, Some("CLAUDE_CONFIG_DIR"))?;
+        let (wire, mut frames) = spawn_json(&options, &exe, &args, WireStyle::Claude, env).await?;
+        let drain = tokio::spawn(async move { while frames.recv().await.is_some() {} });
+        let result = async {
+            wire.request("initialize", json!({"hooks":{},"sdkMcpServers":[]}))
+                .await?;
+            quota_windows(&wire.request("get_usage", json!({})).await?)
+        }
+        .await;
+        let closed = wire.close().await;
+        drain.abort();
+        closed?;
+        result
+    }
+    async fn fork_at(
+        &self,
+        options: &SpawnOptions,
+        native: &NativeSessionRef,
+        message_id: &str,
+    ) -> Result<BackendConnection> {
+        uuid::Uuid::parse_str(message_id)
+            .map_err(|_| Error::Invalid("Claude fork requires the native assistant UUID".into()))?;
+        let mut options = options.clone();
+        if !options.config.is_object() {
+            options.config = json!({});
+        }
+        options.config["resumeAtMessage"] = json!(message_id);
+        self.connect(&options, Some(native), true).await
+    }
+    async fn native_history(
+        &self,
+        query: &NativeHistoryQuery,
+    ) -> Result<Vec<NativeHistorySession>> {
+        if query.harness != self.id() {
+            return Err(Error::Invalid(
+                "history query harness does not match adapter".into(),
+            ));
+        }
+        super::history::discover(query).await
+    }
+    async fn read_native_history(
+        &self,
+        query: &NativeHistoryQuery,
+        native_id: &str,
+    ) -> Result<NativeHistoryDocument> {
+        if query.harness != self.id() {
+            return Err(Error::Invalid(
+                "history query harness does not match adapter".into(),
+            ));
+        }
+        super::history::read(query, native_id, capabilities()).await
+    }
+    async fn connect(
+        &self,
+        o: &SpawnOptions,
+        saved: Option<&NativeSessionRef>,
+        fork: bool,
+    ) -> Result<BackendConnection> {
+        let launched = launch_connection(o, saved, fork).await?;
+        let requests: Arc<RwLock<BTreeMap<String, Value>>> = Arc::default();
+        let config = Arc::new(RwLock::new(
+            json!({"model":o.model,"permissionMode":o.config["permissionMode"].as_str().unwrap_or("default"),"effort":o.config["effort"],"fast":o.config["fast"]}),
+        ));
+        let commands = Arc::new(RwLock::new(command_catalog(&launched.init["commands"])));
+        let history: History = Arc::default();
+        let compaction: Compaction = Arc::default();
+        let (tx, events) = mpsc::channel(512);
+        let id = launched.id.clone();
+        let connection = attach_decoder(
+            launched,
+            requests.clone(),
+            config.clone(),
+            commands.clone(),
+            history.clone(),
+            compaction.clone(),
+            tx.clone(),
+            o.execution.output_schema.is_some(),
+        );
+        let mut capabilities = capabilities();
+        if o.config.get("nativeHistory").is_some_and(Value::is_object) {
+            capabilities
+                .metadata
+                .insert("rollbackHistorySupported".into(), json!(false));
+        }
+        if o.execution.ephemeral {
+            capabilities.resume = false;
+            capabilities.fork = false;
+            capabilities.rollback = false;
+            capabilities
+                .metadata
+                .insert("forkAtMessage".into(), json!(false));
+        }
+        capabilities.metadata.insert("rollbackHistory".into(), json!("completed turns observed by this live connection after its latest native compaction; earlier resumed or compacted history cannot be rolled back"));
+        let file_rewind = !o
+            .execution
+            .env
+            .get("CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING")
+            .is_some_and(|value| value != "true" && value != "1");
+        capabilities.metadata.insert(
+            "rollbackScopes".into(),
+            if o.execution.ephemeral {
+                json!([])
+            } else if file_rewind {
+                json!(["conversation_only", "conversation_and_files"])
+            } else {
+                json!(["conversation_only"])
+            },
+        );
+        Ok(BackendConnection {
+            native: native("claude", id),
+            capabilities,
+            events,
+            backend: Box::new(ClaudeBackend {
+                current: RwLock::new(connection),
+                options: o.clone(),
+                requests,
+                config,
+                commands,
+                history,
+                compaction,
+                events: tx,
+                operation: tokio::sync::Mutex::new(()),
+            }),
+        })
+    }
+}
+
+struct Launched {
+    wire: JsonProcess,
+    frames: mpsc::Receiver<Value>,
+    id: String,
+    init: Value,
+}
+async fn launch_connection(
+    o: &SpawnOptions,
+    saved: Option<&NativeSessionRef>,
+    fork: bool,
+) -> Result<Launched> {
+    let id = if fork {
+        uuid::Uuid::new_v4().to_string()
+    } else {
+        saved
+            .map(|s| s.id.clone())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
+    };
+    let args = [
+        "--print",
+        "--verbose",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--include-partial-messages",
+        "--permission-prompt-tool",
+        "stdio",
+    ]
+    .map(String::from)
+    .to_vec();
+    let (exe, mut args) = launch(o, "claude", args);
+    if let Some(s) = saved {
+        args.extend(["--resume".into(), s.id.clone()]);
+        if fork {
+            args.extend(["--fork-session".into(), "--session-id".into(), id.clone()]);
+        }
+    } else {
+        args.extend(["--session-id".into(), id.clone()]);
+    }
+    if let Some(model) = &o.model {
+        args.extend(["--model".into(), model.clone()]);
+    }
+    if let Some(mode) = o.config["permissionMode"].as_str() {
+        args.extend(["--permission-mode".into(), mode.into()]);
+    }
+    if o.execution.tools == ToolPolicy::Disabled {
+        if !o.execution.mcp_servers.is_empty()
+            || args.iter().any(|arg| {
+                matches!(
+                    arg.as_str(),
+                    "--mcp-config" | "--plugin-dir" | "--plugin-url" | "--tools"
+                )
+            })
+        {
+            return Err(Error::Invalid(
+                "disabled tools cannot be combined with explicit tool or MCP arguments".into(),
+            ));
+        }
+        args.extend([
+            "--tools".into(),
+            String::new(),
+            "--strict-mcp-config".into(),
+            "--disable-slash-commands".into(),
+            "--bare".into(),
+        ]);
+    }
+    if o.execution.ephemeral {
+        if saved.is_some() {
+            return Err(Error::Unsupported(
+                "resume an ephemeral Claude session".into(),
+            ));
+        }
+        args.push("--no-session-persistence".into());
+    }
+    if let Some(schema) = &o.execution.output_schema {
+        args.extend(["--json-schema".into(), schema.to_string()]);
+    }
+    if let Some(anchor) = o.config["resumeAtMessage"].as_str() {
+        if !fork {
+            return Err(Error::Invalid("resumeAtMessage requires a fork".into()));
+        }
+        args.push(format!("--resume-session-at={anchor}"));
+    }
+    let mut env = execution_env(o, Some("CLAUDE_CONFIG_DIR"))?;
+    env.entry("CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING".into())
+        .or_insert_with(|| "true".into());
+    let (wire, frames) = spawn_json(o, &exe, &args, WireStyle::Claude, env).await?;
+    let init = wire
+        .request("initialize", json!({"hooks":{},"sdkMcpServers":[]}))
+        .await?;
+    if !o.execution.mcp_servers.is_empty() {
+        let receipt = wire
+            .request(
+                "mcp_set_servers",
+                json!({"servers":mcp_servers(&o.execution.mcp_servers)}),
+            )
+            .await?;
+        if receipt["errors"]
+            .as_object()
+            .is_some_and(|errors| !errors.is_empty())
+        {
+            return Err(Error::Provider(
+                "one or more declared MCP servers failed to connect".into(),
+            ));
+        }
+    }
+    let startup_config = json!({"model":o.model,"permissionMode":o.config["permissionMode"],"effort":o.config["effort"],"fast":o.config["fast"]});
+    let mut advanced = json!({});
+    for key in ["effort", "fast"] {
+        if let Some(value) = o.config.get(key).filter(|v| !v.is_null()) {
+            advanced[key] = value.clone();
+        }
+    }
+    settings::validate(&advanced, &configuration_for(&init, &startup_config))?;
+    let mut startup_settings = json!({});
+    if let Some(effort) = o.config.get("effort").filter(|v| !v.is_null()) {
+        startup_settings["effortLevel"] = effort.clone();
+    }
+    if let Some(fast) = o.config.get("fast").filter(|v| !v.is_null()) {
+        startup_settings["fastMode"] = fast.clone();
+    }
+    if startup_settings.as_object().is_some_and(|m| !m.is_empty()) {
+        wire.request("apply_flag_settings", json!({"settings":startup_settings}))
+            .await?;
+    }
+    Ok(Launched {
+        wire,
+        frames,
+        id,
+        init,
+    })
+}
+
+struct LiveConnection {
+    wire: JsonProcess,
+    id: Arc<RwLock<String>>,
+    init: Value,
+    decoder: tokio::task::AbortHandle,
+}
+impl Drop for LiveConnection {
+    fn drop(&mut self) {
+        self.decoder.abort();
+    }
+}
+#[derive(Default)]
+struct TurnHistory {
+    completed: Vec<TurnAnchors>,
+    user: Option<String>,
+    assistant: Option<String>,
+    cancelled: bool,
+}
+struct TurnAnchors {
+    user: Option<String>,
+    assistant: Option<String>,
+}
+struct CompactPending {
+    reply: tokio::sync::oneshot::Sender<Result<()>>,
+    refusal: Option<String>,
+}
+type History = Arc<std::sync::Mutex<TurnHistory>>;
+type Compaction = Arc<std::sync::Mutex<Option<CompactPending>>>;
+#[allow(clippy::too_many_arguments)]
+fn attach_decoder(
+    launched: Launched,
+    requests: Arc<RwLock<BTreeMap<String, Value>>>,
+    config: Arc<RwLock<Value>>,
+    commands: Arc<RwLock<Value>>,
+    history: History,
+    compaction: Compaction,
+    tx: mpsc::Sender<BackendEvent>,
+    schema_enabled: bool,
+) -> LiveConnection {
+    let Launched {
+        wire,
+        frames,
+        id,
+        init,
+    } = launched;
+    let id = Arc::new(RwLock::new(id));
+    let decoder = decode(
+        wire.clone(),
+        frames,
+        id.clone(),
+        requests,
+        config,
+        commands,
+        history,
+        compaction,
+        tx,
+        schema_enabled,
+    )
+    .abort_handle();
+    LiveConnection {
+        wire,
+        id,
+        init,
+        decoder,
+    }
+}
+#[allow(clippy::too_many_arguments)]
+fn decode(
+    wire_task: JsonProcess,
+    mut frames: mpsc::Receiver<Value>,
+    native_id: Arc<RwLock<String>>,
+    req_task: Arc<RwLock<BTreeMap<String, Value>>>,
+    config_task: Arc<RwLock<Value>>,
+    commands: Arc<RwLock<Value>>,
+    history: History,
+    compaction: Compaction,
+    tx: mpsc::Sender<BackendEvent>,
+    schema_enabled: bool,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut message_id = None;
+        let mut blocks = BTreeMap::<u64, String>::new();
+        let mut inputs = BTreeMap::<u64, String>::new();
+        let mut calls = BTreeMap::<String, ToolEvent>::new();
+        let mut denied = std::collections::BTreeSet::new();
+        let mut context_tokens = None;
+        while let Some(f) = frames.recv().await {
+            if (f.get("_runtime_exit").is_some() || f.get("_runtime_error").is_some())
+                && let Some(pending) = compaction.lock().unwrap().take()
+            {
+                let _ = pending.reply.send(Err(Error::Closed));
+            }
+            if terminal_frame(&f, &tx).await {
+                break;
+            }
+            if f["type"] == "control_request" {
+                if compaction.lock().unwrap().is_some() {
+                    let _=wire_task.send(json!({"type":"control_response","response":{"subtype":"success","request_id":f["request_id"],"response":{"behavior":"deny","message":"Compaction cannot open interactive tool requests"}}})).await;
+                    continue;
+                }
+                if f["request"]["subtype"] == "can_use_tool" {
+                    let r = &f["request"];
+                    let id = string(&f, "request_id");
+                    req_task.write().await.insert(id.clone(), f.clone());
+                    let p = PermissionRequest {
+                        questions: Vec::new(),
+                        id,
+                        kind: if r["tool_name"] == "AskUserQuestion" {
+                            "question"
+                        } else if r["tool_name"] == "ExitPlanMode" {
+                            "plan"
+                        } else {
+                            "tool"
+                        }
+                        .into(),
+                        title: if r["tool_name"] == "ExitPlanMode" {
+                            "Review proposed plan".into()
+                        } else {
+                            format!("Allow {}", string(r, "tool_name"))
+                        },
+                        description: r["input"]["plan"]
+                            .as_str()
+                            .or(r["decision_reason"].as_str())
+                            .map(String::from),
+                        command: r.get("input").cloned(),
+                        paths: vec![],
+                        options: if r["tool_name"] == "AskUserQuestion" {
+                            vec![
+                                option("answer", "Submit answers", "answer"),
+                                option("cancel", "Cancel", "cancel"),
+                            ]
+                        } else {
+                            vec![
+                                option("approve", "Approve once", "approve"),
+                                option("deny", "Deny", "deny"),
+                                option("cancel", "Cancel turn", "cancel"),
+                            ]
+                        },
+                        metadata: if r["tool_name"] == "AskUserQuestion" {
+                            json!({"questions":settings::questions(&r["input"]["questions"]),"native":r})
+                        } else if r["tool_name"] == "ExitPlanMode" {
+                            json!({"plan":{"markdown":r["input"]["plan"],"status":"proposed"},"native":r})
+                        } else {
+                            r.clone()
+                        },
+                    };
+                    if r["tool_name"] == "ExitPlanMode" {
+                        let _ = tx.send(BackendEvent::content(EventKind::PlanUpdated((json!({"markdown":r["input"]["plan"],"status":"proposed","requestId":p.id})).into()),f.clone())).await;
+                    }
+                    if tx
+                        .send(BackendEvent::content(
+                            EventKind::PermissionRequested(canonical_permission(p)),
+                            f,
+                        ))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                } else {
+                    let _ = wire_task.send(json!({"type":"control_response","response":{"subtype":"error","request_id":f["request_id"],"error":"unsupported control request"}})).await;
+                }
+                continue;
+            }
+            if f["type"] == "control_cancel_request" {
+                let id = string(&f, "request_id");
+                if req_task.write().await.remove(&id).is_some() {
+                    let _ = tx
+                        .send(BackendEvent::content(
+                            EventKind::PermissionResolved {
+                                id,
+                                option: "expired".into(),
+                            },
+                            f,
+                        ))
+                        .await;
+                }
+                continue;
+            }
+            // A child's result is metadata for its parent tool, not the parent turn boundary.
+            if let Some(parent) = f["parent_tool_use_id"].as_str()
+                && f["type"] != "tool_progress"
+            {
+                let child = json!({"id":parent,"parentToolId":parent,"sessionId":f["session_id"],"model":f["model"],"usage":if f["usage"].is_object() {json!(usage(&f))} else {Value::Null},"nativeUsage":f["usage"],"status":if f["type"] == "result" {if f["is_error"] == true {"failed"} else {"completed"}} else {"running"},"message":f.get("message"),"textDelta":f["event"]["delta"]["text"]});
+                if tx
+                    .send(BackendEvent::content(
+                        EventKind::SubagentUpdated((child).into()),
+                        f,
+                    ))
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+                continue;
+            }
+            if let Some(diagnostic) = f.get("_runtime_diagnostic") {
+                let _ = tx
+                    .send(BackendEvent::content(
+                        EventKind::Diagnostic(diagnostic.clone()),
+                        f,
+                    ))
+                    .await;
+                continue;
+            }
+            if f["type"] == "system" && f["subtype"] == "compact_boundary" {
+                // Native compaction removes old UUID cut points from the resumable transcript.
+                {
+                    let mut history = history.lock().unwrap();
+                    history.completed.clear();
+                    history.assistant = None;
+                }
+                let _ = tx
+                    .send(BackendEvent::content(
+                        EventKind::SessionUpdated(
+                            json!({"rollbackHistoryReset":"native_compaction"}),
+                        ),
+                        f.clone(),
+                    ))
+                    .await;
+            }
+            if compaction.lock().unwrap().is_some()
+                && !(f["type"] == "system" && f["subtype"] == "init")
+            {
+                if let Some(error) = f["compact_error"].as_str()
+                    && let Some(pending) = compaction.lock().unwrap().as_mut()
+                {
+                    pending.refusal = Some(error.into());
+                }
+                if f["type"] == "result" {
+                    wire_task.set_active(false);
+                    let pending = compaction.lock().unwrap().take();
+                    if let Some(pending) = pending {
+                        let result = if let Some(error) = pending.refusal {
+                            Err(Error::Provider(format!(
+                                "Claude compaction refused: {error}"
+                            )))
+                        } else if f["is_error"] == true {
+                            Err(Error::Provider(result_error(&f)))
+                        } else {
+                            Ok(())
+                        };
+                        let _ = tx
+                            .send(BackendEvent::content(
+                                EventKind::SessionUpdated(
+                                    json!({"compaction":"finished","success":result.is_ok()}),
+                                ),
+                                f.clone(),
+                            ))
+                            .await;
+                        let _ = pending.reply.send(result);
+                    }
+                } else {
+                    let _ = tx.send(BackendEvent::content(EventKind::Raw, f)).await;
+                }
+                continue;
+            }
+            if f["type"] == "system" {
+                match f["subtype"].as_str() {
+                    Some("commands_changed") => {
+                        let catalog = command_catalog(&f["commands"]);
+                        if !catalog.is_null() {
+                            *commands.write().await = catalog.clone();
+                            let _ = tx
+                                .send(BackendEvent::content(
+                                    EventKind::CommandsUpdated(catalog),
+                                    f,
+                                ))
+                                .await;
+                        } else {
+                            let _ = tx.send(BackendEvent::content(EventKind::Diagnostic(json!({"code":"invalid_command_catalog","level":"warning","message":"Claude command update omitted its catalog"})), f)).await;
+                        }
+                        continue;
+                    }
+                    Some("status") if f["permissionMode"].is_string() => {
+                        config_task.write().await["permissionMode"] = f["permissionMode"].clone();
+                        let _ = tx
+                            .send(BackendEvent::content(
+                                EventKind::ConfigurationUpdated(config_task.read().await.clone()),
+                                f,
+                            ))
+                            .await;
+                        continue;
+                    }
+                    Some("permission_denied") => {
+                        if let Some(id) = f["tool_use_id"].as_str() {
+                            denied.insert(id.to_string());
+                            if let Some(mut call) = calls.remove(id) {
+                                call.status = "denied".into();
+                                call.output = f["message"].clone();
+                                let _ = tx
+                                    .send(BackendEvent::content(EventKind::ToolCompleted(call), f))
+                                    .await;
+                            } else {
+                                let _ = tx.send(BackendEvent::content(EventKind::Raw, f)).await;
+                            }
+                        }
+                        continue;
+                    }
+                    Some("task_started" | "task_progress" | "task_notification") => {
+                        if let Some(id) = f["tool_use_id"].as_str()
+                            && let Some(call) = calls.get_mut(id)
+                        {
+                            if !call.metadata.is_object() {
+                                call.metadata = json!({});
+                            }
+                            call.metadata["taskId"] = f["task_id"].clone();
+                            call.metadata["summary"] = f["summary"].clone();
+                            call.metadata["usage"] = f["usage"].clone();
+                            call.metadata["background"] = json!(true);
+                            let finished = f["subtype"] == "task_notification";
+                            if finished {
+                                call.status = match f["status"].as_str() {
+                                    Some("failed") => "failed",
+                                    Some("stopped") => "cancelled",
+                                    _ => "completed",
+                                }
+                                .into();
+                                if !f["summary"].is_null() {
+                                    call.output = f["summary"].clone();
+                                }
+                            }
+                            call.details = Some(tool_details(&f, call));
+                            let call = call.clone();
+                            if matches!(call.name.as_deref(), Some("Agent" | "Task")) {
+                                let _=tx.send(BackendEvent::content(EventKind::SubagentUpdated((json!({"id":id,"parentToolId":id,"role":call.input["subagent_type"],"model":call.input["model"],"summary":f["summary"].as_str().or(f["description"].as_str()),"usage":if f["usage"].is_object() {json!(usage(&f))} else {Value::Null},"nativeUsage":f["usage"],"status":call.status,"background":true})).into()),f.clone())).await;
+                            }
+                            let _ = tx
+                                .send(BackendEvent::content(
+                                    if finished {
+                                        EventKind::ToolCompleted(call)
+                                    } else {
+                                        EventKind::ToolUpdated(call)
+                                    },
+                                    f,
+                                ))
+                                .await;
+                        } else {
+                            let _ = tx.send(BackendEvent::content(EventKind::Raw, f)).await;
+                        }
+                        continue;
+                    }
+                    _ => (),
+                }
+            }
+            if f["type"] == "tool_progress" {
+                let id = f["parent_tool_use_id"]
+                    .as_str()
+                    .or(f["tool_use_id"].as_str());
+                if let Some(call) = id.and_then(|id| calls.get_mut(id)) {
+                    if !call.metadata.is_object() {
+                        call.metadata = json!({});
+                    }
+                    call.metadata["progress"] = json!({"elapsedMs":f["elapsed_time_seconds"].as_f64().map(|seconds|seconds*1000.0),"message":f["message"]});
+                    call.details = Some(tool_details(&f, call));
+                    let _ = tx
+                        .send(BackendEvent::content(
+                            EventKind::ToolUpdated(call.clone()),
+                            f,
+                        ))
+                        .await;
+                } else {
+                    let _ = tx.send(BackendEvent::content(EventKind::Raw, f)).await;
+                }
+                continue;
+            }
+            let event = match f["type"].as_str().unwrap_or("") {
+                "system" if f["subtype"] == "init" => {
+                    if f["model"].is_string() {
+                        config_task.write().await["model"] = f["model"].clone();
+                    }
+                    if let Some(s) = f["session_id"].as_str() {
+                        *native_id.write().await = s.into();
+                        let _ = tx
+                            .send(BackendEvent::NativeSessionChanged(native(
+                                "claude",
+                                s.into(),
+                            )))
+                            .await;
+                    }
+                    BackendEvent::content(EventKind::SessionUpdated(f.clone()), f.clone())
+                }
+                "stream_event" => {
+                    let e = &f["event"];
+                    let kind = match e["type"].as_str().unwrap_or("") {
+                        "message_start" => {
+                            let usage = &e["message"]["usage"];
+                            context_tokens = usage["input_tokens"].as_u64().map(|n| {
+                                n + usage["cache_read_input_tokens"].as_u64().unwrap_or(0)
+                                    + usage["cache_creation_input_tokens"].as_u64().unwrap_or(0)
+                            });
+                            message_id = e["message"]["id"].as_str().map(String::from);
+                            blocks.clear();
+                            inputs.clear();
+                            EventKind::Raw
+                        }
+                        "content_block_delta" if e["delta"]["type"] == "text_delta" => {
+                            EventKind::TextDelta {
+                                text: string(&e["delta"], "text"),
+                                item_id: message_id.clone(),
+                            }
+                        }
+                        "content_block_delta" if e["delta"]["type"] == "thinking_delta" => {
+                            EventKind::ReasoningDelta {
+                                text: string(&e["delta"], "thinking"),
+                            }
+                        }
+                        "content_block_start" if e["content_block"]["type"] == "tool_use" => {
+                            let call = tool(&e["content_block"], "running");
+                            if let Some(index) = e["index"].as_u64() {
+                                blocks.insert(index, call.id.clone());
+                            }
+                            calls.insert(call.id.clone(), call.clone());
+                            if schema_enabled && call.name.as_deref() == Some("StructuredOutput") {
+                                EventKind::Raw
+                            } else {
+                                EventKind::ToolStarted(call)
+                            }
+                        }
+                        "content_block_delta" if e["delta"]["type"] == "input_json_delta" => {
+                            if let Some(index) = e["index"].as_u64()
+                                && let Some(id) = blocks.get(&index)
+                                && let Some(call) = calls.get_mut(id)
+                            {
+                                let input = inputs.entry(index).or_default();
+                                input.push_str(e["delta"]["partial_json"].as_str().unwrap_or(""));
+                                if let Ok(value) = serde_json::from_str(input) {
+                                    call.input = value;
+                                }
+                                if schema_enabled
+                                    && call.name.as_deref() == Some("StructuredOutput")
+                                {
+                                    EventKind::StructuredOutput(call.input.clone())
+                                } else {
+                                    EventKind::ToolUpdated(call.clone())
+                                }
+                            } else {
+                                EventKind::Raw
+                            }
+                        }
+                        _ => EventKind::Raw,
+                    };
+                    BackendEvent::content(kind, f.clone())
+                }
+                "assistant" => {
+                    if let Some(anchor) = f["uuid"]
+                        .as_str()
+                        .filter(|id| uuid::Uuid::parse_str(id).is_ok())
+                    {
+                        let mut history = history.lock().unwrap();
+                        if history.user.is_some() {
+                            history.assistant = Some(anchor.into());
+                        }
+                    }
+                    let mut message = f["message"].clone();
+                    if message.is_object() && f["uuid"].is_string() {
+                        message["uuid"] = f["uuid"].clone();
+                    }
+                    if schema_enabled {
+                        for block in message["content"].as_array().into_iter().flatten() {
+                            if block["type"] == "tool_use" && block["name"] == "StructuredOutput" {
+                                let _ = tx
+                                    .send(BackendEvent::content(
+                                        EventKind::StructuredOutput(block["input"].clone()),
+                                        f.clone(),
+                                    ))
+                                    .await;
+                            }
+                        }
+                    }
+                    BackendEvent::content(EventKind::AssistantMessage(message), f.clone())
+                }
+                "user" => {
+                    if let Some(blocks) = f["message"]["content"].as_array() {
+                        for b in blocks {
+                            if b["type"] == "tool_result" {
+                                let mut completed = tool(b, "completed");
+                                if denied.remove(&completed.id) {
+                                    continue;
+                                }
+                                if let Some(call) = calls.remove(&completed.id) {
+                                    completed.name = call.name;
+                                    completed.input = call.input;
+                                    completed.metadata = call.metadata;
+                                }
+                                let typed = &f["tool_use_result"];
+                                let background = typed["backgroundTaskId"].is_string()
+                                    || typed["status"] == "async_launched";
+                                if background {
+                                    completed.status = "running".into();
+                                    if !completed.metadata.is_object() {
+                                        completed.metadata = json!({});
+                                    }
+                                    completed.metadata["background"] = json!(true);
+                                    completed.metadata["taskId"] =
+                                        typed["backgroundTaskId"].clone();
+                                    calls.insert(completed.id.clone(), completed.clone());
+                                }
+                                completed.details = Some(tool_details(&f, &completed));
+                                if schema_enabled
+                                    && completed.name.as_deref() == Some("StructuredOutput")
+                                {
+                                    continue;
+                                }
+                                let _ = tx
+                                    .send(BackendEvent::content(
+                                        if background {
+                                            EventKind::ToolUpdated(completed)
+                                        } else {
+                                            EventKind::ToolCompleted(completed)
+                                        },
+                                        f.clone(),
+                                    ))
+                                    .await;
+                            }
+                        }
+                    }
+                    BackendEvent::content(EventKind::Raw, f.clone())
+                }
+                "result" => {
+                    wire_task.set_active(false);
+                    let cancelled = history.lock().unwrap().cancelled
+                        && (f["is_error"] == true
+                            || matches!(
+                                f["terminal_reason"].as_str(),
+                                Some("aborted_tools" | "cancelled" | "interrupted")
+                            ));
+                    {
+                        let mut history = history.lock().unwrap();
+                        if let Some(user) = history.user.take() {
+                            let assistant = history.assistant.take();
+                            history.completed.push(TurnAnchors {
+                                user: Some(user),
+                                assistant,
+                            });
+                        }
+                    }
+                    if let Some(output) = f.get("structured_output") {
+                        let _ = tx
+                            .send(BackendEvent::content(
+                                EventKind::StructuredOutput(output.clone()),
+                                f.clone(),
+                            ))
+                            .await;
+                    }
+                    if let Some(item_id) = message_id.clone() {
+                        let _ = tx
+                            .send(BackendEvent::content(
+                                EventKind::MessageEnded {
+                                    item_id: Some(item_id),
+                                },
+                                f.clone(),
+                            ))
+                            .await;
+                    }
+                    message_id = None;
+                    blocks.clear();
+                    inputs.clear();
+                    calls.retain(|_, call| call.status == "running");
+                    denied.clear();
+                    if let Some(usage) = f.get("usage") {
+                        let _ = tx
+                            .send(BackendEvent::content(
+                                EventKind::UsageUpdated(super::usage(
+                                    &json!({"usage":usage,"costUsd":f["total_cost_usd"]}),
+                                )),
+                                f.clone(),
+                            ))
+                            .await;
+                    }
+                    if let Some(used) = context_tokens.take() {
+                        let window = f["modelUsage"].as_object().and_then(|m| {
+                            m.values().filter_map(|v| v["contextWindow"].as_u64()).max()
+                        });
+                        let _ = tx
+                            .send(BackendEvent::content(
+                                EventKind::ContextUpdated(ContextUsage {
+                                    used_tokens: Some(used),
+                                    context_window_tokens: window,
+                                    remaining_tokens: window.map(|w| w.saturating_sub(used)),
+                                    percent: window
+                                        .filter(|w| *w > 0)
+                                        .map(|w| used as f64 / w as f64 * 100.0),
+                                }),
+                                f.clone(),
+                            ))
+                            .await;
+                    }
+                    if f["is_error"] == true && !cancelled {
+                        let _ = tx
+                            .send(BackendEvent::content(
+                                EventKind::Error {
+                                    message: result_error(&f),
+                                },
+                                f.clone(),
+                            ))
+                            .await;
+                    }
+                    BackendEvent::TurnFinished {
+                        reason: if cancelled {
+                            "cancelled"
+                        } else if f["is_error"] == true {
+                            "failed"
+                        } else {
+                            "completed"
+                        }
+                        .into(),
+                        raw: Some(f.clone()),
+                    }
+                }
+                _ => BackendEvent::content(EventKind::Raw, f.clone()),
+            };
+            if tx.send(event).await.is_err() {
+                break;
+            }
+        }
+    })
+}
+
+struct ClaudeBackend {
+    current: RwLock<LiveConnection>,
+    options: SpawnOptions,
+    requests: Arc<RwLock<BTreeMap<String, Value>>>,
+    config: Arc<RwLock<Value>>,
+    commands: Arc<RwLock<Value>>,
+    history: History,
+    compaction: Compaction,
+    events: mpsc::Sender<BackendEvent>,
+    operation: tokio::sync::Mutex<()>,
+}
+async fn rewind_files(wire: &JsonProcess, user: &str, dry_run: bool) -> Result<()> {
+    let receipt = wire
+        .request(
+            "rewind_files",
+            json!({"user_message_id":user,"dry_run":dry_run}),
+        )
+        .await?;
+    if receipt["canRewind"] == false || receipt["error"].is_string() {
+        return Err(Error::Provider(
+            receipt["error"]
+                .as_str()
+                .unwrap_or("Claude refused file rewind")
+                .into(),
+        ));
+    }
+    Ok(())
+}
+#[async_trait]
+impl AgentBackend for ClaudeBackend {
+    async fn prompt(&self, p: &Prompt) -> Result<()> {
+        let _operation = self.operation.lock().await;
+        if self.history.lock().unwrap().user.is_some() || self.compaction.lock().unwrap().is_some()
+        {
+            return Err(Error::Busy);
+        }
+        let connection = self.current.read().await;
+        let content = p.content.iter().map(|c| match c {
+            PromptContent::Text(t) => Ok(json!({"type":"text","text":t})),
+            PromptContent::Image { data,mime_type } => Ok(json!({"type":"image","source":{"type":"base64","data":data,"media_type":mime_type}})),
+            _ => Err(Error::Unsupported("Claude resource content".into())),
+        }).collect::<Result<Vec<_>>>()?;
+        let uuid = uuid::Uuid::new_v4().to_string();
+        {
+            let mut history = self.history.lock().unwrap();
+            history.user = Some(uuid.clone());
+            history.assistant = None;
+            history.cancelled = false;
+        }
+        connection.wire.set_active(true);
+        let result=connection.wire.send(json!({"type":"user","uuid":uuid,"session_id":*connection.id.read().await,"message":{"role":"user","content":content},"parent_tool_use_id":null})).await;
+        if result.is_err() {
+            connection.wire.set_active(false);
+            let mut history = self.history.lock().unwrap();
+            history.user = None;
+            history.assistant = None;
+        }
+        result
+    }
+    async fn cancel(&self) -> Result<()> {
+        let connection = self.current.read().await;
+        let receipt = connection.wire.request("interrupt", json!({})).await?;
+        let cancelled_queued = {
+            let mut history = self.history.lock().unwrap();
+            let cancelled = receipt["cancelled"]
+                .as_array()
+                .zip(history.user.as_deref())
+                .is_some_and(|(cancelled, user)| {
+                    cancelled.iter().any(|id| id.as_str() == Some(user))
+                });
+            if cancelled {
+                history.user = None;
+                history.assistant = None;
+                history.completed.push(TurnAnchors {
+                    user: None,
+                    assistant: None,
+                });
+            }
+            cancelled
+        };
+        if cancelled_queued {
+            connection.wire.set_active(false);
+            self.events
+                .send(BackendEvent::TurnFinished {
+                    reason: "cancelled".into(),
+                    raw: Some(receipt),
+                })
+                .await
+                .map_err(|_| Error::Closed)?;
+        }
+        Ok(())
+    }
+    async fn respond_permission(&self, r: &PermissionResponse) -> Result<()> {
+        let connection = self.current.read().await;
+        let mut requests = self.requests.write().await;
+        let f = requests
+            .get(&r.id)
+            .ok_or_else(|| Error::Invalid("unknown Claude permission".into()))?;
+        let response = if r.option == "answer" && f["request"]["tool_name"] == "AskUserQuestion" {
+            let mut updated = f["request"]["input"].clone();
+            let mut answers = serde_json::Map::new();
+            if let Some(questions) = updated["questions"].as_array() {
+                for (index, q) in questions.iter().enumerate() {
+                    let id = q["id"]
+                        .as_str()
+                        .map(String::from)
+                        .unwrap_or_else(|| index.to_string());
+                    let value = &r.data["answers"][&id];
+                    let text = if let Some(values) = value.as_array() {
+                        values
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    } else {
+                        value.as_str().unwrap_or_default().into()
+                    };
+                    answers.insert(q["question"].as_str().unwrap_or(&id).into(), json!(text));
+                }
+            }
+            updated["answers"] = json!(answers);
+            json!({"behavior":"allow","updatedInput":updated})
+        } else if r.option == "approve" {
+            json!({"behavior":"allow","updatedInput":if r.data.is_null() { f["request"]["input"].clone() } else { r.data.clone() }})
+        } else if r.option == "cancel" {
+            json!({"behavior":"deny","message":"Cancelled by client","interrupt":true})
+        } else {
+            json!({"behavior":"deny","message":r.data["message"].as_str().or_else(||r.data["reason"].as_str()).unwrap_or("Denied by client")})
+        };
+        let cancelled = r.option == "cancel";
+        if cancelled {
+            self.history.lock().unwrap().cancelled = true;
+        }
+        let sent=connection.wire.send(json!({"type":"control_response","response":{"subtype":"success","request_id":r.id,"response":response}})).await;
+        if let Err(error) = sent {
+            if cancelled {
+                self.history.lock().unwrap().cancelled = false;
+            }
+            return Err(error);
+        }
+        requests.remove(&r.id);
+        Ok(())
+    }
+    async fn models(&self) -> Result<Value> {
+        let connection = self.current.read().await;
+        Ok(settings::model_choices(&connection.init["models"]))
+    }
+    async fn configure(&self, v: Value) -> Result<Value> {
+        let connection = self.current.read().await;
+        let mut candidate = self.config.read().await.clone();
+        if let Some(fields) = v.as_object() {
+            for (id, value) in fields {
+                candidate[id] = value.clone();
+            }
+        }
+        let descriptors = configuration_for(&connection.init, &candidate);
+        let fields = v
+            .as_object()
+            .ok_or_else(|| Error::Invalid("configuration must be an object".into()))?;
+        settings::validate(&v, &descriptors)?;
+        for (id, value) in fields {
+            match id.as_str() {
+                "model" => {
+                    connection
+                        .wire
+                        .request("set_model", json!({"model":value}))
+                        .await?;
+                }
+                "permissionMode" => {
+                    connection
+                        .wire
+                        .request("set_permission_mode", json!({"mode":value}))
+                        .await?;
+                }
+                "effort" => {
+                    connection
+                        .wire
+                        .request(
+                            "apply_flag_settings",
+                            json!({"settings":{"effortLevel":value}}),
+                        )
+                        .await?;
+                }
+                "fast" => {
+                    connection
+                        .wire
+                        .request(
+                            "apply_flag_settings",
+                            json!({"settings":{"fastMode":value}}),
+                        )
+                        .await?;
+                }
+                _ => unreachable!("configuration was validated"),
+            }
+            let mut config = self.config.write().await;
+            config[id] = value.clone();
+            let _ = self
+                .events
+                .send(BackendEvent::content(
+                    EventKind::ConfigurationUpdated(config.clone()),
+                    json!({"source":"native_configuration_receipt","field":id}),
+                ))
+                .await;
+        }
+        Ok(self.config.read().await.clone())
+    }
+    async fn configuration(&self) -> Result<Value> {
+        let connection = self.current.read().await;
+        Ok(configuration_for(
+            &connection.init,
+            &*self.config.read().await,
+        ))
+    }
+    async fn commands(&self) -> Result<Value> {
+        let commands = self.commands.read().await.clone();
+        if commands.is_null() {
+            return Err(Error::Unsupported(
+                "Claude command catalog was not advertised".into(),
+            ));
+        }
+        Ok(commands)
+    }
+    async fn quotas(&self) -> Result<Value> {
+        let connection = self.current.read().await;
+        let receipt = connection.wire.request("get_usage", json!({})).await?;
+        let quotas = quota_windows(&receipt)?;
+        self.events
+            .send(BackendEvent::content(
+                EventKind::QuotasUpdated(quotas.clone()),
+                json!({"type":"control_response","subtype":"get_usage","response":receipt}),
+            ))
+            .await
+            .map_err(|_| Error::Closed)?;
+        Ok(quotas)
+    }
+    async fn compact(&self) -> Result<()> {
+        let _operation = self.operation.lock().await;
+        if self.history.lock().unwrap().user.is_some() {
+            return Err(Error::Busy);
+        }
+        let connection = self.current.read().await;
+        let (reply, receipt) = tokio::sync::oneshot::channel();
+        {
+            let mut pending = self.compaction.lock().unwrap();
+            if pending.is_some() {
+                return Err(Error::Busy);
+            }
+            *pending = Some(CompactPending {
+                reply,
+                refusal: None,
+            });
+        }
+        connection.wire.set_active(true);
+        let sent = connection.wire.send(json!({"type":"user","uuid":uuid::Uuid::new_v4().to_string(),"session_id":*connection.id.read().await,"message":{"role":"user","content":"/compact"},"parent_tool_use_id":null})).await;
+        if let Err(error) = sent {
+            self.compaction.lock().unwrap().take();
+            connection.wire.set_active(false);
+            return Err(error);
+        }
+        match tokio::time::timeout(std::time::Duration::from_secs(300), receipt).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => Err(Error::Closed),
+            Err(_) => {
+                self.compaction.lock().unwrap().take();
+                // A late compaction result cannot safely be attributed to a later prompt.
+                connection.wire.kill().await?;
+                Err(Error::Timeout(
+                    "Claude compaction receipt; session terminated".into(),
+                ))
+            }
+        }
+    }
+    async fn rollback(&self, turns: u64) -> Result<()> {
+        self.rollback_with(turns, RollbackScope::ConversationOnly)
+            .await
+    }
+    async fn rollback_with(&self, turns: u64, scope: RollbackScope) -> Result<()> {
+        let _operation = self.operation.lock().await;
+        if self.options.execution.ephemeral {
+            return Err(Error::Unsupported(
+                "rollback of an ephemeral Claude session".into(),
+            ));
+        }
+        let (cut, user, remaining) = {
+            let history = self.history.lock().unwrap();
+            if history.user.is_some() {
+                return Err(Error::Busy);
+            }
+            let count = usize::try_from(turns)
+                .map_err(|_| Error::Invalid("rollback count exceeds recorded history".into()))?;
+            if count == 0 || count >= history.completed.len() {
+                return Err(Error::Invalid(format!(
+                    "Claude rollback needs at least one retained turn among {} completed turns observed by this live connection; earlier resumed history is unavailable and native compaction resets rollback anchors",
+                    history.completed.len()
+                )));
+            }
+            let remaining = history.completed.len() - count;
+            let cut = history.completed[remaining - 1]
+                .assistant
+                .clone()
+                .ok_or_else(|| {
+                    Error::Unsupported("Claude rollback cut has no native assistant UUID".into())
+                })?;
+            (cut, history.completed[remaining].user.clone(), remaining)
+        };
+        let mut current = self.current.write().await;
+        let previous_native = native("claude", current.id.read().await.clone());
+        if scope == RollbackScope::ConversationAndFiles {
+            if self
+                .options
+                .execution
+                .env
+                .get("CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING")
+                .is_some_and(|value| value != "true" && value != "1")
+            {
+                return Err(Error::Unsupported(
+                    "Claude file checkpointing was disabled by the launch environment".into(),
+                ));
+            }
+            rewind_files(
+                &current.wire,
+                user.as_deref().ok_or_else(|| {
+                    Error::Unsupported(
+                        "Claude rollback has no native user UUID for file rewind".into(),
+                    )
+                })?,
+                true,
+            )
+            .await?;
+        }
+        let mut options = self.options.clone();
+        let config = self.config.read().await.clone();
+        if !options.config.is_object() {
+            options.config = json!({});
+        }
+        if let Some(values) = config.as_object() {
+            for (key, value) in values {
+                options.config[key] = value.clone();
+            }
+        }
+        options.model = config["model"].as_str().map(String::from);
+        options.config["resumeAtMessage"] = json!(cut);
+        if let Some(path) = options.config["diagnostics"]["recording"]["path"].as_str() {
+            let path = std::path::PathBuf::from(path)
+                .with_extension(format!("{}.jsonl", uuid::Uuid::new_v4()));
+            options.config["diagnostics"]["recording"]["path"] = json!(path);
+        }
+        // Initialize the replacement before mutating the live connection or files.
+        let replacement = launch_connection(&options, Some(&previous_native), true).await?;
+        if scope == RollbackScope::ConversationAndFiles
+            && let Err(error) = rewind_files(&current.wire, user.as_deref().unwrap(), false).await
+        {
+            let _ = replacement.wire.kill().await;
+            return Err(error);
+        }
+        let id = replacement.id.clone();
+        *self.commands.write().await = command_catalog(&replacement.init["commands"]);
+        current.decoder.abort();
+        let old_wire = current.wire.clone();
+        let next = attach_decoder(
+            replacement,
+            self.requests.clone(),
+            self.config.clone(),
+            self.commands.clone(),
+            self.history.clone(),
+            self.compaction.clone(),
+            self.events.clone(),
+            self.options.execution.output_schema.is_some(),
+        );
+        *current = next;
+        self.requests.write().await.clear();
+        {
+            let mut history = self.history.lock().unwrap();
+            history.completed.truncate(remaining);
+            history.user = None;
+            history.assistant = None;
+        }
+        self.events
+            .send(BackendEvent::NativeSessionChanged(native("claude", id)))
+            .await
+            .map_err(|_| Error::Closed)?;
+        let _ = old_wire.close().await;
+        Ok(())
+    }
+    async fn close(&self) -> Result<()> {
+        let connection = self.current.read().await;
+        connection.wire.close().await
+    }
+    async fn kill(&self) -> Result<()> {
+        let connection = self.current.read().await;
+        connection.wire.kill().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failed_results_preserve_authentication_errors_and_handle_missing_errors() {
+        let message = "Failed to authenticate: OAuth session expired and could not be refreshed";
+        assert_eq!(
+            result_error(&json!({"is_error": true, "result": message, "errors": null})),
+            message
+        );
+        assert_eq!(
+            result_error(&json!({"errors": ["First error", "Second error"]})),
+            "First error\nSecond error"
+        );
+        assert_eq!(
+            result_error(&json!({"errors": "Provider unavailable"})),
+            "Provider unavailable"
+        );
+        assert!(result_error(&json!({"errors": null})).contains("Check its authentication"));
+    }
+}

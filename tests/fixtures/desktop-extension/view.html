@@ -1,0 +1,37 @@
+<style>
+  h1 { font-size: 21px; color: #a9dfb5; }
+  p { line-height: 1.5; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+  .pass { color: #a9dfb5; }
+</style>
+<h1>External extension HTML · revision ONE</h1>
+<p>This file belongs to an independent Rust extension. Change its heading on disk, then choose <b>Reload view</b>.</p>
+<button id="run">Run scoped bridge checks</button>
+<pre id="result">Waiting for checks…</pre>
+<script>
+  const revision = "ONE";
+  async function run() {
+    const checks = {revision};
+    const output = document.getElementById("result");
+    try {
+      checks.ownCommand = await window.mpai.invoke("fixture.echo", {message: "Hello from extension HTML " + revision});
+      try {
+        await window.mpai.invoke("files.list", {projectId: "/"});
+        checks.foreignCommand = "UNEXPECTEDLY ALLOWED";
+      } catch (error) { checks.foreignCommand = String(error.message); }
+      try { void parent.document.body; checks.parentDocument = "UNEXPECTEDLY ACCESSIBLE"; }
+      catch (error) { checks.parentDocument = error.name; }
+      try { void parent.localStorage; checks.parentStorage = "UNEXPECTEDLY ACCESSIBLE"; }
+      catch (error) { checks.parentStorage = error.name; }
+      try { void localStorage; checks.frameStorage = "UNEXPECTEDLY ACCESSIBLE"; }
+      catch (error) { checks.frameStorage = error.name; }
+      checks.nativeBridge = typeof window.zero;
+      checks.bearerInDocument = /Bearer\s+[A-Za-z0-9]/.test(document.documentElement.outerHTML);
+      output.textContent = JSON.stringify(checks, null, 2);
+      output.className = "pass";
+      await window.mpai.invoke("fixture.receipt", checks);
+    } catch (error) { output.textContent = String(error); }
+  }
+  document.getElementById("run").addEventListener("click", run);
+  run();
+</script>

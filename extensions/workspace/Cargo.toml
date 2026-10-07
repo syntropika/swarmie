@@ -1,0 +1,23 @@
+[package]
+name = "mpai-workspace"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mpai.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+portable-pty = "0.9"
+base64 = "0.22"
+percent-encoding = "2"
+dirs = "7"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+protocol.workspace = true

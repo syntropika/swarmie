@@ -1,0 +1,52 @@
+{
+  "$schema": "https://schema.native-sdk.dev/app/v1.json",
+  "id": "dev.mpai.desktop",
+  "name": "mpai-desktop",
+  "display_name": "mpai",
+  "description": "A native workspace for agent sessions and Git review.",
+  "version": "0.1.0",
+  "icons": [
+    "assets/icon.png"
+  ],
+  "platforms": [
+    "linux",
+    "macos"
+  ],
+  "permissions": [
+    "clipboard",
+    "notifications"
+  ],
+  "capabilities": [
+    "webview"
+  ],
+  "shell": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "mpai",
+        "width": 1440,
+        "height": 900,
+        "views": [
+          {
+            "label": "main",
+            "kind": "webview",
+            "url": "http://127.0.0.1:7447",
+            "fill": true
+          }
+        ]
+      }
+    ]
+  },
+  "security": {
+    "navigation": {
+      "allowed_origins": [
+        "http://127.0.0.1:7447"
+      ],
+      "external_links": {
+        "action": "deny"
+      }
+    }
+  },
+  "web_engine": "system",
+  "webview_layer": "include"
+}

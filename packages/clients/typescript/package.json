@@ -1,0 +1,31 @@
+{
+  "name": "@mpai/client",
+  "version": "0.1.0",
+  "description": "Typed clients for the mpai runtime protocol",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": "./dist/client.js",
+    "./stdio": "./dist/stdio.js",
+    "./types": "./dist/generated.js"
+  },
+  "types": "./dist/client.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test test/*.mjs",
+    "pack:local": "npm run build && npm pack"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "@types/node": "^24.0.0"
+  }
+}

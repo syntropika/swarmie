@@ -1,0 +1,15 @@
+[package]
+name = "adapters"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[dependencies]
+mpai.workspace = true
+process.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+futures-util.workspace = true
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+time = { version = "0.3", features = ["parsing"] }

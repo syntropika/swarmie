@@ -1,0 +1,19 @@
+{
+  "name": "@mpai/runtime-local",
+  "version": "0.1.0",
+  "description": "Local host bundle of the mpai runtime executable",
+  "license": "Apache-2.0",
+  "bin": {
+    "mpai": "bin/mpai.cjs"
+  },
+  "files": [
+    "bin",
+    "native",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "engines": {
+    "node": ">=22"
+  }
+}
