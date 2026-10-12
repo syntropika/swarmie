@@ -18,9 +18,10 @@ struct Command {
     request: Value,
     response: oneshot::Sender<Result<Value>>,
 }
+type ChannelSlot = Arc<tokio::sync::Mutex<Option<Channel>>>;
 #[derive(Clone, Default)]
 pub struct Channels {
-    peers: Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<Option<Channel>>>>>>,
+    peers: Arc<tokio::sync::Mutex<HashMap<String, ChannelSlot>>>,
 }
 impl Channels {
     pub async fn request(

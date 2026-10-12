@@ -8,8 +8,10 @@ const identity: RuntimeIdentity = {
 };
 let requests: { method: string; params: any; expectedRuntime?: RuntimeIdentity }[];
 let receipt: SubmissionReceipt;
+let overrides: Record<string, { result?: any; error?: any }>;
 beforeEach(() => {
   requests = [];
+  overrides = {};
   receipt = { id: "intent", sessionId: "session", idempotencyKey: "original", turnId: "", delivery: "unknown", recoveryRequired: true, error: null, outcome: null };
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn() });
   vi.spyOn(WorkspaceCache.prototype, "load").mockResolvedValue(undefined);
@@ -17,10 +19,11 @@ beforeEach(() => {
   vi.stubGlobal("window", { location: { search: "?client=native" }, addEventListener: vi.fn(), dispatchEvent: vi.fn(), zero: { invoke: async (_command: string, payload: any) => {
     const request = payload.request;
     requests.push(request);
+    if (overrides[request.method]) return { response: { jsonrpc: "2.0", id: request.id, ...overrides[request.method] } };
     const result = request.method === "runtime/initialize" ? { name: "swarmie", protocolVersion: "1", runtimeIdentity: identity }
-      : ["client/submissions", "client/sessionProjection"].includes(request.method) ? { events: [], entries: [{ key: "original", receipt }], unresolved: receipt.recoveryRequired, snapshot: { id: "session", state: "idle", sequence: 0, turn: null } }
+      : ["client/submissions", "client/sessionOpen"].includes(request.method) ? { activation: { status: receipt.recoveryRequired ? "blocked" : "attached" }, queue: { items: [], paused: false }, events: [], entries: [{ key: "original", receipt }], unresolved: receipt.recoveryRequired, snapshot: { id: "session", state: "idle", sequence: 0, turn: null } }
       : request.method === "settings/directory" ? { directory: { id: "directory", revision: 1 } }
-      : request.method === "directory/get" ? { path: "/work" } : [];
+      : ["directory/get", "client/chatDirectory"].includes(request.method) ? { path: "/work" } : [];
     return { response: { jsonrpc: "2.0", id: request.id, result } };
   } } });
 });
@@ -65,7 +68,51 @@ it("hydrates from one native projection without paging runtime history in the vi
   store.updateThread(id, { sessionId: "session", state: "idle", draft: "Keep my draft", submissionKeys: [] });
   requests = [];
   await store.restoreThread(id);
-  expect(requests.filter((request) => request.method === "client/sessionProjection")).toHaveLength(1);
+  expect(requests.filter((request) => request.method === "client/sessionOpen")).toHaveLength(1);
   expect(requests.some((request) => ["session/transcript", "session/get", "client/submissions", "session/resume"].includes(request.method))).toBe(false);
   expect(store.active()).toMatchObject({ state: "needs_input", draft: "Keep my draft" });
+});
+
+it("submits launch intent in one native operation and uses its canonical directory", async () => {
+  const store = new WorkspaceStore({ node: identity.identity });
+  await store.connect();
+  const id = store.active()!.id;
+  store.updateThread(id, { harness: "mock", draft: "Keep my draft", worktreeId: "/view-only" });
+  overrides["client/sessionCreate"] = { result: { id: "native", state: "idle", options: { cwd: "/canonical" }, capabilities: {} } };
+  requests = [];
+  await store.ensureSession(id);
+  expect(requests.map(request => request.method)).toEqual(["client/sessionCreate"]);
+  expect(requests[0].params).toMatchObject({ harness: "mock", config: {} });
+  expect(requests[0].params).not.toHaveProperty("cwd");
+  expect(store.active()).toMatchObject({ sessionId: "native", worktreeId: "/canonical", draft: "Keep my draft" });
+});
+
+it("applies native recovery controls after partial configuration without a second view request", async () => {
+  const store = new WorkspaceStore({ node: identity.identity });
+  await store.connect();
+  const id = store.active()!.id;
+  store.updateThread(id, { sessionId: "session", state: "idle", draft: "Keep my draft", config: { model: "old" }, model: "old" });
+  overrides["client/sessionConfigure"] = { error: { code: -32001, message: "Partial configuration", data: {
+    effectKnowledge: "unknown", controls: { configuration: [], models: [], values: { model: "observed" }, executionPolicy: {} },
+  } } };
+  requests = [];
+  await expect(store.configureMany(id, { model: "selected" })).rejects.toThrow("Partial configuration");
+  expect(requests.map(request => request.method)).toEqual(["client/sessionConfigure"]);
+  expect(store.active()).toMatchObject({ model: "observed", config: { model: "observed" }, draft: "Keep my draft" });
+});
+
+it("renders the attached native queue without querying it from the view", async () => {
+  const store = new WorkspaceStore({ node: identity.identity });
+  await store.connect();
+  const id = store.active()!.id;
+  store.updateThread(id, { sessionId: "session", state: "idle", draft: "Keep my draft" });
+  overrides["client/sessionOpen"] = { result: {
+    events: [], entries: [], unresolved: false, activation: { status: "attached" },
+    queue: { items: [{ id: "queued", createdAtMs: 1, prompt: { content: [{ type: "text", data: "Next input" }] } }], paused: true },
+    snapshot: { id: "session", state: "idle", sequence: 0, turn: null, options: { harness: "mock", cwd: "/work" } },
+  } };
+  requests = [];
+  await store.restoreThread(id);
+  expect(requests.map(request => request.method)).toEqual(["client/sessionOpen"]);
+  expect(store.active()).toMatchObject({ queue: [{ id: "queued" }], queuePaused: true, draft: "Keep my draft" });
 });

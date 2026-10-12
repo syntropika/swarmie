@@ -1,5 +1,5 @@
 import { clientRequest, nativeClient } from "./clientTransport";
-import type { DirectoryResource, DefaultDirectory, ProjectRecord, RuntimeIdentity, LocalStoreIdentity, SubmissionProjection, SessionProjection } from "@swarmie/contracts";
+import type { DirectoryResource, DefaultDirectory, ProjectRecord, RuntimeIdentity, LocalStoreIdentity, SubmissionProjection, SessionOpenProjection, SessionControls } from "@swarmie/contracts";
 import {
   NotificationService,
   readNotificationPreferences,
@@ -578,7 +578,7 @@ export class WorkspaceStore {
           this.setError(error);
         }
       }
-      const catalog = await this.rpc<ProjectRecord[]>("project/list");
+      const catalog = nativeClient() ? [] : await this.rpc<ProjectRecord[]>("project/list");
       const projects: Project[] = [];
       for (const record of catalog) {
         if (record.archived) continue;
@@ -587,7 +587,7 @@ export class WorkspaceStore {
         try { projects.push(await this.openProjectRecord(path, record)); }
         catch { projects.push({ id: record.id, revision: record.revision, name: record.name, path, git: false, worktrees: [] }); }
       }
-      this.publish({ projects });
+      this.publish({ projects: nativeClient() ? await this.rpc<Project[]>("client/projectCatalog") : projects });
       await this.restoreSessions();
       if (!this.snapshot.threads.length) this.createThread();
       for (const thread of this.snapshot.threads.filter((t) => t.sessionId)) {
@@ -615,6 +615,7 @@ export class WorkspaceStore {
     } finally { if (epoch === this.connectionEpoch) this.connecting = false; }
   }
   async openProjectRecord(path: string, retained?: ProjectRecord): Promise<Project> {
+    if (nativeClient()) return this.rpc<Project>(retained ? "client/projectGet" : "client/projectOpen", retained ? { projectId: retained.id } : { path });
     let host = retained;
     if (!host) {
       const directory = await this.rpc<DirectoryResource>("directory/register", { path });
@@ -655,8 +656,8 @@ export class WorkspaceStore {
   async openProject(path: string, name?: string) {
     this.publish({ busy: true, error: "" });
     try {
-      const opened = await this.openProjectRecord(path);
-      if (name?.trim() && name.trim() !== opened.name) {
+      const opened = nativeClient() ? await this.rpc<Project>("client/projectOpen", { path, ...(name?.trim() ? { name: name.trim() } : {}) }) : await this.openProjectRecord(path);
+      if (!nativeClient() && name?.trim() && name.trim() !== opened.name) {
         const renamed = await this.rpc<ProjectRecord>("project/update", { projectId: opened.id, expectedRevision: opened.revision, name: name.trim() });
         opened.name = renamed.name; opened.revision = renamed.revision;
       }
@@ -684,6 +685,11 @@ export class WorkspaceStore {
     }
   }
   private async resolveChatDirectory() {
+    if (nativeClient()) {
+      const directory = await this.rpc<DirectoryResource>("client/chatDirectory");
+      this.publish({ chatDirectory: directory.path });
+      return directory.path;
+    }
     const selected = await this.rpc<DefaultDirectory | null>("settings/directory");
     if (selected) {
       const directory = await this.rpc<DirectoryResource>("directory/get", selected.directory);
@@ -697,6 +703,12 @@ export class WorkspaceStore {
     return directory.path;
   }
   async setChatDirectory(path?: string) {
+    if (nativeClient()) {
+      const directory = await this.rpc<DirectoryResource>("client/chatDirectory", { set: true, ...(path?.trim() ? { path: path.trim() } : {}) });
+      this.publish({ chatDirectory: directory.path, customChatDirectory: path?.trim() ? directory.path : undefined });
+      this.persist();
+      return;
+    }
     const chosen = await this.invokeExtension<{ path: string }>("workspace", "conversation.directory", path?.trim() ? { path: path.trim() } : {});
     const directory = await this.rpc<DirectoryResource>("directory/register", { path: chosen.path });
     const selected = await this.rpc<DefaultDirectory | null>("settings/directory");
@@ -736,9 +748,10 @@ export class WorkspaceStore {
       thread.worktreeId &&
       (this.snapshot.connected || this.snapshot.extensions.some((e) => e.id === "resources"))
     ) {
-      const pending = this.rpc<ProjectRecord>("project/get", { projectId: project.id }).then(async (record) => {
+      const pending = (nativeClient() ? this.rpc<ProjectRecord["launch"] & { cwd?: string; revision: number }>("client/projectDefaults", { projectId: project.id }) : this.rpc<ProjectRecord>("project/get", { projectId: project.id }).then(async (record) => {
         const directory = record.directory ? await this.rpc<DirectoryResource>("directory/get", record.directory) : undefined;
-        const defaults = { ...record.launch, cwd: directory?.path, revision: record.revision };
+        return { ...record.launch, cwd: directory?.path, revision: record.revision };
+      })).then(async (defaults) => {
         const edited = this.configurationEdited.has(thread.id);
         if (
           defaults.cwd &&
@@ -857,7 +870,7 @@ export class WorkspaceStore {
   async restoreThread(id: string) {
     const thread = this.snapshot.threads.find((t) => t.id === id);
     if (!thread?.sessionId) return;
-    const projection = nativeClient() ? await this.rpc<SessionProjection>("client/sessionProjection", { sessionId: thread.sessionId }) : undefined;
+    const projection = nativeClient() ? await this.rpc<SessionOpenProjection>("client/sessionOpen", { sessionId: thread.sessionId }) : undefined;
     const snapshot = projection?.snapshot ?? await this.rpc<SessionSnapshot>("session/get", {
       sessionId: thread.sessionId,
     });
@@ -908,9 +921,10 @@ export class WorkspaceStore {
           !["accepted", "rejected"].includes(entry.receipt.delivery),
       );
     let current = snapshot;
-    let state = unresolved ? "needs_input" : snapshot.state;
+    let state = unresolved ? "needs_input" : projection?.activation.status === "unavailable" ? "closed" : snapshot.state;
     const archived = snapshot.metadata?.archived ?? thread.archived;
     if (
+      !projection &&
       !unresolved &&
       !archived &&
       !["closed", "failed"].includes(snapshot.state)
@@ -975,8 +989,8 @@ export class WorkspaceStore {
       },
       false,
     );
-    if (!["closed", "failed"].includes(state) && !archived)
-      await this.refreshQueue(id);
+    if (projection?.queue) this.updateThread(id, { queue: projection.queue.items as Queued[], queuePaused: projection.queue.paused }, false);
+    else if (!projection && !["closed", "failed"].includes(state) && !archived) await this.refreshQueue(id);
   }
   ensureSession(id: string): Promise<Thread> {
     const existing = this.launching.get(id);
@@ -1016,8 +1030,8 @@ export class WorkspaceStore {
         config: thread.config ?? {},
       };
       const session = await this.rpc<SessionSnapshot>(
-        "session/create",
-        options,
+        nativeClient() ? "client/sessionCreate" : "session/create",
+        nativeClient() ? this.launchIntent(thread) : options,
       );
       this.updateThread(id, {
         worktreeId: session.options.cwd,
@@ -1042,7 +1056,12 @@ export class WorkspaceStore {
     thread = this.snapshot.threads.find((t) => t.id === id)!;
     return thread;
   }
+  private launchIntent(thread: Thread) {
+    return { harness: thread.harness, model: thread.model || thread.configurations?.find(option => option.id === "model")?.value || null,
+      config: thread.config ?? {}, ...(thread.projectId ? { projectId: thread.projectId, projectRevision: thread.projectRevision, directoryPath: thread.worktreeId } : {}) };
+  }
   private resumeSession(thread: Thread) {
+    if (nativeClient()) return this.rpc<SessionOpenProjection>("client/sessionOpen", { sessionId: thread.sessionId, resume: "explicit" }).then(result => result.snapshot);
     const params = { sessionId: thread.sessionId };
     return this.snapshot.extensions.some((e) => e.id === "resources")
       ? this.invokeExtension<SessionSnapshot>(
@@ -1524,6 +1543,10 @@ export class WorkspaceStore {
   }
   async loadControls(id: string) {
     const thread = await this.ensureSession(id);
+    if (nativeClient()) {
+      this.applyControls(id, await this.rpc<SessionControls>("client/sessionControls", { sessionId: thread.sessionId }));
+      return;
+    }
     const configuration = await this.rpc<Configuration[]>(
       "agent/configuration",
       { sessionId: thread.sessionId },
@@ -1572,8 +1595,8 @@ export class WorkspaceStore {
     if (existing) return existing;
     const pending = (async () => {
       const result = await this.rpc<ConfigurationPreview>(
-        "runtime/configuration",
-        options,
+        nativeClient() ? "client/sessionPrepare" : "runtime/configuration",
+        nativeClient() ? this.launchIntent(thread) : options,
       );
       const current = this.snapshot.threads.find((item) => item.id === id);
       if (
@@ -1614,7 +1637,7 @@ export class WorkspaceStore {
       return;
     }
     try {
-      const receipt = await this.rpc<ConfigurationReceipt>("agent/configure", {
+      const receipt = await this.rpc<ConfigurationReceipt>(nativeClient() ? "client/sessionConfigure" : "agent/configure", {
         sessionId: thread.sessionId,
         config,
       });
@@ -1635,15 +1658,24 @@ export class WorkspaceStore {
       });
     } catch (error) {
       // Reconcile observed state after a partially applied native update.
-      try {
-        await this.loadControls(id);
-      } catch {
-        /* Keep the original update failure. */
+      if (nativeClient()) {
+        const controls = error instanceof RpcError ? (error.data as { controls?: SessionControls } | undefined)?.controls : undefined;
+        if (controls) this.applyControls(id, controls);
+      } else {
+        try { await this.loadControls(id); } catch { /* Keep the original update failure. */ }
       }
       throw error;
     }
   }
 
+  private applyControls(id: string, controls: SessionControls) {
+    const thread = this.snapshot.threads.find(item => item.id === id);
+    if (!thread) return;
+    const config = { ...thread.config, ...controls.values };
+    if (controls.executionPolicy && !controls.executionPolicy.requested) delete config.executionProfile;
+    this.updateThread(id, { configurations: controls.configuration, models: controls.models, executionPolicy: controls.executionPolicy, config,
+      ...("model" in controls.values ? { model: typeof controls.values.model === "string" ? controls.values.model : "" } : {}) }, false);
+  }
   async compact(id: string) {
     const thread = await this.ensureSession(id);
     await this.rpc("session/compact", { sessionId: thread.sessionId });
@@ -1897,6 +1929,7 @@ export class WorkspaceStore {
     await this.restoreThread(id);
   }
   invokeExtension<T>(extensionId: string, command: string, args: unknown) {
+    if (nativeClient()) return this.rpc<T>("client/extensionInvoke", { extensionId, command, arguments: args });
     if (extensionId === "git" && args && typeof args === "object" && "projectId" in args) {
       const project = this.snapshot.projects.find(p => p.id === (args as { projectId: string }).projectId);
       if (project) args = { ...args, projectId: project.gitId ?? project.path };
@@ -1961,6 +1994,13 @@ export class WorkspaceStore {
     if (!thread?.projectId) throw new Error("Open a project first.");
     if (thread.sessionId)
       throw new Error("Start a new chat before changing its worktree.");
+    if (nativeClient()) {
+      const result = await this.rpc<{ tree: Project["worktrees"][number] & { setup?: { completed: boolean; message?: string } }; worktrees: Project["worktrees"] }>("client/worktree", { projectId: thread.projectId, action: "create", branch });
+      this.publish({ projects: this.snapshot.projects.map(p => p.id === thread.projectId ? { ...p, worktrees: result.worktrees } : p), review: undefined });
+      this.updateThread(thread.id, { worktreeId: result.tree.id });
+      if (result.tree.setup?.completed === false) this.setError(`Worktree created, but setup failed: ${result.tree.setup.message ?? "Open Worktree setup to retry."}`);
+      return;
+    }
     const tree = await this.extension<
       Project["worktrees"][number] & {
         setup?: { completed: boolean; message?: string };
@@ -1985,6 +2025,11 @@ export class WorkspaceStore {
   async refreshProject(id: string) {
     const project = this.snapshot.projects.find((p) => p.id === id);
     if (!project) return;
+    if (nativeClient()) {
+      const opened = await this.rpc<Project>("client/projectGet", { projectId: id });
+      this.publish({ projects: this.snapshot.projects.map(p => p.id === id ? opened : p) });
+      return;
+    }
     const record = await this.rpc<ProjectRecord>("project/get", { projectId: id });
     const directory = record.directory ? await this.rpc<DirectoryResource>("directory/get", record.directory) : undefined;
     let opened: Project;
@@ -1996,6 +2041,12 @@ export class WorkspaceStore {
     const thread = this.active();
     if (!thread || thread.sessionId)
       throw new Error("Start a new chat before removing its worktree.");
+    if (nativeClient()) {
+      const result = await this.rpc<{ worktrees: Project["worktrees"] }>("client/worktree", { projectId: thread.projectId, action: "remove", worktreeId: thread.worktreeId });
+      this.publish({ projects: this.snapshot.projects.map(p => p.id === thread.projectId ? { ...p, worktrees: result.worktrees } : p), review: undefined });
+      this.updateThread(thread.id, { worktreeId: result.worktrees[0]?.id ?? "" });
+      return;
+    }
     await this.extension("worktree.remove", {
       projectId: thread.projectId,
       worktreeId: thread.worktreeId,

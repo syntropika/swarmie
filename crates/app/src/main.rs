@@ -1,7 +1,7 @@
 mod client;
 mod runtime;
 use client::{
-    client_host, client_monitor, client_projection, client_submissions, desktop, node_channel,
+    client_host, client_monitor, client_operations, client_projection, client_submissions, desktop, node_channel,
     node_connection, node_credentials, node_gateway, open, remote,
 };
 use runtime::{mcp_bridge, runtime_host, service, transport};

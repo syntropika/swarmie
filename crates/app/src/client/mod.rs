@@ -1,5 +1,6 @@
 //! Native client connections, application projections, and presentation startup.
 pub(crate) mod client_host;
+pub(crate) mod client_operations;
 pub(crate) mod client_monitor;
 pub(crate) mod client_projection;
 pub(crate) mod client_submissions;

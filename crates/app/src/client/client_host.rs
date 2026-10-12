@@ -29,6 +29,7 @@ struct Host {
     watched: Arc<Mutex<HashSet<String>>>,
     cache: storage::SqliteSessionStore,
     submissions: ClientSubmissions,
+    operations: crate::client_operations::ClientOperations,
 }
 struct Transfer {
     chunks: Vec<String>,
@@ -63,6 +64,7 @@ impl ClientHost {
             transfers: Default::default(),
             watched: Default::default(),
             cache,
+            operations: crate::client_operations::ClientOperations::new(nodes.clone(), submissions.clone()),
             submissions,
         };
         let router = axum::Router::new()
@@ -167,6 +169,9 @@ async fn dispatch(host: &Host, path: &str, request: Value) -> Result<Value> {
 }
 async fn node_request(host: &Host, node: &str, request: Value) -> Result<Value> {
     let id = request["id"].clone();
+    if crate::client_operations::ClientOperations::handles(request["method"].as_str().unwrap_or("")) {
+        return Ok(host.operations.handle(node, request).await);
+    }
     let result = match request["method"].as_str() {
         Some("session/prompt") => host.submissions.prompt(node, request).await,
         Some("client/submissions") => host.submissions.recover(node, request).await,
@@ -591,6 +596,10 @@ mod tests {
             initialized["response"]["result"]["runtimeIdentity"],
             serde_json::to_value(&endpoint.runtime_identity).unwrap()
         );
+        let catalog = rpc(&host, "/rpc", "client/projectCatalog", json!({}), Some(&initialized["response"]["result"]["runtimeIdentity"])).await;
+        assert_eq!(catalog["response"]["result"], json!([]));
+        let invalid_project = rpc(&host, "/rpc", "client/projectOpen", json!({"path":root.path(),"name":""}), Some(&initialized["response"]["result"]["runtimeIdentity"])).await;
+        assert_eq!(invalid_project["response"]["error"]["data"]["effectKnowledge"], "none");
         let rejected = rpc(
             &host,
             "/rpc",

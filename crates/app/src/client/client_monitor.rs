@@ -41,9 +41,8 @@ pub fn spawn(
                         let Some(Ok((node, response))) = checked else { break; };
                         if node != nodes.local_id() && !watched.lock().await.contains(&node) { nodes.disconnect(&node).await; continue; }
                         let connected = response.get("result").is_some();
-                        if let Ok(target) = serde_json::from_value::<swarmie::RuntimeIdentity>(response["result"]["runtimeIdentity"].clone()) {
-                            if let Ok(Err(error)) = tokio::time::timeout(Duration::from_secs(1), submissions.observe(&node, &target)).await { tracing::debug!("native submission observation: {error}"); }
-                        }
+                        if let Ok(target) = serde_json::from_value::<swarmie::RuntimeIdentity>(response["result"]["runtimeIdentity"].clone())
+                            && let Ok(Err(error)) = tokio::time::timeout(Duration::from_secs(1), submissions.observe(&node, &target)).await { tracing::debug!("native submission observation: {error}"); }
                         let delay = if connected { 2 } else { retries.get(&node).map_or(1, |(_, delay)| *delay).saturating_mul(2).min(30) };
                         retries.insert(node.clone(), (tokio::time::Instant::now() + Duration::from_secs(delay), delay));
                         nodes.publish(json!({"environmentId":node,"method":"client/status","params":{"connected":connected,"runtimeIdentity":response["result"]["runtimeIdentity"],"error":response["error"]["message"]}}));

@@ -540,12 +540,14 @@ mod tests {
             .forward(&target.identity.environment_id, original)
             .await;
         assert_eq!(response["result"]["delivery"], "accepted");
-        for _ in 0..100 {
-            if agent.snapshot().await.state == swarmie::SessionState::Idle {
+        for _ in 0..500 {
+            let snapshot = agent.snapshot().await;
+            if snapshot.state == swarmie::SessionState::Idle && snapshot.sequence > 600 {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
+        assert!(agent.snapshot().await.sequence > 600, "scripted turn did not finish");
         let projection = crate::client_projection::restore(&nodes, &client, &target.identity.environment_id,
             json!({"jsonrpc":"2.0","id":2,"method":"client/sessionProjection","expectedRuntime":target,"params":{"sessionId":session}})).await.unwrap();
         assert_eq!(projection["result"]["unresolved"], false);
@@ -562,6 +564,32 @@ mod tests {
                 .delivery,
             DeliveryKnowledge::Accepted
         );
+    }
+    #[tokio::test]
+    async fn native_open_blocks_unconfirmed_intent_and_explicit_resume_without_resending() {
+        use swarmie::mock::{MockHarness, MockScript};
+        let root = tempfile::tempdir().unwrap();
+        let harness = MockHarness::new(MockScript::default());
+        let runtime = swarmie::RuntimeBuilder::default()
+            .store(storage::SqliteSessionStore::new(root.path()).await.unwrap())
+            .harness(harness.clone()).build();
+        let agent = runtime.spawn(serde_json::from_value(json!({"harness":"mock","cwd":root.path(),"config":{}})).unwrap()).await.unwrap();
+        let target = runtime.identity().await.unwrap();
+        let nodes = NodeGateway::new(root.path(), protocol::RuntimeService::new(runtime)).await.unwrap();
+        let client = ClientSubmissions::new(nodes.clone(), storage::SqliteSessionStore::new(root.path().join("client")).await.unwrap());
+        let session = agent.snapshot().await.id;
+        let original = request(&target, &session, "unconfirmed");
+        client.save_entry(&target.identity, intent(&original)).await.unwrap();
+        let operations = crate::client_operations::ClientOperations::new(nodes, client);
+        let open = json!({"id":2,"method":"client/sessionOpen","expectedRuntime":target,"params":{"sessionId":session}});
+        let response = operations.handle(&target.identity.environment_id, open.clone()).await;
+        assert_eq!(response["result"]["activation"]["status"], "blocked");
+        let mut explicit = open.clone();
+        explicit["params"]["resume"] = "explicit".into();
+        let response = operations.handle(&target.identity.environment_id, explicit).await;
+        assert_eq!(response["error"]["data"]["effectKnowledge"], "none");
+        assert!(harness.prompts().await.is_empty());
+        assert_eq!(harness.launches().await.len(), 1);
     }
     #[test]
     fn only_correlated_confirmations_can_resolve_uncertainty() {
