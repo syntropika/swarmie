@@ -18,10 +18,10 @@ async fn ready_url(child: &mut Child) -> String {
     .unwrap()
 }
 async fn cli(root: &Path, args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_mpai"))
+    Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .args(["--state-dir", root.to_str().unwrap()])
         .args(args)
-        .env_remove("MPAI_TOKEN")
+        .env_remove("SWARMIE_TOKEN")
         .output()
         .await
         .unwrap()
@@ -30,7 +30,7 @@ async fn cli(root: &Path, args: &[&str]) -> std::process::Output {
 async fn pairing_and_saved_calls_use_real_daemon_bearer_auth_and_redact_credentials() {
     let root = tempfile::tempdir().unwrap();
     let state = root.path().join("sessions");
-    let mut daemon = Command::new(env!("CARGO_BIN_EXE_mpai"))
+    let mut daemon = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .args([
             "--state-dir",
             root.path().join("daemon").to_str().unwrap(),
@@ -76,7 +76,7 @@ async fn pairing_and_saved_calls_use_real_daemon_bearer_auth_and_redact_credenti
     assert!(called.status.success());
     assert_eq!(
         serde_json::from_slice::<Value>(&called.stdout).unwrap()["name"],
-        "mpai"
+        "swarmie"
     );
     let removed = cli(&state, &["remote", "remove", "fixture"]).await;
     assert!(removed.status.success());
@@ -127,13 +127,13 @@ async fn service_cli_installs_private_config_and_invokes_the_user_manager() {
     let manager = bin.join("systemctl");
     std::fs::write(
         &manager,
-        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$MPAI_MANAGER_LEDGER\"\n",
+        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$SWARMIE_MANAGER_LEDGER\"\n",
     )
     .unwrap();
     std::fs::set_permissions(&manager, std::fs::Permissions::from_mode(0o755)).unwrap();
     let ledger = root.path().join("manager.log");
     let command = |args: Vec<String>| {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_mpai"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_swarmie"));
         command
             .args(["--state-dir", root.path().join("state").to_str().unwrap()])
             .args(args)
@@ -143,8 +143,8 @@ async fn service_cli_installs_private_config_and_invokes_the_user_manager() {
                 "PATH",
                 format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
             )
-            .env("MPAI_MANAGER_LEDGER", &ledger)
-            .env_remove("MPAI_TOKEN");
+            .env("SWARMIE_MANAGER_LEDGER", &ledger)
+            .env_remove("SWARMIE_TOKEN");
         command
     };
     let output = command(vec![
@@ -161,8 +161,8 @@ async fn service_cli_installs_private_config_and_invokes_the_user_manager() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let unit = config.join("systemd/user/mpai.service");
-    let token = config.join("mpai/service.token");
+    let unit = config.join("systemd/user/swarmie.service");
+    let token = config.join("swarmie/service.token");
     assert!(unit.exists());
     assert_eq!(
         std::fs::metadata(&token).unwrap().permissions().mode() & 0o777,
@@ -185,9 +185,9 @@ async fn service_cli_installs_private_config_and_invokes_the_user_manager() {
     }
     assert!(!unit.exists());
     let actions = std::fs::read_to_string(ledger).unwrap();
-    assert!(actions.contains("--user start mpai.service"));
-    assert!(actions.contains("--user status mpai.service"));
-    assert!(actions.contains("--user stop mpai.service"));
+    assert!(actions.contains("--user start swarmie.service"));
+    assert!(actions.contains("--user status swarmie.service"));
+    assert!(actions.contains("--user stop swarmie.service"));
 }
 
 #[tokio::test]
@@ -200,7 +200,7 @@ async fn explicit_https_proxy_origin_accepts_only_the_paired_origin_host_and_bea
         "<html lang=\"en\"><title>Fixture frontend</title></html>",
     )
     .unwrap();
-    let mut daemon = Command::new(env!("CARGO_BIN_EXE_mpai"))
+    let mut daemon = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .args([
             "--state-dir",
             root.path().join("daemon").to_str().unwrap(),
@@ -266,9 +266,9 @@ async fn explicit_https_proxy_origin_accepts_only_the_paired_origin_host_and_bea
 struct RuntimeCleanup(std::path::PathBuf);
 impl Drop for RuntimeCleanup {
     fn drop(&mut self) {
-        let _ = std::process::Command::new(env!("CARGO_BIN_EXE_mpai"))
+        let _ = std::process::Command::new(env!("CARGO_BIN_EXE_swarmie"))
             .args(["--state-dir", self.0.to_str().unwrap(), "runtime", "stop"])
-            .env_remove("MPAI_TOKEN")
+            .env_remove("SWARMIE_TOKEN")
             .output();
     }
 }
@@ -282,12 +282,17 @@ async fn managed_desktop_reuses_detached_owner_and_stops_only_explicitly() {
     std::fs::write(assets.join("index.html"), "<html>fixture desktop</html>").unwrap();
     let host = root.path().join("fixture-host");
     std::fs::write(&host,r#"#!/usr/bin/env python3
-import os,json,urllib.request
-assert os.environ['MPAI_DESKTOP_MANAGED']=='1'
-url=os.environ['MPAI_DESKTOP_URL']
-r=urllib.request.Request(url+'/rpc', data=json.dumps({'jsonrpc':'2.0','id':1,'method':'runtime/initialize','params':{}}).encode(), headers={'Content-Type':'application/json'})
-assert json.load(urllib.request.urlopen(r))['result']['name']=='mpai'
-print(url)
+import os,json,urllib.request,urllib.parse
+assert os.environ['SWARMIE_DESKTOP_MANAGED']=='1'
+url=os.environ['SWARMIE_DESKTOP_URL']
+parts=urllib.parse.urlsplit(url)
+assert urllib.parse.parse_qs(parts.query)['client']==['native']
+origin=urllib.parse.urlunsplit((parts.scheme,parts.netloc,'','',''))
+payload={'operation':'rpc','path':'/rpc','request':{'jsonrpc':'2.0','id':1,'method':'runtime/initialize','params':{}}}
+r=urllib.request.Request(origin+'/ipc',data=json.dumps(payload).encode(),headers={'Content-Type':'application/json','Authorization':'Bearer '+os.environ['SWARMIE_DESKTOP_IPC_TOKEN']})
+result=json.load(urllib.request.urlopen(r))['response']['result']
+assert result['name']=='swarmie'
+print(json.dumps({'clientUrl':url,'runtimeIdentity':result['runtimeIdentity']}))
 "#).unwrap();
     std::fs::set_permissions(&host, std::fs::Permissions::from_mode(0o700)).unwrap();
     let state = root.path().join("sessions");
@@ -308,20 +313,29 @@ print(url)
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    let url = String::from_utf8(first.stdout).unwrap();
-    assert_eq!(url, String::from_utf8(second.stdout).unwrap());
-    assert!(
-        reqwest::get(url.trim())
-            .await
-            .unwrap()
-            .status()
-            .is_success()
-    );
+    let first: Value = serde_json::from_slice(&first.stdout).unwrap();
+    let second: Value = serde_json::from_slice(&second.stdout).unwrap();
+    assert_eq!(first["runtimeIdentity"], second["runtimeIdentity"]);
     let before: Value =
         serde_json::from_slice(&cli(&state, &["runtime", "status"]).await.stdout).unwrap();
+    assert_eq!(first["runtimeIdentity"], before["endpoint"]["runtimeIdentity"]);
+    let url = before["endpoint"]["url"].as_str().unwrap();
+    let initialized: Value = reqwest::Client::new()
+        .post(format!("{}/rpc", url.trim_end_matches('/')))
+        .json(&json!({"jsonrpc":"2.0","id":1,"method":"runtime/initialize","params":{}}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(initialized["result"]["runtimeIdentity"], first["runtimeIdentity"]);
     let reopened = cli(&state, &args).await;
     assert!(reopened.status.success());
-    assert_eq!(String::from_utf8(reopened.stdout).unwrap(), url);
+    let reopened: Value = serde_json::from_slice(&reopened.stdout).unwrap();
+    assert_eq!(reopened["runtimeIdentity"], first["runtimeIdentity"]);
     // A failed client must not stop the runtime either.
     std::fs::write(&host, "#!/bin/sh\nexit 7\n").unwrap();
     assert!(!cli(&state, &args).await.status.success());
@@ -383,7 +397,7 @@ async fn ssh_receipt(
 async fn reconnect_restores_forwarded_session_execution_and_cancellation_stops_the_backoff() {
     let root = tempfile::tempdir().unwrap();
     let state = root.path().join("sessions");
-    let mut daemon = Command::new(env!("CARGO_BIN_EXE_mpai"))
+    let mut daemon = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .args([
             "--state-dir",
             root.path().join("daemon").to_str().unwrap(),
@@ -413,7 +427,7 @@ async fn reconnect_restores_forwarded_session_execution_and_cancellation_stops_t
         .port();
     let log = root.path().join("ssh-starts.jsonl");
     let bin = ssh_fixture(root.path());
-    let mut supervisor = Command::new(env!("CARGO_BIN_EXE_mpai"))
+    let mut supervisor = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .args([
             "--state-dir",
             state.to_str().unwrap(),
@@ -433,7 +447,7 @@ async fn reconnect_restores_forwarded_session_execution_and_cancellation_stops_t
             "PATH",
             format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
         )
-        .env("MPAI_SSH_FIXTURE_LOG", &log)
+        .env("SWARMIE_SSH_FIXTURE_LOG", &log)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
@@ -572,7 +586,7 @@ async fn ssh_handshake_is_promptly_cancellable_before_any_daemon_is_available() 
         .local_addr()
         .unwrap()
         .port();
-    let mut supervisor = Command::new(env!("CARGO_BIN_EXE_mpai"))
+    let mut supervisor = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .args([
             "--state-dir",
             root.path().join("sessions").to_str().unwrap(),
@@ -590,7 +604,7 @@ async fn ssh_handshake_is_promptly_cancellable_before_any_daemon_is_available() 
             "PATH",
             format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
         )
-        .env("MPAI_SSH_FIXTURE_LOG", &log)
+        .env("SWARMIE_SSH_FIXTURE_LOG", &log)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .kill_on_drop(true)
@@ -631,7 +645,7 @@ async fn default_ssh_forward_exits_after_its_owned_child_drops_without_a_retry()
     let root = tempfile::tempdir().unwrap();
     let bin = ssh_fixture(root.path());
     let log = root.path().join("starts.jsonl");
-    let mut daemon = Command::new(env!("CARGO_BIN_EXE_mpai"))
+    let mut daemon = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .args([
             "--state-dir",
             root.path().join("daemon").to_str().unwrap(),
@@ -652,7 +666,7 @@ async fn default_ssh_forward_exits_after_its_owned_child_drops_without_a_retry()
         .local_addr()
         .unwrap()
         .port();
-    let mut supervisor = Command::new(env!("CARGO_BIN_EXE_mpai"))
+    let mut supervisor = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .args([
             "--state-dir",
             root.path().join("sessions").to_str().unwrap(),
@@ -665,12 +679,12 @@ async fn default_ssh_forward_exits_after_its_owned_child_drops_without_a_retry()
             "--remote-port",
             &remote.to_string(),
         ])
-        .env_remove("MPAI_TOKEN")
+        .env_remove("SWARMIE_TOKEN")
         .env(
             "PATH",
             format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
         )
-        .env("MPAI_SSH_FIXTURE_LOG", &log)
+        .env("SWARMIE_SSH_FIXTURE_LOG", &log)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .kill_on_drop(true)
@@ -696,7 +710,7 @@ async fn default_ssh_forward_exits_after_its_owned_child_drops_without_a_retry()
 }
 
 async fn identity_daemon(root: &Path, address: &str) -> (Child, String) {
-    let mut daemon = Command::new(env!("CARGO_BIN_EXE_mpai"))
+    let mut daemon = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .args([
             "--state-dir",
             root.to_str().unwrap(),
@@ -873,7 +887,7 @@ async fn ssh_reconnect_rejects_a_different_environment_and_reaps_its_forward() {
         .port();
     let bin = ssh_fixture(root.path());
     let log = root.path().join("ssh-starts.jsonl");
-    let mut supervisor = Command::new(env!("CARGO_BIN_EXE_mpai"))
+    let mut supervisor = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .args([
             "--state-dir",
             state.to_str().unwrap(),
@@ -893,7 +907,7 @@ async fn ssh_reconnect_rejects_a_different_environment_and_reaps_its_forward() {
             "PATH",
             format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
         )
-        .env("MPAI_SSH_FIXTURE_LOG", &log)
+        .env("SWARMIE_SSH_FIXTURE_LOG", &log)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
@@ -962,7 +976,7 @@ async fn desktop_exit_preserves_running_work_for_another_client_and_rejects_fore
         {"expectedText":"first client","steps":[{"type":"sleep","milliseconds":800},{"type":"text","text":"work survived"},{"type":"end","outcome":"completed"}]},
         {"expectedText":"second client","steps":[{"type":"text","text":"continued"},{"type":"end","outcome":"completed"}]}
     ]}).to_string()).unwrap();
-    let mut daemon = Command::new(env!("CARGO_BIN_EXE_mpai"))
+    let mut daemon = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .args([
             "--state-dir",
             state.to_str().unwrap(),
@@ -1129,7 +1143,7 @@ async fn simultaneous_pairing_groups_one_node_and_preserves_legacy_files_and_rem
         "existing development metadata must remain untouched",
     )
     .unwrap();
-    let mut daemon = Command::new(env!("CARGO_BIN_EXE_mpai"))
+    let mut daemon = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .args([
             "--state-dir",
             root.path().join("owner").to_str().unwrap(),

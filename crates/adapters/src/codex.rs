@@ -137,7 +137,7 @@ fn configure_mcp(
                 override_value("url", serde_json::to_string(url)?);
                 let mut variables = vec![];
                 for (index, (header, value)) in headers.iter().enumerate() {
-                    let variable = format!("MPAI_MCP_{namespace}_HEADER_{index}");
+                    let variable = format!("SWARMIE_MCP_{namespace}_HEADER_{index}");
                     if env.get(&variable).is_some_and(|held| held != value) {
                         return Err(Error::Invalid("MCP header environment collision".into()));
                     }
@@ -343,7 +343,7 @@ impl Harness for CodexHarness {
         let (wire, mut frames) = spawn_json(&options, &exe, &args, WireStyle::JsonRpc, env).await?;
         let drain = tokio::spawn(async move { while frames.recv().await.is_some() {} });
         let result = async {
-            wire.request("initialize", json!({"clientInfo":{"name":"mpai","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true}})).await?;
+            wire.request("initialize", json!({"clientInfo":{"name":"swarmie","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true}})).await?;
             wire.notify("initialized", json!({})).await?;
             let native = wire.request("account/rateLimits/read", json!({})).await?;
             let quotas = normalize_quotas(&native);
@@ -408,7 +408,7 @@ impl Harness for CodexHarness {
         let mut env = execution_env(options, Some("CODEX_HOME"))?;
         configure_mcp(&options.execution.mcp_servers, &mut args, &mut env)?;
         let (wire, mut frames) = spawn_json(options, &exe, &args, WireStyle::JsonRpc, env).await?;
-        let initialized = wire.request("initialize",json!({"clientInfo":{"name":"mpai","version":"0.1.0"},"capabilities":{"experimentalApi":true}})).await?;
+        let initialized = wire.request("initialize",json!({"clientInfo":{"name":"swarmie","version":"0.1.0"},"capabilities":{"experimentalApi":true}})).await?;
         wire.notify("initialized", json!({})).await?;
         let mut params = json!({"cwd":options.cwd,"model":options.model});
         if options.execution.ephemeral {

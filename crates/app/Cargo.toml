@@ -4,10 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 [[bin]]
-name = "mpai"
+name = "swarmie"
 path = "src/main.rs"
 [dependencies]
-mpai.workspace = true
+swarmie.workspace = true
 adapters.workspace = true
 tokio.workspace = true
 serde.workspace = true
@@ -21,10 +21,10 @@ tracing-subscriber.workspace = true
 uuid.workspace = true
 protocol.workspace = true
 storage.workspace = true
-mpai-git.workspace = true
-mpai-workspace.workspace = true
-mpai-permissions.workspace = true
-mpai-resources.workspace = true
+swarmie-git.workspace = true
+swarmie-workspace.workspace = true
+swarmie-permissions.workspace = true
+swarmie-resources.workspace = true
 axum = { version = "0.8", features = ["ws"] }
 tower-http = { version = "0.6", features = ["fs"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

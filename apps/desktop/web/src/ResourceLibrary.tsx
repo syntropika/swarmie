@@ -160,7 +160,7 @@ export function ResourceLibrary({
     });
     setPendingTemplate(undefined);
     window.dispatchEvent(
-      new CustomEvent("mpai:composer-text", {
+      new CustomEvent("swarmie:composer-text", {
         detail: { threadId: thread.id },
       }),
     );
@@ -352,7 +352,7 @@ export function ResourceLibrary({
                 setName("");
                 setText("");
                 setAliases("");
-                window.dispatchEvent(new CustomEvent("mpai:templates"));
+                window.dispatchEvent(new CustomEvent("swarmie:templates"));
                 await reload();
               })
             }
@@ -387,7 +387,7 @@ export function ResourceLibrary({
                   setText("");
                   setAliases("");
                   setPendingTemplate(undefined);
-                  window.dispatchEvent(new CustomEvent("mpai:templates"));
+                  window.dispatchEvent(new CustomEvent("swarmie:templates"));
                   await reload();
                 })
               }
@@ -423,7 +423,7 @@ export function ResourceLibrary({
             onClick={() => {
               store.updateThread(thread.id, { draft: item.text });
               window.dispatchEvent(
-                new CustomEvent("mpai:composer-text", {
+                new CustomEvent("swarmie:composer-text", {
                   detail: { threadId: thread.id },
                 }),
               );
@@ -490,10 +490,10 @@ export function SlashCommands({
         if (!cancelled) store.setError(e);
       });
     refresh();
-    window.addEventListener("mpai:templates", refresh);
+    window.addEventListener("swarmie:templates", refresh);
     return () => {
       cancelled = true;
-      window.removeEventListener("mpai:templates", refresh);
+      window.removeEventListener("swarmie:templates", refresh);
     };
   }, [
     query !== undefined,

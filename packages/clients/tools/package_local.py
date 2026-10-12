@@ -4,7 +4,7 @@ import argparse, hashlib, json, os, pathlib, platform, shutil, subprocess, sys, 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PROJECT = ROOT.parents[1]
-DEFAULT_OUTPUT = pathlib.Path(tempfile.gettempdir()) / 'mpai-packages'
+DEFAULT_OUTPUT = pathlib.Path(tempfile.gettempdir()) / 'swarmie-packages'
 
 def run(command, cwd=None):
     subprocess.run(command, cwd=cwd, check=True)
@@ -17,7 +17,7 @@ def archive(source, output, prefix):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--binary',type=pathlib.Path,default=PROJECT/'target/release/mpai')
+    parser.add_argument('--binary',type=pathlib.Path,default=PROJECT/'target/release/swarmie')
     parser.add_argument('--output',type=pathlib.Path,default=DEFAULT_OUTPUT)
     args=parser.parse_args();binary=args.binary.resolve();output=args.output.resolve()
     if not binary.is_file(): raise SystemExit('Runtime executable is missing. Build with cargo build -p app --release, or supply --binary.')
@@ -37,17 +37,17 @@ def main():
         run([sys.executable,'-m','pip','wheel','--no-deps','--no-build-isolation','--wheel-dir',str(output),str(stage/'python')])
         for language in ['go','swift']:
             copy_source(ROOT/language,stage/language)
-            archive(stage/language,output/f'mpai-{language}-client-{package_version}.tar.gz',f'mpai-{language}-client')
+            archive(stage/language,output/f'swarmie-{language}-client-{package_version}.tar.gz',f'swarmie-{language}-client')
         copy_source(ROOT/'runtime',stage/'runtime')
         native=stage/'runtime/native';native.mkdir()
-        shutil.copy2(binary,native/'mpai');(native/'mpai').chmod(0o755)
+        shutil.copy2(binary,native/'swarmie');(native/'swarmie').chmod(0o755)
         metadata={'platform':host_platform,'arch':host_arch,'version':version,'build':'debug' if 'debug' in binary.parts else 'release' if 'release' in binary.parts else 'local'}
         (native/'target.json').write_text(json.dumps(metadata,indent=2)+'\n')
         manifest=stage/'runtime/package.json';package=json.loads(manifest.read_text());package.update(os=[host_platform],cpu=[host_arch]);manifest.write_text(json.dumps(package,indent=2)+'\n')
         run(['npm','pack','--pack-destination',str(output)],cwd=stage/'runtime')
-        bundle=stage/'native';bundle.mkdir();shutil.copy2(native/'mpai',bundle/'mpai');shutil.copy2(ROOT/'runtime/LICENSE',bundle/'LICENSE');shutil.copy2(native/'target.json',bundle/'target.json')
-        archive(bundle,output/f'mpai-{package_version}-{host_platform}-{host_arch}-{metadata["build"]}.tar.gz','mpai')
-    shutil.copy2(ROOT/'schema/protocol.json',output/'mpai-protocol-schema.json')
+        bundle=stage/'native';bundle.mkdir();shutil.copy2(native/'swarmie',bundle/'swarmie');shutil.copy2(ROOT/'runtime/LICENSE',bundle/'LICENSE');shutil.copy2(ROOT/'runtime/NOTICE',bundle/'NOTICE');shutil.copy2(native/'target.json',bundle/'target.json')
+        archive(bundle,output/f'swarmie-{package_version}-{host_platform}-{host_arch}-{metadata["build"]}.tar.gz','swarmie')
+    shutil.copy2(ROOT/'schema/protocol.json',output/'swarmie-protocol-schema.json')
     for artifact in output.iterdir():
         if artifact.suffix in ['.gz','.tgz','.whl']:
             with artifact.open('rb') as stream: digest=hashlib.file_digest(stream,'sha256').hexdigest()

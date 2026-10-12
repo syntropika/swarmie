@@ -35,7 +35,7 @@ async fn stdio_streams_notifications_and_retains_native_resume_across_restart() 
     let dir = tempfile::tempdir().unwrap();
     let mut saved_id = String::new();
     for resume in [false, true] {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_mpai"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_swarmie"))
             .args(["--state-dir", dir.path().to_str().unwrap(), "serve"])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -123,7 +123,7 @@ async fn websocket_authentication_and_sessions_survive_client_disconnect() {
         .unwrap()
         .port();
     let url = format!("ws://127.0.0.1:{port}");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mpai"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .args([
             "--state-dir",
             dir.path().to_str().unwrap(),
@@ -258,7 +258,7 @@ async fn http_uses_the_shared_dispatcher_authentication_and_paged_session_replay
         .unwrap()
         .port();
     let url = format!("http://127.0.0.1:{port}/rpc");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mpai"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .args([
             "--state-dir",
             dir.path().to_str().unwrap(),
@@ -381,7 +381,7 @@ async fn desktop_assets_allow_only_their_explicit_origin_and_host() {
     let addr = format!("127.0.0.1:{port}");
     let origin = format!("http://{addr}");
     let rpc = format!("{origin}/rpc");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mpai"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .args([
             "--state-dir",
             dir.path().join("state").to_str().unwrap(),
@@ -441,7 +441,7 @@ async fn desktop_assets_allow_only_their_explicit_origin_and_host() {
         .json()
         .await
         .unwrap();
-    assert_eq!(allowed["result"]["name"], "mpai");
+    assert_eq!(allowed["result"]["name"], "swarmie");
     for bad_origin in ["null", "https://example.test", "http://127.0.0.1:1"] {
         assert_eq!(
             client
@@ -483,7 +483,7 @@ async fn desktop_assets_allow_only_their_explicit_origin_and_host() {
 #[tokio::test]
 async fn state_directory_has_one_native_writer_and_process_exit_releases_ownership() {
     let directory = tempfile::tempdir().unwrap();
-    let mut owner = Command::new(env!("CARGO_BIN_EXE_mpai"))
+    let mut owner = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .args(["--state-dir", directory.path().to_str().unwrap(), "serve"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -507,7 +507,7 @@ async fn state_directory_has_one_native_writer_and_process_exit_releases_ownersh
         .unwrap()
         .unwrap();
     assert_eq!(serde_json::from_str::<Value>(&response).unwrap()["id"], 1);
-    let denied = Command::new(env!("CARGO_BIN_EXE_mpai"))
+    let denied = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .args(["--state-dir", directory.path().to_str().unwrap(), "serve"])
         .stdin(std::process::Stdio::null())
         .output()
@@ -520,7 +520,7 @@ async fn state_directory_has_one_native_writer_and_process_exit_releases_ownersh
     );
     owner.kill().await.unwrap();
     owner.wait().await.unwrap();
-    let reopened = Command::new(env!("CARGO_BIN_EXE_mpai"))
+    let reopened = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .args(["--state-dir", directory.path().to_str().unwrap(), "serve"])
         .stdin(std::process::Stdio::null())
         .output()
@@ -584,7 +584,7 @@ for line in sys.stdin:
             .await
             .unwrap()
         }
-        let mut daemon = Command::new(env!("CARGO_BIN_EXE_mpai"))
+        let mut daemon = Command::new(env!("CARGO_BIN_EXE_swarmie"))
             .args(["--state-dir", state.to_str().unwrap(), "serve"])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -630,7 +630,7 @@ for line in sys.stdin:
         daemon.kill().await.unwrap();
         daemon.wait().await.unwrap();
         drop(input);
-        let mut restarted = Command::new(env!("CARGO_BIN_EXE_mpai"))
+        let mut restarted = Command::new(env!("CARGO_BIN_EXE_swarmie"))
             .args(["--state-dir", state.to_str().unwrap(), "serve"])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -707,7 +707,7 @@ async fn default_data_root_is_separate_from_execution_and_missing_store_is_an_er
     let home = tempfile::tempdir().unwrap();
     let working = tempfile::tempdir().unwrap();
     std::fs::write(working.path().join("owned.txt"), "user content").unwrap();
-    let first = Command::new(env!("CARGO_BIN_EXE_mpai"))
+    let first = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .arg("sessions")
         .env("HOME", home.path())
         .env("USERPROFILE", home.path())
@@ -729,9 +729,9 @@ async fn default_data_root_is_separate_from_execution_and_missing_store_is_an_er
     assert!(root.join("settings.json").is_file());
     assert!(root.join("state/host.sqlite").is_file());
     assert!(!working.path().join(".swarmie").exists());
-    assert!(!home.path().join("old-state/mpai").exists());
+    assert!(!home.path().join("old-state/swarmie").exists());
     std::fs::rename(root.join("state/host.sqlite"), root.join("retained.sqlite")).unwrap();
-    let second = Command::new(env!("CARGO_BIN_EXE_mpai"))
+    let second = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .arg("sessions")
         .env("HOME", home.path())
         .env("USERPROFILE", home.path())
@@ -753,7 +753,7 @@ async fn default_data_root_is_separate_from_execution_and_missing_store_is_an_er
 #[tokio::test]
 async fn stdio_explicit_shutdown_acknowledges_without_waiting_for_client_eof() {
     let root = tempfile::tempdir().unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mpai"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .args(["--state-dir", root.path().to_str().unwrap(), "serve"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())

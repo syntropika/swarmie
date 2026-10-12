@@ -167,7 +167,7 @@ mod tests {
     use super::*;
     #[tokio::test]
     async fn prepared_files_are_bounded_and_image_fallback_is_explicit() {
-        let root = std::env::temp_dir().join(format!("mpai-attachments-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("swarmie-attachments-{}", uuid::Uuid::new_v4()));
         tokio::fs::create_dir_all(&root).await.unwrap();
         let text_path = root.join("notes.txt");
         let image_path = root.join("wrong-extension.txt");

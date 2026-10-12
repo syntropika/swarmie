@@ -42,17 +42,17 @@ def main():
         desktop.env['DBUS_SESSION_BUS_ADDRESS'] = 'unix:' + desktop.ready(bus, 'unix:')
         package = out / 'package/bin'
         package.mkdir(parents=True)
-        packaged_cli = package / 'mpai-desktop_services'
-        os.link(root / 'target/debug/mpai', packaged_cli)
-        (package / 'mpai-desktop').symlink_to(root / 'apps/desktop/zig-out/bin/mpai-desktop')
+        packaged_cli = package / 'swarmie-desktop_services'
+        os.link(root / 'target/debug/swarmie', packaged_cli)
+        (package / 'swarmie-desktop').symlink_to(root / 'apps/desktop/zig-out/bin/swarmie-desktop')
         for mode, executable, extra in [
-            ('explicit-host', root / 'target/debug/mpai', ['--host', str(root / 'apps/desktop/zig-out/bin/mpai-desktop')]),
+            ('explicit-host', root / 'target/debug/swarmie', ['--host', str(root / 'apps/desktop/zig-out/bin/swarmie-desktop')]),
             ('packaged-sibling', packaged_cli, []),
         ]:
             env = dict(desktop.env)
             # The production CLI must supply both host variables itself.
-            env.pop('MPAI_DESKTOP_URL', None)
-            env.pop('MPAI_DESKTOP_MANAGED', None)
+            env.pop('SWARMIE_DESKTOP_URL', None)
+            env.pop('SWARMIE_DESKTOP_MANAGED', None)
             command = [str(executable), 'open', '--url', desktop.url + '/?project=old&session=' + wrong['id'], '--project', str(project), '--session', desktop.session, *extra]
             process = subprocess.Popen(command, env=env, cwd=root / 'apps/desktop', stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
             opened_groups.append(process.pid)
@@ -63,7 +63,7 @@ def main():
             assert query['session'] == [desktop.session]
             deadline = time.monotonic() + 20
             while time.monotonic() < deadline:
-                windows = subprocess.run(['xdotool', 'search', '--onlyvisible', '--name', '^mpai$'], env=env, capture_output=True, text=True)
+                windows = subprocess.run(['xdotool', 'search', '--onlyvisible', '--name', '^swarmie$'], env=env, capture_output=True, text=True)
                 if windows.returncode == 0:
                     for window in windows.stdout.splitlines():
                         found = subprocess.run(['xdotool', 'getwindowpid', window], env=env, capture_output=True, text=True)
@@ -97,7 +97,7 @@ def main():
             opened_groups.remove(process.pid)
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
-                visible = subprocess.run(['xdotool', 'search', '--onlyvisible', '--name', '^mpai$'], env=env, capture_output=True)
+                visible = subprocess.run(['xdotool', 'search', '--onlyvisible', '--name', '^swarmie$'], env=env, capture_output=True)
                 if visible.returncode != 0:
                     break
                 time.sleep(0.1)

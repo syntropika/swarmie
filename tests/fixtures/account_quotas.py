@@ -4,8 +4,8 @@ import json
 import os
 import sys
 
-provider = os.environ["MPAI_QUOTA_PROVIDER"]
-ledger = os.environ["MPAI_QUOTA_LEDGER"]
+provider = os.environ["SWARMIE_QUOTA_PROVIDER"]
+ledger = os.environ["SWARMIE_QUOTA_LEDGER"]
 with open(ledger, "a") as output:
     output.write(json.dumps({"argv": sys.argv[1:], "home": os.environ.get("CODEX_HOME") or os.environ.get("CLAUDE_CONFIG_DIR")}) + "\n")
 for line in sys.stdin:
@@ -23,9 +23,9 @@ for line in sys.stdin:
         value = {"rate_limits": {"five_hour": {"utilization": 40, "resets_at": "2033-05-18T03:33:20Z"}}}
     else:
         raise AssertionError("A quota query attempted a non-account operation: " + str(method))
-    if os.environ.get("MPAI_QUOTA_EMPTY") and method != "initialize":
+    if os.environ.get("SWARMIE_QUOTA_EMPTY") and method != "initialize":
         value = {}
-    if os.environ.get("MPAI_QUOTA_FAIL") and method != "initialize":
+    if os.environ.get("SWARMIE_QUOTA_FAIL") and method != "initialize":
         if provider == "codex":
             response = {"jsonrpc": "2.0", "id": request["id"], "error": {"code": -32000, "message": "account unavailable"}}
         else:

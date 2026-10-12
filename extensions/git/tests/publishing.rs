@@ -1,5 +1,5 @@
-use mpai::RuntimeExtension;
-use mpai_git::GitExtension;
+use swarmie::RuntimeExtension;
+use swarmie_git::GitExtension;
 use serde_json::{Value, json};
 use std::path::Path;
 fn git(cwd: &Path, args: &[&str]) -> String {

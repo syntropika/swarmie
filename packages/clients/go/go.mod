@@ -1,3 +1,3 @@
-module mpai.local/client
+module swarmie.local/client
 
 go 1.22

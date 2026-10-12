@@ -1,7 +1,7 @@
 //! Native simulator/emulator control and loopback screenshot streams.
 use crate::{WorkspaceExtension, assets, command, required};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, path::Path, time::Duration};
 use tokio::{

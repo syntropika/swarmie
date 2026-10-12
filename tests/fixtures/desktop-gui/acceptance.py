@@ -19,7 +19,7 @@ class Desktop:
     def __init__(self, root, artifacts, output_fixtures=None):
         self.root, self.artifacts = root, artifacts
         self.children, self.logs, self.receipts = [], [], []
-        self.env = {key: value for key, value in os.environ.items() if key != "MPAI_TOKEN"}
+        self.env = {key: value for key, value in os.environ.items() if key != "SWARMIE_TOKEN"}
         artifacts.mkdir(parents=True, exist_ok=True)
         home = artifacts / "home"
         home.mkdir(exist_ok=True)
@@ -51,7 +51,7 @@ class Desktop:
             executable = peers / name
             executable.write_text("#!/bin/sh\nexec python3 " + str(Path(__file__).with_name(script)) + ' "$@"\n', encoding="utf-8")
             executable.chmod(0o755)
-        self.env.update(PATH=str(peers) + os.pathsep + self.env["PATH"], MPAI_GUI_PEER_LEDGER=str(artifacts / "peer.jsonl"))
+        self.env.update(PATH=str(peers) + os.pathsep + self.env["PATH"], SWARMIE_GUI_PEER_LEDGER=str(artifacts / "peer.jsonl"))
 
     def child(self, command, log=None, env=None, cwd=None, pipe=False):
         target = subprocess.PIPE if pipe else (self.artifacts / (log or "child.log")).open("a", encoding="utf-8")
@@ -91,14 +91,14 @@ class Desktop:
     def start(self):
         assets = self.artifacts / "desktop-assets"
         shutil.copytree(self.root / "apps/desktop/dist", assets, dirs_exist_ok=True)
-        fingerprints = {str(path.relative_to(self.root)): hashlib.sha256(path.read_bytes()).hexdigest() for path in [self.root / "target/debug/mpai", self.root / "apps/desktop/zig-out/bin/mpai-desktop", *sorted((self.root / "apps/desktop/dist").rglob("*.js"))]}
+        fingerprints = {str(path.relative_to(self.root)): hashlib.sha256(path.read_bytes()).hexdigest() for path in [self.root / "target/debug/swarmie", self.root / "apps/desktop/zig-out/bin/swarmie-desktop", *sorted((self.root / "apps/desktop/dist").rglob("*.js"))]}
         (self.artifacts / "build.json").write_text(json.dumps(fingerprints, indent=2) + "\n", encoding="utf-8")
         script = self.artifacts / "mock.json"
         steps = [{"type": "text", "itemId": "fixture-message", "text": "Native desktop acceptance fixture.\n\nOpen [hello.txt lines 2–3](hello.txt:2-3) or [second.txt](second.txt:1).\n\n```sh\nprintf 'terminal context fixture'\n```"}]
         steps += [{"type": "emit", "kind": {"type": "file.changed", "data": {"path": str(path)}}} for path in self.outputs]
         steps.append({"type": "end", "outcome": "completed"})
         script.write_text(json.dumps({"turns": [{"steps": steps}, {"steps": [{"type": "text", "itemId": "fixture-context-ack", "text": "Fixture context received."}, {"type": "end", "outcome": "completed"}]}]}), encoding="utf-8")
-        daemon = self.child([str(self.root / "target/debug/mpai"), "--state-dir", str(self.artifacts / "sessions"), "serve", "--http", "127.0.0.1:0", "--desktop-assets", str(assets), "--workbench", "--git-worktrees", str(self.artifacts / "worktrees"), "--resources-root", str(self.artifacts / "resources"), "--mock-script", str(script)], pipe=True)
+        daemon = self.child([str(self.root / "target/debug/swarmie"), "--state-dir", str(self.artifacts / "sessions"), "serve", "--http", "127.0.0.1:0", "--desktop-assets", str(assets), "--workbench", "--git-worktrees", str(self.artifacts / "worktrees"), "--resources-root", str(self.artifacts / "resources"), "--mock-script", str(script)], pipe=True)
         self.url = self.ready(daemon, "HTTP listening on ").removesuffix("/rpc")
         created = self.rpc("session/create", {"harness": "mock", "cwd": str(self.project), "config": {}})
         self.session = created["id"]
@@ -112,18 +112,18 @@ class Desktop:
             time.sleep(0.05)
         xvfb = self.child(["Xvfb", "-displayfd", "1", "-screen", "0", "1600x1000x24", "-nolisten", "tcp"], pipe=True)
         self.display = ":" + self.ready(xvfb, "")
-        self.env.update(DISPLAY=self.display, MPAI_DESKTOP_URL=self.url + "/?session=" + self.session,
-                        MPAI_DESKTOP_MANAGED="1", XDG_DATA_HOME=str(self.artifacts / "xdg-data"),
+        self.env.update(DISPLAY=self.display, SWARMIE_DESKTOP_URL=self.url + "/?session=" + self.session,
+                        SWARMIE_DESKTOP_MANAGED="1", XDG_DATA_HOME=str(self.artifacts / "xdg-data"),
                         XDG_CACHE_HOME=str(self.artifacts / "xdg-cache"))
         (self.artifacts / "dbus.conf").write_text('<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd"><busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><policy context="default"><allow send_destination="*"/><allow receive_sender="*"/><allow own="*"/></policy></busconfig>', encoding="utf-8")
         self.launch_host()
         return {"url": self.url, "sessionId": self.session, "display": self.display, "window": self.window, "artifacts": str(self.artifacts)}
 
     def launch_host(self):
-        self.host = self.child(["dbus-run-session", "--config-file=" + str(self.artifacts / "dbus.conf"), "--", str(self.root / "apps/desktop/zig-out/bin/mpai-desktop")], log="host.log", cwd=self.root / "apps/desktop")
+        self.host = self.child(["dbus-run-session", "--config-file=" + str(self.artifacts / "dbus.conf"), "--", str(self.root / "apps/desktop/zig-out/bin/swarmie-desktop")], log="host.log", cwd=self.root / "apps/desktop")
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
-            result = subprocess.run(["xdotool", "search", "--onlyvisible", "--name", "^mpai$"], env=self.env, capture_output=True, text=True)
+            result = subprocess.run(["xdotool", "search", "--onlyvisible", "--name", "^swarmie$"], env=self.env, capture_output=True, text=True)
             if result.returncode == 0:
                 self.window = result.stdout.splitlines()[-1]
                 self.x("windowsize", self.window, "1280", "900")
@@ -182,7 +182,7 @@ class Desktop:
         elif operation == "rpc":
             return self.rpc(request["method"], request.get("params"))
         elif operation in ("clipboard-seed", "clipboard-read"):
-            clipboard_env = {**self.env, "MPAI_GUI_PRIVATE_DISPLAY": self.display, "GTK_A11Y": "none"}
+            clipboard_env = {**self.env, "SWARMIE_GUI_PRIVATE_DISPLAY": self.display, "GTK_A11Y": "none"}
             command = ["/usr/bin/python3", str(Path(__file__).with_name("clipboard.py"))]
             if operation == "clipboard-seed":
                 owner = self.child(command + ["seed", request["text"]], env=clipboard_env, pipe=True)

@@ -9,7 +9,7 @@ export function readShortcuts(): Shortcuts {
   try {
     return {
       ...defaultShortcuts,
-      ...JSON.parse(localStorage.getItem("mpai.shortcuts") ?? "{}"),
+      ...JSON.parse(localStorage.getItem("swarmie.shortcuts") ?? "{}"),
     };
   } catch {
     return { ...defaultShortcuts };

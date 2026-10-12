@@ -8,7 +8,7 @@ if (target.platform !== process.platform || target.arch !== process.arch) {
   console.error(`This runtime bundle targets ${target.platform}/${target.arch}; the current host is ${process.platform}/${process.arch}.`);
   process.exit(1);
 }
-const child = spawn(join(__dirname, "../native/mpai"), process.argv.slice(2), { stdio: "inherit" });
+const child = spawn(join(__dirname, "../native/swarmie"), process.argv.slice(2), { stdio: "inherit" });
 const interrupt = () => child.kill("SIGINT");
 const terminate = () => child.kill("SIGTERM");
 process.on("SIGINT", interrupt); process.on("SIGTERM", terminate);

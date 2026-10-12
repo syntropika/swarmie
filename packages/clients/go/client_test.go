@@ -1,4 +1,4 @@
-package mpai
+package swarmie
 
 import (
 	"context"
@@ -56,12 +56,12 @@ func TestPollingDeadline(t *testing.T) {
 	}
 }
 func TestLiveHTTPConformance(t *testing.T) {
-	endpoint := os.Getenv("MPAI_TEST_URL")
+	endpoint := os.Getenv("SWARMIE_TEST_URL")
 	if endpoint == "" {
 		t.Skip("live daemon URL required")
 	}
 	ctx := context.Background()
-	client, err := New(endpoint, Options{Token: os.Getenv("MPAI_TEST_TOKEN")})
+	client, err := New(endpoint, Options{Token: os.Getenv("SWARMIE_TEST_TOKEN")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestLiveHTTPConformance(t *testing.T) {
 	if !errors.As(err, &rpcError) || rpcError.Code != -32601 {
 		t.Fatalf("expected structured error, got %v", err)
 	}
-	cwd := os.Getenv("MPAI_TEST_CWD")
+	cwd := os.Getenv("SWARMIE_TEST_CWD")
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}

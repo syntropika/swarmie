@@ -49,7 +49,7 @@ async fn registered_static_relay_runs_without_bearer_and_isolates_the_runtime_ap
         .unwrap()
         .port();
     let origin = format!("http://127.0.0.1:{port}");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mpai"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .args([
             "--state-dir",
             state.path().to_str().unwrap(),

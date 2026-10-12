@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise installed Codex skill-path loading through mpai and a local Responses peer."""
+"""Exercise installed Codex skill-path loading through swarmie and a local Responses peer."""
 import argparse
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -15,7 +15,7 @@ import time
 import uuid
 
 sys.dont_write_bytecode = True
-MARKERS = {'first': 'MPAI_EXACT_SKILL_FIRST_20261003', 'second': 'MPAI_EXACT_SKILL_SECOND_20261003'}
+MARKERS = {'first': 'SWARMIE_EXACT_SKILL_FIRST_20261003', 'second': 'SWARMIE_EXACT_SKILL_SECOND_20261003'}
 
 
 def text_values(value):
@@ -52,7 +52,7 @@ class Responses(BaseHTTPRequestHandler):
         self.server.receipts.append(receipt)
         (self.server.artifacts / 'model-requests.json').write_text(json.dumps(self.server.receipts, indent=2) + '\n', encoding='utf-8')
         selected = [name for name, present in loaded.items() if present]
-        text = MARKERS[selected[0]] if len(selected) == 1 else 'MPAI_SKILL_SELECTION_FAILED'
+        text = MARKERS[selected[0]] if len(selected) == 1 else 'SWARMIE_SKILL_SELECTION_FAILED'
         response_id, message_id = 'resp_' + uuid.uuid4().hex, 'msg_' + uuid.uuid4().hex
         part = {'type': 'output_text', 'text': text, 'annotations': []}
         message = {'id': message_id, 'type': 'message', 'role': 'assistant', 'status': 'completed', 'content': [part]}
@@ -87,7 +87,7 @@ def main():
         parser.error('Artifacts must be outside the repository')
     out.mkdir(parents=True, exist_ok=False)
     codex = args.codex.resolve(strict=True)
-    binary = root / 'target/debug/mpai'
+    binary = root / 'target/debug/swarmie'
     env = {key: os.environ[key] for key in ['PATH', 'USER', 'LOGNAME', 'LANG'] if key in os.environ}
     home = out / 'home'
     config = home / '.codex'
@@ -140,7 +140,7 @@ def main():
             results.append({'selectedName': 'same-name', 'selectedPath': str(path), 'nativeSkillsListed': same_name, 'runtimeSessionId': session['id'], 'nativeSessionId': session['native']['id'], 'modelRequests': len(requests), 'modelSawSelectedInstructionsOnly': True, 'reply': text, 'turnOutcome': terminal['data']['outcome']})
             (out / 'results.json').write_text(json.dumps(results, indent=2) + '\n', encoding='utf-8')
             client.call('session/close', {'sessionId': session['id']})
-        summary = {'installedNativeVersion': version, 'nativeCodexSha256': hashlib.sha256(codex.read_bytes()).hexdigest(), 'mpaiSha256': hashlib.sha256(binary.read_bytes()).hexdigest(), 'freshConfigHome': str(config), 'userCredentialsUsed': False, 'authorizationHeadersPresent': False, 'exactPathCasesPassed': len(results), 'sameNameDistinctPathsListed': True, 'actualResponsesRequests': len(server.receipts)}
+        summary = {'installedNativeVersion': version, 'nativeCodexSha256': hashlib.sha256(codex.read_bytes()).hexdigest(), 'swarmieSha256': hashlib.sha256(binary.read_bytes()).hexdigest(), 'freshConfigHome': str(config), 'userCredentialsUsed': False, 'authorizationHeadersPresent': False, 'exactPathCasesPassed': len(results), 'sameNameDistinctPathsListed': True, 'actualResponsesRequests': len(server.receipts)}
         (out / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n', encoding='utf-8')
         print(json.dumps(summary))
     finally:

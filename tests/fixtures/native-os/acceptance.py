@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify real X11 window listing/capture and AT-SPI selected-process context through mpai."""
+"""Verify real X11 window listing/capture and AT-SPI selected-process context through swarmie."""
 import argparse
 import base64
 import collections
@@ -65,7 +65,7 @@ def run_inside(root, out):
                GTK_A11Y='atspi', NO_AT_BRIDGE='0')
     processes, logs, receipts = [], [], []
     report = {'checks': {}, 'nativeBackend': 'x11/at-spi', 'systemPackagesInstalled': False,
-              'daemonSha256': hashlib.sha256((root / 'target/debug/mpai').read_bytes()).hexdigest()}
+              'daemonSha256': hashlib.sha256((root / 'target/debug/swarmie').read_bytes()).hexdigest()}
 
     def child(command, name, pipe=False):
         log = (out / (name + '.log')).open('a')
@@ -97,7 +97,7 @@ def run_inside(root, out):
     try:
         xvfb = child(['/usr/bin/Xvfb', '-displayfd', '1', '-screen', '0', '1280x900x24', '-nolisten', 'tcp'], 'xvfb', True)
         display = ':' + ready(xvfb, '', out)
-        env.update(DISPLAY=display, MPAI_OS_PRIVATE_DISPLAY=display)
+        env.update(DISPLAY=display, SWARMIE_OS_PRIVATE_DISPLAY=display)
         report['display'] = display
         report['privateDbus'] = os.environ['DBUS_SESSION_BUS_ADDRESS']
         child([str(vendor / 'bin/openbox'), '--config-file', str(vendor / 'etc/xdg/openbox/rc.xml')], 'openbox')
@@ -108,7 +108,7 @@ def run_inside(root, out):
         report['accessibilityBus'] = address.strip()
         decoy = child(['/usr/bin/python3', str(fixture / 'window.py'), 'decoy'], 'decoy')
         selected = child(['/usr/bin/python3', str(fixture / 'window.py'), 'selected'], 'selected')
-        daemon = child([str(root / 'target/debug/mpai'), '--state-dir', str(out / 'sessions'), 'serve',
+        daemon = child([str(root / 'target/debug/swarmie'), '--state-dir', str(out / 'sessions'), 'serve',
                         '--http', '127.0.0.1:0', '--token', 'controlled-os-fixture', '--workbench'], 'daemon', True)
         url = ready(daemon, 'HTTP listening on ', out)
         rpc('runtime/initialize')
@@ -116,7 +116,7 @@ def run_inside(root, out):
         integrations = {item['id']: item['available'] for item in capabilities['integrations']}
         assert all(integrations[name] for name in ['wmctrl', 'xprop', 'import', 'python3']), capabilities
         windows = wait(lambda: [window for window in invoke('windows.list')['windows']
-                               if window['title'] == 'MPAI controlled native OS fixture'], 'actual GTK window listing')
+                               if window['title'] == 'SWARMIE controlled native OS fixture'], 'actual GTK window listing')
         window = windows[0]
         assert window['pid'] == selected.pid, window
         assert window['bounds']['width'] == 640 and window['bounds']['height'] == 360, window
@@ -151,7 +151,7 @@ def run_inside(root, out):
         context = wait(accessible, 'actual native accessible controls')
         items = json.loads(context['accessibility'])
         names = {item['name'] for item in items}
-        assert {'MPAI controlled native OS fixture', 'CONTROLLED_VISIBLE_TEXT_20261003', 'Controlled action button', 'Controlled entry field'} <= names, items
+        assert {'SWARMIE controlled native OS fixture', 'CONTROLLED_VISIBLE_TEXT_20261003', 'Controlled action button', 'Controlled entry field'} <= names, items
         assert not any('DECOY' in name or 'Decoy' in name for name in names), names
         assert any(item['name'] == 'Controlled action button' and item['role'] == 'push button' for item in items)
         report['accessibility'] = context
@@ -193,7 +193,7 @@ def main():
     if out == root or root in out.parents:
         parser.error('Artifacts must be outside the repository')
     if args.inside_private_session:
-        if os.environ.get('MPAI_OS_PRIVATE_SESSION') != '1' or not os.environ.get('DBUS_SESSION_BUS_ADDRESS'):
+        if os.environ.get('SWARMIE_OS_PRIVATE_SESSION') != '1' or not os.environ.get('DBUS_SESSION_BUS_ADDRESS'):
             parser.error('Only the fixture parent may create the private graphical session')
         run_inside(root, out)
         return
@@ -204,7 +204,7 @@ def main():
     env = {key: os.environ[key] for key in ['PATH', 'USER', 'LOGNAME', 'LANG'] if key in os.environ}
     env.update(HOME=str(home), XDG_CONFIG_HOME=str(out / 'xdg-config'), XDG_DATA_HOME=str(out / 'xdg-data'),
                XDG_CACHE_HOME=str(out / 'xdg-cache'), XDG_STATE_HOME=str(out / 'xdg-state'),
-               XDG_RUNTIME_DIR=str(runtime), MPAI_OS_PRIVATE_SESSION='1')
+               XDG_RUNTIME_DIR=str(runtime), SWARMIE_OS_PRIVATE_SESSION='1')
     process = subprocess.Popen(['/usr/bin/dbus-run-session', '--', '/usr/bin/python3', str(Path(__file__).resolve()),
                                '--root', str(root), '--artifacts', str(out), '--inside-private-session'], env=env, start_new_session=True)
     try:

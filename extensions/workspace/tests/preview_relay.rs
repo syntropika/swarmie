@@ -1,6 +1,6 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
-use mpai::{Runtime, RuntimeExtension};
-use mpai_workspace::WorkspaceExtension;
+use swarmie::{Runtime, RuntimeExtension};
+use swarmie_workspace::WorkspaceExtension;
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
 

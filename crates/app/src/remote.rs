@@ -2,7 +2,7 @@ use crate::node_connection::{
     ConnectionManager, handshake, now, public_connection, rpc, validate_name,
 };
 use clap::Subcommand;
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use serde_json::{Value, json};
 use std::{path::Path, time::Duration};
 use storage::NodeTransport;
@@ -13,7 +13,7 @@ pub enum RemoteCommand {
     Pair {
         name: String,
         url: String,
-        #[arg(long, env = "MPAI_TOKEN")]
+        #[arg(long, env = "SWARMIE_TOKEN")]
         token: Option<String>,
     },
     /// Show connection metadata without credentials.
@@ -36,7 +36,7 @@ pub enum RemoteCommand {
         local_port: u16,
         #[arg(long, default_value_t = 7480)]
         remote_port: u16,
-        #[arg(long, env = "MPAI_TOKEN")]
+        #[arg(long, env = "SWARMIE_TOKEN")]
         token: Option<String>,
         /// Recreate dropped forwards with cancellable backoff, retaining the local port.
         #[arg(long)]

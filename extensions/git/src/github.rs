@@ -1,6 +1,6 @@
 //! Optional GitHub CLI operations. Pull requests are never merged by this extension.
 use crate::required;
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use serde_json::{Value, json};
 use std::{
     path::{Path, PathBuf},
@@ -72,7 +72,7 @@ async fn body_file(body: &str) -> Result<PathBuf> {
     if body.len() > 1024 * 1024 {
         return Err(Error::Invalid("body exceeds 1 MiB".into()));
     }
-    let path = std::env::temp_dir().join(format!("mpai-github-{}.txt", uuid::Uuid::new_v4()));
+    let path = std::env::temp_dir().join(format!("swarmie-github-{}.txt", uuid::Uuid::new_v4()));
     let mut options = tokio::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]

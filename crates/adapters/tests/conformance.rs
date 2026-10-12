@@ -1,6 +1,6 @@
 use adapters::*;
 use futures_util::StreamExt;
-use mpai::*;
+use swarmie::*;
 use serde_json::json;
 use std::{path::PathBuf, time::Duration};
 fn options(provider: &str) -> SpawnOptions {

@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use mpai::{Error, ExtensionCommand, ExtensionView, Result, RuntimeExtension};
+use swarmie::{Error, ExtensionCommand, ExtensionView, Result, RuntimeExtension};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 

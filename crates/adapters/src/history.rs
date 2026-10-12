@@ -1,5 +1,5 @@
 //! Provider-owned readers for native CLI session journals.
-use mpai::*;
+use swarmie::*;
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},

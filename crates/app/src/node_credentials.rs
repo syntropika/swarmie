@@ -1,5 +1,5 @@
 //! Private immutable credential files referenced by client node metadata.
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use std::{
     io::Write,
     path::{Path, PathBuf},

@@ -13,7 +13,7 @@ pub use acp::AcpHarness;
 pub use antigravity::AntigravityHarness;
 pub use claude::ClaudeHarness;
 pub use codex::CodexHarness;
-use mpai::*;
+use swarmie::*;
 pub use opencode::OpenCodeHarness;
 pub use pi::PiHarness;
 use process::{JsonProcess, WireStyle, find_executable};
@@ -156,7 +156,7 @@ fn detection(id: &str, executable: &str, capabilities: Capabilities) -> Detectio
 }
 fn configured_executable(id: &str) -> Option<PathBuf> {
     std::env::var_os(format!(
-        "MPAI_{}_EXECUTABLE",
+        "SWARMIE_{}_EXECUTABLE",
         id.to_uppercase().replace('-', "_")
     ))
     .map(PathBuf::from)

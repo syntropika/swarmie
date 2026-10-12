@@ -68,17 +68,17 @@ def main():
     assets = out / 'desktop-assets'
     shutil.copytree(root / 'apps/desktop/dist', assets)
     fingerprints = {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest() for path in
-        [root / 'target/debug/mpai', root / 'apps/desktop/zig-out/bin/mpai-desktop', *sorted((root / 'apps/desktop/dist').rglob('*.js'))]}
+        [root / 'target/debug/swarmie', root / 'apps/desktop/zig-out/bin/swarmie-desktop', *sorted((root / 'apps/desktop/dist').rglob('*.js'))]}
     (out / 'build.json').write_text(json.dumps({'files': fingerprints,
         'nativeVersion': subprocess.check_output([str(pi), '--version'], text=True, env=desktop.env).strip(),
         'configuredRatesPerMillion': models, 'upstreamBillingTested': False}, indent=2) + '\n')
     def launch_daemon():
         nonlocal daemon
-        daemon = desktop.child([str(root / 'target/debug/mpai'), '--state-dir', str(out / 'sessions'), 'serve', '--http',
+        daemon = desktop.child([str(root / 'target/debug/swarmie'), '--state-dir', str(out / 'sessions'), 'serve', '--http',
             '127.0.0.1:0', '--desktop-assets', str(assets), '--workbench', '--git-worktrees', str(out / 'worktrees'),
             '--resources-root', str(out / 'resources')], pipe=True)
         desktop.url = desktop.ready(daemon, 'HTTP listening on ').removesuffix('/rpc')
-        desktop.env['MPAI_DESKTOP_URL'] = desktop.url + '/?project=' + urllib.parse.quote(str(desktop.project))
+        desktop.env['SWARMIE_DESKTOP_URL'] = desktop.url + '/?project=' + urllib.parse.quote(str(desktop.project))
     try:
         launch_daemon()
         desktop.rpc('runtime/initialize')
@@ -91,7 +91,7 @@ def main():
                     'args': ['--mode', 'rpc', '--provider', 'fixture', '--no-builtin-tools', '--no-skills', '--no-prompt-templates']}}})
         xvfb = desktop.child(['Xvfb', '-displayfd', '1', '-screen', '0', '1600x1100x24', '-nolisten', 'tcp'], pipe=True)
         desktop.display = ':' + desktop.ready(xvfb, '')
-        desktop.env.update(DISPLAY=desktop.display, MPAI_DESKTOP_MANAGED='1', XDG_DATA_HOME=str(out / 'xdg-data'),
+        desktop.env.update(DISPLAY=desktop.display, SWARMIE_DESKTOP_MANAGED='1', XDG_DATA_HOME=str(out / 'xdg-data'),
             XDG_CACHE_HOME=str(out / 'xdg-cache'))
         (out / 'dbus.conf').write_text('<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd"><busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><policy context="default"><allow send_destination="*"/><allow receive_sender="*"/><allow own="*"/></policy></busconfig>')
         desktop.launch_host()

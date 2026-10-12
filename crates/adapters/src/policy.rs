@@ -1,4 +1,4 @@
-use mpai::*;
+use swarmie::*;
 use serde_json::{Value, json};
 
 pub fn codex_plan(profile: ExecutionProfile) -> Result<ExecutionPolicyPlan> {

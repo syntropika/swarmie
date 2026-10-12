@@ -31,7 +31,7 @@ async function conformance(client){
  const schema=await client.schema();assert.ok(Object.keys(schema["x-methods"]).includes("session/create"));
  assert.ok((await client.discover()).some(harness=>harness.harness==="mock" && harness.available));
  await assert.rejects(client.callRaw("not/a/method"),error=>error instanceof RpcError && error.code===-32601);
- const session=await client.spawn({harness:"mock",cwd:process.env.MPAI_TEST_CWD??process.cwd()});
+ const session=await client.spawn({harness:"mock",cwd:process.env.SWARMIE_TEST_CWD??process.cwd()});
  try {
  assert.equal(session.capabilities.queue.source,"runtime");
  assert.equal(session.capabilities.configure.availability,"available");
@@ -49,12 +49,12 @@ async function conformance(client){
  const replay=await client.call("session/transcript",{sessionId:session.id,limit:4096});assert.ok(replay.some(e=>e.type==="text.delta"));assert.equal(replay.filter(e=>e.type==="turn.started").length,1);
  }finally{await client.close(session.id);}
 }
-test("live HTTP daemon conformance",{skip:!process.env.MPAI_TEST_URL},async()=>{
- await conformance(Client.http(process.env.MPAI_TEST_URL,{token:process.env.MPAI_TEST_TOKEN}));
- await assert.rejects(Client.http(process.env.MPAI_TEST_URL,{token:"incorrect"}).initialize(),ProtocolError);
+test("live HTTP daemon conformance",{skip:!process.env.SWARMIE_TEST_URL},async()=>{
+ await conformance(Client.http(process.env.SWARMIE_TEST_URL,{token:process.env.SWARMIE_TEST_TOKEN}));
+ await assert.rejects(Client.http(process.env.SWARMIE_TEST_URL,{token:"incorrect"}).initialize(),ProtocolError);
 });
-test("live owned stdio daemon conformance",{skip:!process.env.MPAI_TEST_BINARY},async()=>{
- const state=await mkdtemp(join(tmpdir(),"mpai-ts-client-"));const owned=stdioClient(process.env.MPAI_TEST_BINARY,["--state-dir",state,"serve","--mock-script",process.env.MPAI_TEST_SCRIPT]);
+test("live owned stdio daemon conformance",{skip:!process.env.SWARMIE_TEST_BINARY},async()=>{
+ const state=await mkdtemp(join(tmpdir(),"swarmie-ts-client-"));const owned=stdioClient(process.env.SWARMIE_TEST_BINARY,["--state-dir",state,"serve","--mock-script",process.env.SWARMIE_TEST_SCRIPT]);
  try{await conformance(owned.client);}finally{owned.close();await rm(state,{recursive:true,force:true});}
 });
 test("owned stdio deadlines terminate a nonresponsive process",async()=>{

@@ -26,7 +26,7 @@ export function retainNode(node: LocalStoreIdentity): LocalStoreIdentity {
 }
 
 export function workspaceStorageKey(node: LocalStoreIdentity): string {
-  return `mpai.workspace.v3:${nodeKey(node)}`;
+  return `swarmie.workspace.v3:${nodeKey(node)}`;
 }
 
 // Transport paths are same-origin routes. Additional node routing is supplied by the client host.
@@ -37,5 +37,5 @@ export function rpcPath(path = "/rpc"): string {
 }
 
 export function routeTargetKey(path: string): string {
-  return `mpai.runtime.target.v2:${rpcPath(path)}`;
+  return `swarmie.runtime.target.v2:${rpcPath(path)}`;
 }

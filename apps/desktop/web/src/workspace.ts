@@ -366,7 +366,7 @@ export class WorkspaceStore {
         selectedView: "workspace:files",
       },
     });
-    window.dispatchEvent(new CustomEvent("mpai:open-tools"));
+    window.dispatchEvent(new CustomEvent("swarmie:open-tools"));
   }
   addContext(id: string, item: Omit<ContextItem, "id">) {
     const thread = this.snapshot.threads.find((t) => t.id === id);
@@ -535,7 +535,7 @@ export class WorkspaceStore {
     this.reconnectAt = Infinity;
     try {
       const initialized = await this.rpc<{ name: string; protocolVersion: string; runtimeIdentity: RuntimeIdentity }>("runtime/initialize");
-      if (initialized.name !== "mpai" || initialized.protocolVersion !== "1" || !validIdentity(initialized.runtimeIdentity))
+      if (initialized.name !== "swarmie" || initialized.protocolVersion !== "1" || !validIdentity(initialized.runtimeIdentity))
         throw new Error("This runtime does not support the required connection protocol.");
       const target = initialized.runtimeIdentity;
       if (this.retainedTarget && !sameNode(this.retainedTarget, target.identity))
@@ -1808,7 +1808,7 @@ export class WorkspaceStore {
     const child = await this.fork(id, node.id, "before_user");
     this.updateThread(child, recovered);
     window.dispatchEvent(
-      new CustomEvent("mpai:composer-text", { detail: { threadId: child } }),
+      new CustomEvent("swarmie:composer-text", { detail: { threadId: child } }),
     );
     return child;
   }
@@ -1841,7 +1841,7 @@ export class WorkspaceStore {
     await this.restoreThread(id);
     this.updateThread(id, recovered);
     window.dispatchEvent(
-      new CustomEvent("mpai:composer-text", { detail: { threadId: id } }),
+      new CustomEvent("swarmie:composer-text", { detail: { threadId: id } }),
     );
   }
   async rollback(

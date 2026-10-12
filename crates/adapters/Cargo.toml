@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 [dependencies]
-mpai.workspace = true
+swarmie.workspace = true
 process.workspace = true
 async-trait.workspace = true
 tokio.workspace = true

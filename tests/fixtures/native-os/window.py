@@ -3,7 +3,7 @@
 import os
 import sys
 
-if os.environ.get('DISPLAY') != os.environ.get('MPAI_OS_PRIVATE_DISPLAY') or os.environ.get('DISPLAY') in ['', ':0', ':0.0', None]:
+if os.environ.get('DISPLAY') != os.environ.get('SWARMIE_OS_PRIVATE_DISPLAY') or os.environ.get('DISPLAY') in ['', ':0', ':0.0', None]:
     raise SystemExit('A fixture-owned private X display is required')
 
 import gi
@@ -11,7 +11,7 @@ gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk
 
 selected = sys.argv[1] == 'selected'
-title = 'MPAI controlled native OS fixture' if selected else 'MPAI separate decoy fixture'
+title = 'SWARMIE controlled native OS fixture' if selected else 'SWARMIE separate decoy fixture'
 window = Gtk.Window(title=title)
 window.set_default_size(640, 360)
 window.set_resizable(False)

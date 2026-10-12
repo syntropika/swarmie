@@ -1,8 +1,8 @@
-use mpai::{
+use swarmie::{
     Runtime, SpawnOptions,
     mock::{MockHarness, MockScript, MockStep},
 };
-use mpai_git::GitExtension;
+use swarmie_git::GitExtension;
 use serde_json::json;
 use std::{path::Path, time::Duration};
 
@@ -65,7 +65,7 @@ async fn restore_changes_only_selected_checkpoint_file_and_refuses_unsafe_checko
                 json!({"projectId":opened["id"],"worktreeId":tree["id"]})
             )
             .await,
-        Err(mpai::Error::Busy)
+        Err(swarmie::Error::Busy)
     ));
     agent.prompt("Change two files").await.unwrap();
     std::fs::write(path.join("one.txt"), "after one").unwrap();
@@ -93,7 +93,7 @@ async fn restore_changes_only_selected_checkpoint_file_and_refuses_unsafe_checko
         runtime
             .invoke_extension("git", "checkpoint.restore", parameters.clone())
             .await,
-        Err(mpai::Error::Busy)
+        Err(swarmie::Error::Busy)
     ));
     assert_eq!(
         std::fs::read_to_string(path.join("one.txt")).unwrap(),
@@ -110,7 +110,7 @@ async fn restore_changes_only_selected_checkpoint_file_and_refuses_unsafe_checko
         runtime
             .invoke_extension("git", "checkpoint.restore", parameters.clone())
             .await,
-        Err(mpai::Error::Busy)
+        Err(swarmie::Error::Busy)
     ));
     peer.close().await.unwrap();
     let mut main = parameters.clone();
@@ -144,7 +144,7 @@ async fn restore_changes_only_selected_checkpoint_file_and_refuses_unsafe_checko
                 .await
             {
                 Ok(receipt) => break receipt,
-                Err(mpai::Error::Busy) => tokio::time::sleep(Duration::from_millis(10)).await,
+                Err(swarmie::Error::Busy) => tokio::time::sleep(Duration::from_millis(10)).await,
                 Err(error) => panic!("unexpected restore failure: {error}"),
             }
         }
@@ -185,7 +185,7 @@ async fn restore_changes_only_selected_checkpoint_file_and_refuses_unsafe_checko
                 .await
             {
                 Ok(_) => break,
-                Err(mpai::Error::Busy) => tokio::time::sleep(Duration::from_millis(10)).await,
+                Err(swarmie::Error::Busy) => tokio::time::sleep(Duration::from_millis(10)).await,
                 Err(error) => panic!("unexpected cleanup failure: {error}"),
             }
         }

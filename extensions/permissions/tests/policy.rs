@@ -1,9 +1,9 @@
 use futures_util::StreamExt;
-use mpai::{
+use swarmie::{
     mock::{MockHarness, MockScript, MockStep},
     *,
 };
-use mpai_permissions::{PermissionPolicyExtension, PolicyMode};
+use swarmie_permissions::{PermissionPolicyExtension, PolicyMode};
 use serde_json::{Value, json};
 use std::time::Duration;
 

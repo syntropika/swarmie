@@ -59,7 +59,7 @@
 .project-dialog-body { display: block; margin: 0; }
 .project-name-field { position: relative; width: 100%; }
 
-.project-name-field .mpai-input {
+.project-name-field .swarmie-input {
   width: 100%;
 }
 
@@ -77,8 +77,8 @@
 .project-dialog .project-source-trigger { max-width: 100%; }
 .project-source-fields { width: 100%; display: grid; gap: 10px; }
 .project-source-fields label { display: grid; gap: 5px; font-size: 12px; }
-.project-source-fields .mpai-input { width: 100%; min-width: 0; }
-.project-source-fields > .mpai-button { justify-self: end; }
+.project-source-fields .swarmie-input { width: 100%; min-width: 0; }
+.project-source-fields > .swarmie-button { justify-self: end; }
 .project-source-folder { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 4px 0; min-width: 0; }
 .project-source-folder > span { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
 .project-source-folder small { display: block; color: #aaa; font-size: 11px; }
@@ -252,7 +252,7 @@ a:hover {
 .connection-dot { width: 6px; height: 6px; border-radius: 50%; background: #808080; flex-shrink: 0; }
 .connection-dot.connected { background: #48bd80; }
 .sidebar-navigation { display: flex; flex-direction: column; gap: 2px; padding: 4px 10px 8px; }
-.sidebar-nav-item.mpai-button { display: flex; justify-content: flex-start; text-align: left; }
+.sidebar-nav-item.swarmie-button { display: flex; justify-content: flex-start; text-align: left; }
 .sidebar-backdrop { display: none; }
 .sidebar-scroll {
   overflow: auto;
@@ -1269,17 +1269,17 @@ a:hover {
   max-height: 55vh;
   overflow: auto;
 }
-.mpai-input, .mpai-textarea { min-width: 0; width: 100%; }
+.swarmie-input, .swarmie-textarea { min-width: 0; width: 100%; }
 .tooltip { max-width: 260px; }
 .sidebar-organization { padding: 8px 9px; justify-content: space-between; }
-.thread-row.mpai-button { justify-content: flex-start; text-align: left; }
-.project-heading > .mpai-button:first-child { justify-content: flex-start; }
-.add-first-project.mpai-button { justify-content: flex-start; }
-.composer-toolbar .mpai-button { flex-shrink: 0; }
-.composer-project.mpai-button { max-width: 190px; }
+.thread-row.swarmie-button { justify-content: flex-start; text-align: left; }
+.project-heading > .swarmie-button:first-child { justify-content: flex-start; }
+.add-first-project.swarmie-button { justify-content: flex-start; }
+.composer-toolbar .swarmie-button { flex-shrink: 0; }
+.composer-project.swarmie-button { max-width: 190px; }
 
 @media (max-width: 760px) {
-  .composer-project.mpai-button { max-width: 125px; }
+  .composer-project.swarmie-button { max-width: 125px; }
 }
 
 .workspace-select { min-width: 0; width: 100%; }
@@ -1329,11 +1329,11 @@ a:hover {
 .workspace-dialog { width: 100%; max-width: 640px; max-height: calc(100dvh - 32px); margin: 0; overflow-y: auto; }
 .workspace-dialog.context-dialog { position: relative; inset: auto; margin: 0; width: 100%; }
 .workspace-combobox { width: 100%; min-width: 0; }
-.sidebar-backdrop.mpai-button { height: 100%; border-radius: 0; }
+.sidebar-backdrop.swarmie-button { height: 100%; border-radius: 0; }
 
 .composer-send-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 0; flex-wrap: wrap; }
-.composer-harness.mpai-button { min-width: 0; max-width: 200px; }
-.composer-harness.mpai-button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-harness.swarmie-button { min-width: 0; max-width: 200px; }
+.composer-harness.swarmie-button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-harness.workspace-select { display: inline-flex; width: auto; min-width: 0; max-width: 200px; }
 
 .composer-send-actions .small-button { display: inline-flex; align-items: center; min-width: 0; max-width: 230px; }
@@ -1364,7 +1364,7 @@ a:hover {
 .settings-content h3 { font-size: 13px; font-weight: 500; margin: 26px 0 14px; }
 .settings-section { min-width: 0; }
 .settings-section label:not([data-slot]) { display: grid; gap: 8px; margin: 14px 0; font-size: 12px; }
-.settings-section .mpai-input { width: 100%; min-width: 0; }
+.settings-section .swarmie-input { width: 100%; min-width: 0; }
 .settings-section .harness-row { flex-wrap: wrap; }
 .settings-section .connection-status { margin-bottom: 28px; }
 .settings-section .panel-note { padding: 0; margin: 16px 0; font-size: 12px; line-height: 1.5; }

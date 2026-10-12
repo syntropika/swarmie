@@ -50,7 +50,7 @@ export class NodeClient {
     const initialized = await request("/rpc", "runtime/initialize", {});
     const identity = initialized.runtimeIdentity as RuntimeIdentity;
     const local = this.local.getSnapshot().node;
-    if (initialized.name !== "mpai" || initialized.protocolVersion !== "1" || !validNodeIdentity(identity?.identity) ||
+    if (initialized.name !== "swarmie" || initialized.protocolVersion !== "1" || !validNodeIdentity(identity?.identity) ||
       !local || !sameNode(local, identity.identity)) throw new Error("The local connection now serves a different node. Saved work has been kept.");
     return request("/client/rpc", method, params, identity) as Promise<T>;
   }

@@ -1,13 +1,13 @@
 #![cfg(unix)]
 use adapters::AntigravityHarness;
-use mpai::*;
+use swarmie::*;
 use serde_json::{Value, json};
 use std::{path::PathBuf, time::Duration};
 
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
-        let path = std::env::temp_dir().join(format!("mpai-antigravity-{}", uuid::Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!("swarmie-antigravity-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&path).unwrap();
         Self(path)
     }
@@ -60,7 +60,7 @@ async fn native_stream_applies_flags_schema_and_normalizes_sparse_tools_and_sess
     options
         .execution
         .env
-        .insert("MPAI_NATIVE_ENV".into(), "isolated".into());
+        .insert("SWARMIE_NATIVE_ENV".into(), "isolated".into());
     options.execution.output_schema =
         Some(json!({"type":"object","properties":{"ok":{"type":"boolean"}}}));
     let mut connection = AntigravityHarness
@@ -198,7 +198,7 @@ async fn native_resume_preserves_reference_and_auth_errors_are_not_faked() {
     failed
         .execution
         .env
-        .insert("MPAI_FAIL_INIT".into(), "1".into());
+        .insert("SWARMIE_FAIL_INIT".into(), "1".into());
     let error = AntigravityHarness
         .connect(&failed, None, false)
         .await

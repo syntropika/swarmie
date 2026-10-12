@@ -19,8 +19,8 @@ spec = importlib.util.spec_from_file_location('native_desktop', fixture.parents[
 native = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(native)
 
-MARKER = 'MPAI_REAL_DIFF_NATIVE_GUI_20261003'
-CONFIG_MARKER = 'MPAI_RECOVERED_CONFIG_20261003'
+MARKER = 'SWARMIE_REAL_DIFF_NATIVE_GUI_20261003'
+CONFIG_MARKER = 'SWARMIE_RECOVERED_CONFIG_20261003'
 COMMIT = 'Verify native Git workflow from real staged changes'
 PR = {'title': 'Verify native Git workflow', 'body': 'The actual change adds ' + MARKER + '.\n\nValidation: controlled native GUI fixture.\n\nLiteral $(no-shell) and `text`.'}
 
@@ -80,7 +80,7 @@ class GitDesktop(native.Desktop):
         super().__init__(root, out)
         self.env = {key: value for key, value in self.env.items() if key in {
             'PATH', 'USER', 'LOGNAME', 'LANG', 'HOME', 'XDG_CONFIG_HOME', 'XDG_RUNTIME_DIR'}}
-        self.env.update(MPAI_GIT_GUI_STATE=str(out), NO_COLOR='1', GDK_BACKEND='x11')
+        self.env.update(SWARMIE_GIT_GUI_STATE=str(out), NO_COLOR='1', GDK_BACKEND='x11')
         gh = out / 'bin/gh'
         gh.write_text('#!/bin/sh\nexec python3 '+str(fixture.with_name('gh_peer.py'))+' "$@"\n')
         gh.chmod(0o755)
@@ -120,9 +120,9 @@ class GitDesktop(native.Desktop):
         self.config = {'executable': str(pi), 'args': ['--mode', 'rpc', '--provider', 'fixture',
             '--no-builtin-tools', '--no-skills', '--no-prompt-templates', '--append-system-prompt', CONFIG_MARKER]}
         (self.artifacts / 'build.json').write_text(json.dumps({str(path): hashlib.sha256(path.read_bytes()).hexdigest()
-            for path in [self.root / 'target/debug/mpai', self.root / 'apps/desktop/zig-out/bin/mpai-desktop',
+            for path in [self.root / 'target/debug/swarmie', self.root / 'apps/desktop/zig-out/bin/swarmie-desktop',
             pi.resolve(), *sorted(assets.rglob('*.js'))]}, indent=2)+'\n')
-        daemon = self.child([str(self.root / 'target/debug/mpai'), '--state-dir', str(self.artifacts / 'sessions'),
+        daemon = self.child([str(self.root / 'target/debug/swarmie'), '--state-dir', str(self.artifacts / 'sessions'),
             'serve', '--http', '127.0.0.1:0', '--desktop-assets', str(assets), '--workbench',
             '--git-worktrees', str(self.artifacts / 'worktrees'), '--resources-root', str(self.artifacts / 'resources')], pipe=True)
         self.url = self.ready(daemon, 'HTTP listening on ').removesuffix('/rpc')
@@ -131,8 +131,8 @@ class GitDesktop(native.Desktop):
         self.rpc('session/metadata', {'sessionId': self.session, 'title': 'Native Git acceptance'})
         xvfb = self.child(['Xvfb', '-displayfd', '1', '-screen', '0', '1600x1000x24', '-nolisten', 'tcp'], pipe=True)
         self.display = ':'+self.ready(xvfb, '')
-        self.env.update(DISPLAY=self.display, MPAI_DESKTOP_URL=self.url+'/?session='+self.session,
-            MPAI_DESKTOP_MANAGED='1', XDG_DATA_HOME=str(self.artifacts / 'xdg-data'),
+        self.env.update(DISPLAY=self.display, SWARMIE_DESKTOP_URL=self.url+'/?session='+self.session,
+            SWARMIE_DESKTOP_MANAGED='1', XDG_DATA_HOME=str(self.artifacts / 'xdg-data'),
             XDG_CACHE_HOME=str(self.artifacts / 'xdg-cache'))
         (self.artifacts / 'dbus.conf').write_text('<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd"><busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><policy context="default"><allow send_destination="*"/><allow receive_sender="*"/><allow own="*"/></policy></busconfig>')
         self.launch_host()

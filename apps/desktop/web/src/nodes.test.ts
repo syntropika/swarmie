@@ -15,7 +15,7 @@ beforeEach(() => {
     if (path === "/rpc" && localOffline) throw new TypeError("local offline");
     if (path.startsWith("/nodes/") && offline) throw new TypeError("offline");
     const target = path.startsWith("/nodes/") ? remote : local;
-    const result = request.method === "runtime/initialize" ? { name: "mpai", protocolVersion: "1", runtimeIdentity: { identity: target.identity, incarnationId: "live" } }
+    const result = request.method === "runtime/initialize" ? { name: "swarmie", protocolVersion: "1", runtimeIdentity: { identity: target.identity, incarnationId: "live" } }
       : request.method === "nodes/list" ? { nodes: catalog, selectedNodeId: selected }
       : request.method === "session/queue/list" ? { items: [], paused: false } : [];
     if (request.method === "nodes/select") selected = request.params.environmentId;

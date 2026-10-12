@@ -8,7 +8,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures-util",
- "mpai",
+ "swarmie",
  "process",
  "reqwest",
  "serde_json",
@@ -109,11 +109,11 @@ dependencies = [
  "fs2",
  "futures-util",
  "libc",
- "mpai",
- "mpai-git",
- "mpai-permissions",
- "mpai-resources",
- "mpai-workspace",
+ "swarmie",
+ "swarmie-git",
+ "swarmie-permissions",
+ "swarmie-resources",
+ "swarmie-workspace",
  "protocol",
  "reqwest",
  "semver",
@@ -485,7 +485,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures-util",
- "mpai",
+ "swarmie",
  "serde_json",
  "tokio",
 ]
@@ -1100,7 +1100,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mpai"
+name = "swarmie"
 version = "0.1.0"
 dependencies = [
  "async-trait",
@@ -1117,12 +1117,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "mpai-git"
+name = "swarmie-git"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "libc",
- "mpai",
+ "swarmie",
  "protocol",
  "serde",
  "serde_json",
@@ -1132,24 +1132,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "mpai-permissions"
+name = "swarmie-permissions"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures-util",
- "mpai",
+ "swarmie",
  "serde",
  "serde_json",
  "tokio",
 ]
 
 [[package]]
-name = "mpai-resources"
+name = "swarmie-resources"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures-util",
- "mpai",
+ "swarmie",
  "serde",
  "serde_json",
  "storage",
@@ -1159,14 +1159,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "mpai-workspace"
+name = "swarmie-workspace"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
  "dirs",
  "libc",
- "mpai",
+ "swarmie",
  "percent-encoding",
  "portable-pty",
  "protocol",
@@ -1405,7 +1405,7 @@ name = "process"
 version = "0.1.0"
 dependencies = [
  "libc",
- "mpai",
+ "swarmie",
  "serde_json",
  "tempfile",
  "tokio",
@@ -1416,7 +1416,7 @@ name = "protocol"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "mpai",
+ "swarmie",
  "schemars",
  "serde_json",
  "tokio",
@@ -2016,7 +2016,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "fs2",
- "mpai",
+ "swarmie",
  "rusqlite",
  "serde",
  "serde_json",

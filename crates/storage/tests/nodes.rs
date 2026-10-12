@@ -1,4 +1,4 @@
-use mpai::LocalStoreIdentity;
+use swarmie::LocalStoreIdentity;
 use storage::{NodeConnection, NodeTransport, SqliteSessionStore};
 fn route(name: &str, identity: LocalStoreIdentity) -> NodeConnection {
     NodeConnection {

@@ -1,7 +1,7 @@
 //! Optional policies for interactive requests surfaced by harness adapters.
 //! This extension does not alter native execution modes or provide a sandbox.
 use async_trait::async_trait;
-use mpai::{
+use swarmie::{
     Error, ExtensionCommand, PermissionRequest, PermissionResponse, Result, RuntimeExtension,
     SessionSnapshot,
 };

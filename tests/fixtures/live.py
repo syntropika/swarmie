@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise installed native harnesses through mpai's stdio daemon."""
+"""Exercise installed native harnesses through swarmie's stdio daemon."""
 import uuid
 import argparse
 import json
@@ -106,8 +106,8 @@ def run(harness, args):
     env = os.environ.copy()
     env.pop("CLAUDECODE", None)
     env.pop("ANTHROPIC_AUTH_TOKEN", None)
-    model = env.get("MPAI_FIXTURE_MODEL", "fixture-model")
-    base = env.get("MPAI_FIXTURE_BASE_URL", "http://127.0.0.1:8091").rstrip("/")
+    model = env.get("SWARMIE_FIXTURE_MODEL", "fixture-model")
+    base = env.get("SWARMIE_FIXTURE_BASE_URL", "http://127.0.0.1:8091").rstrip("/")
     options = {"harness": harness, "cwd": str(directory), "config": {"executable": executable(harness)}}
     proxy = None
     client = None
@@ -117,7 +117,7 @@ def run(harness, args):
             agent_dir = directory / "pi-agent"
             agent_dir.mkdir(exist_ok=True)
             (agent_dir / "models.json").write_text(json.dumps({"providers": {"fixture": {
-                "baseUrl": base + "/v1", "api": "openai-responses", "apiKey": "${MPAI_FIXTURE_API_KEY}",
+                "baseUrl": base + "/v1", "api": "openai-responses", "apiKey": "${SWARMIE_FIXTURE_API_KEY}",
                 "models": [{"id": model, "name": "Fixture model", "reasoning": False, "input": ["text"], "contextWindow": 32768, "maxTokens": 1024}]
             }}}))
             env["PI_CODING_AGENT_DIR"] = str(agent_dir)
@@ -135,25 +135,25 @@ def run(harness, args):
             options["config"]["args"] = ["--print", "--verbose", "--input-format", "stream-json", "--output-format", "stream-json", "--include-partial-messages", "--permission-prompt-tool", "stdio", "--bare", "--tools", "", "--system-prompt", "Follow the user's instruction exactly."]
         elif harness == "opencode":
             config = directory / "opencode.json"
-            config.write_text(json.dumps({"provider": {"fixture": {"npm": "@ai-sdk/openai-compatible", "name": "Fixture", "options": {"baseURL": base + "/v1", "apiKey": "{env:MPAI_FIXTURE_API_KEY}"}, "models": {model: {"name": "Fixture model", "limit": {"context": 32768, "output": 1024}}}}}, "agent": {"build": {"prompt": "Follow the user instruction exactly.", "tools": {"*": False}, "permission": {"*": "deny"}}}, "permission": {"*": "deny"}}))
+            config.write_text(json.dumps({"provider": {"fixture": {"npm": "@ai-sdk/openai-compatible", "name": "Fixture", "options": {"baseURL": base + "/v1", "apiKey": "{env:SWARMIE_FIXTURE_API_KEY}"}, "models": {model: {"name": "Fixture model", "limit": {"context": 32768, "output": 1024}}}}}, "agent": {"build": {"prompt": "Follow the user instruction exactly.", "tools": {"*": False}, "permission": {"*": "deny"}}}, "permission": {"*": "deny"}}))
             env["OPENCODE_CONFIG"] = str(config)
             options["model"] = "fixture/" + model
         client = Client(args.binary, directory, env, args.timeout)
         client.call("runtime/initialize")
         snapshot = client.call("session/create", options)
         session = snapshot["id"]
-        count = client.turn(session, "Reply exactly: MPAI_LIVE_OK", "MPAI_LIVE_OK")
+        count = client.turn(session, "Reply exactly: SWARMIE_LIVE_OK", "SWARMIE_LIVE_OK")
         if harness == "pi":
-            (directory / "smoke.txt").write_text("MPAI_TOOL_OK\n")
-            count += client.turn(session, "Use read to read smoke.txt and reply exactly with its content.", "MPAI_TOOL_OK", require_tool=True)
+            (directory / "smoke.txt").write_text("SWARMIE_TOOL_OK\n")
+            count += client.turn(session, "Use read to read smoke.txt and reply exactly with its content.", "SWARMIE_TOOL_OK", require_tool=True)
         else:
-            count += client.turn(session, "Reply exactly: MPAI_SECOND_OK", "MPAI_SECOND_OK")
+            count += client.turn(session, "Reply exactly: SWARMIE_SECOND_OK", "SWARMIE_SECOND_OK")
         client.call("session/close", {"sessionId": session})
         client.close()
         client = Client(args.binary, directory, env, args.timeout)
         resumed = client.call("session/resume", {"sessionId": session})
         assert resumed["id"] == session and resumed["native"] == snapshot["native"], "native session reference changed"
-        count += client.turn(session, "Reply exactly: MPAI_RESUME_OK", "MPAI_RESUME_OK")
+        count += client.turn(session, "Reply exactly: SWARMIE_RESUME_OK", "SWARMIE_RESUME_OK")
         client.call("session/close", {"sessionId": session})
         print(f"PASS {harness}: two turns, daemon restart, native resume; {count} ordered events", flush=True)
     finally:
@@ -173,15 +173,15 @@ def run(harness, args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--harness", action="append", choices=["pi", "claude", "opencode", "codex"])
-    parser.add_argument("--binary", type=Path, default=ROOT / "target/debug/mpai")
+    parser.add_argument("--binary", type=Path, default=ROOT / "target/debug/swarmie")
     parser.add_argument("--timeout", type=int, default=180)
-    artifact_root = Path(tempfile.gettempdir()) / 'mpai-live-tests' / ('live-' + time.strftime('%Y%m%d-%H%M%S'))
+    artifact_root = Path(tempfile.gettempdir()) / 'swarmie-live-tests' / ('live-' + time.strftime('%Y%m%d-%H%M%S'))
     parser.add_argument("--artifacts", type=Path, default=artifact_root)
     args = parser.parse_args()
     if not args.binary.exists():
-        parser.error("Build mpai first: cargo build --workspace")
-    if not os.environ.get("MPAI_FIXTURE_API_KEY") and args.harness != ["codex"]:
-        parser.error("MPAI_FIXTURE_API_KEY is required for endpoint tests")
+        parser.error("Build swarmie first: cargo build --workspace")
+    if not os.environ.get("SWARMIE_FIXTURE_API_KEY") and args.harness != ["codex"]:
+        parser.error("SWARMIE_FIXTURE_API_KEY is required for endpoint tests")
     for harness in args.harness or ["pi", "claude", "opencode"]:
         run(harness, args)
     print(f"Evidence: {args.artifacts}")

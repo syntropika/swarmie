@@ -1,5 +1,5 @@
 use clap::Subcommand;
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -16,12 +16,12 @@ const ARTIFACT_LIMIT: u64 = 512 * 1024 * 1024;
 pub enum UpdateCommand {
     /// Check the release selected by the manifest; nothing is downloaded or installed.
     Check {
-        #[arg(long, env = "MPAI_UPDATE_MANIFEST")]
+        #[arg(long, env = "SWARMIE_UPDATE_MANIFEST")]
         manifest: String,
     },
     /// Download a release archive, verify SHA-256, and stage it without installing.
     Stage {
-        #[arg(long, env = "MPAI_UPDATE_MANIFEST")]
+        #[arg(long, env = "SWARMIE_UPDATE_MANIFEST")]
         manifest: String,
         #[arg(long)]
         directory: Option<PathBuf>,
@@ -235,14 +235,14 @@ mod tests {
             artifacts: BTreeMap::from([(
                 platform(),
                 Artifact {
-                    url: "https://example.com/mpai.tar.gz".into(),
+                    url: "https://example.com/swarmie.tar.gz".into(),
                     sha256: "00".repeat(32),
-                    file_name: "../mpai.tar.gz".into(),
+                    file_name: "../swarmie.tar.gz".into(),
                 },
             )]),
         };
         assert!(validate_manifest(&manifest).is_err());
-        manifest.artifacts.get_mut(&platform()).unwrap().file_name = "mpai.tar.gz".into();
+        manifest.artifacts.get_mut(&platform()).unwrap().file_name = "swarmie.tar.gz".into();
         assert!(validate_manifest(&manifest).is_ok());
     }
     #[tokio::test]
@@ -279,7 +279,7 @@ mod tests {
         let mut artifact = Artifact {
             url: url.clone(),
             sha256: "00".repeat(32),
-            file_name: "mpai.tar.gz".into(),
+            file_name: "swarmie.tar.gz".into(),
         };
         let response = reqwest::get(&url).await.unwrap();
         assert!(

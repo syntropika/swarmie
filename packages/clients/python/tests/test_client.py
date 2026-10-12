@@ -1,7 +1,7 @@
 import json, os, pathlib, tempfile, threading, unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from mpai_client import Client, HttpTransport, StdioTransport, RpcError, ProtocolError
-from mpai_client.client import decode_response
+from swarmie_client import Client, HttpTransport, StdioTransport, RpcError, ProtocolError
+from swarmie_client.client import decode_response
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args): pass
@@ -43,7 +43,7 @@ class Clients(unittest.TestCase):
         self.assertTrue(any(h['harness']=='mock' and h['available'] for h in client.discover()))
         with self.assertRaises(RpcError) as caught:client.call('not/a/method')
         self.assertEqual(caught.exception.code,-32601)
-        session=client.spawn({'harness':'mock','cwd':os.environ.get('MPAI_TEST_CWD',os.getcwd())})
+        session=client.spawn({'harness':'mock','cwd':os.environ.get('SWARMIE_TEST_CWD',os.getcwd())})
         try:
             self.assertEqual(session['capabilities']['queue']['source'],'runtime')
             self.assertEqual(session['capabilities']['configure']['availability'],'available')
@@ -73,14 +73,14 @@ class Clients(unittest.TestCase):
             self.assertEqual(conflict.exception.data['code'], 'idempotency_conflict')
             self.assertTrue(any(e['type']=='text.delta' for e in client.call('session/transcript',{'sessionId':session['id'],'limit':4096})))
         finally:client.close(session['id'])
-    @unittest.skipUnless(os.environ.get('MPAI_TEST_URL'),'live daemon URL required')
+    @unittest.skipUnless(os.environ.get('SWARMIE_TEST_URL'),'live daemon URL required')
     def test_live_http(self):
-        self.conformance(Client.http(os.environ['MPAI_TEST_URL'],token=os.environ.get('MPAI_TEST_TOKEN')))
-        with self.assertRaises(ProtocolError):Client.http(os.environ['MPAI_TEST_URL'],token='incorrect').initialize()
-    @unittest.skipUnless(os.environ.get('MPAI_TEST_BINARY'),'daemon binary required')
+        self.conformance(Client.http(os.environ['SWARMIE_TEST_URL'],token=os.environ.get('SWARMIE_TEST_TOKEN')))
+        with self.assertRaises(ProtocolError):Client.http(os.environ['SWARMIE_TEST_URL'],token='incorrect').initialize()
+    @unittest.skipUnless(os.environ.get('SWARMIE_TEST_BINARY'),'daemon binary required')
     def test_live_stdio(self):
-        with tempfile.TemporaryDirectory(prefix='mpai-python-client-') as state:
-            transport=StdioTransport([os.environ['MPAI_TEST_BINARY'],'--state-dir',state,'serve','--mock-script',os.environ['MPAI_TEST_SCRIPT']])
+        with tempfile.TemporaryDirectory(prefix='swarmie-python-client-') as state:
+            transport=StdioTransport([os.environ['SWARMIE_TEST_BINARY'],'--state-dir',state,'serve','--mock-script',os.environ['SWARMIE_TEST_SCRIPT']])
             try:self.conformance(Client(transport))
             finally:transport.close()
 

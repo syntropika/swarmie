@@ -77,7 +77,7 @@ def swift(schema):
     return {'string':'String','integer':'UInt64' if schema.get('minimum',-1)>=0 else 'Int64','number':'Double','boolean':'Bool','null':'JSONValue'}.get(kind,'JSONValue')
 
 def generated_go(defs,methods):
-    code='// Generated from runtime/schema. Run tools/generate.py to refresh.\npackage mpai\n\nimport "encoding/json"\n\n'
+    code='// Generated from runtime/schema. Run tools/generate.py to refresh.\npackage swarmie\n\nimport "encoding/json"\n\n'
     for name,value in sorted(defs.items()):
         if name=='RuntimeEvent':
             value={k:v for k,v in value.items() if k!='oneOf'}
@@ -112,7 +112,7 @@ def main():
     if args.url:
         request=urllib.request.Request(args.url.rstrip('/')+'/rpc',json.dumps({'jsonrpc':'2.0','id':1,'method':'runtime/schema','params':{}}).encode(),{'Content-Type':'application/json'})
         import os
-        if os.environ.get('MPAI_TOKEN'):request.add_header('Authorization','Bearer '+os.environ['MPAI_TOKEN'])
+        if os.environ.get('SWARMIE_TOKEN'):request.add_header('Authorization','Bearer '+os.environ['SWARMIE_TOKEN'])
         envelope=json.load(urllib.request.urlopen(request,timeout=30));schema=envelope['result']
     else:schema=json.loads((args.schema or ROOT/'schema/protocol.json').read_text())
     defs=schema['$defs'];methods=schema['x-methods'];files={ROOT/'schema/protocol.json':json.dumps(schema,indent=2,sort_keys=True)+'\n'}
@@ -135,9 +135,9 @@ def main():
             code+='\n'
         else:aliases.append(name+' = '+py(value))
     code+='\n'.join(aliases)+'\nMETHODS = '+repr(tuple(sorted(methods)))+'\n'
-    files[ROOT/'python/mpai_client/generated.py']=code
+    files[ROOT/'python/swarmie_client/generated.py']=code
     files[ROOT/'go/generated.go']=generated_go(defs,methods)
-    files[ROOT/'swift/Sources/MPAIClient/Generated.swift']=generated_swift(defs,methods)
+    files[ROOT/'swift/Sources/SwarmieClient/Generated.swift']=generated_swift(defs,methods)
     for path,content in files.items():
         if args.check:
             if not path.exists() or path.read_text()!=content:raise SystemExit(f'Generated file is stale: {path.relative_to(ROOT)}')

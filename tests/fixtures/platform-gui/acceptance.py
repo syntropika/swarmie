@@ -36,14 +36,14 @@ class Platform(native.Desktop):
         )
         self.xvfb = self.child(["Xvfb", "-displayfd", "1", "-screen", "0", "2200x1200x24", "-nolisten", "tcp"], pipe=True)
         self.display = ":" + self.ready(self.xvfb, "")
-        self.env.update(DISPLAY=self.display, MPAI_OS_PRIVATE_DISPLAY=self.display)
+        self.env.update(DISPLAY=self.display, SWARMIE_OS_PRIVATE_DISPLAY=self.display)
         self.child([str(vendor / "bin/openbox"), "--config-file", str(vendor / "etc/xdg/openbox/rc.xml")], log="openbox.log")
         time.sleep(.7)
         self.selected = self.child(["/usr/bin/python3", str(fixture.parents[1] / "native-os/window.py"), "selected"], log="selected.log")
         self.decoy = self.child(["/usr/bin/python3", str(fixture.parents[1] / "native-os/window.py"), "decoy"], log="decoy.log")
         time.sleep(.8)
         windows = subprocess.check_output([str(vendor / "bin/wmctrl"), "-lp"], env=self.env, text=True)
-        selected = next(line.split()[0] for line in windows.splitlines() if "MPAI controlled native OS fixture" in line)
+        selected = next(line.split()[0] for line in windows.splitlines() if "SWARMIE controlled native OS fixture" in line)
         subprocess.run([str(vendor / "bin/wmctrl"), "-ir", selected, "-e", "0,1500,80,-1,-1"], env=self.env, check=True)
         self.selected_window = selected
 
@@ -61,10 +61,10 @@ class Platform(native.Desktop):
 
     def launch_host(self):
         # All owned programs inherit the same fixture-owned accessibility bus.
-        self.host = self.child([str(self.root / "apps/desktop/zig-out/bin/mpai-desktop")], log="host.log", cwd=self.root / "apps/desktop")
+        self.host = self.child([str(self.root / "apps/desktop/zig-out/bin/swarmie-desktop")], log="host.log", cwd=self.root / "apps/desktop")
         deadline = time.monotonic() + 50
         while time.monotonic() < deadline:
-            result = subprocess.run(["xdotool", "search", "--onlyvisible", "--pid", str(self.host.pid), "--name", "^mpai$"], env=self.env, capture_output=True, text=True)
+            result = subprocess.run(["xdotool", "search", "--onlyvisible", "--pid", str(self.host.pid), "--name", "^swarmie$"], env=self.env, capture_output=True, text=True)
             if result.returncode == 0:
                 self.window = result.stdout.splitlines()[-1]
                 self.x("windowsize", self.window, 1280, 900)

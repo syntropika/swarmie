@@ -3,5 +3,5 @@ import { cn } from "cn";
 import { fieldClasses } from "./input";
 
 export function Textarea({ className, ...props }: ComponentProps<"textarea">) {
-  return <textarea {...props} data-slot="textarea" className={cn("mpai-textarea min-h-20 py-2", fieldClasses, className)} />;
+  return <textarea {...props} data-slot="textarea" className={cn("swarmie-textarea min-h-20 py-2", fieldClasses, className)} />;
 }

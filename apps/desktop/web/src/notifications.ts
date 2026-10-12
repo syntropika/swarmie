@@ -8,7 +8,7 @@ export type NotificationPreferences = {
   failure: boolean;
   backgroundOnly: boolean;
 };
-const key = "mpai.notifications.v1";
+const key = "swarmie.notifications.v1";
 export const defaultNotifications: NotificationPreferences = {
   enabled: false,
   completion: true,
@@ -43,7 +43,7 @@ export function notificationFor(
           : undefined;
   if (!kind) return;
   return {
-    id: `mpai-${thread.sessionId}-${event.sequence}`,
+    id: `swarmie-${thread.sessionId}-${event.sequence}`,
     title: kind,
     body: thread.title.slice(0, 240),
   };

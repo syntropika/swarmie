@@ -9,7 +9,7 @@ mcp = []
 def send(value):
     print(json.dumps(value), flush=True)
 def receipt():
-    return {'env': os.environ.get('MPAI_TEST_ENV'), 'piHome': os.environ.get('PI_CODING_AGENT_DIR'),
+    return {'env': os.environ.get('SWARMIE_TEST_ENV'), 'piHome': os.environ.get('PI_CODING_AGENT_DIR'),
             'openCodeHome': os.environ.get('OPENCODE_CONFIG_DIR'), 'args': sys.argv,
             'inline': json.loads(os.environ.get('OPENCODE_CONFIG_CONTENT', '{}')), 'mcp': mcp, 'action': action}
 
@@ -74,7 +74,7 @@ if mode == 'serve':
                 session = 'fork:'+body.get('messageID','latest')
                 cloned = json.loads(json.dumps(source[:end]))
                 for index, message in enumerate(cloned): message['info']['id'] = f'{session}:cloned-{index}'
-                if os.environ.get('MPAI_TEST_BAD_FORK') and cloned: cloned.pop()
+                if os.environ.get('SWARMIE_TEST_BAD_FORK') and cloned: cloned.pop()
                 histories[session] = cloned
                 history_file.write_text(json.dumps(histories))
                 self.reply({'id':session})

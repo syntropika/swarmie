@@ -1,5 +1,5 @@
 //! Bounded wire recording and activity diagnostics for HTTP/SSE adapters.
-use mpai::{BackendEvent, Error, EventKind, Result};
+use swarmie::{BackendEvent, Error, EventKind, Result};
 use process::{Recorder, WireRecording};
 use serde_json::{Value, json};
 use std::{

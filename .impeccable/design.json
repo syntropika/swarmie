@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "generatedAt": "2026-10-04T19:44:22.694486+00:00",
-  "title": "Design System: MPAI Desktop",
+  "title": "Design System: SWARMIE Desktop",
   "extensions": {
     "colorMeta": {
       "workspace-background": {
@@ -719,7 +719,7 @@
   ],
   "narrative": {
     "northStar": "The Quiet Local Workbench",
-    "overview": "The Quiet Local Workbench gives developers a calm place to run coding-agent conversations against local folders and projects. The approved Codex reference supplies the dark shell, activity rail, resizable sidebar, centered reading column, and rounded composer with a darker computer and harness cap. MPAI uses its own terminal mark and exposes its actual workspace capabilities.\n\nGeneral controls use shared primitives in components/ui. Radix provides popover, Select, menu, dialog, Checkbox, Switch, Collapsible, tooltip, RadioGroup, and Slider behavior; cmdk provides free-text ComboBox keyboard behavior. Tailwind classes style the new primitives using the static theme in styles.css. Existing application layout and conversation-content CSS remains in place. Assistant-ui retains specialized conversation, Markdown, composer, and streaming behavior. Its vendored MIT-licensed Elements supply the command palette and response-copy actions, with capability-dependent host callbacks. Settings replaces the sidebar and conversation with section navigation and a centered content column; project entry opens a centered dialog and project management/review open secondary panels.",
+    "overview": "The Quiet Local Workbench gives developers a calm place to run coding-agent conversations against local folders and projects. The approved Codex reference supplies the dark shell, activity rail, resizable sidebar, centered reading column, and rounded composer with a darker computer and harness cap. SWARMIE uses its own terminal mark and exposes its actual workspace capabilities.\n\nGeneral controls use shared primitives in components/ui. Radix provides popover, Select, menu, dialog, Checkbox, Switch, Collapsible, tooltip, RadioGroup, and Slider behavior; cmdk provides free-text ComboBox keyboard behavior. Tailwind classes style the new primitives using the static theme in styles.css. Existing application layout and conversation-content CSS remains in place. Assistant-ui retains specialized conversation, Markdown, composer, and streaming behavior. Its vendored MIT-licensed Elements supply the command palette and response-copy actions, with capability-dependent host callbacks. Settings replaces the sidebar and conversation with section navigation and a centered content column; project entry opens a centered dialog and project management/review open secondary panels.",
     "keyCharacteristics": [
       "Neutral workspace layers with pale primary actions and a violet effort accent.",
       "Platform system typography and outlined Lucide action icons.",

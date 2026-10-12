@@ -1,9 +1,9 @@
-use mpai::{Runtime, RuntimeExtension};
-use mpai_workspace::WorkspaceExtension;
+use swarmie::{Runtime, RuntimeExtension};
+use swarmie_workspace::WorkspaceExtension;
 use protocol::RuntimeService;
 use serde_json::{Value, json};
 use std::time::Duration;
-async fn invoke(service: &RuntimeService, command: &str, args: Value) -> mpai::Result<Value> {
+async fn invoke(service: &RuntimeService, command: &str, args: Value) -> swarmie::Result<Value> {
     service
         .invoke(
             "extension/invoke",
@@ -365,11 +365,11 @@ async fn contextual_file_commands_use_retained_directory_and_block_replacements(
     let folder = parent.path().join("folder");
     std::fs::create_dir(&folder).unwrap();
     let runtime = Runtime::builder()
-        .harness(mpai::mock::MockHarness::new(Default::default()))
+        .harness(swarmie::mock::MockHarness::new(Default::default()))
         .extension(WorkspaceExtension::new())
         .build();
     let saved = runtime
-        .spawn(mpai::SpawnOptions::new("mock", &folder))
+        .spawn(swarmie::SpawnOptions::new("mock", &folder))
         .await
         .unwrap()
         .snapshot()

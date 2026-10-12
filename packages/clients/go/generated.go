@@ -1,5 +1,5 @@
 // Generated from runtime/schema. Run tools/generate.py to refresh.
-package mpai
+package swarmie
 
 import "encoding/json"
 

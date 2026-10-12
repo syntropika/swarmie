@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use mpai::{
+use swarmie::{
     mock::{MockHarness, MockScript, MockStep},
     *,
 };
@@ -125,7 +125,7 @@ impl Fixture {
             .build();
         runtime
             .install_host_tool_transport(McpServer {
-                name: "mpai_host".into(),
+                name: "swarmie_host".into(),
                 transport: McpTransport::Stdio {
                     command: "unused".into(),
                     args: vec![],
@@ -152,7 +152,7 @@ impl Fixture {
     async fn channel(&self) -> String {
         let launches = self.harness.mock.launches().await;
         match &launches.last().unwrap().execution.mcp_servers[0].transport {
-            McpTransport::Stdio { env, .. } => env["MPAI_TOOL_CHANNEL"].clone(),
+            McpTransport::Stdio { env, .. } => env["SWARMIE_TOOL_CHANNEL"].clone(),
             _ => panic!(),
         }
     }

@@ -1,6 +1,6 @@
 //! Persistent client-owned RPC channels. A dispatched request is never replayed.
 use futures_util::{SinkExt, StreamExt};
-use mpai::{Error, LocalStoreIdentity, Result};
+use swarmie::{Error, LocalStoreIdentity, Result};
 use serde_json::{Value, json};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -219,14 +219,14 @@ mod tests {
         drop_prompt: bool,
     ) -> (
         String,
-        mpai::RuntimeIdentity,
+        swarmie::RuntimeIdentity,
         Arc<AtomicUsize>,
         Arc<AtomicUsize>,
         tokio::task::JoinHandle<()>,
     ) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("ws://{}", listener.local_addr().unwrap());
-        let target = mpai::Runtime::default().identity().await.unwrap();
+        let target = swarmie::Runtime::default().identity().await.unwrap();
         let accepts = Arc::new(AtomicUsize::new(0));
         let prompts = Arc::new(AtomicUsize::new(0));
         let (a, p, t) = (accepts.clone(), prompts.clone(), target.clone());
@@ -243,7 +243,7 @@ mod tests {
                             Message::Text(text) => {
                                 let request: Value = serde_json::from_str(&text).unwrap();
                                 let value = if request["method"] == "runtime/initialize" {
-                                    json!({"name":"mpai","protocolVersion":protocol::PROTOCOL_VERSION,"runtimeIdentity":t})
+                                    json!({"name":"swarmie","protocolVersion":protocol::PROTOCOL_VERSION,"runtimeIdentity":t})
                                 } else {
                                     request["params"].clone()
                                 };

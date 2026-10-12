@@ -89,7 +89,7 @@ def main():
         with sqlite3.connect(f'file:{path}?mode=ro', uri=True) as connection:
             for key, value in connection.execute('SELECT key,value FROM ItemTable'):
                 text = value.decode('utf-16le') if isinstance(value, bytes) else value
-                if key == 'mpai.workspace.v2':
+                if key == 'swarmie.workspace.v2':
                     storage_found = ready['remote']['project'] in text and not any(secret in text for secret in secrets)
     check('Public receipts and decoded persistent GUI workspace contain no token values',
           not leaks and storage_found and (out / 'cli-client/connections.json').stat().st_mode & 0o777 == 0o600

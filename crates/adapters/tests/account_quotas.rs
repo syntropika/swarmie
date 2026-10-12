@@ -1,13 +1,13 @@
 #![cfg(unix)]
 use adapters::{ClaudeHarness, CodexHarness, PiHarness};
-use mpai::*;
+use swarmie::*;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
-        let path = std::env::temp_dir().join(format!("mpai-account-{}", uuid::Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!("swarmie-account-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&path).unwrap();
         Self(path)
     }
@@ -22,9 +22,9 @@ impl Fixture {
         query
             .execution
             .env
-            .insert("MPAI_QUOTA_PROVIDER".into(), provider.into());
+            .insert("SWARMIE_QUOTA_PROVIDER".into(), provider.into());
         query.execution.env.insert(
-            "MPAI_QUOTA_LEDGER".into(),
+            "SWARMIE_QUOTA_LEDGER".into(),
             self.0
                 .join(format!("{provider}.jsonl"))
                 .to_string_lossy()
@@ -102,12 +102,12 @@ async fn aggregate_retains_order_and_unsupported_and_failed_accounts() {
     empty
         .execution
         .env
-        .insert("MPAI_QUOTA_EMPTY".into(), "1".into());
+        .insert("SWARMIE_QUOTA_EMPTY".into(), "1".into());
     let mut failed = fixture.query("codex");
     failed
         .execution
         .env
-        .insert("MPAI_QUOTA_FAIL".into(), "1".into());
+        .insert("SWARMIE_QUOTA_FAIL".into(), "1".into());
     let results = runtime
         .account_quotas_all(vec![
             fixture.query("codex"),

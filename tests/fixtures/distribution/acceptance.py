@@ -35,10 +35,10 @@ def main():
     sentinel = root / "sessions-preserved.txt"
     sentinel.write_text("Owned fixture history remains outside the application.\n")
     run(install)
-    for relative in ("bin/mpai-desktop", "bin/mpai-desktop_services", "resources/index.html"):
+    for relative in ("bin/swarmie-desktop", "bin/swarmie-desktop_services", "resources/index.html"):
         assert hashlib.sha256((prefix / relative).read_bytes()).digest() == hashlib.sha256((args.package / relative).read_bytes()).digest()
-    cli = root / "bin/mpai"
-    assert run([cli, "--version"]).stdout.strip() == "mpai 0.1.0"
+    cli = root / "bin/swarmie"
+    assert run([cli, "--version"]).stdout.strip() == "swarmie 0.1.0"
     run(install)
 
     buffer = io.BytesIO()

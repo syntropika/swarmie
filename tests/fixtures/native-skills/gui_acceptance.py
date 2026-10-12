@@ -77,7 +77,7 @@ def main():
         assert {entry['path'] for entry in listed} == {str(path) for path in skills.values()}
         desktop.stop(desktop.host)
         time.sleep(0.5)
-        desktop.env['MPAI_DESKTOP_URL'] = desktop.url + '/?session=' + desktop.session
+        desktop.env['SWARMIE_DESKTOP_URL'] = desktop.url + '/?session=' + desktop.session
         desktop.launch_host()
         ready = {'display': desktop.display, 'window': desktop.window, 'sessionId': desktop.session, 'skills': listed, 'artifacts': str(out)}
         (out / 'ready.json').write_text(json.dumps(ready, indent=2) + '\n', encoding='utf-8')

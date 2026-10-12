@@ -97,7 +97,7 @@ export function SettingsPage({ store, state, shortcuts, setShortcuts, onClose, c
                                 "Choose a shortcut not assigned to another action.",
                               );
                             localStorage.setItem(
-                              "mpai.shortcuts",
+                              "swarmie.shortcuts",
                               JSON.stringify(next),
                             );
                             setShortcuts(next);
@@ -113,7 +113,7 @@ export function SettingsPage({ store, state, shortcuts, setShortcuts, onClose, c
                   variant="ghost"
                   className="small-button"
                   onClick={() => {
-                    localStorage.removeItem("mpai.shortcuts");
+                    localStorage.removeItem("swarmie.shortcuts");
                     setShortcuts({ ...defaultShortcuts });
                   }}
                 >

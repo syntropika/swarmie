@@ -16,19 +16,19 @@ fn localOrigin(url: []const u8) ![]const u8 {
 }
 
 pub fn main(init: std.process.Init) !void {
-    if (init.environ_map.get("MPAI_DESKTOP_MANAGED") == null and init.environ_map.get("MPAI_DESKTOP_URL") == null) {
+    if (init.environ_map.get("SWARMIE_DESKTOP_MANAGED") == null and init.environ_map.get("SWARMIE_DESKTOP_URL") == null) {
         if (try launchPackaged(init)) return;
     }
-    const url = init.environ_map.get("MPAI_DESKTOP_URL") orelse default_url;
+    const url = init.environ_map.get("SWARMIE_DESKTOP_URL") orelse default_url;
     const origin = try localOrigin(url);
     const origins = [_][]const u8{origin};
-    var client_bridge: ClientBridge = .{ .io = init.io, .origin = origin, .token = init.environ_map.get("MPAI_DESKTOP_IPC_TOKEN") };
+    var client_bridge: ClientBridge = .{ .io = init.io, .origin = origin, .token = init.environ_map.get("SWARMIE_DESKTOP_IPC_TOKEN") };
     const commands = [_]native.BridgeCommandPolicy{.{ .name = "swarmie.client", .origins = &origins }};
     const handlers = [_]native.bridge.AsyncHandler{.{ .name = "swarmie.client", .context = &client_bridge, .invoke_fn = ClientBridge.invoke }};
-    try runner.runWithOptions(.{ .context = &client_bridge, .name = "mpai-desktop", .source = native.WebViewSource.url(url), .start_fn = ClientBridge.start, .event_fn = ClientBridge.event, .stop_fn = ClientBridge.stop }, .{
-        .app_name = "mpai-desktop",
-        .window_title = "mpai",
-        .bundle_id = "dev.mpai.desktop",
+    try runner.runWithOptions(.{ .context = &client_bridge, .name = "swarmie-desktop", .source = native.WebViewSource.url(url), .start_fn = ClientBridge.start, .event_fn = ClientBridge.event, .stop_fn = ClientBridge.stop }, .{
+        .app_name = "swarmie-desktop",
+        .window_title = "swarmie",
+        .bundle_id = "dev.swarmie.desktop",
         .icon_path = "assets/icon.png",
         .default_frame = native.geometry.RectF.init(0, 0, 1440, 900),
         // Embedded project and extension content must never reach privileged SDK commands.
@@ -74,10 +74,10 @@ fn launchPackaged(init: std.process.Init) !bool {
 }
 
 test "packaged host resolves its own daemon and assets without a working-directory dependency" {
-    const paths = try packagePaths(std.testing.allocator, "/opt/mpai/bin/mpai-desktop");
+    const paths = try packagePaths(std.testing.allocator, "/opt/swarmie/bin/swarmie-desktop");
     defer std.testing.allocator.free(paths.service);
     defer std.testing.allocator.free(paths.assets);
-    try std.testing.expectEqualStrings("/opt/mpai/bin/mpai-desktop_services", paths.service);
+    try std.testing.expectEqualStrings("/opt/swarmie/bin/swarmie-desktop_services", paths.service);
     try std.testing.expect(std.mem.endsWith(u8, paths.assets, if (builtin.os.tag == .macos) "/Resources" else "/resources"));
 }
 

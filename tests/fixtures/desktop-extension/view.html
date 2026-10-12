@@ -14,9 +14,9 @@
     const checks = {revision};
     const output = document.getElementById("result");
     try {
-      checks.ownCommand = await window.mpai.invoke("fixture.echo", {message: "Hello from extension HTML " + revision});
+      checks.ownCommand = await window.swarmie.invoke("fixture.echo", {message: "Hello from extension HTML " + revision});
       try {
-        await window.mpai.invoke("files.list", {projectId: "/"});
+        await window.swarmie.invoke("files.list", {projectId: "/"});
         checks.foreignCommand = "UNEXPECTEDLY ALLOWED";
       } catch (error) { checks.foreignCommand = String(error.message); }
       try { void parent.document.body; checks.parentDocument = "UNEXPECTEDLY ACCESSIBLE"; }
@@ -29,7 +29,7 @@
       checks.bearerInDocument = /Bearer\s+[A-Za-z0-9]/.test(document.documentElement.outerHTML);
       output.textContent = JSON.stringify(checks, null, 2);
       output.className = "pass";
-      await window.mpai.invoke("fixture.receipt", checks);
+      await window.swarmie.invoke("fixture.receipt", checks);
     } catch (error) { output.textContent = String(error); }
   }
   document.getElementById("run").addEventListener("click", run);

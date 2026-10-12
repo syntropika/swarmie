@@ -1,4 +1,4 @@
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -63,7 +63,7 @@ impl Bridge {
     async fn handle(&self, request: &Value) -> Result<Value> {
         match request["method"].as_str().unwrap_or_default() {
             "initialize" => Ok(
-                json!({"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"mpai-extension-tools","version":env!("CARGO_PKG_VERSION")}}),
+                json!({"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"swarmie-extension-tools","version":env!("CARGO_PKG_VERSION")}}),
             ),
             "ping" => Ok(json!({})),
             "tools/list" => {

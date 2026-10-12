@@ -1,13 +1,13 @@
 #![cfg(unix)]
 use adapters::AcpHarness;
-use mpai::*;
+use swarmie::*;
 use serde_json::{Value, json};
 use std::{path::PathBuf, time::Duration};
 
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
-        let p = std::env::temp_dir().join(format!("mpai-acp-ext-{}", uuid::Uuid::new_v4()));
+        let p = std::env::temp_dir().join(format!("swarmie-acp-ext-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&p).unwrap();
         Self(p)
     }

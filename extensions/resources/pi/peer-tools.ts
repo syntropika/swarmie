@@ -1,22 +1,22 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 
-/** Explicit native Pi tool bridge. Configure MPAI_RPC_URL and optional MPAI_TOKEN. */
+/** Explicit native Pi tool bridge. Configure SWARMIE_RPC_URL and optional SWARMIE_TOKEN. */
 export default function (pi: ExtensionAPI) {
-  const endpoint = process.env.MPAI_RPC_URL;
+  const endpoint = process.env.SWARMIE_RPC_URL;
   if (!endpoint) return;
   const allowed = new Set(["peers.spawn", "peers.read", "peers.send", "fanout.start", "fanout.status", "fanout.cancel"]);
   let nextId = 1;
   async function rpc(command: string, args: unknown, signal?: AbortSignal) {
     const response = await fetch(endpoint!, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...(process.env.MPAI_TOKEN ? { Authorization: `Bearer ${process.env.MPAI_TOKEN}` } : {}) },
+      headers: { "Content-Type": "application/json", ...(process.env.SWARMIE_TOKEN ? { Authorization: `Bearer ${process.env.SWARMIE_TOKEN}` } : {}) },
       body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method: "extension/invoke", params: { extensionId: "resources", command, arguments: args } }),
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
     });
-    if (!response.ok) throw new Error(`mpai HTTP ${response.status}`);
+    if (!response.ok) throw new Error(`swarmie HTTP ${response.status}`);
     const body = await response.json();
-    if (body.error) throw new Error(`mpai: ${body.error.message}`);
+    if (body.error) throw new Error(`swarmie: ${body.error.message}`);
     return body.result;
   }
   pi.on("session_start", async () => {

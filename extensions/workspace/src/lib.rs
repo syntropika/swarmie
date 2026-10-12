@@ -8,7 +8,7 @@ mod terminal;
 mod windows;
 
 use async_trait::async_trait;
-use mpai::{Error, ExtensionCommand, ExtensionView, Result, RuntimeExtension};
+use swarmie::{Error, ExtensionCommand, ExtensionView, Result, RuntimeExtension};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -176,8 +176,8 @@ impl RuntimeExtension for WorkspaceExtension {
     fn id(&self) -> &str {
         "workspace"
     }
-    fn tools(&self) -> Vec<mpai::HostTool> {
-        vec![mpai::HostTool {
+    fn tools(&self) -> Vec<swarmie::HostTool> {
+        vec![swarmie::HostTool {
             id: "read_file".into(),
             description:
                 "Read a bounded UTF-8 file relative to the host-selected session directory.".into(),
@@ -191,7 +191,7 @@ impl RuntimeExtension for WorkspaceExtension {
         &self,
         tool: &str,
         arguments: Value,
-        context: &mpai::HostToolContext,
+        context: &swarmie::HostToolContext,
     ) -> Result<Value> {
         if tool != "read_file" {
             return Err(Error::Unsupported(format!("workspace host tool {tool}")));
@@ -290,7 +290,7 @@ impl RuntimeExtension for WorkspaceExtension {
         &self,
         command: &str,
         p: &Value,
-        context: Option<&mpai::ContextStatus>,
+        context: Option<&swarmie::ContextStatus>,
     ) -> Result<()> {
         let Some(context) = context else {
             return Ok(());

@@ -4,7 +4,7 @@ use crate::{
     repository::{git, utf8},
     required,
 };
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use serde_json::{Value, json};
 use std::{path::Path, process::Stdio, time::Duration};
 use tokio::{io::AsyncReadExt, process::Command};

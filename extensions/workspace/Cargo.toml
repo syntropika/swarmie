@@ -1,11 +1,11 @@
 [package]
-name = "mpai-workspace"
+name = "swarmie-workspace"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-mpai.workspace = true
+swarmie.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
 serde_json.workspace = true

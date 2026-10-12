@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use mpai::*;
+use swarmie::*;
 use serde_json::{Value, json};
 use std::{
     sync::{

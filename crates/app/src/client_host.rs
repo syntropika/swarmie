@@ -6,7 +6,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
-use mpai::{Error, Result, SessionStore};
+use swarmie::{Error, Result, SessionStore};
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
@@ -157,7 +157,7 @@ async fn dispatch(host: &Host, path: &str, request: Value) -> Result<Value> {
 }
 async fn cache_request(host: &Host, request: Value) -> Result<Value> {
     use sha2::{Digest, Sha256};
-    let identity: mpai::LocalStoreIdentity =
+    let identity: swarmie::LocalStoreIdentity =
         serde_json::from_value(request["params"]["node"].clone())?;
     if [
         &identity.environment_id,
@@ -467,7 +467,7 @@ mod tests {
     use super::*;
     async fn fixture(root: &std::path::Path) -> (Endpoint, tokio::task::JoinHandle<Result<()>>) {
         let service = protocol::RuntimeService::new(
-            mpai::RuntimeBuilder::default()
+            swarmie::RuntimeBuilder::default()
                 .store(storage::SqliteSessionStore::new(root).await.unwrap())
                 .build(),
         );

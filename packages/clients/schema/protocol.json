@@ -4272,7 +4272,7 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "mpai runtime protocol",
+  "title": "swarmie runtime protocol",
   "x-event": {
     "$ref": "#/$defs/RuntimeEvent"
   },

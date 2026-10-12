@@ -1,6 +1,6 @@
-use mpai::Runtime;
-use mpai::TurnOutcome;
-use mpai_git::GitExtension;
+use swarmie::Runtime;
+use swarmie::TurnOutcome;
+use swarmie_git::GitExtension;
 use protocol::RuntimeService;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -25,7 +25,7 @@ fn repository(path: &Path) {
     git(path, &["add", "."]);
     git(path, &["commit", "-m", "Initial fixture"]);
 }
-async fn invoke(service: &RuntimeService, command: &str, arguments: Value) -> mpai::Result<Value> {
+async fn invoke(service: &RuntimeService, command: &str, arguments: Value) -> swarmie::Result<Value> {
     service
         .invoke(
             "extension/invoke",
@@ -197,7 +197,7 @@ async fn review_handles_renames_binary_files_symlinks_and_bounded_patches() {
 
 #[tokio::test]
 async fn review_scopes_stage_literal_names_and_keep_turn_checkpoints_isolated() {
-    use mpai::{
+    use swarmie::{
         Capabilities, EventKind, NativeSessionRef, Prompt, RuntimeEvent, RuntimeExtension,
         SessionSnapshot, SessionState, SpawnOptions,
     };

@@ -1,4 +1,4 @@
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use serde_json::{Value, json};
 
 pub fn validate(config: &Value, descriptors: &Value) -> Result<()> {
@@ -56,11 +56,11 @@ pub fn questions(value: &Value) -> Value {
 }
 
 /// Parse the adapter's common descriptors, rejecting malformed catalogs.
-pub fn descriptors(value: Value) -> Result<Vec<mpai::SettingDescriptor>> {
+pub fn descriptors(value: Value) -> Result<Vec<swarmie::SettingDescriptor>> {
     serde_json::from_value(value)
         .map_err(|error| Error::Provider(format!("invalid configuration descriptors: {error}")))
 }
-pub fn model_descriptors(value: Value) -> Result<Vec<mpai::ModelDescriptor>> {
+pub fn model_descriptors(value: Value) -> Result<Vec<swarmie::ModelDescriptor>> {
     let mut entries = value
         .as_array()
         .cloned()

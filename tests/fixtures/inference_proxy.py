@@ -188,12 +188,12 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8092)
-    parser.add_argument("--upstream", default=os.environ.get("MPAI_FIXTURE_BASE_URL", "http://127.0.0.1:8091"))
-    parser.add_argument("--model", default=os.environ.get("MPAI_FIXTURE_MODEL", "fixture-model"))
+    parser.add_argument("--upstream", default=os.environ.get("SWARMIE_FIXTURE_BASE_URL", "http://127.0.0.1:8091"))
+    parser.add_argument("--model", default=os.environ.get("SWARMIE_FIXTURE_MODEL", "fixture-model"))
     args = parser.parse_args()
-    key = os.environ.get("MPAI_FIXTURE_API_KEY")
+    key = os.environ.get("SWARMIE_FIXTURE_API_KEY")
     if not key:
-        parser.error("MPAI_FIXTURE_API_KEY is required")
+        parser.error("SWARMIE_FIXTURE_API_KEY is required")
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     server.upstream = args.upstream.rstrip("/")
     server.api_key = key

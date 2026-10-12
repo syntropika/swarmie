@@ -68,7 +68,7 @@ impl Harness for AcpHarness {
         let (exe, args) = launch(o, &self.executable, self.args.clone());
         let (wire, mut frames) =
             spawn_json(o, &exe, &args, WireStyle::JsonRpc, environment).await?;
-        let init = wire.request("initialize",json!({"protocolVersion":1,"clientCapabilities":{},"clientInfo":{"name":"mpai","version":"0.1.0"}})).await?;
+        let init = wire.request("initialize",json!({"protocolVersion":1,"clientCapabilities":{},"clientInfo":{"name":"swarmie","version":"0.1.0"}})).await?;
         if init["protocolVersion"] != 1 {
             return Err(Error::Provider("unsupported ACP protocol version".into()));
         }

@@ -125,8 +125,8 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum",
- "mpai",
- "mpai-workspace",
+ "swarmie",
+ "swarmie-workspace",
  "protocol",
  "serde_json",
  "tokio",
@@ -407,7 +407,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mpai"
+name = "swarmie"
 version = "0.1.0"
 dependencies = [
  "async-trait",
@@ -422,13 +422,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "mpai-workspace"
+name = "swarmie-workspace"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "base64",
  "libc",
- "mpai",
+ "swarmie",
  "percent-encoding",
  "portable-pty",
  "serde_json",
@@ -523,7 +523,7 @@ dependencies = [
 name = "protocol"
 version = "0.1.0"
 dependencies = [
- "mpai",
+ "swarmie",
  "schemars",
  "serde_json",
  "tokio",

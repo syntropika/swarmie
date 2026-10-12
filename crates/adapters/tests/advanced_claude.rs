@@ -1,6 +1,6 @@
 use adapters::builtin_builder;
 use futures_util::StreamExt;
-use mpai::*;
+use swarmie::*;
 use serde_json::{Value, json};
 use std::{
     path::PathBuf,
@@ -11,7 +11,7 @@ struct Workspace(PathBuf);
 impl Workspace {
     fn new() -> Self {
         let path =
-            std::env::temp_dir().join(format!("mpai-claude-lifecycle-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("swarmie-claude-lifecycle-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&path).unwrap();
         Self(path)
     }

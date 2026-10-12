@@ -15,7 +15,7 @@ impl Daemon {
     async fn start(root: &Path, assets: bool, websocket: bool) -> Self {
         std::fs::create_dir_all(root).unwrap();
         std::fs::write(root.join("index.html"), "<div>Node fixture</div>").unwrap();
-        let mut command = Command::new(env!("CARGO_BIN_EXE_mpai"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_swarmie"));
         command.args([
             "--state-dir",
             root.join("state").to_str().unwrap(),
@@ -549,7 +549,7 @@ async fn gateway_preserves_native_error_data_and_uncertain_delivery_without_repe
     ) -> axum::response::Response {
         let target = target.lock().await.clone();
         match request["method"].as_str().unwrap() {
-            "runtime/initialize" => Json(json!({"jsonrpc":"2.0","id":request["id"],"result":{"name":"mpai","protocolVersion":"1","runtimeIdentity":target}})).into_response(),
+            "runtime/initialize" => Json(json!({"jsonrpc":"2.0","id":request["id"],"result":{"name":"swarmie","protocolVersion":"1","runtimeIdentity":target}})).into_response(),
             "session/prompt" => {
                 effects.fetch_add(1,Ordering::SeqCst);
                 // The effect has happened, but the acknowledgment is unusable.
@@ -570,7 +570,7 @@ async fn gateway_preserves_native_error_data_and_uncertain_delivery_without_repe
                         let request: Value = serde_json::from_str(&text).unwrap();
                         let target = state.0.lock().await.clone();
                         let response = match request["method"].as_str().unwrap() {
-                            "runtime/initialize" => json!({"jsonrpc":"2.0","id":request["id"],"result":{"name":"mpai","protocolVersion":"1","runtimeIdentity":target}}),
+                            "runtime/initialize" => json!({"jsonrpc":"2.0","id":request["id"],"result":{"name":"swarmie","protocolVersion":"1","runtimeIdentity":target}}),
                             "session/prompt" => { state.1.fetch_add(1, Ordering::SeqCst); let _ = socket.send(Message::Text("truncated acknowledgment".into())).await; break; },
                             _ => json!({"jsonrpc":"2.0","id":request["id"],"error":{"code":-32800,"message":"native cancellation","data":{"effectKnowledge":"accepted","provider":"fixture"}}}),
                         };

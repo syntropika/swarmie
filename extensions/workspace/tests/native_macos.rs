@@ -1,6 +1,6 @@
 #![cfg(target_os = "macos")]
-use mpai::RuntimeExtension;
-use mpai_workspace::WorkspaceExtension;
+use swarmie::RuntimeExtension;
+use swarmie_workspace::WorkspaceExtension;
 use serde_json::json;
 use std::time::Duration;
 use tokio::{
@@ -20,7 +20,7 @@ impl Drop for Shutdown {
 #[tokio::test]
 #[ignore = "Requires an explicitly selected installed macOS simulator and opens Simulator"]
 async fn native_ios_capture_and_http_stream_use_actual_simulator_pixels() {
-    let id = std::env::var("MPAI_NATIVE_SIMULATOR_UDID")
+    let id = std::env::var("SWARMIE_NATIVE_SIMULATOR_UDID")
         .expect("select an installed simulator explicitly");
     let root = tempfile::tempdir().unwrap();
     let extension = WorkspaceExtension::new().with_storage_root(root.path());

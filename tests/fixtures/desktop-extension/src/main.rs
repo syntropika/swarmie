@@ -6,8 +6,8 @@ use axum::{
     routing::post,
 };
 use desktop_extension_fixture::HtmlExtension;
-use mpai::Runtime;
-use mpai_workspace::WorkspaceExtension;
+use swarmie::Runtime;
+use swarmie_workspace::WorkspaceExtension;
 use protocol::RuntimeService;
 use std::{net::SocketAddr, path::PathBuf};
 
@@ -81,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             service: service.clone(),
             authority,
             origin: origin.clone(),
-            token: std::env::var("MPAI_FIXTURE_TOKEN")
+            token: std::env::var("SWARMIE_FIXTURE_TOKEN")
                 .ok()
                 .filter(|value| !value.is_empty()),
         })

@@ -1,5 +1,5 @@
 //! Translate terminal native facts without treating unfamiliar reasons as success.
-use mpai::TurnOutcome;
+use swarmie::TurnOutcome;
 use serde_json::Value;
 
 pub(crate) fn acp(reason: Option<&str>) -> TurnOutcome {

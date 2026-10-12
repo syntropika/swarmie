@@ -21,7 +21,7 @@ export class WorkspaceCache {
         ),
       );
     return (this.database ??= new Promise((resolve, reject) => {
-      const request = indexedDB.open("mpai.desktop.cache", 1);
+      const request = indexedDB.open("swarmie.desktop.cache", 1);
       request.onupgradeneeded = () => {
         request.result.createObjectStore("workspace");
       };
@@ -30,7 +30,7 @@ export class WorkspaceCache {
         reject(request.error ?? new Error("Cannot open attachment storage."));
       request.onblocked = () =>
         reject(
-          new Error("Close other mpai windows to update attachment storage."),
+          new Error("Close other swarmie windows to update attachment storage."),
         );
     }));
   }

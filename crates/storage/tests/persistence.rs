@@ -1,4 +1,4 @@
-use mpai::*;
+use swarmie::*;
 use storage::SqliteSessionStore;
 
 fn snapshot(id: &str) -> SessionSnapshot {

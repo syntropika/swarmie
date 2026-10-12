@@ -14,7 +14,7 @@ mod transport;
 mod update;
 use clap::{Parser, Subcommand, ValueEnum};
 use futures_util::StreamExt;
-use mpai::*;
+use swarmie::*;
 use protocol::RuntimeService;
 use serde_json::Value;
 use std::{collections::VecDeque, path::PathBuf, time::Duration};
@@ -22,7 +22,7 @@ use storage::SqliteSessionStore;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 #[derive(Parser)]
-#[command(name = "mpai", version, about = "Headless multi-harness agent runtime")]
+#[command(name = "swarmie", version, about = "Headless multi-harness agent runtime")]
 struct Cli {
     /// Application data root. Defaults to ~/.swarmie on the runtime node.
     #[arg(long, global = true)]
@@ -97,9 +97,9 @@ enum Commands {
         url: String,
         #[arg(long, default_value = "resources")]
         extension: String,
-        #[arg(long, env = "MPAI_TOKEN")]
+        #[arg(long, env = "SWARMIE_TOKEN")]
         token: Option<String>,
-        #[arg(long, env = "MPAI_TOOL_CHANNEL")]
+        #[arg(long, env = "SWARMIE_TOOL_CHANNEL")]
         host_channel: Option<String>,
     },
     /// List harness installations without launching them.
@@ -171,9 +171,9 @@ enum Commands {
         mock_script: Option<PathBuf>,
         /// Optional policy for surfaced permission requests: ask, accept-edits, auto-approve, deny.
         #[arg(long)]
-        permission_policy: Option<mpai_permissions::PolicyMode>,
+        permission_policy: Option<swarmie_permissions::PolicyMode>,
         /// Bearer token required by WebSocket clients. Mandatory for non-loopback listeners.
-        #[arg(long, env = "MPAI_TOKEN")]
+        #[arg(long, env = "SWARMIE_TOKEN")]
         token: Option<String>,
         /// Read a bearer token from a private file.
         #[arg(long, conflicts_with = "token")]
@@ -190,7 +190,7 @@ enum Commands {
         method: String,
         #[arg(long, default_value = "{}")]
         params: String,
-        #[arg(long, env = "MPAI_TOKEN")]
+        #[arg(long, env = "SWARMIE_TOKEN")]
         token: Option<String>,
     },
 }
@@ -215,7 +215,7 @@ fn main() -> std::process::ExitCode {
     {
         Ok(runtime) => runtime,
         Err(error) => {
-            eprintln!("mpai: {error}");
+            eprintln!("swarmie: {error}");
             return std::process::ExitCode::FAILURE;
         }
     };
@@ -226,7 +226,7 @@ fn main() -> std::process::ExitCode {
     match result {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("mpai: {error}");
+            eprintln!("swarmie: {error}");
             std::process::ExitCode::FAILURE
         }
     }
@@ -313,11 +313,11 @@ async fn entry() -> Result<()> {
                 } => {
                     if let Some(path) = resources_root {
                         builder =
-                            builder.extension(mpai_resources::ResourcesExtension::open(path)?);
+                            builder.extension(swarmie_resources::ResourcesExtension::open(path)?);
                     }
                     if let Some(mode) = permission_policy {
                         builder = builder
-                            .extension(mpai_permissions::PermissionPolicyExtension::new(*mode));
+                            .extension(swarmie_permissions::PermissionPolicyExtension::new(*mode));
                     }
                     if let Some(path) = mock_script {
                         use tokio::io::AsyncReadExt;
@@ -330,15 +330,15 @@ async fn entry() -> Result<()> {
                         if bytes.len() > 1024 * 1024 {
                             return Err(Error::Invalid("mock script exceeds 1 MiB".into()));
                         }
-                        let script: mpai::mock::MockScript = serde_json::from_slice(&bytes)?;
-                        builder = builder.harness(mpai::mock::MockHarness::new(script));
+                        let script: swarmie::mock::MockScript = serde_json::from_slice(&bytes)?;
+                        builder = builder.harness(swarmie::mock::MockHarness::new(script));
                     }
                     if let Some(path) = git_worktrees {
-                        builder = builder.extension(mpai_git::GitExtension::new(path).await?);
+                        builder = builder.extension(swarmie_git::GitExtension::new(path).await?);
                     }
                     if *workbench || desktop_assets.is_some() {
                         builder = builder.extension(
-                            mpai_workspace::WorkspaceExtension::new()
+                            swarmie_workspace::WorkspaceExtension::new()
                                 .with_storage_root(root.join("desktop")),
                         );
                     }

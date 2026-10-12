@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.native-sdk.dev/app/v1.json",
-  "id": "dev.mpai.desktop",
-  "name": "mpai-desktop",
-  "display_name": "mpai",
+  "id": "dev.swarmie.desktop",
+  "name": "swarmie-desktop",
+  "display_name": "Swarmie",
   "description": "A native workspace for agent sessions and Git review.",
   "version": "0.1.0",
   "icons": [
@@ -23,7 +23,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "mpai",
+        "title": "Swarmie",
         "width": 1440,
         "height": 900,
         "views": [

@@ -337,9 +337,9 @@ pub(crate) struct HostTools {
 }
 impl HostTools {
     pub(crate) fn transport(&self, server: McpServer) -> Result<()> {
-        if server.name != "mpai_host" || !matches!(server.transport, McpTransport::Stdio { .. }) {
+        if server.name != "swarmie_host" || !matches!(server.transport, McpTransport::Stdio { .. }) {
             return Err(Error::Invalid(
-                "host tool delivery requires the reserved mpai_host stdio server".into(),
+                "host tool delivery requires the reserved swarmie_host stdio server".into(),
             ));
         }
         *self.transport.lock().unwrap() = Some(server);
@@ -372,7 +372,7 @@ impl HostTools {
             .any(|s| s.name == server.name)
         {
             return Err(Error::Invalid(
-                "mpai_host is reserved for host tool delivery".into(),
+                "swarmie_host is reserved for host tool delivery".into(),
             ));
         }
         let mut definitions = BTreeMap::new();
@@ -447,7 +447,7 @@ impl HostTools {
         let McpTransport::Stdio { env, .. } = &mut server.transport else {
             unreachable!()
         };
-        env.insert("MPAI_TOOL_CHANNEL".into(), token.clone());
+        env.insert("SWARMIE_TOOL_CHANNEL".into(), token.clone());
         let mut channels = self.channels.lock().unwrap();
         channels.retain(|_, scope| scope.strong_count() > 0);
         channels.insert(token, Arc::downgrade(&scope));

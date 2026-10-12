@@ -4,7 +4,7 @@ import asyncio, json, os, pathlib, sys
 
 forward=sys.argv[sys.argv.index('-L')+1].split(':')
 local=int(forward[1]);remote=int(forward[3])
-log=pathlib.Path(os.environ['MPAI_SSH_FIXTURE_LOG'])
+log=pathlib.Path(os.environ['SWARMIE_SSH_FIXTURE_LOG'])
 with log.open('a') as output:output.write(json.dumps({'pid':os.getpid(),'localPort':local,'remotePort':remote})+'\n')
 async def pump(reader,writer):
     try:

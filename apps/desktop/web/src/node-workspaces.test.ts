@@ -28,7 +28,7 @@ beforeEach(() => {
     const request = JSON.parse(options.body as string);
     requests.push({ path, ...request });
     const result = request.method === "runtime/initialize"
-      ? { name: "mpai", protocolVersion: "1", runtimeIdentity: targets[path] }
+      ? { name: "swarmie", protocolVersion: "1", runtimeIdentity: targets[path] }
       : request.method === "session/events" && waitForEvents ? await waitForEvents()
       : request.method === "session/queue/list" ? { items: [], paused: false }
       : [];
@@ -147,8 +147,8 @@ it("uses the full stable tuple and rejects cached metadata with foreign identity
 
 it("keeps legacy unscoped records untouched and binds the first verified route without loading their history", async () => {
   const old = JSON.stringify({ version: 2, projects: [{ id: "old" }], threads: [{ id: "old-thread", sessionId: "session" }] });
-  local.set("mpai.workspace.v2", old);
-  local.set("mpai.runtime.target", JSON.stringify(b));
+  local.set("swarmie.workspace.v2", old);
+  local.set("swarmie.runtime.target", JSON.stringify(b));
   const store = new WorkspaceStore({ rpcPath: "/nodes/a/rpc" });
   await store.ready();
   expect(store.getSnapshot().node).toBeUndefined();
@@ -157,8 +157,8 @@ it("keeps legacy unscoped records untouched and binds the first verified route w
   expect(store.getSnapshot().node).toEqual(a);
   expect(store.getSnapshot().threads.some((thread) => thread.id === "old-thread")).toBe(false);
   await store.flushPersistence();
-  expect(local.get("mpai.workspace.v2")).toBe(old);
-  expect(local.get("mpai.runtime.target")).toBe(JSON.stringify(b));
+  expect(local.get("swarmie.workspace.v2")).toBe(old);
+  expect(local.get("swarmie.runtime.target")).toBe(JSON.stringify(b));
   expect(local.has(workspaceStorageKey(a))).toBe(true);
 });
 

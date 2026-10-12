@@ -294,8 +294,8 @@ export function Conversation({
             "",
         );
     };
-    window.addEventListener("mpai:composer-text", applyDraft);
-    return () => window.removeEventListener("mpai:composer-text", applyDraft);
+    window.addEventListener("swarmie:composer-text", applyDraft);
+    return () => window.removeEventListener("swarmie:composer-text", applyDraft);
   }, [thread.id]);
   const [checkingRecovery, setCheckingRecovery] = useState(false);
   const unresolvedSubmission = thread.submissionKeys?.some((entry) =>

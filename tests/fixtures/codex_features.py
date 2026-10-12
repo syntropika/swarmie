@@ -6,7 +6,7 @@ import sys
 import time
 import uuid
 
-ledger_path = os.environ["MPAI_FIXTURE_LEDGER"]
+ledger_path = os.environ["SWARMIE_FIXTURE_LEDGER"]
 thread = None
 pending_child = None
 submission_ids = {}
@@ -105,7 +105,7 @@ for line in sys.stdin:
             notify("thread/tokenUsage/updated", {"threadId": "child", "tokenUsage": {"total": {"totalTokens": 7}}})
             complete("parent-only", turn_id)
         elif prompt == "execution":
-            complete(json.dumps({"arguments": sys.argv[1:], "home": os.environ.get("CODEX_HOME"), "value": os.environ.get("MPAI_TEST_VALUE"), "headers": {key: value for key, value in os.environ.items() if key.startswith("MPAI_MCP_")}, "turn": params}), turn_id)
+            complete(json.dumps({"arguments": sys.argv[1:], "home": os.environ.get("CODEX_HOME"), "value": os.environ.get("SWARMIE_TEST_VALUE"), "headers": {key: value for key, value in os.environ.items() if key.startswith("SWARMIE_MCP_")}, "turn": params}), turn_id)
         elif prompt == "tool-failures":
             for tool_id, status, exit_code in [("denied", "declined", None), ("cancelled", "cancelled", None), ("failed", "completed", 2)]:
                 notify("item/started", {"threadId": thread, "item": {"id": tool_id, "type": "commandExecution", "command": "fixture", "status": "inProgress"}})
@@ -125,15 +125,15 @@ for line in sys.stdin:
         assert params["itemsView"] in ("notLoaded", "full")
         turns = list(reversed(load()[params["threadId"]]))
         offset = int(params.get("cursor") or 0)
-        size = int(os.environ.get("MPAI_FIXTURE_PAGE_SIZE", params["limit"]))
+        size = int(os.environ.get("SWARMIE_FIXTURE_PAGE_SIZE", params["limit"]))
         page = turns[offset:offset + size]
         next_cursor = str(offset + size) if offset + size < len(turns) else None
-        if os.environ.get("MPAI_FIXTURE_REPEAT_CURSOR") and params.get("cursor"):
+        if os.environ.get("SWARMIE_FIXTURE_REPEAT_CURSOR") and params.get("cursor"):
             next_cursor = params["cursor"]
             page = []
-        if os.environ.get("MPAI_FIXTURE_MISSING_TURN_ID") and page:
+        if os.environ.get("SWARMIE_FIXTURE_MISSING_TURN_ID") and page:
             page[0] = {**page[0], "id": None}
-        if os.environ.get("MPAI_FIXTURE_ACTIVE_TURN") and page:
+        if os.environ.get("SWARMIE_FIXTURE_ACTIVE_TURN") and page:
             page[0] = {**page[0], "status": "inProgress"}
         response(request, {"data": page, "nextCursor": next_cursor})
     elif method == "thread/revert":

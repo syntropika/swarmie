@@ -14,12 +14,12 @@ def send(value):
 if 'models' in sys.argv:
     send({'command': {'data': {'models': [{'id': 'fixture-model', 'label': 'Fixture model'}]}}})
     sys.exit(0)
-if os.environ.get('MPAI_FAIL_INIT') == '1':
+if os.environ.get('SWARMIE_FAIL_INIT') == '1':
     send({'event': 'result', 'result': {'status': 'ERROR', 'error': 'authentication required'}})
     sys.exit(1)
 args = sys.argv[1:]
 session = args[args.index('--conversation') + 1] if '--conversation' in args else 'native-conversation'
-if os.environ.get('MPAI_WRONG_RESUME') == '1' and '--conversation' in args:
+if os.environ.get('SWARMIE_WRONG_RESUME') == '1' and '--conversation' in args:
     session = 'wrong-conversation'
 with Path('launches.jsonl').open('a') as log:
     log.write(json.dumps({'args': args, 'pid': os.getpid(), 'session': session}) + '\n')
@@ -40,7 +40,7 @@ for line in sys.stdin:
         continue
     send({'event': 'step_update', 'step_update': {'step_index': 2, 'state': 'DONE', 'step_type': 'tool', 'tool_info': {'output': 'contents'}}})
     send({'event': 'step_update', 'step_update': {'step_index': 3, 'state': 'DONE', 'step_type': 'subagent', 'subagent_info': {'subagents': [{'conversation_id': 'child-conversation', 'type_name': 'reviewer', 'role': 'Review changes'}]}}})
-    receipt = json.dumps({'prompt': prompt, 'args': args, 'env': os.environ.get('MPAI_NATIVE_ENV'), 'pid': os.getpid(), 'session': session})
+    receipt = json.dumps({'prompt': prompt, 'args': args, 'env': os.environ.get('SWARMIE_NATIVE_ENV'), 'pid': os.getpid(), 'session': session})
     send({'event': 'step_update', 'step_update': {'step_index': 4, 'state': 'ACTIVE', 'step_type': 'agent_response', 'text_delta': receipt}})
     send({'event': 'step_update', 'step_update': {'step_index': 4, 'state': 'DONE', 'step_type': 'agent_response', 'usage': {'input_tokens': 100, 'output_tokens': 7, 'cache_read_tokens': 50, 'total_tokens': 107}}})
     result = {'status': 'SUCCESS', 'response': receipt, 'usage': {'input_tokens': 70000, 'output_tokens': 7777, 'cache_read_tokens': 50000, 'total_tokens': 77777}}

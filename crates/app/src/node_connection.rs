@@ -1,6 +1,6 @@
 //! Client-owned node registration and verified common-protocol access.
 use futures_util::{SinkExt, StreamExt};
-use mpai::{Error, LocalStoreIdentity, Result, RuntimeIdentity};
+use swarmie::{Error, LocalStoreIdentity, Result, RuntimeIdentity};
 use serde_json::{Value, json};
 use std::{path::Path, time::Duration};
 use storage::{NodeConnection, NodeTransport, SqliteSessionStore};
@@ -154,7 +154,7 @@ async fn rpc_message(url: &str, request: Value, token: Option<&str>) -> Result<V
     Ok(response)
 }
 pub fn handshake(value: &Value, expected: Option<&LocalStoreIdentity>) -> Result<RuntimeIdentity> {
-    if value["name"] != "mpai" || value["protocolVersion"] != protocol::PROTOCOL_VERSION {
+    if value["name"] != "swarmie" || value["protocolVersion"] != protocol::PROTOCOL_VERSION {
         return Err(Error::Invalid(
             "endpoint has an incompatible runtime protocol".into(),
         ));
@@ -483,7 +483,7 @@ mod tests {
     async fn registry_credentials_are_private_and_failed_update_preserves_the_original_reference() {
         let root = tempfile::tempdir().unwrap();
         let manager = ConnectionManager::open(root.path()).await.unwrap();
-        let identity = mpai::Runtime::default().identity().await.unwrap();
+        let identity = swarmie::Runtime::default().identity().await.unwrap();
         let transport = NodeTransport::Http {
             url: "http://127.0.0.1:7480/rpc".into(),
         };

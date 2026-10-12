@@ -5,7 +5,7 @@ import os
 import sys
 
 display = os.environ.get("DISPLAY", "")
-if display != os.environ.get("MPAI_GUI_PRIVATE_DISPLAY") or not display.startswith(":") or display in (":0", ":0.0", ""):
+if display != os.environ.get("SWARMIE_GUI_PRIVATE_DISPLAY") or not display.startswith(":") or display in (":0", ":0.0", ""):
     raise SystemExit("Clipboard QA requires the fixture's explicit private X display.")
 
 import gi

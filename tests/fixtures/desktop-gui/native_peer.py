@@ -6,7 +6,7 @@ import sys
 
 
 def record(value):
-    with open(os.environ["MPAI_GUI_PEER_LEDGER"], "a", encoding="utf-8") as output:
+    with open(os.environ["SWARMIE_GUI_PEER_LEDGER"], "a", encoding="utf-8") as output:
         output.write(json.dumps(value) + "\n")
 
 

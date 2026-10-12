@@ -2,7 +2,7 @@ use crate::{
     repository::{git, utf8},
     required,
 };
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -33,7 +33,7 @@ pub async fn invoke(cwd: &Path, command: &str, p: &Value) -> Result<Value> {
                 return Err(Error::Invalid("commit message exceeds 64 KiB".into()));
             }
             let path =
-                std::env::temp_dir().join(format!("mpai-commit-{}.txt", uuid::Uuid::new_v4()));
+                std::env::temp_dir().join(format!("swarmie-commit-{}.txt", uuid::Uuid::new_v4()));
             let mut options = tokio::fs::OpenOptions::new();
             options.write(true).create_new(true);
             #[cfg(unix)]

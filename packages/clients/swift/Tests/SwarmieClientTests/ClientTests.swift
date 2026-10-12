@@ -1,6 +1,6 @@
 import XCTest
 import Foundation
-@testable import MPAIClient
+@testable import SwarmieClient
 
 final class ClientTests: XCTestCase, @unchecked Sendable {
     func testJSONValueAndInputSecrets() throws {
@@ -19,14 +19,14 @@ final class ClientTests: XCTestCase, @unchecked Sendable {
     }
     func testLiveHTTPConformance() async throws {
         let env = ProcessInfo.processInfo.environment
-        guard let endpoint = env["MPAI_TEST_URL"] else { throw XCTSkip("Live daemon URL required") }
-        let client = try Client(url: XCTUnwrap(URL(string: endpoint)), options: ClientOptions(token: env["MPAI_TEST_TOKEN"]))
+        guard let endpoint = env["SWARMIE_TEST_URL"] else { throw XCTSkip("Live daemon URL required") }
+        let client = try Client(url: XCTUnwrap(URL(string: endpoint)), options: ClientOptions(token: env["SWARMIE_TEST_TOKEN"]))
         let initialized = try await client.initialize(); XCTAssertNotEqual(initialized, .null)
         let schema = try await client.schema(); XCTAssertNotNil(schema["x-methods"]?["session/create"])
         let harnesses = try await client.discover(); XCTAssertTrue(harnesses.contains { $0.harness == "mock" && $0.available })
         do { let _: JSONValue = try await client.call("not/a/method", params: [String: String]()); XCTFail("Unknown method accepted") }
         catch let error as RPCError { XCTAssertEqual(error.code, -32601) }
-        let session = try await client.spawn(InputSpawnOptions(cwd: env["MPAI_TEST_CWD"] ?? "/tmp", harness: "mock"))
+        let session = try await client.spawn(InputSpawnOptions(cwd: env["SWARMIE_TEST_CWD"] ?? "/tmp", harness: "mock"))
         do {
             XCTAssertEqual(session.capabilities.queue.source, "runtime")
             XCTAssertEqual(session.capabilities.configure.availability, "available")
@@ -63,7 +63,7 @@ final class ClientTests: XCTestCase, @unchecked Sendable {
         } catch { try? await client.close(sessionID: session.id); throw error }
         let denied = try Client(url: XCTUnwrap(URL(string: endpoint)), options: ClientOptions(token: "incorrect"))
         do { _ = try await denied.initialize(); XCTFail("Invalid auth accepted") } catch is ProtocolError { }
-        let bounded = try Client(url: XCTUnwrap(URL(string: endpoint)), options: ClientOptions(token: env["MPAI_TEST_TOKEN"], maxResponseBytes: 1024))
+        let bounded = try Client(url: XCTUnwrap(URL(string: endpoint)), options: ClientOptions(token: env["SWARMIE_TEST_TOKEN"], maxResponseBytes: 1024))
         do { _ = try await bounded.schema(); XCTFail("Byte limit ignored") } catch is ProtocolError { }
     }
 }

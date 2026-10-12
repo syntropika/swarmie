@@ -22,7 +22,7 @@ pub async fn probe(d: Detection, auth_args: Option<&[&str]>) -> Result<HarnessPr
     };
     let Some(exe) = d.executable else {
         probe.message = Some(format!(
-            "Install {} and add it to PATH, or set MPAI_{}_EXECUTABLE.",
+            "Install {} and add it to PATH, or set SWARMIE_{}_EXECUTABLE.",
             d.harness,
             d.harness.to_uppercase()
         ));

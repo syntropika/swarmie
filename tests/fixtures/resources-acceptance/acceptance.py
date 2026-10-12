@@ -106,9 +106,9 @@ class Daemon:
             sock.bind(('127.0.0.1', 0))
             port = sock.getsockname()[1]
         self.url = f'http://127.0.0.1:{port}/rpc'
-        self.env.update(MPAI_RPC_URL=self.url, MPAI_TOKEN="isolated-fixture-token")
+        self.env.update(SWARMIE_RPC_URL=self.url, SWARMIE_TOKEN="isolated-fixture-token")
         self.log = (self.out / 'daemon.log').open('a')
-        self.process = subprocess.Popen([str(self.root / 'target/debug/mpai'), '--state-dir', str(self.out / 'sessions'),
+        self.process = subprocess.Popen([str(self.root / 'target/debug/swarmie'), '--state-dir', str(self.out / 'sessions'),
             'serve', '--http', f'127.0.0.1:{port}', '--token', 'isolated-fixture-token',
             '--resources-root', str(self.out / 'resources'), '--git-worktrees', str(self.out / 'worktrees')],
             env=self.env, stdout=self.log, stderr=self.log)
@@ -220,7 +220,7 @@ def main():
     daemon = Daemon(root, out, env)
     report = {'nativeVersion': subprocess.check_output([str(pi), '--version'], env=env, text=True).strip(),
               'nativeSha256': hashlib.sha256(pi.resolve().read_bytes()).hexdigest(),
-              'daemonSha256': hashlib.sha256((root / 'target/debug/mpai').read_bytes()).hexdigest(),
+              'daemonSha256': hashlib.sha256((root / 'target/debug/swarmie').read_bytes()).hexdigest(),
               'productionAuthTested': False, 'checks': {}, 'modelPricing': models}
     sessions = set()
     try:

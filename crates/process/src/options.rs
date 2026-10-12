@@ -1,5 +1,5 @@
 use crate::WireRecording;
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use std::{collections::BTreeMap, time::Duration};
 
 #[derive(Clone, Debug, Default)]

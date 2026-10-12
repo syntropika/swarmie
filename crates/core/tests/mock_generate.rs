@@ -1,6 +1,6 @@
 use futures_util::StreamExt;
-use mpai::mock::*;
-use mpai::*;
+use swarmie::mock::*;
+use swarmie::*;
 use serde_json::{Value, json};
 use std::time::Duration;
 fn options() -> SpawnOptions {

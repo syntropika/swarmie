@@ -5,7 +5,7 @@ PROJECT=pathlib.Path(__file__).resolve().parents[2]
 def run(command,cwd=PROJECT):subprocess.run([str(x) for x in command],cwd=cwd,check=True)
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output',type=pathlib.Path,default=pathlib.Path(tempfile.gettempdir())/'mpai-distribution')
+    parser.add_argument('--output',type=pathlib.Path,default=pathlib.Path(tempfile.gettempdir())/'swarmie-distribution')
     parser.add_argument('--skip-build',action='store_true',help='Require existing release binaries and frontend assets')
     parser.add_argument('--signing',choices=['none','adhoc','identity'],default='adhoc')
     parser.add_argument('--identity')
@@ -30,10 +30,10 @@ def main():
         run(['npm','ci'],desktop)
         run(['npm','run','build:web'],desktop)
         run(['npm','exec','--','native','build'],desktop)
-    daemon=PROJECT/'target/release/mpai';host=desktop/'zig-out/bin/mpai-desktop';assets=desktop/'dist'
+    daemon=PROJECT/'target/release/swarmie';host=desktop/'zig-out/bin/swarmie-desktop';assets=desktop/'dist'
     if not all(p.is_file() for p in (daemon,host,assets/'index.html')):raise SystemExit('Build release runtime, native host and frontend first')
-    if subprocess.check_output([str(daemon),'--version'],text=True).strip()!='mpai '+version:raise SystemExit('Runtime and app manifest versions differ; rebuild matching release inputs')
-    name=f'mpai-{version}-{system}-{architecture}'
+    if subprocess.check_output([str(daemon),'--version'],text=True).strip()!='swarmie '+version:raise SystemExit('Runtime and app manifest versions differ; rebuild matching release inputs')
+    name=f'swarmie-{version}-{system}-{architecture}'
     bundle=output/(name+'.app' if system=='macos' else name)
     if bundle.exists():raise SystemExit('Output already exists: '+str(bundle))
     command=['npm','exec','--','native','package','--target',system,'--output',bundle,'--binary',host,'--service-binary',daemon,'--assets',assets,'--web-engine','system','--web-layer','include']
@@ -42,6 +42,9 @@ def main():
         if args.identity:command += ['--identity',args.identity]
         if args.notary_profile:command += ['--notarize','--notary-profile',args.notary_profile]
     run(command,desktop)
+    licenses=bundle/('Contents/Resources/licenses/swarmie' if system=='macos' else 'share/licenses/swarmie')
+    licenses.mkdir(parents=True,exist_ok=True)
+    for name in ('LICENSE','NOTICE'):shutil.copy2(PROJECT/name,licenses/name)
     if system=='linux':
         shutil.copy2(PROJECT/'scripts/distribution/install-linux.py',bundle/'install.py')
         icons=bundle/'share/icons';icons.mkdir(parents=True,exist_ok=True)

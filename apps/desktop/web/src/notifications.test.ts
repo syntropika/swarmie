@@ -47,7 +47,7 @@ it("input and completion events use stable identities without exposing answers o
       false,
     ),
   ).toEqual({
-    id: "mpai-s-2",
+    id: "swarmie-s-2",
     title: "Your agent needs an answer",
     body: "Task",
   });

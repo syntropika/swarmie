@@ -1,7 +1,7 @@
 {
-  "name": "@mpai/client",
+  "name": "@swarmie/client",
   "version": "0.1.0",
-  "description": "Typed clients for the mpai runtime protocol",
+  "description": "Typed clients for the swarmie runtime protocol",
   "type": "module",
   "license": "Apache-2.0",
   "engines": {

@@ -1,5 +1,5 @@
 use clap::Subcommand;
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use serde_json::json;
 use std::path::{Path, PathBuf};
 #[derive(Subcommand)]
@@ -33,16 +33,16 @@ fn config_dir() -> Result<PathBuf> {
     Ok(std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .unwrap_or(home()?.join(".config"))
-        .join("mpai"))
+        .join("swarmie"))
 }
 fn unit_path() -> Result<PathBuf> {
     if cfg!(target_os = "macos") {
-        Ok(home()?.join("Library/LaunchAgents/com.mpai.daemon.plist"))
+        Ok(home()?.join("Library/LaunchAgents/com.swarmie.daemon.plist"))
     } else {
         Ok(std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .unwrap_or(home()?.join(".config"))
-            .join("systemd/user/mpai.service"))
+            .join("systemd/user/swarmie.service"))
     }
 }
 fn quote_systemd(value: &str) -> Result<String> {
@@ -80,7 +80,7 @@ fn render_unit(
             .collect::<String>();
         // launchd cannot read EnvironmentFile; pass the private token file rather than embed its secret.
         Ok(format!(
-            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>Label</key><string>com.mpai.daemon</string><key>ProgramArguments</key><array>{args}<string>--token-file</string><string>{}</string></array><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>StandardErrorPath</key><string>{}</string><key>StandardOutPath</key><string>{}</string></dict></plist>\n",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>Label</key><string>com.swarmie.daemon</string><key>ProgramArguments</key><array>{args}<string>--token-file</string><string>{}</string></array><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>StandardErrorPath</key><string>{}</string><key>StandardOutPath</key><string>{}</string></dict></plist>\n",
             xml(&token_path.to_string_lossy()),
             xml(&token_path.with_extension("stderr.log").to_string_lossy()),
             xml(&token_path.with_extension("stdout.log").to_string_lossy())
@@ -92,7 +92,7 @@ fn render_unit(
             .collect::<Result<Vec<_>>>()?
             .join(" ");
         Ok(format!(
-            "[Unit]\nDescription=mpai agent daemon\nAfter=network.target\n\n[Service]\nType=simple\nExecStart={args} --token-file {}\nRestart=on-failure\nRestartSec=2\n\n[Install]\nWantedBy=default.target\n",
+            "[Unit]\nDescription=swarmie agent daemon\nAfter=network.target\n\n[Service]\nType=simple\nExecStart={args} --token-file {}\nRestart=on-failure\nRestartSec=2\n\n[Install]\nWantedBy=default.target\n",
             quote_systemd(&token_path.to_string_lossy())?
         ))
     }
@@ -129,7 +129,7 @@ async fn manager(action: &str) -> Result<()> {
             return Err(Error::Provider("could not determine launchd user".into()));
         }
         let domain = format!("gui/{}", String::from_utf8_lossy(&uid.stdout).trim());
-        let target = format!("{domain}/com.mpai.daemon");
+        let target = format!("{domain}/com.swarmie.daemon");
         let args: Vec<String> = match action {
             "start" => vec![
                 "bootstrap".into(),
@@ -146,7 +146,7 @@ async fn manager(action: &str) -> Result<()> {
             .await?
     } else {
         tokio::process::Command::new("systemctl")
-            .args(["--user", action, "mpai.service"])
+            .args(["--user", action, "swarmie.service"])
             .status()
             .await?
     };
@@ -281,12 +281,12 @@ mod tests {
     #[ignore = "writes native service unit syntax diagnostics to an explicitly supplied artifact directory"]
     fn export_native_unit_validation_artifacts() {
         let directory = PathBuf::from(
-            std::env::var_os("MPAI_UNIT_ARTIFACT_DIR")
+            std::env::var_os("SWARMIE_UNIT_ARTIFACT_DIR")
                 .expect("supply an external artifact directory"),
         );
         std::fs::create_dir_all(&directory).unwrap();
         let arguments = vec!["serve".into(), "--http".into(), "127.0.0.1:7480".into()];
-        for (name, macos) in [("mpai.service", false), ("com.mpai.daemon.plist", true)] {
+        for (name, macos) in [("swarmie.service", false), ("com.swarmie.daemon.plist", true)] {
             let unit = render_unit(
                 &std::env::current_exe().unwrap(),
                 &arguments,
@@ -301,22 +301,22 @@ mod tests {
     fn service_units_quote_arguments_and_reference_private_tokens() {
         let args = vec!["serve".into(), "--http".into(), "127.0.0.1:7480".into()];
         let linux = render_unit(
-            Path::new("/test app/mpai"),
+            Path::new("/test app/swarmie"),
             &args,
             Path::new("/test/service.token"),
             false,
         )
         .unwrap();
-        assert!(linux.contains("ExecStart=\"/test app/mpai\""));
+        assert!(linux.contains("ExecStart=\"/test app/swarmie\""));
         assert!(linux.contains("--token-file \"/test/service.token\""));
         let mac = render_unit(
-            Path::new("/test<&/mpai"),
+            Path::new("/test<&/swarmie"),
             &args,
             Path::new("/test/service.token"),
             true,
         )
         .unwrap();
-        assert!(mac.contains("/test&lt;&amp;/mpai"));
+        assert!(mac.contains("/test&lt;&amp;/swarmie"));
         assert!(mac.contains("<string>--token-file</string>"));
         assert!(!mac.contains("secret"));
     }

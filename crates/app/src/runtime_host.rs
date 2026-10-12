@@ -1,6 +1,6 @@
 //! Local execution-owner discovery and attachment, independent of client lifetime.
 use clap::Subcommand;
-use mpai::{Error, LocalStoreIdentity, Result, RuntimeIdentity};
+use swarmie::{Error, LocalStoreIdentity, Result, RuntimeIdentity};
 use protocol::RuntimeService;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -15,12 +15,12 @@ use tokio::process::{Child, Command};
 #[derive(Subcommand)]
 pub enum RuntimeCommand {
     Status {
-        #[arg(long, env = "MPAI_TOKEN")]
+        #[arg(long, env = "SWARMIE_TOKEN")]
         token: Option<String>,
     },
     /// Stop the execution owner and its native processes; retained history is preserved.
     Stop {
-        #[arg(long, env = "MPAI_TOKEN")]
+        #[arg(long, env = "SWARMIE_TOKEN")]
         token: Option<String>,
     },
 }
@@ -193,7 +193,7 @@ async fn verified(endpoint: &Endpoint, token: Option<&str>) -> Result<bool> {
     let Some(value) = request(endpoint, "runtime/initialize", token, false).await? else {
         return Ok(false);
     };
-    if value["name"] != "mpai"
+    if value["name"] != "swarmie"
         || value["protocolVersion"] != protocol::PROTOCOL_VERSION
         || value["runtimeIdentity"] != json!(endpoint.runtime_identity)
     {
@@ -322,7 +322,7 @@ pub async fn attach(root: &Path) -> Result<Endpoint> {
         .arg(root.join("worktrees"))
         .arg("--resources-root")
         .arg(root.join("resources"))
-        .env_remove("MPAI_TOKEN")
+        .env_remove("SWARMIE_TOKEN")
         .stdin(Stdio::null())
         .stdout(output.try_clone()?)
         .stderr(output);

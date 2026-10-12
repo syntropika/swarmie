@@ -4,10 +4,10 @@ use std::{collections::BTreeMap, path::Path, time::Duration};
 fn cwd() -> std::path::PathBuf {
     std::env::current_dir().unwrap()
 }
-const ECHO: &str = "import json,sys,os\nfor line in sys.stdin:\n r=json.loads(line)\n print(json.dumps({'id':r['id'],'result':{'echo':r.get('params',{}),'environment':os.environ.get('MPAI_PROCESS_FIXTURE')}}),flush=True)";
+const ECHO: &str = "import json,sys,os\nfor line in sys.stdin:\n r=json.loads(line)\n print(json.dumps({'id':r['id'],'result':{'echo':r.get('params',{}),'environment':os.environ.get('SWARMIE_PROCESS_FIXTURE')}}),flush=True)";
 #[tokio::test]
 async fn spawn_environment_is_real_isolated_and_validated() {
-    let env = BTreeMap::from([("MPAI_PROCESS_FIXTURE".into(), "child-only-value".into())]);
+    let env = BTreeMap::from([("SWARMIE_PROCESS_FIXTURE".into(), "child-only-value".into())]);
     let (process, _events) = JsonProcess::spawn_with_env(
         Path::new("python3"),
         &["-c".into(), ECHO.into()],
@@ -21,7 +21,7 @@ async fn spawn_environment_is_real_isolated_and_validated() {
         process.request("read", json!({})).await.unwrap()["environment"],
         "child-only-value"
     );
-    assert!(std::env::var_os("MPAI_PROCESS_FIXTURE").is_none());
+    assert!(std::env::var_os("SWARMIE_PROCESS_FIXTURE").is_none());
     process.close().await.unwrap();
     for env in [
         BTreeMap::from([("bad=name".into(), "value".into())]),
@@ -46,7 +46,7 @@ async fn recording_redacts_both_directions_and_stops_at_budget_nonfatally() {
     let folder = tempfile::tempdir().unwrap();
     let path = folder.path().join("wire.jsonl");
     let options = ProcessOptions {
-        environment: BTreeMap::from([("MPAI_PROCESS_FIXTURE".into(), "private-env-secret".into())]),
+        environment: BTreeMap::from([("SWARMIE_PROCESS_FIXTURE".into(), "private-env-secret".into())]),
         recording: Some(WireRecording {
             path: path.clone(),
             max_bytes: 1800,

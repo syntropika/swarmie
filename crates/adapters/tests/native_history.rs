@@ -1,11 +1,11 @@
 use adapters::{ClaudeHarness, CodexHarness, PiHarness};
-use mpai::*;
+use swarmie::*;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
-        let path = std::env::temp_dir().join(format!("mpai-history-{}", uuid::Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!("swarmie-history-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&path).unwrap();
         Self(path)
     }

@@ -1,4 +1,4 @@
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use serde_json::{Value, json};
 use std::{

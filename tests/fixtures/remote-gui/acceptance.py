@@ -102,7 +102,7 @@ def main():
         log = (out / 'remote.log').open('a')
         desktop.logs.append(log)
         remote = subprocess.Popen(['ssh', '-o', 'BatchMode=yes', args.host, shlex.join(['/usr/bin/python3', '-u', control_path,
-            args.mac_source + '/target/release/mpai', remote_out, args.mac_source + '/apps/desktop/dist', remote_base])],
+            args.mac_source + '/target/release/swarmie', remote_out, args.mac_source + '/apps/desktop/dist', remote_base])],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log, text=True, start_new_session=True)
         with socket.socket() as socket_:
             socket_.bind(('127.0.0.1', 0))
@@ -111,17 +111,17 @@ def main():
         started = control('start', active_token, browserOrigin=desktop.url)
         supervisor_log = (out / 'supervisor.log').open('a')
         desktop.logs.append(supervisor_log)
-        supervisor = subprocess.Popen([str(root / 'target/debug/mpai'), '--state-dir', str(out / 'cli-client/sessions'),
+        supervisor = subprocess.Popen([str(root / 'target/debug/swarmie'), '--state-dir', str(out / 'cli-client/sessions'),
             'remote', 'ssh', 'native-gui-fixture', args.host, '--local-port', str(port), '--remote-port', str(started['port']), '--reconnect'],
-            env={**os.environ, 'MPAI_TOKEN': active_token}, stdin=subprocess.DEVNULL,
+            env={**os.environ, 'SWARMIE_TOKEN': active_token}, stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=supervisor_log, text=True, start_new_session=True)
         desktop.children.append(supervisor)
         connected = event('ssh.connected')
         assert connected['authenticated']
         xvfb = desktop.child(['Xvfb', '-displayfd', '1', '-screen', '0', '1600x1100x24', '-nolisten', 'tcp'], pipe=True)
         desktop.display = ':' + desktop.ready(xvfb, '')
-        desktop.env.update(DISPLAY=desktop.display, MPAI_DESKTOP_URL=desktop.url + '/?project=' + started['project'],
-            MPAI_DESKTOP_MANAGED='1', XDG_DATA_HOME=str(out / 'xdg-data'), XDG_CACHE_HOME=str(out / 'xdg-cache'))
+        desktop.env.update(DISPLAY=desktop.display, SWARMIE_DESKTOP_URL=desktop.url + '/?project=' + started['project'],
+            SWARMIE_DESKTOP_MANAGED='1', XDG_DATA_HOME=str(out / 'xdg-data'), XDG_CACHE_HOME=str(out / 'xdg-cache'))
         (out / 'dbus.conf').write_text('<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd"><busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><policy context="default"><allow send_destination="*"/><allow receive_sender="*"/><allow own="*"/></policy></busconfig>')
         desktop.launch_host()
         desktop.x('windowsize', desktop.window, '1400', '1000')
@@ -164,9 +164,9 @@ def main():
                 elif action == 'owned-device':
                     result = control('owned-device', deviceId=request['deviceId'])
                 elif action == 'repair-cli':
-                    command = [str(root / 'target/debug/mpai'), '--state-dir', str(out / 'cli-client/sessions'),
+                    command = [str(root / 'target/debug/swarmie'), '--state-dir', str(out / 'cli-client/sessions'),
                         'remote', 'pair', 'native-gui-fixture', desktop.url + '/rpc']
-                    completed = subprocess.run(command, env={**desktop.env, 'MPAI_TOKEN': active_token}, capture_output=True, text=True, check=True)
+                    completed = subprocess.run(command, env={**desktop.env, 'SWARMIE_TOKEN': active_token}, capture_output=True, text=True, check=True)
                     result = json.loads(completed.stdout)
                 else:
                     result = desktop.action(request)

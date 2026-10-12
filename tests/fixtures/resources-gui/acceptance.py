@@ -98,12 +98,12 @@ def main():
         subprocess.run(command, check=True, capture_output=True)
     actions = []
     fingerprints = {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest() for path in
-        [root / 'target/debug/mpai', root / 'apps/desktop/zig-out/bin/mpai-desktop', *sorted((root / 'apps/desktop/dist').rglob('*.js'))]}
+        [root / 'target/debug/swarmie', root / 'apps/desktop/zig-out/bin/swarmie-desktop', *sorted((root / 'apps/desktop/dist').rglob('*.js'))]}
     (out / 'build.json').write_text(json.dumps(fingerprints, indent=2) + '\n')
     try:
         assets = out / 'desktop-assets'
         shutil.copytree(root / 'apps/desktop/dist', assets)
-        daemon = desktop.child([str(root / 'target/debug/mpai'), '--state-dir', str(out / 'sessions'), 'serve', '--http',
+        daemon = desktop.child([str(root / 'target/debug/swarmie'), '--state-dir', str(out / 'sessions'), 'serve', '--http',
             '127.0.0.1:0', '--desktop-assets', str(assets), '--workbench', '--git-worktrees', str(out / 'worktrees'),
             '--resources-root', str(out / 'resources')], pipe=True)
         desktop.url = desktop.ready(daemon, 'HTTP listening on ').removesuffix('/rpc')
@@ -112,8 +112,8 @@ def main():
         worktree = desktop.rpc('extension/invoke', {'extensionId': 'git', 'command': 'worktree.create', 'arguments': {'projectId': opened['id'], 'branch': 'gui-defaults'}})
         xvfb = desktop.child(['Xvfb', '-displayfd', '1', '-screen', '0', '1600x1100x24', '-nolisten', 'tcp'], pipe=True)
         desktop.display = ':' + desktop.ready(xvfb, '')
-        desktop.env.update(DISPLAY=desktop.display, MPAI_DESKTOP_URL=desktop.url + '/?project=' + urllib.parse.quote(str(desktop.project)),
-            MPAI_DESKTOP_MANAGED='1', XDG_DATA_HOME=str(out / 'xdg-data'), XDG_CACHE_HOME=str(out / 'xdg-cache'))
+        desktop.env.update(DISPLAY=desktop.display, SWARMIE_DESKTOP_URL=desktop.url + '/?project=' + urllib.parse.quote(str(desktop.project)),
+            SWARMIE_DESKTOP_MANAGED='1', XDG_DATA_HOME=str(out / 'xdg-data'), XDG_CACHE_HOME=str(out / 'xdg-cache'))
         (out / 'dbus.conf').write_text('<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd"><busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><policy context="default"><allow send_destination="*"/><allow receive_sender="*"/><allow own="*"/></policy></busconfig>')
         desktop.launch_host()
         desktop.x('windowsize', desktop.window, '1400', '1000')

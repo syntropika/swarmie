@@ -1,10 +1,10 @@
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use mpai::{
+use swarmie::{
     mock::{MockHarness, MockScript, MockStep},
     *,
 };
-use mpai_resources::ResourcesExtension;
+use swarmie_resources::ResourcesExtension;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, time::Duration};
 async fn call(runtime: &Runtime, command: &str, args: Value) -> Value {

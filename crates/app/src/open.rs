@@ -1,4 +1,4 @@
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use std::{
     path::{Path, PathBuf},
     process::Stdio,
@@ -14,7 +14,7 @@ fn native_url(url: &reqwest::Url) -> bool {
 fn packaged_host(executable: &Path) -> Option<PathBuf> {
     let directory = executable.parent()?;
     let name = executable.file_name()?.to_str()?;
-    let host = directory.join(name.strip_suffix("_services").unwrap_or("mpai-desktop"));
+    let host = directory.join(name.strip_suffix("_services").unwrap_or("swarmie-desktop"));
     host.is_file().then_some(host)
 }
 
@@ -75,8 +75,8 @@ pub async fn run(
             }
             // The existing service owns daemon lifetime; the opened window outlives this CLI invocation.
             tokio::process::Command::new(host)
-                .env("MPAI_DESKTOP_URL", parsed.as_str())
-                .env("MPAI_DESKTOP_MANAGED", "1")
+                .env("SWARMIE_DESKTOP_URL", parsed.as_str())
+                .env("SWARMIE_DESKTOP_MANAGED", "1")
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
@@ -124,13 +124,13 @@ mod tests {
     #[test]
     fn packaged_services_resolve_the_sibling_native_host() {
         let directory = tempfile::tempdir().unwrap();
-        let host = directory.path().join("mpai-desktop");
+        let host = directory.path().join("swarmie-desktop");
         std::fs::write(&host, []).unwrap();
         assert_eq!(
-            packaged_host(&directory.path().join("mpai-desktop_services")),
+            packaged_host(&directory.path().join("swarmie-desktop_services")),
             Some(host.clone())
         );
-        assert_eq!(packaged_host(&directory.path().join("mpai")), Some(host));
-        assert_eq!(packaged_host(Path::new("/missing/mpai")), None);
+        assert_eq!(packaged_host(&directory.path().join("swarmie")), Some(host));
+        assert_eq!(packaged_host(Path::new("/missing/swarmie")), None);
     }
 }

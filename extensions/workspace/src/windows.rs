@@ -1,6 +1,6 @@
 //! Operating-system window metadata, capture and accessibility context.
 use crate::{WorkspaceExtension, assets, command, required};
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 fn program(extension: &WorkspaceExtension, name: &str) -> PathBuf {

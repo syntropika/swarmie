@@ -1,5 +1,5 @@
-// Package mpai provides a bounded HTTP JSON-RPC client for the local runtime.
-package mpai
+// Package swarmie provides a bounded HTTP JSON-RPC client for the local runtime.
+package swarmie
 
 import (
 	"bytes"
@@ -250,4 +250,4 @@ func (c *Client) WaitForTurn(ctx context.Context, sessionID string, options Even
 }
 
 // String returns only the endpoint and deliberately excludes the bearer token.
-func (c *Client) String() string { return "MPAIClient(" + strings.Split(c.endpoint, "?")[0] + ")" }
+func (c *Client) String() string { return "SwarmieClient(" + strings.Split(c.endpoint, "?")[0] + ")" }

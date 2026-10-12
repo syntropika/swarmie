@@ -1,5 +1,5 @@
 use futures_util::{SinkExt, StreamExt};
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use protocol::{RuntimeService, notification, rpc_error};
 use serde_json::{Value, json};
 use std::net::SocketAddr;
@@ -90,9 +90,9 @@ pub async fn http(
     };
     service
         .runtime()
-        .install_host_tool_transport(mpai::McpServer {
-            name: "mpai_host".into(),
-            transport: mpai::McpTransport::Stdio {
+        .install_host_tool_transport(swarmie::McpServer {
+            name: "swarmie_host".into(),
+            transport: swarmie::McpTransport::Stdio {
                 command: std::env::current_exe()?,
                 args: vec!["tools".into(), format!("http://{tool_address}/tools/rpc")],
                 env: Default::default(),

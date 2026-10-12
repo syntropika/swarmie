@@ -1,6 +1,6 @@
 use crate::{WorkspaceExtension, relative, required};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

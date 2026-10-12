@@ -1,4 +1,4 @@
-use mpai::*;
+use swarmie::*;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc};
 use tokio::sync::RwLock;
@@ -112,7 +112,7 @@ impl RuntimeService {
                     .await?
             )),
             "runtime/initialize" => Ok(
-                json!({"name":"mpai","version":env!("CARGO_PKG_VERSION"),"protocolVersion":PROTOCOL_VERSION,"methods":METHODS,"eventHistoryLimit":4096,"transcriptDurability":self.runtime.transcript_durability(),"runtimeIdentity":self.runtime.identity().await?}),
+                json!({"name":"swarmie","version":env!("CARGO_PKG_VERSION"),"protocolVersion":PROTOCOL_VERSION,"methods":METHODS,"eventHistoryLimit":4096,"transcriptDurability":self.runtime.transcript_durability(),"runtimeIdentity":self.runtime.identity().await?}),
             ),
             "runtime/schema" => Ok(protocol_schema()),
             "runtime/discover" => Ok(serde_json::to_value(self.runtime.discover().await?)?),

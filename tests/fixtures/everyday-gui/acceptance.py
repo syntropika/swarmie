@@ -49,11 +49,11 @@ class Everyday(native.Desktop):
 
     def launch_host(self):
         self.host = self.child(["dbus-run-session", "--config-file=" + str(self.artifacts / "dbus.conf"),
-                               "--", str(self.root / "apps/desktop/zig-out/bin/mpai-desktop")],
+                               "--", str(self.root / "apps/desktop/zig-out/bin/swarmie-desktop")],
                               log="host.log", cwd=self.root / "apps/desktop")
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
-            result = subprocess.run(["xdotool", "search", "--onlyvisible", "--name", "^mpai$"],
+            result = subprocess.run(["xdotool", "search", "--onlyvisible", "--name", "^swarmie$"],
                                     env=self.env, capture_output=True, text=True)
             for window in reversed(result.stdout.splitlines()):
                 pid = subprocess.run(["xdotool", "getwindowpid", window], env=self.env,
@@ -80,7 +80,7 @@ class Everyday(native.Desktop):
         if len(paths) != 1:
             raise RuntimeError("Expected exactly one owned native local-storage database")
         with sqlite3.connect(str(paths[0])) as database:
-            row = database.execute("SELECT value FROM ItemTable WHERE key = ?", ("mpai.workspace.v2",)).fetchone()
+            row = database.execute("SELECT value FROM ItemTable WHERE key = ?", ("swarmie.workspace.v2",)).fetchone()
             if not row:
                 raise RuntimeError("The actual GUI has not persisted its workspace")
             raw = row[0]
@@ -89,7 +89,7 @@ class Everyday(native.Desktop):
             if mutate:
                 mutate(value)
                 database.execute("UPDATE ItemTable SET value = ? WHERE key = ?",
-                                 (json.dumps(value).encode("utf-16-le"), "mpai.workspace.v2"))
+                                 (json.dumps(value).encode("utf-16-le"), "swarmie.workspace.v2"))
             return value
 
     def action(self, request):

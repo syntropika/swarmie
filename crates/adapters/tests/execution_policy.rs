@@ -1,7 +1,7 @@
 #![cfg(unix)]
 use adapters::{AcpHarness, PiHarness, builtin_builder};
 use futures_util::StreamExt;
-use mpai::*;
+use swarmie::*;
 use serde_json::{Value, json};
 use std::{path::PathBuf, time::Duration};
 
@@ -116,7 +116,7 @@ async fn restrictive_and_external_native_policies_never_become_full_access_and_k
         options
             .execution
             .env
-            .insert("MPAI_POLICY_OBSERVATION".into(), policy.to_string());
+            .insert("SWARMIE_POLICY_OBSERVATION".into(), policy.to_string());
         let agent = runtime.spawn(options).await.unwrap();
         let receipt = agent
             .configure(json!({"approvalPolicy":"never"}))

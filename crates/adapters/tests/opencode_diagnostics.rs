@@ -1,6 +1,6 @@
 #![cfg(unix)]
 use adapters::OpenCodeHarness;
-use mpai::*;
+use swarmie::*;
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -16,7 +16,7 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let path =
-            std::env::temp_dir().join(format!("mpai-http-diagnostics-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("swarmie-http-diagnostics-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&path).unwrap();
         Self { path, child: None }
     }

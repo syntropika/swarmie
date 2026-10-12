@@ -1,10 +1,10 @@
 {
-  "name": "@mpai/runtime-local",
+  "name": "@swarmie/runtime-local",
   "version": "0.1.0",
-  "description": "Local host bundle of the mpai runtime executable",
+  "description": "Local host bundle of the swarmie runtime executable",
   "license": "Apache-2.0",
   "bin": {
-    "mpai": "bin/mpai.cjs"
+    "swarmie": "bin/swarmie.cjs"
   },
   "files": [
     "bin",

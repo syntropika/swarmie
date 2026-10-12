@@ -1,5 +1,5 @@
 use crate::{METHODS, PROTOCOL_VERSION};
-use mpai::*;
+use swarmie::*;
 use schemars::{JsonSchema, SchemaGenerator, generate::SchemaSettings};
 use serde_json::{Map, Value, json};
 
@@ -215,7 +215,7 @@ pub fn protocol_schema() -> Value {
         prefix_input_refs(&mut value);
         definitions.insert(format!("Input{name}"), value);
     }
-    json!({"$schema":"https://json-schema.org/draft/2020-12/schema","title":"mpai runtime protocol","$defs":definitions,"x-protocolVersion":PROTOCOL_VERSION,"x-methods":methods,"x-event":event,"x-requestTarget":request_target})
+    json!({"$schema":"https://json-schema.org/draft/2020-12/schema","title":"swarmie runtime protocol","$defs":definitions,"x-protocolVersion":PROTOCOL_VERSION,"x-methods":methods,"x-event":event,"x-requestTarget":request_target})
 }
 fn schema<T: JsonSchema>(generator: &mut SchemaGenerator) -> Value {
     generator.subschema_for::<T>().to_value()

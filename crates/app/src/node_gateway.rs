@@ -1,6 +1,6 @@
 //! Local client gateway; remote credentials never cross the browser interface.
 use crate::node_connection::ConnectionManager;
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use protocol::RuntimeService;
 use serde_json::{Value, json};
 
@@ -15,7 +15,7 @@ enum Local {
     Runtime(RuntimeService),
     Endpoint {
         url: String,
-        identity: mpai::LocalStoreIdentity,
+        identity: swarmie::LocalStoreIdentity,
         root: std::path::PathBuf,
     },
 }
@@ -85,7 +85,7 @@ impl NodeGateway {
             }
         }
     }
-    async fn identity(&self) -> Result<mpai::RuntimeIdentity> {
+    async fn identity(&self) -> Result<swarmie::RuntimeIdentity> {
         match &self.local {
             Local::Runtime(service) => service.runtime().identity().await,
             Local::Endpoint { .. } => {
@@ -96,7 +96,7 @@ impl NodeGateway {
     }
     pub async fn control(&self, request: Value) -> Value {
         let id = request["id"].clone();
-        let target: Option<mpai::RuntimeIdentity> = request
+        let target: Option<swarmie::RuntimeIdentity> = request
             .get("expectedRuntime")
             .and_then(|value| serde_json::from_value(value.clone()).ok());
         if target.as_ref() != self.identity().await.ok().as_ref() {

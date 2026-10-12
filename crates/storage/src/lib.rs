@@ -3,7 +3,7 @@ mod local;
 mod nodes;
 use async_trait::async_trait;
 pub use bootstrap::default_data_root;
-use mpai::*;
+use swarmie::*;
 pub use nodes::{NodeCatalog, NodeConnection, NodeRecord, NodeTransport};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 

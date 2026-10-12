@@ -8,7 +8,7 @@ import stat
 import subprocess
 import sys
 
-root = Path(os.environ['MPAI_GIT_GUI_STATE']).resolve()
+root = Path(os.environ['SWARMIE_GIT_GUI_STATE']).resolve()
 args = sys.argv[1:]
 with (root / 'hosting.lock').open('a') as lock:
     fcntl.flock(lock, fcntl.LOCK_EX)

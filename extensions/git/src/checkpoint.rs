@@ -1,5 +1,5 @@
 use crate::repository::{git, git_index, utf8};
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -53,7 +53,7 @@ pub async fn capture(root: &Path, state_root: &Path) -> Result<String> {
             root,
             &[
                 "update-ref",
-                &format!("refs/mpai/checkpoints/{tree}"),
+                &format!("refs/swarmie/checkpoints/{tree}"),
                 &tree,
             ],
             false,

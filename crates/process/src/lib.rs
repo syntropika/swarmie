@@ -2,7 +2,7 @@ mod discovery;
 mod options;
 mod recording;
 pub use discovery::find_executable;
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 pub use options::{ProcessOptions, validate_environment};
 pub use recording::{Recorder, WireRecording};
 use serde_json::{Value, json};

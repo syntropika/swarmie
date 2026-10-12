@@ -20,7 +20,7 @@ for line in sys.stdin:
         if method == 'initialize':
             reply({'serverInfo': {'version': 'policy-fixture/1'}})
         elif method in ('thread/start', 'thread/resume', 'thread/fork'):
-            sandbox = json.loads(os.environ.get('MPAI_POLICY_OBSERVATION', '{"type":"readOnly","networkAccess":false}'))
+            sandbox = json.loads(os.environ.get('SWARMIE_POLICY_OBSERVATION', '{"type":"readOnly","networkAccess":false}'))
             reply({'thread': {'id': 'policy-native'}, 'approvalPolicy': params.get('approvalPolicy', 'on-request'), 'approvalsReviewer': params.get('approvalsReviewer', 'user'), 'sandbox': sandbox, 'model': 'model'})
         elif method == 'model/list':
             reply({'data': [{'id': 'model', 'model': 'model', 'displayName': 'Model'}]})

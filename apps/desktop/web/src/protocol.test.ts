@@ -155,7 +155,7 @@ it("an in-flight event page cannot reopen a closed session", async () => {
   const id = workspace.active()!.id;
   workspace.updateThread(id, { sessionId: "s" });
   rpc.mockImplementation(async (method) => {
-    if (method === "runtime/initialize") return { name: "mpai", protocolVersion: "1", runtimeIdentity: { identity: { environmentId: "e", storeId: "s", ownerScopeId: "o" }, incarnationId: "r" } } as any;
+    if (method === "runtime/initialize") return { name: "swarmie", protocolVersion: "1", runtimeIdentity: { identity: { environmentId: "e", storeId: "s", ownerScopeId: "o" }, incarnationId: "r" } } as any;
     if (method === "runtime/discover") return [{ harness: "codex", available: true }] as any;
     if (method === "extension/list") return [{ id: "git" }] as any;
     if (method === "project/list" || method === "session/list" || method === "session/transcript") return [] as any;
@@ -368,7 +368,7 @@ it("an optional review failure cannot turn an accepted provider completion into 
     .spyOn(workspace, "rpc")
     .mockImplementation(async (method) =>
       method === "runtime/initialize"
-        ? { name: "mpai", protocolVersion: "1", runtimeIdentity: { identity: { environmentId: "e", storeId: "s", ownerScopeId: "o" }, incarnationId: "r" } }
+        ? { name: "swarmie", protocolVersion: "1", runtimeIdentity: { identity: { environmentId: "e", storeId: "s", ownerScopeId: "o" }, incarnationId: "r" } }
         : method === "runtime/discover"
         ? []
         : method === "extension/list"

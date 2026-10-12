@@ -1,5 +1,5 @@
 //! Bounded direct process execution for optional local integrations.
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use std::{path::Path, process::Stdio, time::Duration};
 use tokio::{io::AsyncReadExt, process::Command};
 pub async fn binary(program: &Path, cwd: &Path, args: &[String]) -> Result<Vec<u8>> {

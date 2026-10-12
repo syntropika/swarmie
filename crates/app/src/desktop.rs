@@ -1,4 +1,4 @@
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use std::path::{Path, PathBuf};
 use tokio::process::Command;
 
@@ -24,11 +24,11 @@ pub async fn run(root: &Path, assets: PathBuf, host: PathBuf) -> Result<()> {
     );
     let mut client = Command::new(host)
         .env(
-            "MPAI_DESKTOP_URL",
+            "SWARMIE_DESKTOP_URL",
             format!("{}/?client=native", gateway.url),
         )
-        .env("MPAI_DESKTOP_IPC_TOKEN", &gateway.token)
-        .env("MPAI_DESKTOP_MANAGED", "1")
+        .env("SWARMIE_DESKTOP_IPC_TOKEN", &gateway.token)
+        .env("SWARMIE_DESKTOP_MANAGED", "1")
         .kill_on_drop(true)
         .spawn()?;
     let result = tokio::select! {

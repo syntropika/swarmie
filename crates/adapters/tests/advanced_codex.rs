@@ -1,7 +1,7 @@
 #![cfg(unix)]
 
 use adapters::CodexHarness;
-use mpai::*;
+use swarmie::*;
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -12,7 +12,7 @@ use std::{
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
-        let path = std::env::temp_dir().join(format!("mpai-codex-{}", uuid::Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!("swarmie-codex-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&path).unwrap();
         Self(path)
     }
@@ -24,7 +24,7 @@ impl Fixture {
             .unwrap();
         options.config = json!({"executable":"python3", "args":[peer]});
         options.execution.env.insert(
-            "MPAI_FIXTURE_LEDGER".into(),
+            "SWARMIE_FIXTURE_LEDGER".into(),
             self.0.join("ledger.json").to_string_lossy().into(),
         );
         options
@@ -66,7 +66,7 @@ async fn execution_maps_mcp_credentials_and_native_turn_policy() {
     options
         .execution
         .env
-        .insert("MPAI_TEST_VALUE".into(), "isolated".into());
+        .insert("SWARMIE_TEST_VALUE".into(), "isolated".into());
     options.execution.mcp_servers.push(McpServer {
         name: "fixture".into(),
         transport: McpTransport::Http {
@@ -412,7 +412,7 @@ async fn recording_reports_its_actual_path_and_resuming_creates_a_fresh_redacted
     options
         .execution
         .env
-        .insert("MPAI_TEST_VALUE".into(), "fake-recording-secret".into());
+        .insert("SWARMIE_TEST_VALUE".into(), "fake-recording-secret".into());
     options.config["diagnostics"] =
         json!({"recording":{"path":fixture.0.join("wire.jsonl"),"maxBytes":65536}});
     let mut connection = CodexHarness.connect(&options, None, false).await.unwrap();
@@ -475,7 +475,7 @@ async fn rollback_resolves_the_excluded_turn_across_native_pages_without_changin
     options
         .execution
         .env
-        .insert("MPAI_FIXTURE_PAGE_SIZE".into(), "2".into());
+        .insert("SWARMIE_FIXTURE_PAGE_SIZE".into(), "2".into());
     let mut connection = CodexHarness.connect(&options, None, false).await.unwrap();
     for text in ["first", "second", "third", "fourth", "fifth"] {
         connection
@@ -559,9 +559,9 @@ async fn invalid_rollback_counts_do_not_mutate_native_history() {
 #[tokio::test]
 async fn rollback_rejects_unusable_anchors_and_nonadvancing_pagination() {
     for fault in [
-        "MPAI_FIXTURE_MISSING_TURN_ID",
-        "MPAI_FIXTURE_ACTIVE_TURN",
-        "MPAI_FIXTURE_REPEAT_CURSOR",
+        "SWARMIE_FIXTURE_MISSING_TURN_ID",
+        "SWARMIE_FIXTURE_ACTIVE_TURN",
+        "SWARMIE_FIXTURE_REPEAT_CURSOR",
     ] {
         let fixture = Fixture::new();
         let mut options = fixture.options();
@@ -569,7 +569,7 @@ async fn rollback_rejects_unusable_anchors_and_nonadvancing_pagination() {
         options
             .execution
             .env
-            .insert("MPAI_FIXTURE_PAGE_SIZE".into(), "1".into());
+            .insert("SWARMIE_FIXTURE_PAGE_SIZE".into(), "1".into());
         let mut connection = CodexHarness.connect(&options, None, false).await.unwrap();
         for text in ["first", "second", "third"] {
             connection
@@ -801,7 +801,7 @@ async fn native_submission_reconciliation_requires_exact_identity_and_complete_u
     options
         .execution
         .env
-        .insert("MPAI_FIXTURE_PAGE_SIZE".into(), "1".into());
+        .insert("SWARMIE_FIXTURE_PAGE_SIZE".into(), "1".into());
     let connection = CodexHarness.connect(&options, None, false).await.unwrap();
     let thread = &connection.native.id;
     std::fs::write(&path, serde_json::to_vec(&json!({thread:[make_turn("target", "attempt", "completed"),make_turn("later", "unrelated", "completed")]})).unwrap()).unwrap();
@@ -816,7 +816,7 @@ async fn native_submission_reconciliation_requires_exact_identity_and_complete_u
     options
         .execution
         .env
-        .insert("MPAI_FIXTURE_REPEAT_CURSOR".into(), "1".into());
+        .insert("SWARMIE_FIXTURE_REPEAT_CURSOR".into(), "1".into());
     let connection = CodexHarness.connect(&options, None, false).await.unwrap();
     let thread = &connection.native.id;
     std::fs::write(&path, serde_json::to_vec(&json!({thread:[make_turn("target", "attempt", "completed"),make_turn("later", "unrelated", "completed")]})).unwrap()).unwrap();

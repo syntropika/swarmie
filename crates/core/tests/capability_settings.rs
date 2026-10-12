@@ -1,5 +1,5 @@
-use mpai::mock::{MockHarness, MockScript, MockStep};
-use mpai::*;
+use swarmie::mock::{MockHarness, MockScript, MockStep};
+use swarmie::*;
 use serde_json::json;
 
 #[test]

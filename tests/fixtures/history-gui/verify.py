@@ -23,7 +23,7 @@ def verify(out, require_restore=False):
     assert len(original['images']) == 1
     image = base64.b64decode(original['images'][0]['image_url']['url'].split(',', 1)[1])
     assert image == (out / 'inputs/fixture.png').read_bytes()
-    pdf = next((out / 'home/.local/state/mpai/workspace/assets').glob('*/fixture.pdf'))
+    pdf = next((out / 'home/.local/state/swarmie/workspace/assets').glob('*/fixture.pdf'))
     assert pdf.read_bytes() == (out / 'inputs/fixture.pdf').read_bytes()
     native_users = []
     for journal in (out / 'sessions').glob('*.jsonl'):

@@ -87,7 +87,7 @@ def main():
     for path in (out / 'xdg-data').rglob('localstorage.sqlite3'):
         with sqlite3.connect(f'file:{path}?mode=ro', uri=True) as connection:
             for key, value in connection.execute('SELECT key,value FROM ItemTable'):
-                if key == 'mpai.workspace.v2':
+                if key == 'swarmie.workspace.v2':
                     text = value.decode('utf-16le') if isinstance(value, bytes) else value
                     storage_found = 'gpt-5.2' in text
                     check('Decoded persistent workspace localStorage contains references, never credential values', secret not in text)

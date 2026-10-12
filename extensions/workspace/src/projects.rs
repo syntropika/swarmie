@@ -1,5 +1,5 @@
 use crate::{WorkspaceExtension, command, required};
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 pub async fn invoke(
@@ -112,5 +112,5 @@ pub fn storage_root() -> PathBuf {
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")))
         .unwrap_or_else(std::env::temp_dir)
-        .join("mpai/workspace")
+        .join("swarmie/workspace")
 }

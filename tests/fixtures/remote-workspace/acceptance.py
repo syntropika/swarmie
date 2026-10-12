@@ -78,12 +78,12 @@ def main():
     supervisor = None
     receipts, events = [], []
     report = {'checks': {}, 'host': args.host, 'nativeGuiTested': False,
-              'localDaemonSha256': hashlib.sha256((root / 'target/debug/mpai').read_bytes()).hexdigest()}
+              'localDaemonSha256': hashlib.sha256((root / 'target/debug/swarmie').read_bytes()).hexdigest()}
     clients = [out / 'client-one', out / 'client-two']
     for path in clients:
         path.mkdir(mode=0o700)
     env = os.environ.copy()
-    env.pop('MPAI_TOKEN', None)
+    env.pop('SWARMIE_TOKEN', None)
 
     def control(action, credential=None):
         remote.stdin.write(json.dumps({'action': action, **({'token': credential} if credential else {})}) + '\n')
@@ -93,8 +93,8 @@ def main():
         return value
 
     def cli(client, command, credential=None, fail=False):
-        result = subprocess.run([str(root / 'target/debug/mpai'), '--state-dir', str(client / 'sessions'), *command],
-            env=dict(env, **({'MPAI_TOKEN': credential} if credential else {})), text=True, capture_output=True, timeout=40)
+        result = subprocess.run([str(root / 'target/debug/swarmie'), '--state-dir', str(client / 'sessions'), *command],
+            env=dict(env, **({'SWARMIE_TOKEN': credential} if credential else {})), text=True, capture_output=True, timeout=40)
         receipt = {'client': client.name, 'command': command, 'exitCode': result.returncode,
                    'stdout': result.stdout, 'stderr': result.stderr}
         assert token not in json.dumps(receipt) and replacement not in json.dumps(receipt)
@@ -139,9 +139,9 @@ def main():
             socket_.bind(('127.0.0.1', 0))
             port = socket_.getsockname()[1]
         url = f'http://127.0.0.1:{port}/rpc'
-        supervisor = subprocess.Popen([str(root / 'target/debug/mpai'), '--state-dir', str(clients[0] / 'sessions'),
+        supervisor = subprocess.Popen([str(root / 'target/debug/swarmie'), '--state-dir', str(clients[0] / 'sessions'),
             'remote', 'ssh', 'remote-fixture', args.host, '--local-port', str(port), '--remote-port', str(started['port']), '--reconnect'],
-            env=dict(env, MPAI_TOKEN=token), stdout=subprocess.PIPE, stderr=log('supervisor.log'), text=True, start_new_session=True)
+            env=dict(env, SWARMIE_TOKEN=token), stdout=subprocess.PIPE, stderr=log('supervisor.log'), text=True, start_new_session=True)
         first = event('ssh.connected')
         assert first['authenticated'] is True
         assert unauthorized() == 401 and unauthorized('wrong-fixture-token') == 401
@@ -202,7 +202,7 @@ def main():
         call(clients[0], 'runtime/initialize', fail=True)
         call(clients[1], 'runtime/initialize', fail=True)
         cli(clients[1], ['remote', 'pair', 'remote-fixture', url], replacement)
-        assert call(clients[1], 'runtime/initialize')['name'] == 'mpai'
+        assert call(clients[1], 'runtime/initialize')['name'] == 'swarmie'
         project = invoke(clients[1], 'project.open', {'path': started['project']})
         assert invoke(clients[1], 'files.read', {'projectId': project['id'], 'path': 'api-written.txt'})['content'] == 'REMOTE_API_WRITE_CONFIRMED\n'
         report['checks']['tokenRevocationAndExplicitRePair'] = True

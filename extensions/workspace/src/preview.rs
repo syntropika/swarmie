@@ -1,7 +1,7 @@
 //! Bounded static preview files with a direct loopback server and scoped daemon relay.
 use crate::{WorkspaceExtension, assets, relative, required};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,

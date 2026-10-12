@@ -6,7 +6,7 @@ mod restore;
 mod setup;
 
 use async_trait::async_trait;
-use mpai::{
+use swarmie::{
     Error, EventKind, ExtensionCommand, ExtensionView, Prompt, Result, RuntimeEvent,
     RuntimeExtension, SessionSnapshot,
 };
@@ -357,7 +357,7 @@ impl RuntimeExtension for GitExtension {
         &self,
         command: &str,
         p: &Value,
-        context: Option<&mpai::ContextStatus>,
+        context: Option<&swarmie::ContextStatus>,
     ) -> Result<()> {
         let Some(context) = context else {
             return Ok(());

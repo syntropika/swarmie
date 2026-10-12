@@ -26,7 +26,7 @@ beforeEach(() => {
     const request = JSON.parse(options.body as string);
     requests.push(request);
     const result = request.method === "runtime/initialize"
-      ? { name: "mpai", protocolVersion: "1", runtimeIdentity: target }
+      ? { name: "swarmie", protocolVersion: "1", runtimeIdentity: target }
       : request.method === "session/queue/list" ? { items: [], paused: false }
       : request.method === "session/get" || request.method === "session/resume"
         ? { id: "session", state: "running", options: { harness: "mock", cwd: "/work" }, capabilities: {} }

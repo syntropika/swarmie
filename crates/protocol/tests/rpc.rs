@@ -1,4 +1,4 @@
-use mpai::Runtime;
+use swarmie::Runtime;
 use protocol::RuntimeService;
 use serde_json::json;
 #[tokio::test]
@@ -45,8 +45,8 @@ async fn json_rpc_validates_ids_params_notifications_and_batches() {
 
 #[tokio::test]
 async fn configuration_preview_reads_native_choices_without_persisting_a_chat_or_prompt() {
-    use mpai::SpawnOptions;
-    use mpai::mock::{MockHarness, MockScript};
+    use swarmie::SpawnOptions;
+    use swarmie::mock::{MockHarness, MockScript};
     let harness = MockHarness::new(MockScript {
         models: vec![json!({"id":"native-model","label":"Native Model"})],
         configuration: vec![
@@ -137,7 +137,7 @@ fn public_schema_types_capabilities_catalogs_and_configuration_receipts() {
 
 #[tokio::test]
 async fn runtime_identity_survives_client_clones_but_changes_incarnation_with_a_new_owner() {
-    let store = std::sync::Arc::new(mpai::MemoryStore::default());
+    let store = std::sync::Arc::new(swarmie::MemoryStore::default());
     let first = Runtime::builder().shared_store(store.clone()).build();
     let identity = first.identity().await.unwrap();
     assert_eq!(first.clone().identity().await.unwrap(), identity);
@@ -162,7 +162,7 @@ async fn runtime_identity_survives_client_clones_but_changes_incarnation_with_a_
 
 #[tokio::test]
 async fn target_guards_reject_stale_owners_and_other_environments_before_effects() {
-    let store = std::sync::Arc::new(mpai::MemoryStore::default());
+    let store = std::sync::Arc::new(swarmie::MemoryStore::default());
     let old = Runtime::builder()
         .shared_store(store.clone())
         .build()

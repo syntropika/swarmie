@@ -1,6 +1,6 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
-use mpai::RuntimeExtension;
-use mpai_workspace::WorkspaceExtension;
+use swarmie::RuntimeExtension;
+use swarmie_workspace::WorkspaceExtension;
 use serde_json::{Value, json};
 use std::{path::Path, time::Duration};
 use tokio::{
@@ -341,7 +341,7 @@ async fn native_adb_peer_capture_and_live_png_stream_use_actual_binary_wire() {
                     json!({"platform":"ios","id":"not-a-device"})
                 )
                 .await,
-            Err(mpai::Error::Unsupported(_))
+            Err(swarmie::Error::Unsupported(_))
         ));
     }
     let capabilities: Value = extension

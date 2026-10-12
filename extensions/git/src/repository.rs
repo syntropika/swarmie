@@ -1,4 +1,4 @@
-use mpai::{Error, Result};
+use swarmie::{Error, Result};
 use serde::Serialize;
 use std::{
     path::{Path, PathBuf},

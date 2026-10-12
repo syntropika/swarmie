@@ -4,7 +4,7 @@ import json
 import os
 import sys
 
-with open(os.environ["MPAI_GUI_PEER_LEDGER"], "a", encoding="utf-8") as output:
+with open(os.environ["SWARMIE_GUI_PEER_LEDGER"], "a", encoding="utf-8") as output:
     output.write(json.dumps({"peer": "gh", "argv": sys.argv[1:]}) + "\n")
 args = sys.argv[1:]
 if args[:2] == ["auth", "status"]:

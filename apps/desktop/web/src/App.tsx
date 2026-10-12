@@ -135,7 +135,7 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
   const [sidebar, setSidebar] = useState(() => window.innerWidth >= 760);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try {
-      const saved = Number(localStorage.getItem("mpai.sidebar-width"));
+      const saved = Number(localStorage.getItem("swarmie.sidebar-width"));
       return saved >= 220 && saved <= 360 ? saved : 290;
     } catch {
       return 290;
@@ -149,7 +149,7 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
     "projects" | "time" | "working"
   >(() => {
     try {
-      const saved = localStorage.getItem("mpai.organization");
+      const saved = localStorage.getItem("swarmie.organization");
       return saved === "time" || saved === "working" ? saved : "projects";
     } catch {
       return "projects";
@@ -173,12 +173,12 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
   const [sidebarSort, setSidebarSort] = useState<Record<"projects" | "recents" | "pinned", SidebarSort>>(() => {
     const defaults = { projects: "manual", recents: "updated_at", pinned: "manual" } as const;
     try {
-      const saved = JSON.parse(localStorage.getItem("mpai.sidebar-sorting") ?? "null");
+      const saved = JSON.parse(localStorage.getItem("swarmie.sidebar-sorting") ?? "null");
       return Object.fromEntries(Object.entries(defaults).map(([key, value]) => [key, ["manual", "updated_at"].includes(saved?.[key]) ? saved[key] : value])) as typeof defaults;
     } catch { return defaults; }
   });
   useEffect(() => {
-    try { localStorage.setItem("mpai.sidebar-sorting", JSON.stringify(sidebarSort)); }
+    try { localStorage.setItem("swarmie.sidebar-sorting", JSON.stringify(sidebarSort)); }
     catch (error) { store.setError(error); }
   }, [sidebarSort]);
   const history = useRef<string[]>([]);
@@ -223,14 +223,14 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
   useEffect(() => watchThreadTimes(state.threads, setNow), [state.threads]);
   useEffect(() => {
     try {
-      localStorage.setItem("mpai.sidebar-width", String(sidebarWidth));
+      localStorage.setItem("swarmie.sidebar-width", String(sidebarWidth));
     } catch (error) {
       store.setError(error);
     }
   }, [sidebarWidth]);
   useEffect(() => {
     try {
-      localStorage.setItem("mpai.organization", organization);
+      localStorage.setItem("swarmie.organization", organization);
     } catch (error) {
       store.setError(error);
     }
@@ -265,8 +265,8 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
   }, []);
   useEffect(() => {
     const opened = () => setPanel("extensions");
-    window.addEventListener("mpai:open-tools", opened);
-    return () => window.removeEventListener("mpai:open-tools", opened);
+    window.addEventListener("swarmie:open-tools", opened);
+    return () => window.removeEventListener("swarmie:open-tools", opened);
   }, []);
   useEffect(() => {
     const saved = active.layout?.panel;
@@ -578,7 +578,7 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
         />
         <div className="sidebar-heading">
           <Dropdown>
-            <Button variant="ghost" className="workspace-wordmark" aria-label="Workspace menu">mpai<ChevronDown size={12} /></Button>
+            <Button variant="ghost" className="workspace-wordmark" aria-label="Workspace menu">swarmie<ChevronDown size={12} /></Button>
             <Dropdown.Popover className="workspace-menu">
               <Dropdown.Menu aria-label="Workspace organization">
                 <Dropdown.Item id="projects" textValue="Group by project" onAction={() => setOrganization("projects")}>Projects{organization === "projects" && <Check size={14} />}</Dropdown.Item>

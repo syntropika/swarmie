@@ -1,7 +1,7 @@
 #![cfg(unix)]
 
 use adapters::{AcpHarness, OpenCodeHarness, PiHarness};
-use mpai::*;
+use swarmie::*;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 
@@ -10,7 +10,7 @@ use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
-        let folder = std::env::temp_dir().join(format!("mpai-contract-{}", uuid::Uuid::new_v4()));
+        let folder = std::env::temp_dir().join(format!("swarmie-contract-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&folder).unwrap();
         Self(folder)
     }
@@ -59,7 +59,7 @@ async fn pi_applies_native_execution_flags_environment_and_authoritative_context
     options
         .execution
         .env
-        .insert("MPAI_TEST_ENV".into(), "isolated".into());
+        .insert("SWARMIE_TEST_ENV".into(), "isolated".into());
     options.execution.config_home = Some(fixture.0.join("pi-home"));
     options.execution.tools = ToolPolicy::Disabled;
     options.execution.ephemeral = true;
@@ -161,7 +161,7 @@ async fn unsupported_execution_options_never_silently_start_a_provider() {
     open.config = json!({"url":"http://127.0.0.1:1"});
     open.execution
         .env
-        .insert("MPAI_TEST_ENV".into(), "cannot-inject".into());
+        .insert("SWARMIE_TEST_ENV".into(), "cannot-inject".into());
     assert!(matches!(
         OpenCodeHarness.connect(&open, None, false).await,
         Err(Error::Unsupported(_))
@@ -208,7 +208,7 @@ async fn acp_negotiates_mcp_and_retains_sparse_tool_commands_and_context_updates
     options
         .execution
         .env
-        .insert("MPAI_TEST_ENV".into(), "acp-env".into());
+        .insert("SWARMIE_TEST_ENV".into(), "acp-env".into());
     let mut connection = harness.connect(&options, None, false).await.unwrap();
     assert_eq!(
         connection.capabilities.metadata["mcpTransports"],
@@ -261,7 +261,7 @@ async fn opencode_applies_native_mcp_schema_context_and_explicit_filesystem_roll
     options
         .execution
         .env
-        .insert("MPAI_TEST_ENV".into(), "open-env".into());
+        .insert("SWARMIE_TEST_ENV".into(), "open-env".into());
     options.execution.config_home = Some(fixture.0.join("open-home"));
     options.execution.output_schema =
         Some(json!({"type":"object","properties":{"ok":{"type":"boolean"}}}));
@@ -410,7 +410,7 @@ async fn opencode_composes_native_fork_ids_and_rejects_divergent_clones() {
     options
         .execution
         .env
-        .insert("MPAI_TEST_BAD_FORK".into(), "1".into());
+        .insert("SWARMIE_TEST_BAD_FORK".into(), "1".into());
     assert!(matches!(
         OpenCodeHarness.connect(&options, Some(&saved), true).await,
         Err(Error::Provider(message)) if message.contains("selected native prefix")
