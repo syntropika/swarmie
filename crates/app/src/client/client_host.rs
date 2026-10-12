@@ -1,12 +1,13 @@
 //! Client lifetime, private native IPC endpoint and browser presentation gateway.
-use crate::{node_gateway::NodeGateway, runtime_host::Endpoint};
+use crate::{
+    client_submissions::ClientSubmissions, node_gateway::NodeGateway, runtime_host::Endpoint,
+};
 use axum::{
     Json,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
-use swarmie::{Error, Result, SessionStore};
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
@@ -14,6 +15,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use swarmie::{Error, Result, SessionStore};
 use tokio::sync::{Mutex, broadcast};
 use tokio_util::sync::CancellationToken;
 
@@ -26,6 +28,7 @@ struct Host {
     observed: Arc<Mutex<broadcast::Receiver<Value>>>,
     watched: Arc<Mutex<HashSet<String>>>,
     cache: storage::SqliteSessionStore,
+    submissions: ClientSubmissions,
 }
 struct Transfer {
     chunks: Vec<String>,
@@ -50,6 +53,8 @@ impl ClientHost {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let url = format!("http://{}", listener.local_addr()?);
         let token = uuid::Uuid::new_v4().to_string();
+        let cache = storage::SqliteSessionStore::new(root.join("client")).await?;
+        let submissions = ClientSubmissions::new(nodes.clone(), cache.clone());
         let host = Host {
             observed: Arc::new(Mutex::new(nodes.events())),
             nodes: nodes.clone(),
@@ -57,7 +62,8 @@ impl ClientHost {
             token: token.clone(),
             transfers: Default::default(),
             watched: Default::default(),
-            cache: storage::SqliteSessionStore::new(root.join("client")).await?,
+            cache,
+            submissions,
         };
         let router = axum::Router::new()
             .route("/ipc", axum::routing::post(ipc))
@@ -87,8 +93,12 @@ impl ClientHost {
                 tracing::error!("client gateway: {error}");
             }
         });
-        let monitor =
-            crate::client_monitor::spawn(host.nodes.clone(), host.watched.clone(), stop.clone());
+        let monitor = crate::client_monitor::spawn(
+            host.nodes.clone(),
+            host.watched.clone(),
+            host.submissions.clone(),
+            stop.clone(),
+        );
         Ok(Self {
             url,
             token,
@@ -126,7 +136,7 @@ async fn dispatch(host: &Host, path: &str, request: Value) -> Result<Value> {
         return Err(Error::Invalid("invalid client RPC envelope".into()));
     }
     match path {
-        "/rpc" => Ok(host.nodes.forward(host.nodes.local_id(), request).await),
+        "/rpc" => node_request(host, host.nodes.local_id(), request).await,
         "/client/rpc" => {
             if request["method"] == "nodes/disconnect" {
                 let node = request["params"]["environmentId"]
@@ -151,9 +161,26 @@ async fn dispatch(host: &Host, path: &str, request: Value) -> Result<Value> {
                 .filter(|s| !s.is_empty() && !s.contains('/') && !s.contains('%'))
                 .ok_or_else(|| Error::Invalid("invalid client RPC destination".into()))?;
             host.watched.lock().await.insert(node.to_owned());
-            Ok(host.nodes.forward(node, request).await)
+            node_request(host, node, request).await
         }
     }
+}
+async fn node_request(host: &Host, node: &str, request: Value) -> Result<Value> {
+    let id = request["id"].clone();
+    let result = match request["method"].as_str() {
+        Some("session/prompt") => host.submissions.prompt(node, request).await,
+        Some("client/submissions") => host.submissions.recover(node, request).await,
+        Some("client/sessionProjection") => {
+            crate::client_projection::restore(&host.nodes, &host.submissions, node, request).await
+        }
+        _ => return Ok(host.nodes.forward(node, request).await),
+    };
+    Ok(match result {
+        Ok(value) => value,
+        Err(error) => {
+            json!({"jsonrpc":"2.0","id":id,"error":{"code":-32001,"message":error.to_string(),"data":{"effectKnowledge":if matches!(error, Error::Invalid(_)) { "none" } else { "unknown" }}}})
+        }
+    })
 }
 async fn cache_request(host: &Host, request: Value) -> Result<Value> {
     use sha2::{Digest, Sha256};
@@ -494,6 +521,7 @@ mod tests {
                 url,
                 runtime_identity: identity,
                 desktop_assets: None,
+                local_socket: None,
                 authenticated: false,
             },
             task,

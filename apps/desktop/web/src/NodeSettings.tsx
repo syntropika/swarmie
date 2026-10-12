@@ -74,7 +74,7 @@ export function NodeSettings({ client, nodes }: { client: NodeClient; nodes: Nod
         </div>}
       </div>
       {activeView === "computer" && <p className="mt-4 text-xs leading-relaxed text-muted">The app connects to this computer automatically and retries after a temporary connection loss. Remote access from other devices is not configured here yet.</p>}
-      {remoteView && <p className="mt-4 text-xs leading-relaxed text-muted">Add a running runtime or an active SSH tunnel address. Existing chats keep their original node.</p>}
+      {remoteView && <p className="mt-4 text-xs leading-relaxed text-muted">Add a running runtime by address or through configured SSH access. Existing chats keep their original node.</p>}
     </section>
     {dialog?.kind === "add" && <AddNodeDialog client={client} onClose={() => setDialog(undefined)} />}
     {dialog?.kind === "access" && <LocalAccessDialog client={client} onClose={() => setDialog(undefined)} />}

@@ -1,9 +1,9 @@
 //! Client-owned node registration and verified common-protocol access.
 use futures_util::{SinkExt, StreamExt};
-use swarmie::{Error, LocalStoreIdentity, Result, RuntimeIdentity};
 use serde_json::{Value, json};
 use std::{path::Path, time::Duration};
 use storage::{NodeConnection, NodeTransport, SqliteSessionStore};
+use swarmie::{Error, LocalStoreIdentity, Result, RuntimeIdentity};
 use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
 
 fn endpoint(url: &str) -> Result<reqwest::Url> {
@@ -14,12 +14,15 @@ fn endpoint(url: &str) -> Result<reqwest::Url> {
             "daemon URL must not contain credentials".into(),
         ));
     }
-    if parsed.query().is_some() || parsed.fragment().is_some() {
+    if (parsed.query().is_some() && parsed.scheme() != "ssh") || parsed.fragment().is_some() {
         return Err(Error::Invalid(
             "node endpoint must not contain a query or fragment".into(),
         ));
     }
-    if !matches!(parsed.scheme(), "http" | "https" | "ws" | "wss") {
+    if !matches!(
+        parsed.scheme(),
+        "http" | "https" | "ws" | "wss" | "unix" | "ssh"
+    ) {
         return Err(Error::Invalid(
             "daemon URL requires HTTP(S) or WS(S)".into(),
         ));
@@ -139,11 +142,12 @@ async fn rpc_message(url: &str, request: Value, token: Option<&str>) -> Result<V
             let _ = socket.close(None).await;
             response
         }
-        _ => {
-            return Err(Error::Invalid(
-                "daemon URL requires HTTP(S) or WS(S)".into(),
-            ));
+        "unix" | "ssh" => {
+            let (events, _) = tokio::sync::broadcast::channel(16);
+            let peer = crate::node_channel::Channel::connect(url, token, None, events).await?;
+            peer.request(request).await?
         }
+        _ => return Err(Error::Invalid("unsupported node transport".into())),
     };
     if response["jsonrpc"] != "2.0"
         || response["id"] != request_id
@@ -235,7 +239,7 @@ impl ConnectionManager {
         url: String,
         token: Option<String>,
     ) -> Result<NodeConnection> {
-        self.pair_inner(name, url, token, false).await
+        self.pair_inner(name, url, token, false, None).await
     }
     pub async fn pair_new(
         &self,
@@ -243,7 +247,10 @@ impl ConnectionManager {
         url: String,
         token: Option<String>,
     ) -> Result<NodeConnection> {
-        self.pair_inner(name, url, token, true).await
+        self.pair_inner(name, url, token, true, None).await
+    }
+    pub async fn pair_prepared(&self, name: String, url: String, token: Option<String>, target: &RuntimeIdentity) -> Result<NodeConnection> {
+        self.pair_inner(name, url, token, true, Some(target)).await
     }
     async fn pair_inner(
         &self,
@@ -251,6 +258,7 @@ impl ConnectionManager {
         url: String,
         token: Option<String>,
         new: bool,
+        prepared: Option<&RuntimeIdentity>,
     ) -> Result<NodeConnection> {
         validate_name(&name)?;
         let previous = self.find(&name).await?;
@@ -263,9 +271,20 @@ impl ConnectionManager {
             &initialized,
             previous.as_ref().map(|connection| &connection.identity),
         )?;
+        if prepared.is_some_and(|target| target != &identity) {
+            return Err(Error::Invalid("remote runtime changed since readiness verification; check again".into()));
+        }
         let transport = match endpoint(&url)?.scheme() {
             "http" | "https" => NodeTransport::Http { url },
-            _ => NodeTransport::Websocket { url },
+            "ws" | "wss" => NodeTransport::Websocket { url },
+            "unix" => NodeTransport::LocalSocket {
+                path: crate::node_channel::socket_path(&url)?,
+            },
+            "ssh" => {
+                let (host, socket_path) = crate::node_channel::ssh_route(&url)?;
+                NodeTransport::Ssh { host, socket_path }
+            }
+            _ => return Err(Error::Invalid("unsupported node transport".into())),
         };
         self.save_verified(
             name,
@@ -459,20 +478,8 @@ impl ConnectionManager {
             .find(name)
             .await?
             .ok_or_else(|| Error::Invalid("unknown connection".into()))?;
-        let token = record
-            .credential_ref
-            .as_ref()
-            .map(|reference| {
-                crate::node_credentials::Credentials::new(self.store.root()).read(reference)
-            })
-            .transpose()?;
-        let url = record.transport.endpoint();
-        let initialized = rpc(&url, "runtime/initialize", json!({}), token.as_deref()).await?;
-        let identity = handshake(&initialized, Some(&record.identity))?;
-        self.store
-            .observe_node_connection(record.name, record.revision, now())
-            .await?;
-        rpc_targeted(&url, method, params, token.as_deref(), Some(&identity)).await
+        self.call_node(&record.identity.environment_id, method, params)
+            .await
     }
 }
 

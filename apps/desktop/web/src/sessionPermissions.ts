@@ -1,4 +1,4 @@
-import type { ExecutionPolicy, ExecutionProfile } from "../../../../packages/clients/typescript/src/generated";
+import type { ExecutionPolicy, ExecutionProfile } from "@swarmie/contracts";
 import type { Thread } from "./protocol";
 
 const unavailable = [

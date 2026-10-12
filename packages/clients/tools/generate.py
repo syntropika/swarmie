@@ -2,6 +2,7 @@
 """Generate client types and method catalogs from the daemon's canonical schema."""
 import argparse,json,pathlib,re,urllib.request
 ROOT=pathlib.Path(__file__).resolve().parents[1]
+CONTRACTS=ROOT.parent/'contracts'
 
 def ts(schema):
     if schema is True:return 'JsonValue'
@@ -114,13 +115,14 @@ def main():
         import os
         if os.environ.get('SWARMIE_TOKEN'):request.add_header('Authorization','Bearer '+os.environ['SWARMIE_TOKEN'])
         envelope=json.load(urllib.request.urlopen(request,timeout=30));schema=envelope['result']
-    else:schema=json.loads((args.schema or ROOT/'schema/protocol.json').read_text())
-    defs=schema['$defs'];methods=schema['x-methods'];files={ROOT/'schema/protocol.json':json.dumps(schema,indent=2,sort_keys=True)+'\n'}
+    else:schema=json.loads((args.schema or CONTRACTS/'protocol.json').read_text())
+    defs=schema['$defs'];methods=schema['x-methods'];files={CONTRACTS/'protocol.json':json.dumps(schema,indent=2,sort_keys=True)+'\n'}
     header='// Generated from runtime/schema. Run tools/generate.py to refresh.\n'
     code=header+'export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };\n'
     for name,value in sorted(defs.items()):code+='export type '+name+' = '+ts(value)+';\n'
     code+='export interface Methods {\n'+''.join('  '+json.dumps(name)+': { params: '+ts(value['params'])+'; result: '+ts(value['result'])+' };\n' for name,value in sorted(methods.items()))+'}\n'
-    files[ROOT/'typescript/src/generated.ts']=code
+    code+='export type { NativeClientMethods, SubmissionProjection, SessionProjection } from "./client.js";\n'
+    files[CONTRACTS/'index.d.ts']=code
     code='# Generated from runtime/schema. Run tools/generate.py to refresh.\nfrom __future__ import annotations\nfrom typing import Any, Literal, Union, TypedDict, NotRequired\n\n'
     aliases=[]
     for name,value in sorted(defs.items()):
@@ -140,7 +142,7 @@ def main():
     files[ROOT/'swift/Sources/SwarmieClient/Generated.swift']=generated_swift(defs,methods)
     for path,content in files.items():
         if args.check:
-            if not path.exists() or path.read_text()!=content:raise SystemExit(f'Generated file is stale: {path.relative_to(ROOT)}')
+            if not path.exists() or path.read_text()!=content:raise SystemExit(f'Generated file is stale: {path.relative_to(ROOT.parent)}')
         else:path.write_text(content)
     print(f'{len(methods)} methods and {len(defs)} canonical types checked' if args.check else f'Generated {len(methods)} methods and {len(defs)} canonical types')
 if __name__=='__main__':main()

@@ -127,7 +127,20 @@ async fn service_cli_installs_private_config_and_invokes_the_user_manager() {
     let manager = bin.join("systemctl");
     std::fs::write(
         &manager,
-        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$SWARMIE_MANAGER_LEDGER\"\n",
+        r#"#!/bin/sh
+printf '%s\n' "$*" >> "$SWARMIE_MANAGER_LEDGER"
+case "$2" in
+  start) touch "$SWARMIE_MANAGER_LEDGER.active" ;;
+  stop) rm -f "$SWARMIE_MANAGER_LEDGER.active" ;;
+  is-active)
+    if test -f "$SWARMIE_MANAGER_LEDGER.active"; then
+      printf 'active\n'
+    else
+      printf 'inactive\n'
+      exit 3
+    fi ;;
+esac
+"#,
     )
     .unwrap();
     std::fs::set_permissions(&manager, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -176,7 +189,17 @@ async fn service_cli_installs_private_config_and_invokes_the_user_manager() {
             .unwrap()
             .contains("127.0.0.1:7497")
     );
-    for operation in ["start", "status", "stop", "uninstall"] {
+    for operation in ["enable", "start", "status"] {
+        let output = command(vec!["service".into(), operation.into()])
+            .output().await.unwrap();
+        assert!(output.status.success());
+    }
+    let refused = command(vec!["service".into(), "uninstall".into()])
+        .output().await.unwrap();
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("service stop explicitly"));
+    assert!(unit.exists());
+    for operation in ["stop", "disable", "uninstall"] {
         let output = command(vec!["service".into(), operation.into()])
             .output()
             .await
@@ -185,6 +208,8 @@ async fn service_cli_installs_private_config_and_invokes_the_user_manager() {
     }
     assert!(!unit.exists());
     let actions = std::fs::read_to_string(ledger).unwrap();
+    assert!(actions.contains("--user enable swarmie.service"));
+    assert!(actions.contains("--user disable swarmie.service"));
     assert!(actions.contains("--user start swarmie.service"));
     assert!(actions.contains("--user status swarmie.service"));
     assert!(actions.contains("--user stop swarmie.service"));
@@ -364,351 +389,6 @@ print(json.dumps({'clientUrl':url,'runtimeIdentity':result['runtimeIdentity']}))
     assert_eq!(status["running"], false);
 }
 
-#[cfg(unix)]
-fn ssh_fixture(root: &Path) -> std::path::PathBuf {
-    use std::os::unix::fs::PermissionsExt;
-    let bin = root.join("fixture-bin");
-    std::fs::create_dir_all(&bin).unwrap();
-    let ssh = bin.join("ssh");
-    std::fs::write(&ssh, include_str!("fixtures/ssh_forward.py")).unwrap();
-    std::fs::set_permissions(ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
-    bin
-}
-#[cfg(unix)]
-async fn ssh_receipt(
-    lines: &mut tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
-    event: &str,
-) -> Value {
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while let Some(line) = lines.next_line().await.unwrap() {
-            let receipt: Value = serde_json::from_str(&line).unwrap();
-            assert!(!line.contains("supervisor-private-token"));
-            if receipt["event"] == event {
-                return receipt;
-            }
-        }
-        panic!("supervisor exited before {event}");
-    })
-    .await
-    .unwrap()
-}
-#[cfg(unix)]
-#[tokio::test]
-async fn reconnect_restores_forwarded_session_execution_and_cancellation_stops_the_backoff() {
-    let root = tempfile::tempdir().unwrap();
-    let state = root.path().join("sessions");
-    let mut daemon = Command::new(env!("CARGO_BIN_EXE_swarmie"))
-        .args([
-            "--state-dir",
-            root.path().join("daemon").to_str().unwrap(),
-            "serve",
-            "--http",
-            "127.0.0.1:0",
-            "--token",
-            "supervisor-private-token",
-            "--mock-script",
-            concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../tests/fixtures/client-script.json"
-            ),
-        ])
-        .kill_on_drop(true)
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    let remote = reqwest::Url::parse(&ready_url(&mut daemon).await)
-        .unwrap()
-        .port()
-        .unwrap();
-    let port = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    let log = root.path().join("ssh-starts.jsonl");
-    let bin = ssh_fixture(root.path());
-    let mut supervisor = Command::new(env!("CARGO_BIN_EXE_swarmie"))
-        .args([
-            "--state-dir",
-            state.to_str().unwrap(),
-            "remote",
-            "ssh",
-            "fixture",
-            "fixture-host",
-            "--local-port",
-            &port.to_string(),
-            "--remote-port",
-            &remote.to_string(),
-            "--token",
-            "supervisor-private-token",
-            "--reconnect",
-        ])
-        .env(
-            "PATH",
-            format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
-        )
-        .env("SWARMIE_SSH_FIXTURE_LOG", &log)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .unwrap();
-    let mut lines = BufReader::new(supervisor.stdout.take().unwrap()).lines();
-    let first = ssh_receipt(&mut lines, "ssh.connected").await;
-    let first_pid = first["sshPid"].as_u64().unwrap() as i32;
-    assert_eq!(unsafe { libc::kill(first_pid, libc::SIGKILL) }, 0);
-    ssh_receipt(&mut lines, "ssh.disconnected").await;
-    let retry = ssh_receipt(&mut lines, "ssh.reconnecting").await;
-    assert_eq!(retry["retryAfterMs"], 500);
-    let restored = ssh_receipt(&mut lines, "ssh.connected").await;
-    assert_eq!(restored["url"], first["url"]);
-    assert_eq!(restored["attempt"], 2);
-    assert_ne!(restored["sshPid"], first["sshPid"]);
-    let created = cli(
-        &state,
-        &[
-            "remote",
-            "call",
-            "fixture",
-            "session/create",
-            "--params",
-            &json!({"harness":"mock","cwd":root.path()}).to_string(),
-        ],
-    )
-    .await;
-    assert!(
-        created.status.success(),
-        "{}",
-        String::from_utf8_lossy(&created.stderr)
-    );
-    let session: Value = serde_json::from_slice(&created.stdout).unwrap();
-    let id = session["id"].as_str().unwrap();
-    let prompted = cli(
-        &state,
-        &[
-            "remote",
-            "call",
-            "fixture",
-            "session/prompt",
-            "--params",
-            &json!({"sessionId":id,"text":"run through restored forward","idempotencyKey":"run through restored forward"}).to_string(),
-        ],
-    )
-    .await;
-    assert!(
-        prompted.status.success(),
-        "{}",
-        String::from_utf8_lossy(&prompted.stderr)
-    );
-    let events: Value = tokio::time::timeout(Duration::from_secs(5), async {
-        loop {
-            let transcript = cli(
-                &state,
-                &[
-                    "remote",
-                    "call",
-                    "fixture",
-                    "session/transcript",
-                    "--params",
-                    &json!({"sessionId":id}).to_string(),
-                ],
-            )
-            .await;
-            assert!(transcript.status.success());
-            let events: Value = serde_json::from_slice(&transcript.stdout).unwrap();
-            if events
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|event| event["type"] == "turn.ended")
-            {
-                break events;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .unwrap();
-    assert!(
-        events
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|event| event["type"] == "text.delta" && event["data"]["text"] == "client-ready")
-    );
-    assert!(
-        events
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|event| event["type"] == "turn.ended")
-    );
-    assert_eq!(
-        unsafe { libc::kill(restored["sshPid"].as_u64().unwrap() as i32, libc::SIGKILL) },
-        0
-    );
-    let retry = ssh_receipt(&mut lines, "ssh.reconnecting").await;
-    assert_eq!(retry["retryAfterMs"], 1000);
-    assert_eq!(
-        unsafe { libc::kill(supervisor.id().unwrap() as i32, libc::SIGINT) },
-        0
-    );
-    ssh_receipt(&mut lines, "ssh.stopped").await;
-    assert!(
-        tokio::time::timeout(Duration::from_secs(2), supervisor.wait())
-            .await
-            .unwrap()
-            .unwrap()
-            .success()
-    );
-    tokio::time::sleep(Duration::from_millis(1200)).await;
-    assert_eq!(
-        std::fs::read_to_string(log).unwrap().lines().count(),
-        2,
-        "cancelled supervisor must not spawn another forward"
-    );
-    assert!(
-        tokio::net::TcpStream::connect(("127.0.0.1", port))
-            .await
-            .is_err()
-    );
-    daemon.kill().await.unwrap();
-    let _ = daemon.wait().await;
-}
-#[cfg(unix)]
-#[tokio::test]
-async fn ssh_handshake_is_promptly_cancellable_before_any_daemon_is_available() {
-    let root = tempfile::tempdir().unwrap();
-    let bin = ssh_fixture(root.path());
-    let log = root.path().join("starts.jsonl");
-    let port = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    let mut supervisor = Command::new(env!("CARGO_BIN_EXE_swarmie"))
-        .args([
-            "--state-dir",
-            root.path().join("sessions").to_str().unwrap(),
-            "remote",
-            "ssh",
-            "fixture",
-            "fixture-host",
-            "--local-port",
-            &port.to_string(),
-            "--remote-port",
-            "1",
-            "--reconnect",
-        ])
-        .env(
-            "PATH",
-            format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
-        )
-        .env("SWARMIE_SSH_FIXTURE_LOG", &log)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .kill_on_drop(true)
-        .spawn()
-        .unwrap();
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while !log.exists() {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .unwrap();
-    let started = tokio::time::Instant::now();
-    assert_eq!(
-        unsafe { libc::kill(supervisor.id().unwrap() as i32, libc::SIGINT) },
-        0
-    );
-    assert!(
-        tokio::time::timeout(Duration::from_secs(2), supervisor.wait())
-            .await
-            .unwrap()
-            .unwrap()
-            .success()
-    );
-    assert!(started.elapsed() < Duration::from_secs(2));
-    let process: Value =
-        serde_json::from_str(std::fs::read_to_string(log).unwrap().trim()).unwrap();
-    assert_eq!(
-        unsafe { libc::kill(process["pid"].as_u64().unwrap() as i32, 0) },
-        -1,
-        "owned SSH child must be reaped"
-    );
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn default_ssh_forward_exits_after_its_owned_child_drops_without_a_retry() {
-    let root = tempfile::tempdir().unwrap();
-    let bin = ssh_fixture(root.path());
-    let log = root.path().join("starts.jsonl");
-    let mut daemon = Command::new(env!("CARGO_BIN_EXE_swarmie"))
-        .args([
-            "--state-dir",
-            root.path().join("daemon").to_str().unwrap(),
-            "serve",
-            "--http",
-            "127.0.0.1:0",
-        ])
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .unwrap();
-    let remote = reqwest::Url::parse(&ready_url(&mut daemon).await)
-        .unwrap()
-        .port()
-        .unwrap();
-    let port = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    let mut supervisor = Command::new(env!("CARGO_BIN_EXE_swarmie"))
-        .args([
-            "--state-dir",
-            root.path().join("sessions").to_str().unwrap(),
-            "remote",
-            "ssh",
-            "fixture",
-            "fixture-host",
-            "--local-port",
-            &port.to_string(),
-            "--remote-port",
-            &remote.to_string(),
-        ])
-        .env_remove("SWARMIE_TOKEN")
-        .env(
-            "PATH",
-            format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
-        )
-        .env("SWARMIE_SSH_FIXTURE_LOG", &log)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .kill_on_drop(true)
-        .spawn()
-        .unwrap();
-    let mut lines = BufReader::new(supervisor.stdout.take().unwrap()).lines();
-    let connected = ssh_receipt(&mut lines, "ssh.connected").await;
-    assert_eq!(
-        unsafe { libc::kill(connected["sshPid"].as_u64().unwrap() as i32, libc::SIGKILL) },
-        0
-    );
-    assert!(
-        !tokio::time::timeout(Duration::from_secs(2), supervisor.wait())
-            .await
-            .unwrap()
-            .unwrap()
-            .success()
-    );
-    assert_eq!(std::fs::read_to_string(log).unwrap().lines().count(), 1);
-    assert!(lines.next_line().await.unwrap().is_none());
-    daemon.kill().await.unwrap();
-    let _ = daemon.wait().await;
-}
-
 async fn identity_daemon(root: &Path, address: &str) -> (Child, String) {
     let mut daemon = Command::new(env!("CARGO_BIN_EXE_swarmie"))
         .args([
@@ -868,95 +548,6 @@ async fn saved_node_reconnect_accepts_restart_but_rejects_replacement_at_the_sam
     assert_eq!(
         serde_json::from_slice::<Value>(&projects.stdout).unwrap(),
         json!([])
-    );
-    replacement.kill().await.unwrap();
-    replacement.wait().await.unwrap();
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn ssh_reconnect_rejects_a_different_environment_and_reaps_its_forward() {
-    let root = tempfile::tempdir().unwrap();
-    let state = root.path().join("client");
-    let (mut daemon, url) = identity_daemon(&root.path().join("original"), "127.0.0.1:0").await;
-    let remote_port = reqwest::Url::parse(&url).unwrap().port().unwrap();
-    let local_port = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    let bin = ssh_fixture(root.path());
-    let log = root.path().join("ssh-starts.jsonl");
-    let mut supervisor = Command::new(env!("CARGO_BIN_EXE_swarmie"))
-        .args([
-            "--state-dir",
-            state.to_str().unwrap(),
-            "remote",
-            "ssh",
-            "node",
-            "fixture-host",
-            "--local-port",
-            &local_port.to_string(),
-            "--remote-port",
-            &remote_port.to_string(),
-            "--token",
-            "identity-fixture-token",
-            "--reconnect",
-        ])
-        .env(
-            "PATH",
-            format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
-        )
-        .env("SWARMIE_SSH_FIXTURE_LOG", &log)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .unwrap();
-    let mut lines = BufReader::new(supervisor.stdout.take().unwrap()).lines();
-    let first = ssh_receipt(&mut lines, "ssh.connected").await;
-    daemon.kill().await.unwrap();
-    daemon.wait().await.unwrap();
-    let (mut replacement, _) = identity_daemon(
-        &root.path().join("replacement"),
-        &format!("127.0.0.1:{remote_port}"),
-    )
-    .await;
-    assert_eq!(
-        unsafe { libc::kill(first["sshPid"].as_u64().unwrap() as i32, libc::SIGKILL) },
-        0
-    );
-    let status = tokio::time::timeout(Duration::from_secs(10), supervisor.wait())
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(!status.success());
-    use tokio::io::AsyncReadExt;
-    let mut error = String::new();
-    supervisor
-        .stderr
-        .take()
-        .unwrap()
-        .read_to_string(&mut error)
-        .await
-        .unwrap();
-    assert!(error.contains("environment identity changed"), "{error}");
-    let listed = cli(&state, &["remote", "list"]).await;
-    assert_eq!(
-        serde_json::from_slice::<Value>(&listed.stdout).unwrap()[0]["identity"],
-        first["identity"]
-    );
-    for line in std::fs::read_to_string(&log).unwrap().lines() {
-        let process: Value = serde_json::from_str(line).unwrap();
-        assert_eq!(
-            unsafe { libc::kill(process["pid"].as_u64().unwrap() as i32, 0) },
-            -1
-        );
-    }
-    assert!(
-        tokio::net::TcpStream::connect(("127.0.0.1", local_port))
-            .await
-            .is_err()
     );
     replacement.kill().await.unwrap();
     replacement.wait().await.unwrap();

@@ -1,0 +1,23 @@
+{
+  "name": "@swarmie/contracts",
+  "version": "0.1.0",
+  "description": "Public wire contracts for Swarmie runtimes and clients",
+  "type": "module",
+  "license": "Apache-2.0",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./schema": "./protocol.json"
+  },
+  "files": [
+    "index.d.ts",
+    "client.d.ts",
+    "index.js",
+    "protocol.json",
+    "LICENSE",
+    "NOTICE"
+  ]
+}

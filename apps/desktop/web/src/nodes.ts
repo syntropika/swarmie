@@ -1,11 +1,11 @@
 import { clientRequest, nativeClient, observeClient } from "./clientTransport";
-import type { LocalStoreIdentity, RuntimeIdentity } from "../../../../packages/clients/typescript/src/generated";
+import type { LocalStoreIdentity, RuntimeIdentity } from "@swarmie/contracts";
 import { nodeKey, sameNode, validNodeIdentity } from "./nodeScope";
 import { WorkspaceStore, type Workspace } from "./workspace";
 
 export type NodeRoute = {
   name: string;
-  transport: { kind: string; url?: string; host?: string; localPort?: number; remotePort?: number };
+  transport: { kind: string; url?: string; host?: string; socketPath?: string; path?: string };
   authenticated: boolean;
   revision: number;
 };
@@ -16,6 +16,13 @@ export type ClientNode = {
   registered: boolean;
   lastVerifiedAtMs: number;
   connections: NodeRoute[];
+};
+export type SshReadiness = {
+  installed: boolean;
+  ready: boolean;
+  version?: string;
+  nextAction?: string;
+  runtimeIdentity?: RuntimeIdentity;
 };
 type Catalog = { nodes: ClientNode[]; selectedNodeId?: string };
 export type NodesState = Catalog & { store: WorkspaceStore; error: string; loading: boolean };
@@ -197,6 +204,13 @@ export class NodeClient {
   }
   async pair(name: string, url: string, token: string) {
     await this.control("nodes/pair", { name, url, token });
+    await this.refresh();
+  }
+  async inspectSsh(host: string, socketPath: string): Promise<SshReadiness> {
+    return this.control<SshReadiness>("nodes/inspectSsh", { host, socketPath });
+  }
+  async pairSsh(name: string, host: string, socketPath: string, runtimeIdentity: RuntimeIdentity) {
+    await this.control("nodes/pairSsh", { name, host, socketPath, runtimeIdentity });
     await this.refresh();
   }
   async removeRoute(name: string, revision: number) {

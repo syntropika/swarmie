@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { WorkspaceStore } from "./workspace";
 import { nodeKey, routeTargetKey, workspaceStorageKey } from "./nodeScope";
-import type { LocalStoreIdentity, RuntimeIdentity } from "../../../../packages/clients/typescript/src/generated";
+import type { LocalStoreIdentity, RuntimeIdentity } from "@swarmie/contracts";
 
 const a: LocalStoreIdentity = { environmentId: "node-a", storeId: "store-a", ownerScopeId: "owner-a" };
 const b: LocalStoreIdentity = { environmentId: "node-b", storeId: "store-b", ownerScopeId: "owner-b" };

@@ -4,10 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { HarnessIcon } from "./HarnessSelect";
-import type { ClientNode, NodeClient, NodeRoute } from "./nodes";
+import type { ClientNode, NodeClient, NodeRoute, SshReadiness } from "./nodes";
 
 export function routeAddress(route: NodeRoute): string {
-  return route.transport.kind === "ssh" ? route.transport.host ?? "SSH connection" : route.transport.url ?? "Saved connection";
+  if (route.transport.kind === "ssh") return `${route.transport.host ?? "SSH connection"} · ${route.transport.socketPath || "Default runtime"}`;
+  return route.transport.path ?? route.transport.url ?? "Saved connection";
 }
 function Frame({ title, busy, onClose, children }: { title: string; busy: boolean; onClose: () => void; children: ReactNode }) {
   return <Dialog label={title} onClose={onClose} busy={busy} className="max-w-[480px] p-6">
@@ -21,25 +22,46 @@ function Frame({ title, busy, onClose, children }: { title: string; busy: boolea
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 export function AddNodeDialog({ client, onClose }: { client: NodeClient; onClose: () => void }) {
+  const [method, setMethod] = useState<"direct" | "ssh">("direct");
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
+  const [host, setHost] = useState("");
+  const [socket, setSocket] = useState("");
   const [token, setToken] = useState("");
+  const [readiness, setReadiness] = useState<SshReadiness>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const ssh = method === "ssh";
+  const check = async () => {
+    setBusy(true); setError(""); setReadiness(undefined);
+    try { setReadiness(await client.inspectSsh(host.trim(), socket.trim())); }
+    catch (error) { setError(errorText(error)); }
+    finally { setBusy(false); }
+  };
   return <Frame title="Add node" busy={busy} onClose={onClose}>
-    <p className="mb-5 text-sm leading-relaxed text-muted">Connect a computer with a running runtime. For SSH, use the address of its active tunnel.</p>
+    <p className="mb-5 text-sm leading-relaxed text-muted">Connect a computer with a running runtime.</p>
     <form className="grid gap-4" aria-busy={busy} onSubmit={(event) => {
       event.preventDefault();
-      if (busy) return;
+      if (busy || (ssh && !readiness?.runtimeIdentity)) return;
       setBusy(true); setError("");
-      void client.pair(name.trim(), address.trim(), token).then(onClose).catch((error) => setError(errorText(error))).finally(() => setBusy(false));
+      const pair = ssh ? client.pairSsh(name.trim(), host.trim(), socket.trim(), readiness!.runtimeIdentity!) : client.pair(name.trim(), address.trim(), token);
+      void pair.then(onClose).catch((error) => { setError(errorText(error)); if (ssh) setReadiness(undefined); }).finally(() => setBusy(false));
     }}>
       <label className="grid gap-1.5 text-xs font-medium">Connection name<Input autoFocus placeholder="Work computer" required disabled={busy} value={name} onChange={(event) => setName(event.target.value)} /></label>
-      <label className="grid gap-1.5 text-xs font-medium">Address<Input placeholder="http://localhost:7490" required disabled={busy} value={address} onChange={(event) => setAddress(event.target.value)} /></label>
-      <label className="grid gap-1.5 text-xs font-medium">Access token <span className="font-normal text-muted">Optional</span><Input type="password" aria-label="Access token" autoComplete="off" disabled={busy} value={token} onChange={(event) => setToken(event.target.value)} /></label>
+      <label className="grid gap-1.5 text-xs font-medium">Connection method<select className="h-9 rounded-md border border-border bg-background px-3 text-sm" disabled={busy} value={method} onChange={(event) => { setMethod(event.target.value as "direct" | "ssh"); setReadiness(undefined); setError(""); setToken(""); }}><option value="direct">Address</option><option value="ssh">SSH</option></select></label>
+      {ssh ? <>
+        <label className="grid gap-1.5 text-xs font-medium">SSH host<Input placeholder="user@server or SSH alias" required disabled={busy} value={host} onChange={(event) => { setHost(event.target.value); setReadiness(undefined); }} /></label>
+        <details className="text-xs"><summary className="cursor-pointer text-muted">Advanced</summary><label className="mt-3 grid gap-1.5 text-xs font-medium">Runtime socket path <span className="font-normal text-muted">Optional override</span><Input aria-label="Runtime socket path" placeholder="Use the default runtime" disabled={busy} value={socket} onChange={(event) => { setSocket(event.target.value); setReadiness(undefined); }} /></label></details>
+        <p className="text-xs leading-relaxed text-muted">Use configured SSH access to connect to the default runtime. Checking does not install, start, or restart the runtime.</p>
+        <Button type="button" variant="outline" disabled={busy || !host.trim()} onClick={() => void check()}>{busy ? "Checking…" : "Check connection"}</Button>
+        {readiness && <p className="text-sm text-muted" role="status">{readiness.ready ? `Runtime ready${readiness.version ? ` · ${readiness.version}` : ""}` : !readiness.installed ? "Install the runtime on this computer, then check again." : "Check that the runtime service is running and the socket path is correct, then check again."}</p>}
+      </> : <>
+        <label className="grid gap-1.5 text-xs font-medium">Address<Input placeholder="http://localhost:7490" required disabled={busy} value={address} onChange={(event) => setAddress(event.target.value)} /></label>
+        <label className="grid gap-1.5 text-xs font-medium">Access token <span className="font-normal text-muted">Optional</span><Input type="password" aria-label="Access token" autoComplete="off" disabled={busy} value={token} onChange={(event) => setToken(event.target.value)} /></label>
+      </>}
       {error && <p className="text-sm text-danger" role="alert">{error}</p>}
       <p className="text-xs leading-relaxed text-muted">The connection is verified before it is saved. Credentials stay on this computer.</p>
-      <footer className="mt-2 flex justify-end gap-2"><Button variant="ghost" disabled={busy} onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy || !name.trim() || !address.trim()}>{busy ? "Connecting…" : "Add node"}</Button></footer>
+      <footer className="mt-2 flex justify-end gap-2"><Button variant="ghost" disabled={busy} onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy || !name.trim() || (ssh ? !readiness?.ready : !address.trim())}>{busy ? "Connecting…" : "Add node"}</Button></footer>
     </form>
   </Frame>;
 }

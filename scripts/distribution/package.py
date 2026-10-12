@@ -3,6 +3,23 @@
 import argparse, hashlib, json, pathlib, platform, shutil, subprocess, tarfile, tempfile, urllib.parse
 PROJECT=pathlib.Path(__file__).resolve().parents[2]
 def run(command,cwd=PROJECT):subprocess.run([str(x) for x in command],cwd=cwd,check=True)
+def package_native(command, desktop, assets, system):
+    if system != 'macos':
+        run(command, desktop)
+        return
+    # Native packaging signs and notarizes the final resource tree. Add licenses
+    # to its input assets so nothing modifies the sealed bundle afterward.
+    with tempfile.TemporaryDirectory(prefix='swarmie-package-assets-') as temporary:
+        staged = pathlib.Path(temporary)/'assets'
+        shutil.copytree(assets, staged)
+        licenses = staged/'licenses/swarmie'
+        licenses.mkdir(parents=True, exist_ok=True)
+        for filename in ('LICENSE', 'NOTICE'):
+            shutil.copy2(PROJECT/filename, licenses/filename)
+        command = list(command)
+        command[command.index('--assets')+1] = staged
+        run(command, desktop)
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=pathlib.Path,default=pathlib.Path(tempfile.gettempdir())/'swarmie-distribution')
@@ -41,10 +58,13 @@ def main():
         command += ['--signing',args.signing]
         if args.identity:command += ['--identity',args.identity]
         if args.notary_profile:command += ['--notarize','--notary-profile',args.notary_profile]
-    run(command,desktop)
+    package_native(command,desktop,assets,system)
     licenses=bundle/('Contents/Resources/licenses/swarmie' if system=='macos' else 'share/licenses/swarmie')
-    licenses.mkdir(parents=True,exist_ok=True)
-    for name in ('LICENSE','NOTICE'):shutil.copy2(PROJECT/name,licenses/name)
+    if system=='linux':
+        licenses.mkdir(parents=True,exist_ok=True)
+        for filename in ('LICENSE','NOTICE'):shutil.copy2(PROJECT/filename,licenses/filename)
+    elif not all((licenses/filename).is_file() for filename in ('LICENSE','NOTICE')):
+        raise SystemExit('Native package did not include the licenses before signing')
     if system=='linux':
         shutil.copy2(PROJECT/'scripts/distribution/install-linux.py',bundle/'install.py')
         icons=bundle/'share/icons';icons.mkdir(parents=True,exist_ok=True)

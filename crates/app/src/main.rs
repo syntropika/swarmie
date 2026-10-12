@@ -1,28 +1,26 @@
-mod client_host;
-mod client_monitor;
-mod desktop;
-mod mcp_bridge;
-mod node_channel;
-mod node_connection;
-mod node_credentials;
-mod node_gateway;
-mod open;
-mod remote;
-mod runtime_host;
-mod service;
-mod transport;
+mod client;
+mod runtime;
+use client::{
+    client_host, client_monitor, client_projection, client_submissions, desktop, node_channel,
+    node_connection, node_credentials, node_gateway, open, remote,
+};
+use runtime::{mcp_bridge, runtime_host, service, transport};
 mod update;
 use clap::{Parser, Subcommand, ValueEnum};
 use futures_util::StreamExt;
-use swarmie::*;
 use protocol::RuntimeService;
 use serde_json::Value;
 use std::{collections::VecDeque, path::PathBuf, time::Duration};
 use storage::SqliteSessionStore;
+use swarmie::*;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 #[derive(Parser)]
-#[command(name = "swarmie", version, about = "Headless multi-harness agent runtime")]
+#[command(
+    name = "swarmie",
+    version,
+    about = "Headless multi-harness agent runtime"
+)]
 struct Cli {
     /// Application data root. Defaults to ~/.swarmie on the runtime node.
     #[arg(long, global = true)]
@@ -44,7 +42,7 @@ enum Commands {
         #[arg(long)]
         host: PathBuf,
     },
-    /// Inspect or explicitly stop this Environment's HTTP runtime.
+    /// Inspect, stop, or proxy a connection to this Environment's runtime.
     Runtime {
         #[command(subcommand)]
         command: runtime_host::RuntimeCommand,

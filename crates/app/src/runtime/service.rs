@@ -1,7 +1,7 @@
 use clap::Subcommand;
-use swarmie::{Error, Result};
 use serde_json::json;
 use std::path::{Path, PathBuf};
+use swarmie::{Error, Result};
 #[derive(Subcommand)]
 pub enum ServiceCommand {
     /// Install a user service and a private bearer token; start it separately.
@@ -19,6 +19,10 @@ pub enum ServiceCommand {
     },
     Start,
     Stop,
+    /// Enable startup on user login without starting the service now.
+    Enable,
+    /// Disable startup on user login without stopping a running service.
+    Disable,
     Status,
     Uninstall,
     /// Print the private service token for pairing a trusted client.
@@ -92,7 +96,7 @@ fn render_unit(
             .collect::<Result<Vec<_>>>()?
             .join(" ");
         Ok(format!(
-            "[Unit]\nDescription=swarmie agent daemon\nAfter=network.target\n\n[Service]\nType=simple\nExecStart={args} --token-file {}\nRestart=on-failure\nRestartSec=2\n\n[Install]\nWantedBy=default.target\n",
+            "[Unit]\nDescription=swarmie agent daemon\nAfter=network.target\n\n[Service]\nType=simple\nExecStart={args} --token-file {}\nRestart=on-failure\nRestartSec=2\nKillSignal=SIGINT\nTimeoutStopSec=60\n\n[Install]\nWantedBy=default.target\n",
             quote_systemd(&token_path.to_string_lossy())?
         ))
     }
@@ -138,6 +142,8 @@ async fn manager(action: &str) -> Result<()> {
             ],
             "stop" => vec!["bootout".into(), target],
             "status" => vec!["print".into(), target],
+            "enable" => vec!["enable".into(), target],
+            "disable" => vec!["disable".into(), target],
             _ => return Err(Error::Invalid("unknown service operation".into())),
         };
         tokio::process::Command::new("launchctl")
@@ -156,6 +162,51 @@ async fn manager(action: &str) -> Result<()> {
         )));
     }
     Ok(())
+}
+// A missing service is different from a manager failure: never remove its unit when
+// the manager cannot establish that execution has stopped.
+async fn service_loaded() -> Result<bool> {
+    let output = if cfg!(target_os = "macos") {
+        let uid = tokio::process::Command::new("id")
+            .arg("-u")
+            .output()
+            .await?;
+        if !uid.status.success() {
+            return Err(Error::Provider("could not determine launchd user".into()));
+        }
+        let target = format!(
+            "gui/{}/com.swarmie.daemon",
+            String::from_utf8_lossy(&uid.stdout).trim()
+        );
+        tokio::process::Command::new("launchctl")
+            .args(["print", &target])
+            .output()
+            .await?
+    } else {
+        tokio::process::Command::new("systemctl")
+            .args(["--user", "is-active", "swarmie.service"])
+            .output()
+            .await?
+    };
+    if output.status.success() {
+        return Ok(true);
+    }
+    let missing = if cfg!(target_os = "macos") {
+        String::from_utf8_lossy(&output.stderr).contains("Could not find service")
+    } else {
+        matches!(output.status.code(), Some(3 | 4))
+            && matches!(
+                String::from_utf8_lossy(&output.stdout).trim(),
+                "inactive" | "failed" | "unknown"
+            )
+    };
+    if missing {
+        Ok(false)
+    } else {
+        Err(Error::Provider(
+            "could not establish service state; stop it explicitly before uninstalling".into(),
+        ))
+    }
 }
 pub async fn run(root: &Path, command: ServiceCommand) -> Result<()> {
     let token_path = config_dir()?.join("service.token");
@@ -250,6 +301,8 @@ pub async fn run(root: &Path, command: ServiceCommand) -> Result<()> {
         }
         ServiceCommand::Start => manager("start").await?,
         ServiceCommand::Stop => manager("stop").await?,
+        ServiceCommand::Enable => manager("enable").await?,
+        ServiceCommand::Disable => manager("disable").await?,
         ServiceCommand::Status => manager("status").await?,
         ServiceCommand::Token => {
             let token = tokio::fs::read_to_string(token_path).await?;
@@ -257,7 +310,11 @@ pub async fn run(root: &Path, command: ServiceCommand) -> Result<()> {
         }
         ServiceCommand::Uninstall => {
             if unit_path()?.exists() {
-                let _ = manager("stop").await;
+                if service_loaded().await? {
+                    return Err(Error::Invalid("service is running or loaded; use service stop explicitly before uninstalling".into()));
+                }
+                // Disable future startup without touching runtime data or the retained token.
+                manager("disable").await?;
                 tokio::fs::remove_file(unit_path()?).await?;
             }
             if !cfg!(target_os = "macos") {
@@ -269,7 +326,10 @@ pub async fn run(root: &Path, command: ServiceCommand) -> Result<()> {
                     return Err(Error::Provider("systemd user daemon reload failed".into()));
                 }
             }
-            println!("{}", json!({"installed":false,"tokenPreserved":true}));
+            println!(
+                "{}",
+                json!({"installed":false,"tokenPreserved":true,"dataPreserved":true,"stopped":false})
+            );
         }
     }
     Ok(())
@@ -286,7 +346,10 @@ mod tests {
         );
         std::fs::create_dir_all(&directory).unwrap();
         let arguments = vec!["serve".into(), "--http".into(), "127.0.0.1:7480".into()];
-        for (name, macos) in [("swarmie.service", false), ("com.swarmie.daemon.plist", true)] {
+        for (name, macos) in [
+            ("swarmie.service", false),
+            ("com.swarmie.daemon.plist", true),
+        ] {
             let unit = render_unit(
                 &std::env::current_exe().unwrap(),
                 &arguments,
@@ -308,6 +371,7 @@ mod tests {
         )
         .unwrap();
         assert!(linux.contains("ExecStart=\"/test app/swarmie\""));
+        assert!(linux.contains("KillSignal=SIGINT"));
         assert!(linux.contains("--token-file \"/test/service.token\""));
         let mac = render_unit(
             Path::new("/test<&/swarmie"),

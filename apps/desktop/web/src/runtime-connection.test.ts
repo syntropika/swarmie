@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { WorkspaceStore } from "./workspace";
 import { WorkspaceCache } from "./cache";
 import { routeTargetKey } from "./nodeScope";
-import type { RuntimeIdentity } from "../../../../packages/clients/typescript/src/generated";
+import type { RuntimeIdentity } from "@swarmie/contracts";
 
 const identity: RuntimeIdentity = {
   identity: { environmentId: "environment", storeId: "store", ownerScopeId: "owner" },

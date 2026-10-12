@@ -20,6 +20,20 @@ def verify_swift(host,port,environment,remote_port):
         run(['ssh','-o','ExitOnForwardFailure=yes','-R',f'{remote_port}:127.0.0.1:{port}',host,'cd '+shlex.quote(directory)+' && '+assignment+' swift test'])
     finally: run(['ssh',host,'rm -rf '+shlex.quote(directory)])
 
+def verify_typescript_packages():
+    import importlib.util
+    spec=importlib.util.spec_from_file_location('swarmie_package_local',CLIENTS/'tools/package_local.py')
+    packaging=importlib.util.module_from_spec(spec);spec.loader.exec_module(packaging)
+    with tempfile.TemporaryDirectory(prefix='typescript-consumer-',dir=ARTIFACTS) as directory:
+        root=pathlib.Path(directory);archives=root/'archives';archives.mkdir()
+        client,contracts=packaging.package_typescript(archives,build=False)
+        consumer=root/'consumer';consumer.mkdir()
+        (consumer/'package.json').write_text(json.dumps({'private':True,'type':'module'})+'\n')
+        run(['npm','install','--ignore-scripts','--offline','--no-audit','--no-fund',str(contracts),str(client)],cwd=consumer)
+        (consumer/'check.ts').write_text('import { Client, type InputSpawnOptions } from "@swarmie/client";\nimport type { SessionProjection } from "@swarmie/contracts";\nconst options: InputSpawnOptions = { harness: "codex", cwd: "/project" };\nconst client = Client.http("http://127.0.0.1:7457");\nvoid client.spawn(options);\nconst projection = null as unknown as SessionProjection;\nvoid projection.events;\n')
+        run([str(CLIENTS/'typescript/node_modules/.bin/tsc'),'--strict','--noEmit','--target','ES2022','--module','NodeNext','--moduleResolution','NodeNext','check.ts'],cwd=consumer)
+        run(['node','--input-type=module','-e','import { Client } from "@swarmie/client"; if (typeof Client.http !== "function") process.exit(1);'],cwd=consumer)
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary',type=pathlib.Path,default=PROJECT/'target/debug/swarmie')
@@ -52,6 +66,7 @@ def main():
             run(['python3',str(CLIENTS/'tools/generate.py'),'--url',environment['SWARMIE_TEST_URL'],'--check'],env=environment)
             run(['npm','ci','--ignore-scripts'],cwd=CLIENTS/'typescript',env=environment)
             run(['npm','test'],cwd=CLIENTS/'typescript',env=environment)
+            verify_typescript_packages()
             python_env={**environment,'PYTHONPATH':str(CLIENTS/'python')}
             run(['python3','-m','unittest','discover','-s',str(CLIENTS/'python/tests'),'-v'],cwd=PROJECT,env=python_env)
             run(['go','test','-race','./...'],cwd=CLIENTS/'go',env=environment)

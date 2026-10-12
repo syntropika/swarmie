@@ -10,12 +10,13 @@ pub enum NodeTransport {
     Websocket {
         url: String,
     },
+    LocalSocket {
+        path: String,
+    },
     Ssh {
         host: String,
-        #[serde(rename = "localPort")]
-        local_port: u16,
-        #[serde(rename = "remotePort")]
-        remote_port: u16,
+        #[serde(rename = "socketPath")]
+        socket_path: String,
     },
 }
 impl NodeTransport {
@@ -39,19 +40,15 @@ impl NodeTransport {
                     return Err(Error::Invalid("node endpoint requires a supported URL without credentials, query, or fragment".into()));
                 }
             }
-            Self::Ssh {
-                host,
-                local_port,
-                remote_port,
-            } => {
+            Self::LocalSocket { path } => validate_socket_path(path)?,
+            Self::Ssh { host, socket_path } => {
                 if host.is_empty()
                     || host.starts_with('-')
                     || host.chars().any(|c| c.is_whitespace() || c.is_control())
-                    || *local_port == 0
-                    || *remote_port == 0
                 {
-                    return Err(Error::Invalid("invalid SSH route".into()));
+                    return Err(Error::Invalid("invalid SSH host".into()));
                 }
+                if !socket_path.is_empty() { validate_socket_path(socket_path)?; }
             }
         }
         Ok(())
@@ -59,9 +56,31 @@ impl NodeTransport {
     pub fn endpoint(&self) -> String {
         match self {
             Self::Http { url } | Self::Websocket { url } => url.clone(),
-            Self::Ssh { local_port, .. } => format!("http://127.0.0.1:{local_port}/rpc"),
+            Self::LocalSocket { path } => {
+                let mut url = url::Url::parse("unix:///").expect("static URL");
+                url.set_path(path);
+                url.to_string()
+            }
+            Self::Ssh { host, socket_path } => {
+                let mut url = url::Url::parse("ssh://runtime/").expect("static URL");
+                url.query_pairs_mut()
+                    .append_pair("host", host)
+                    .append_pair("socket", socket_path);
+                url.to_string()
+            }
         }
     }
+}
+fn validate_socket_path(path: &str) -> Result<()> {
+    if !std::path::Path::new(path).is_absolute()
+        || path.len() > 8192
+        || path.chars().any(char::is_control)
+    {
+        return Err(Error::Invalid(
+            "socket path must be absolute and contain no control characters".into(),
+        ));
+    }
+    Ok(())
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

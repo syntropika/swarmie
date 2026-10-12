@@ -1,5 +1,5 @@
 import { clientRequest, nativeClient } from "./clientTransport";
-import type { DirectoryResource, DefaultDirectory, ProjectRecord, RuntimeIdentity, LocalStoreIdentity } from "../../../../packages/clients/typescript/src/generated";
+import type { DirectoryResource, DefaultDirectory, ProjectRecord, RuntimeIdentity, LocalStoreIdentity, SubmissionProjection, SessionProjection } from "@swarmie/contracts";
 import {
   NotificationService,
   readNotificationPreferences,
@@ -857,7 +857,8 @@ export class WorkspaceStore {
   async restoreThread(id: string) {
     const thread = this.snapshot.threads.find((t) => t.id === id);
     if (!thread?.sessionId) return;
-    const snapshot = await this.rpc<SessionSnapshot>("session/get", {
+    const projection = nativeClient() ? await this.rpc<SessionProjection>("client/sessionProjection", { sessionId: thread.sessionId }) : undefined;
+    const snapshot = projection?.snapshot ?? await this.rpc<SessionSnapshot>("session/get", {
       sessionId: thread.sessionId,
     });
     let replay = {
@@ -880,20 +881,24 @@ export class WorkspaceStore {
       itemId: undefined,
       messageAnchors: {},
     } as Thread;
-    for (;;) {
-      const events = await this.rpc<Event[]>("session/transcript", {
-        sessionId: thread.sessionId,
-        afterSequence: replay.sequence,
-        limit: 256,
-      });
-      if (!events.length) break;
-      replay = reduceEvents(
-        await this.bindPromptRecords(replay, events),
-        events,
-      );
-      if (events.length < 256) break;
+    if (projection) {
+      replay = reduceEvents(await this.bindPromptRecords(replay, projection.events as Event[]), projection.events as Event[]);
+    } else {
+      for (;;) {
+        const events = await this.rpc<Event[]>("session/transcript", {
+          sessionId: thread.sessionId,
+          afterSequence: replay.sequence,
+          limit: 256,
+        });
+        if (!events.length) break;
+        replay = reduceEvents(
+          await this.bindPromptRecords(replay, events),
+          events,
+        );
+        if (events.length < 256) break;
+      }
     }
-    await this.recoverSubmissions(id);
+    await this.recoverSubmissions(id, false, projection);
     const unresolved = this.snapshot.threads
       .find((item) => item.id === id)
       ?.submissionKeys?.some(
@@ -961,7 +966,7 @@ export class WorkspaceStore {
             : snapshot.metadata?.title || thread.title,
         archived:
           latest.archived !== thread.archived ? latest.archived : archived,
-        turnId: current.turn,
+        turnId: current.turn ?? undefined,
         createdAtMs: snapshot.metadata?.createdAtMs || thread.createdAtMs,
         updatedAtMs:
           latest.updatedAtMs !== thread.updatedAtMs
@@ -1313,9 +1318,43 @@ export class WorkspaceStore {
     );
     this.persist();
   }
-  async recoverSubmissions(id: string, reconcile = false) {
+  async recoverSubmissions(id: string, reconcile = false, retainedProjection?: SubmissionProjection) {
     const thread = this.snapshot.threads.find((item) => item.id === id);
     if (!thread?.sessionId) return;
+    if (nativeClient()) {
+      const projection = retainedProjection ?? await this.rpc<SubmissionProjection>("client/submissions", { sessionId: thread.sessionId, reconcile });
+      const latest = this.snapshot.threads.find((item) => item.id === id);
+      if (!latest || latest.sessionId !== thread.sessionId) return;
+      const entries = projection.entries.map((entry) => ({
+        key: entry.key,
+        recordId: latest.submissionKeys?.find((item) => item.key === entry.key)?.recordId ?? "",
+        receipt: entry.receipt,
+      }));
+      this.updateThread(id, {
+        submissionKeys: entries,
+        ...(projection.unresolved ? { state: "needs_input", error: "Delivery confirmation is missing. Check the original submission before sending more work." } : {
+          state: latest.sequence > projection.snapshot.sequence ? latest.state : projection.snapshot.state,
+          turnId: latest.sequence > projection.snapshot.sequence ? latest.turnId : (projection.snapshot.turn ?? undefined),
+        }),
+      }, false);
+      // Only presentation fields are reconciled here; native storage owns delivery knowledge.
+      for (const entry of entries) {
+        if (entry.receipt.delivery !== "accepted" || entry.receipt.recoveryRequired) continue;
+        const current = this.snapshot.threads.find((item) => item.id === id)!;
+        const record = current.promptRecords?.find((record) => record.id === entry.recordId);
+        this.updateThread(id, {
+          submitted: true,
+          ...(projection.unresolved ? {} : { error: undefined }),
+          ...(record ? {
+            draft: current.draft === record.text ? "" : current.draft,
+            attachments: current.attachments?.filter((item) => !record.attachments.some((sent) => sent.id === item.id)),
+            contextItems: current.contextItems?.filter((item) => !record.contextItems.some((sent) => sent.id === item.id)),
+          } : {}),
+        });
+      }
+      this.persist();
+      return;
+    }
     for (const entry of thread.submissionKeys ?? []) {
       if (
         entry.receipt &&

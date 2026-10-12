@@ -1,7 +1,7 @@
 import { clientRequest, nativeClient } from "./clientTransport";
 import type { Project } from "./protocol";
 import type { Thread } from "./protocol";
-import type { LocalStoreIdentity } from "../../../../packages/clients/typescript/src/generated";
+import type { LocalStoreIdentity } from "@swarmie/contracts";
 import { nodeKey, retainNode, sameNode, validNodeIdentity } from "./nodeScope";
 export type CachedWorkspace = { threads: Thread[]; revision: number; metadata?: { projects: Project[]; activeId: string; customChatDirectory?: string } };
 export class WorkspaceCache {

@@ -1,5 +1,5 @@
-import type { Methods, RuntimeEvent, SessionSnapshot, InputSpawnOptions, InputPromptContent, JsonValue } from "./generated.js";
-export * from "./generated.js";
+import type { Methods, RuntimeEvent, SessionSnapshot, InputSpawnOptions, InputPromptContent, JsonValue } from "@swarmie/contracts";
+export * from "@swarmie/contracts";
 export class RpcError extends Error {
   constructor(public readonly code:number,message:string,public readonly data?:unknown){super(message);this.name="RpcError";}
 }

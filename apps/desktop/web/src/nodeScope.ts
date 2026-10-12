@@ -1,4 +1,4 @@
-import type { LocalStoreIdentity } from "../../../../packages/clients/typescript/src/generated";
+import type { LocalStoreIdentity } from "@swarmie/contracts";
 
 export function validNodeIdentity(value: unknown): value is LocalStoreIdentity {
   const node = value as LocalStoreIdentity | undefined;

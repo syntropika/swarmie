@@ -1,5 +1,5 @@
 import type { Event, Thread } from "./protocol";
-import type { LocalStoreIdentity } from "../../../../packages/clients/typescript/src/generated";
+import type { LocalStoreIdentity } from "@swarmie/contracts";
 import { nodeKey } from "./nodeScope";
 export type NotificationPreferences = {
   enabled: boolean;

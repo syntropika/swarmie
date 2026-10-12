@@ -1,8 +1,8 @@
 use futures_util::{SinkExt, StreamExt};
-use swarmie::{Error, Result};
 use protocol::{RuntimeService, notification, rpc_error};
 use serde_json::{Value, json};
 use std::net::SocketAddr;
+use swarmie::{Error, Result};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     sync::mpsc,
@@ -16,6 +16,14 @@ use tokio_tungstenite::{
         http::{HeaderValue, StatusCode},
     },
 };
+
+async fn termination() -> std::io::Result<()> {
+    #[cfg(unix)] {
+        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        tokio::select! { result = tokio::signal::ctrl_c() => result, _ = term.recv() => Ok(()) }
+    }
+    #[cfg(not(unix))] { tokio::signal::ctrl_c().await }
+}
 
 fn parse(text: &str) -> std::result::Result<Value, Value> {
     serde_json::from_str(text).map_err(|_| rpc_error(Value::Null, -32700, "parse error"))
@@ -60,6 +68,19 @@ pub async fn http(
         }
         _ => None,
     };
+    #[cfg(unix)]
+    let mut local_socket_owner = if let Some(root) = registration_root.as_ref() {
+        Some(
+            local_socket(
+                service.clone(),
+                crate::runtime_host::local_socket_path(root)?,
+                None,
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
     let _registration = if let Some(root) = registration_root.filter(|_| addr.ip().is_loopback()) {
         Some(
             crate::runtime_host::register(
@@ -100,6 +121,7 @@ pub async fn http(
         })?;
     let origin = format!("http://{}", listener.local_addr()?);
     let service_for_shutdown = service.clone();
+    let execution_owner = service.clone();
     let mut routes = axum::Router::new()
         .route("/rpc", axum::routing::post(http_rpc))
         .route("/ws", axum::routing::get(http_websocket))
@@ -134,11 +156,18 @@ pub async fn http(
     if let Some(path) = desktop_assets {
         routes = routes.fallback_service(tower_http::services::ServeDir::new(path));
     }
-    axum::serve(listener, routes)
+    let result = axum::serve(listener, routes)
         .with_graceful_shutdown(async move {
-            tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = service_for_shutdown.wait_for_shutdown() => {} }
+            tokio::select! { _ = termination() => {}, _ = service_for_shutdown.wait_for_shutdown() => {} }
         })
-        .await?;
+        .await;
+    // A process signal must also notify socket listeners. Drain accepted socket
+    // requests before closing the shared execution owner.
+    execution_owner.invoke("runtime/shutdown", json!({})).await?;
+    #[cfg(unix)]
+    if let Some(socket) = local_socket_owner.as_mut() { socket.finish().await?; }
+    execution_owner.shutdown().await?;
+    result?;
     Ok(())
 }
 fn validate_public_origin(origin: Option<&str>, token: Option<&str>) -> Result<Option<String>> {
@@ -580,7 +609,7 @@ pub async fn stdio(service: RuntimeService) -> Result<()> {
         }
     });
     let mut tasks = tokio::task::JoinSet::new();
-    let shutdown = tokio::signal::ctrl_c();
+    let shutdown = termination();
     tokio::pin!(shutdown);
     loop {
         tokio::select! {
@@ -615,7 +644,7 @@ pub async fn websocket(
     let listener = tokio::net::TcpListener::bind(addr).await?;
     eprintln!("WebSocket listening on ws://{}", listener.local_addr()?);
     let mut tasks = tokio::task::JoinSet::new();
-    let shutdown = tokio::signal::ctrl_c();
+    let shutdown = termination();
     tokio::pin!(shutdown);
     let graceful = loop {
         tokio::select! {
@@ -632,13 +661,125 @@ pub async fn websocket(
     while tasks.join_next().await.is_some() {}
     service.shutdown().await
 }
+/// A private socket listener belongs to the runtime, never to an attached client.
+#[cfg(unix)]
+pub(crate) struct LocalSocket {
+    task: Option<tokio::task::JoinHandle<()>>,
+}
+#[cfg(unix)]
+impl LocalSocket {
+    async fn finish(&mut self) -> Result<()> {
+        if let Some(task) = self.task.take() { task.await.map_err(|e| Error::Provider(e.to_string()))?; }
+        Ok(())
+    }
+}
+#[cfg(unix)]
+impl Drop for LocalSocket {
+    fn drop(&mut self) {
+        if let Some(task) = self.task.take() { task.abort(); }
+    }
+}
+#[cfg(unix)]
+struct SocketFile {
+    path: std::path::PathBuf,
+    inode: u64,
+}
+#[cfg(unix)]
+impl Drop for SocketFile {
+    fn drop(&mut self) {
+        use std::os::unix::fs::MetadataExt;
+        if std::fs::symlink_metadata(&self.path).is_ok_and(|meta| meta.ino() == self.inode) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+#[cfg(unix)]
+pub(crate) async fn local_socket(
+    service: RuntimeService,
+    path: std::path::PathBuf,
+    token: Option<String>,
+) -> Result<LocalSocket> {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
+    let parent = path
+        .parent()
+        .ok_or_else(|| Error::Invalid("socket path has no parent".into()))?;
+    match std::fs::symlink_metadata(parent) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            std::fs::create_dir(parent)?;
+            std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
+        }
+        Err(error) => return Err(error.into()),
+        Ok(meta)
+            if !meta.is_dir()
+                || meta.file_type().is_symlink()
+                || meta.uid() != unsafe { libc::geteuid() }
+                || meta.mode() & 0o077 != 0 =>
+        {
+            return Err(Error::Invalid(
+                "local socket directory must be owned by the current user and private".into(),
+            ));
+        }
+        Ok(_) => (),
+    }
+    match std::fs::symlink_metadata(&path) {
+        Ok(meta) => {
+            if !meta.file_type().is_socket() || meta.uid() != unsafe { libc::geteuid() } {
+                return Err(Error::Invalid(
+                    "refuse to replace a non-owned local socket path".into(),
+                ));
+            }
+            match tokio::net::UnixStream::connect(&path).await {
+                Ok(_) => {
+                    return Err(Error::Invalid(
+                        "local socket already has an active listener".into(),
+                    ));
+                }
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound
+                    ) =>
+                {
+                    std::fs::remove_file(&path)?;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+        Err(error) => return Err(error.into()),
+    }
+    let listener = tokio::net::UnixListener::bind(&path)?;
+    let file = SocketFile {
+        path: path.clone(),
+        inode: std::fs::symlink_metadata(&path)?.ino(),
+    };
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+    let task = tokio::spawn(async move {
+        let _file = file;
+        let mut clients = tokio::task::JoinSet::new();
+        loop {
+            tokio::select! {
+                _ = service.wait_for_shutdown() => break,
+                stream = listener.accept() => {
+                    let Ok((stream, _)) = stream else { break; };
+                    let service = service.clone(); let token = token.clone();
+                    clients.spawn(async move { let _ = connection(stream, service, token).await; });
+                }
+                Some(_) = clients.join_next(), if !clients.is_empty() => (),
+            }
+        }
+        drop(listener);
+        while clients.join_next().await.is_some() {}
+    });
+    Ok(LocalSocket { task: Some(task) })
+}
+
 // Tungstenite requires the concrete HTTP ErrorResponse in its handshake callback.
 #[allow(clippy::result_large_err)]
-async fn connection(
-    socket: tokio::net::TcpStream,
-    service: RuntimeService,
-    token: Option<String>,
-) -> Result<()> {
+async fn connection<S>(socket: S, service: RuntimeService, token: Option<String>) -> Result<()>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
     let callback =
         move |r: &Request, response: Response| -> std::result::Result<Response, ErrorResponse> {
             if let Some(token) = &token {
@@ -680,6 +821,7 @@ async fn connection(
             msg = stream.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
+                        if requests.len() >= 128 { break; }
                         let service = service.clone(); let tx = tx.clone();
                         requests.spawn(async move { let result = match parse(&text) { Ok(r) => service.handle(r).await,Err(e) => Some(e) }; if let Some(r) = result { let _ = tx.send(Message::Text(r.to_string().into())).await; } });
                     }
@@ -700,7 +842,8 @@ async fn connection(
     while requests.join_next().await.is_some() {}
     drop(tx);
     if stopping {
-        let _ = writer.await;
+        let mut writer = writer;
+        if tokio::time::timeout(std::time::Duration::from_secs(1), &mut writer).await.is_err() { writer.abort(); }
     } else {
         writer.abort();
     }

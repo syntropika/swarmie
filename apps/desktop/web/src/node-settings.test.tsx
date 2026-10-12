@@ -12,7 +12,7 @@ function setup(fail = false) {
     { identity: { environmentId: "local" }, displayName: "This computer", local: true, registered: true, connections: [], lastVerifiedAtMs: 0 },
     { identity: { environmentId: "remote" }, displayName: "Remote", local: false, registered: true, lastVerifiedAtMs: 0, connections: [{ name: "main", revision: 7, transport: { kind: "http", url: "http://remote.invalid" } }] },
   ], error: "", store: { getSnapshot: () => snapshot } } as unknown as NodesState;
-  const client = { pair, removeRoute: vi.fn().mockResolvedValue(undefined), refresh: vi.fn().mockResolvedValue(undefined), localSnapshot: () => snapshot, nodeSnapshot: () => snapshot, probe: vi.fn(), status: () => "Connected", error: () => "", select: vi.fn(), connect: vi.fn(), disconnect: vi.fn(), reconnect: vi.fn().mockResolvedValue(undefined) };
+  const client = { pair, inspectSsh: vi.fn().mockResolvedValue({ installed: true, ready: true, version: "swarmie 0.1.0", runtimeIdentity: { identity: { environmentId: "remote", storeId: "store", ownerScopeId: "owner" }, incarnationId: "live" } }), pairSsh: vi.fn().mockResolvedValue(undefined), removeRoute: vi.fn().mockResolvedValue(undefined), refresh: vi.fn().mockResolvedValue(undefined), localSnapshot: () => snapshot, nodeSnapshot: () => snapshot, probe: vi.fn(), status: () => "Connected", error: () => "", select: vi.fn(), connect: vi.fn(), disconnect: vi.fn(), reconnect: vi.fn().mockResolvedValue(undefined) };
   render(<NodeSettings client={client as unknown as NodeClient} nodes={nodes} />);
   return { ...client, snapshot };
 }
@@ -76,4 +76,34 @@ it("shows authentication recovery for the automatic local connection", async () 
   await user.type(screen.getByLabelText("Local access token"), "secret"); await user.keyboard("{Enter}");
   expect(reconnect).toHaveBeenCalledWith("secret"); await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Token rejected"));
   expect(screen.getByRole("dialog")).toBeTruthy();
+});
+
+it("checks SSH readiness before pairing and clears a prepared target when connection inputs change", async () => {
+  const { inspectSsh, pairSsh } = setup(); const user = userEvent.setup(); await openAdd(user);
+  await user.type(screen.getByLabelText("Connection name"), "Remote SSH");
+  await user.selectOptions(screen.getByLabelText("Connection method"), "ssh");
+  await user.type(screen.getByLabelText("SSH host"), "remote-host");
+  await user.click(screen.getByText("Advanced"));
+  await user.type(screen.getByLabelText("Runtime socket path"), "/private/runtime/node.sock");
+  expect((screen.getByRole("button", { name: "Add node" }) as HTMLButtonElement).disabled).toBe(true);
+  await user.click(screen.getByRole("button", { name: "Check connection" }));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Runtime ready"));
+  expect(inspectSsh).toHaveBeenCalledWith("remote-host", "/private/runtime/node.sock");
+  await user.type(screen.getByLabelText("SSH host"), "-changed");
+  expect((screen.getByRole("button", { name: "Add node" }) as HTMLButtonElement).disabled).toBe(true);
+  await user.click(screen.getByRole("button", { name: "Check connection" }));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Runtime ready"));
+  await user.click(screen.getByRole("button", { name: "Add node" }));
+  expect(pairSsh).toHaveBeenCalledWith("Remote SSH", "remote-host-changed", "/private/runtime/node.sock", { identity: { environmentId: "remote", storeId: "store", ownerScopeId: "owner" }, incarnationId: "live" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});
+it("keeps SSH enrollment unavailable when installation or runtime readiness is missing", async () => {
+  const { inspectSsh, pairSsh } = setup(); inspectSsh.mockResolvedValue({ installed: false, ready: false } as never);
+  const user = userEvent.setup(); await openAdd(user);
+  await user.type(screen.getByLabelText("Connection name"), "Remote"); await user.selectOptions(screen.getByLabelText("Connection method"), "ssh");
+  await user.type(screen.getByLabelText("SSH host"), "remote-host"); await user.click(screen.getByText("Advanced")); await user.type(screen.getByLabelText("Runtime socket path"), "/runtime/node.sock");
+  await user.click(screen.getByRole("button", { name: "Check connection" }));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Install the runtime"));
+  expect((screen.getByRole("button", { name: "Add node" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(pairSsh).not.toHaveBeenCalled();
 });

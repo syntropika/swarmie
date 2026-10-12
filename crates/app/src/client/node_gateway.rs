@@ -40,7 +40,7 @@ impl NodeGateway {
             local_id: endpoint.runtime_identity.identity.environment_id.clone(),
             manager,
             local: Local::Endpoint {
-                url: endpoint.url.clone(),
+                url: local_endpoint(endpoint),
                 identity: endpoint.runtime_identity.identity.clone(),
                 root: root.to_owned(),
             },
@@ -78,10 +78,8 @@ impl NodeGateway {
                         "local runtime discovery now targets another node".into(),
                     ));
                 }
-                let url = current
-                    .as_ref()
-                    .map_or(url.as_str(), |endpoint| endpoint.url.as_str());
-                self.manager.local_request(url, identity, request).await
+                let url = current.as_ref().map_or_else(|| url.clone(), local_endpoint);
+                self.manager.local_request(&url, identity, request).await
             }
         }
     }
@@ -136,6 +134,19 @@ impl NodeGateway {
                     "connection name and URL are required".into(),
                 )),
             },
+            "nodes/inspectSsh" => match (params["host"].as_str(), Some(params["socketPath"].as_str().unwrap_or(""))) {
+                (Some(host), Some(socket)) => crate::remote::inspect_ssh(host, socket, params["token"].as_str()).await,
+                _ => Err(Error::Invalid("SSH host and socketPath are required".into())),
+            },
+            "nodes/pairSsh" => match (params["name"].as_str(), params["host"].as_str(), Some(params["socketPath"].as_str().unwrap_or("")), serde_json::from_value::<swarmie::RuntimeIdentity>(params["runtimeIdentity"].clone())) {
+                (Some(name), Some(host), Some(socket), Ok(target)) => {
+                    match crate::remote::ssh_endpoint(host, socket) {
+                        Ok(url) => self.manager.pair_prepared(name.into(), url, params["token"].as_str().filter(|s| !s.is_empty()).map(str::to_owned), &target).await.map(|route| crate::node_connection::public_connection(&route)),
+                        Err(error) => Err(error),
+                    }
+                }
+                _ => Err(Error::Invalid("connection name, SSH host, socketPath and verified runtimeIdentity are required".into())),
+            },
             "nodes/removeRoute" => match (params["name"].as_str(), params["revision"].as_u64()) {
                 (Some(name), Some(revision)) => self
                     .manager
@@ -188,4 +199,12 @@ impl NodeGateway {
                 .await
         }
     }
+}
+
+fn local_endpoint(endpoint: &crate::runtime_host::Endpoint) -> String {
+    #[cfg(unix)]
+    if let Some(path) = &endpoint.local_socket {
+        return storage::NodeTransport::LocalSocket { path: path.to_string_lossy().into_owned() }.endpoint();
+    }
+    endpoint.url.clone()
 }

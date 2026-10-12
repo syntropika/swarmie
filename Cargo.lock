@@ -8,11 +8,11 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures-util",
- "swarmie",
  "process",
  "reqwest",
  "serde_json",
  "storage",
+ "swarmie",
  "time",
  "tokio",
  "uuid",
@@ -109,11 +109,6 @@ dependencies = [
  "fs2",
  "futures-util",
  "libc",
- "swarmie",
- "swarmie-git",
- "swarmie-permissions",
- "swarmie-resources",
- "swarmie-workspace",
  "protocol",
  "reqwest",
  "semver",
@@ -121,6 +116,11 @@ dependencies = [
  "serde_json",
  "sha2",
  "storage",
+ "swarmie",
+ "swarmie-git",
+ "swarmie-permissions",
+ "swarmie-resources",
+ "swarmie-workspace",
  "tempfile",
  "tokio",
  "tokio-tungstenite 0.28.0",
@@ -485,8 +485,8 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures-util",
- "swarmie",
  "serde_json",
+ "swarmie",
  "tokio",
 ]
 
@@ -1100,83 +1100,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "swarmie"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "futures-util",
- "jsonschema",
- "schemars",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "uuid",
-]
-
-[[package]]
-name = "swarmie-git"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "libc",
- "swarmie",
- "protocol",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "swarmie-permissions"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "futures-util",
- "swarmie",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "swarmie-resources"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "futures-util",
- "swarmie",
- "serde",
- "serde_json",
- "storage",
- "tempfile",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "swarmie-workspace"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "dirs",
- "libc",
- "swarmie",
- "percent-encoding",
- "portable-pty",
- "protocol",
- "serde_json",
- "tempfile",
- "tokio",
- "uuid",
-]
-
-[[package]]
 name = "nix"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1405,8 +1328,8 @@ name = "process"
 version = "0.1.0"
 dependencies = [
  "libc",
- "swarmie",
  "serde_json",
+ "swarmie",
  "tempfile",
  "tokio",
 ]
@@ -1416,9 +1339,9 @@ name = "protocol"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "swarmie",
  "schemars",
  "serde_json",
+ "swarmie",
  "tokio",
 ]
 
@@ -2016,10 +1939,10 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "fs2",
- "swarmie",
  "rusqlite",
  "serde",
  "serde_json",
+ "swarmie",
  "tempfile",
  "tokio",
  "url",
@@ -2037,6 +1960,83 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
+name = "swarmie"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "futures-util",
+ "jsonschema",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "uuid",
+]
+
+[[package]]
+name = "swarmie-git"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "libc",
+ "protocol",
+ "serde",
+ "serde_json",
+ "swarmie",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "swarmie-permissions"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "swarmie",
+ "tokio",
+]
+
+[[package]]
+name = "swarmie-resources"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "storage",
+ "swarmie",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "swarmie-workspace"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "dirs",
+ "libc",
+ "percent-encoding",
+ "portable-pty",
+ "protocol",
+ "serde_json",
+ "swarmie",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "syn"

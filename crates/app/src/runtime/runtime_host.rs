@@ -1,6 +1,5 @@
 //! Local execution-owner discovery and attachment, independent of client lifetime.
 use clap::Subcommand;
-use swarmie::{Error, LocalStoreIdentity, Result, RuntimeIdentity};
 use protocol::RuntimeService;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -10,10 +9,16 @@ use std::{
     process::Stdio,
     time::Duration,
 };
+use swarmie::{Error, LocalStoreIdentity, Result, RuntimeIdentity};
 use tokio::process::{Child, Command};
 
 #[derive(Subcommand)]
 pub enum RuntimeCommand {
+    /// Transparently attach stdio to an existing runtime's local socket; never start an owner.
+    Proxy {
+        #[arg(long)]
+        socket: Option<PathBuf>,
+    },
     Status {
         #[arg(long, env = "SWARMIE_TOKEN")]
         token: Option<String>,
@@ -28,9 +33,25 @@ pub enum RuntimeCommand {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Endpoint {
     pub url: String,
+    pub local_socket: Option<PathBuf>,
     pub runtime_identity: RuntimeIdentity,
     pub desktop_assets: Option<PathBuf>,
     pub authenticated: bool,
+}
+/// Keep socket addresses within the smallest supported Unix address limit.
+pub(crate) fn local_socket_path(root: &Path) -> Result<PathBuf> {
+    let root = std::fs::canonicalize(root)?;
+    let preferred = root.join("runtime/node.sock");
+    #[cfg(unix)] {
+        use std::os::unix::ffi::OsStrExt;
+        if preferred.as_os_str().as_bytes().len() < 100 { return Ok(preferred); }
+        use sha2::{Digest, Sha256};
+        let digest = format!("{:x}", Sha256::digest(root.as_os_str().as_bytes()));
+        let uid = unsafe { libc::geteuid() };
+        let path = PathBuf::from("/tmp").join(format!("swarmie-{uid}")).join(format!("{}.sock", &digest[..24]));
+        Ok(path)
+    }
+    #[cfg(not(unix))] { Ok(preferred) }
 }
 fn record_path(root: &Path) -> PathBuf {
     root.join("runtime/http-endpoint.json")
@@ -83,6 +104,12 @@ pub(crate) fn read(root: &Path) -> Result<Option<Endpoint>> {
             "runtime endpoint must be an explicit loopback HTTP origin".into(),
         ));
     }
+    if let Some(socket) = &endpoint.local_socket {
+        let expected = local_socket_path(root)?;
+        if socket != &expected {
+            return Err(Error::Invalid("runtime socket must belong to the retained Environment directory".into()));
+        }
+    }
     Ok(Some(endpoint))
 }
 pub struct Registration {
@@ -110,6 +137,7 @@ pub async fn register(
     let identity = service.runtime().identity().await?;
     let endpoint = Endpoint {
         url: format!("http://{address}"),
+        local_socket: if cfg!(unix) { Some(local_socket_path(root)?) } else { None },
         runtime_identity: identity.clone(),
         desktop_assets: match assets {
             Some(path) => Some(tokio::fs::canonicalize(path).await?),
@@ -145,6 +173,21 @@ async fn request(
     token: Option<&str>,
     target: bool,
 ) -> Result<Option<Value>> {
+    #[cfg(unix)]
+    if let Some(path) = &endpoint.local_socket {
+        let transport = storage::NodeTransport::LocalSocket { path: path.to_string_lossy().into_owned() };
+        match tokio::net::UnixStream::connect(path).await {
+            Ok(stream) => drop(stream),
+            Err(error) if matches!(error.kind(), std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound) => return Ok(None),
+            Err(error) => return Err(error.into()),
+        }
+        let value = crate::node_connection::rpc_targeted(&transport.endpoint(), method, json!({}), None, if target { Some(&endpoint.runtime_identity) } else { None }).await;
+        return match value {
+            Ok(value) => Ok(Some(value)),
+            Err(_) if !path.exists() => Ok(None),
+            Err(error) => Err(error),
+        };
+    }
     let client = reqwest::Client::builder()
         .no_proxy()
         .timeout(Duration::from_secs(3))
@@ -343,9 +386,13 @@ pub async fn attach(root: &Path) -> Result<Endpoint> {
     Ok(endpoint)
 }
 pub async fn run(root: &Path, command: RuntimeCommand) -> Result<()> {
+    if let RuntimeCommand::Proxy { socket } = command {
+        return proxy(match socket { Some(path) => path, None => local_socket_path(root)? }).await;
+    }
     let (token, stop) = match command {
         RuntimeCommand::Status { token } => (token, false),
         RuntimeCommand::Stop { token } => (token, true),
+        RuntimeCommand::Proxy { .. } => unreachable!(),
     };
     let Some(endpoint) = read(root)? else {
         println!("{}", json!({"running":false}));
@@ -399,4 +446,26 @@ pub async fn run(root: &Path, command: RuntimeCommand) -> Result<()> {
         json!({"stopped":true,"runtimeIdentity":endpoint.runtime_identity})
     );
     Ok(())
+}
+
+/// Closing this byte proxy closes only its connection, not runtime-owned sessions.
+async fn proxy(path: PathBuf) -> Result<()> {
+    #[cfg(unix)]
+    {
+        let mut socket = tokio::net::UnixStream::connect(&path).await.map_err(|_| {
+            Error::Provider(
+                "runtime socket unavailable; start the installed runtime explicitly".into(),
+            )
+        })?;
+        let mut io = tokio::io::join(tokio::io::stdin(), tokio::io::stdout());
+        tokio::io::copy_bidirectional(&mut io, &mut socket).await?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Err(Error::Unsupported(
+            "runtime socket proxy is unavailable on this platform".into(),
+        ))
+    }
 }

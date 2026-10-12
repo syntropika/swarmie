@@ -7,7 +7,7 @@ import type {
   SubmissionReceipt,
   WorkingContext,
   ExecutionPolicy,
-} from "../../../../packages/clients/typescript/src/generated";
+} from "@swarmie/contracts";
 export type { ConfigurationReceipt, ConfigurationPreview, SubmissionReceipt };
 import type { ThreadMessageLike } from "@assistant-ui/react";
 import type { ContextItem, FileLocation } from "./context";

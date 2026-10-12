@@ -1,5 +1,5 @@
 //! Native node health observation and bounded reconnect scheduling.
-use crate::node_gateway::NodeGateway;
+use crate::{client_submissions::ClientSubmissions, node_gateway::NodeGateway};
 use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 pub fn spawn(
     nodes: NodeGateway,
     watched: Arc<Mutex<HashSet<String>>>,
+    submissions: ClientSubmissions,
     monitor_stop: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
@@ -40,6 +41,9 @@ pub fn spawn(
                         let Some(Ok((node, response))) = checked else { break; };
                         if node != nodes.local_id() && !watched.lock().await.contains(&node) { nodes.disconnect(&node).await; continue; }
                         let connected = response.get("result").is_some();
+                        if let Ok(target) = serde_json::from_value::<swarmie::RuntimeIdentity>(response["result"]["runtimeIdentity"].clone()) {
+                            if let Ok(Err(error)) = tokio::time::timeout(Duration::from_secs(1), submissions.observe(&node, &target)).await { tracing::debug!("native submission observation: {error}"); }
+                        }
                         let delay = if connected { 2 } else { retries.get(&node).map_or(1, |(_, delay)| *delay).saturating_mul(2).min(30) };
                         retries.insert(node.clone(), (tokio::time::Instant::now() + Duration::from_secs(delay), delay));
                         nodes.publish(json!({"environmentId":node,"method":"client/status","params":{"connected":connected,"runtimeIdentity":response["result"]["runtimeIdentity"],"error":response["error"]["message"]}}));
