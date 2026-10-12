@@ -45,7 +45,7 @@ def main():
         (native/'target.json').write_text(json.dumps(metadata,indent=2)+'\n')
         manifest=stage/'runtime/package.json';package=json.loads(manifest.read_text());package.update(os=[host_platform],cpu=[host_arch]);manifest.write_text(json.dumps(package,indent=2)+'\n')
         run(['npm','pack','--pack-destination',str(output)],cwd=stage/'runtime')
-        bundle=stage/'native';bundle.mkdir();shutil.copy2(native/'mpai',bundle/'mpai');shutil.copy2(ROOT/'runtime/LICENSE',bundle/'LICENSE');shutil.copy2(ROOT/'runtime/README.md',bundle/'README.md');shutil.copy2(native/'target.json',bundle/'target.json')
+        bundle=stage/'native';bundle.mkdir();shutil.copy2(native/'mpai',bundle/'mpai');shutil.copy2(ROOT/'runtime/LICENSE',bundle/'LICENSE');shutil.copy2(native/'target.json',bundle/'target.json')
         archive(bundle,output/f'mpai-{package_version}-{host_platform}-{host_arch}-{metadata["build"]}.tar.gz','mpai')
     shutil.copy2(ROOT/'schema/protocol.json',output/'mpai-protocol-schema.json')
     for artifact in output.iterdir():

@@ -15,7 +15,6 @@
   "types": "./dist/client.d.ts",
   "files": [
     "dist",
-    "README.md",
     "LICENSE",
     "NOTICE"
   ],
