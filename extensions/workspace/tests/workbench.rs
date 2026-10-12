@@ -374,7 +374,7 @@ async fn contextual_file_commands_use_retained_directory_and_block_replacements(
         .unwrap()
         .snapshot()
         .await;
-    runtime
+    let project = runtime
         .invoke_extension(
             "workspace",
             "project.open",
@@ -382,7 +382,7 @@ async fn contextual_file_commands_use_retained_directory_and_block_replacements(
         )
         .await
         .unwrap();
-    runtime.invoke_extension("workspace", "files.write", json!({"projectId":folder,"sessionId":saved.id,"path":"owned.txt","content":"original"})).await.unwrap();
+    runtime.invoke_extension("workspace", "files.write", json!({"projectId":project["id"],"sessionId":saved.id,"path":"owned.txt","content":"original"})).await.unwrap();
     runtime
         .invoke_extension(
             "workspace",
@@ -394,7 +394,7 @@ async fn contextual_file_commands_use_retained_directory_and_block_replacements(
     assert!(runtime.invoke_extension("workspace", "files.write", json!({"projectId":alternate.path(),"sessionId":saved.id,"path":"wrong.txt","content":"blocked"})).await.is_err());
     std::fs::rename(&folder, parent.path().join("original")).unwrap();
     std::fs::create_dir(&folder).unwrap();
-    assert!(runtime.invoke_extension("workspace", "files.write", json!({"projectId":folder,"sessionId":saved.id,"path":"replacement.txt","content":"blocked"})).await.is_err());
+    assert!(runtime.invoke_extension("workspace", "files.write", json!({"projectId":project["id"],"sessionId":saved.id,"path":"replacement.txt","content":"blocked"})).await.is_err());
     assert!(!folder.join("replacement.txt").exists());
     assert!(!alternate.path().join("wrong.txt").exists());
     runtime.transcript(&saved.id, 0, 100).await.unwrap();

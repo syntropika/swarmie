@@ -14,7 +14,7 @@ impl Fixture {
     fn new() -> Self {
         let path = std::env::temp_dir().join(format!("swarmie-codex-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&path).unwrap();
-        Self(path)
+        Self(path.canonicalize().unwrap())
     }
     fn options(&self) -> SpawnOptions {
         let mut options = SpawnOptions::new("codex", &self.0);

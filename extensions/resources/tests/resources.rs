@@ -740,7 +740,7 @@ async fn aliases_and_project_native_defaults_are_durable_and_have_explicit_prece
     )
     .await;
     let launch = &mock.launches().await[0];
-    assert_eq!(launch.cwd, workspace.path());
+    assert_eq!(launch.cwd, workspace.path().canonicalize().unwrap());
     assert_eq!(
         launch.config,
         json!({"permissionMode":"plan","nested":{"keep":true,"mode":"explicit","added":42}})
@@ -1189,7 +1189,7 @@ async fn session_scoped_generation_keeps_original_directory_and_controls_after_p
     );
     let launches = mock.launches().await;
     assert_eq!(launches.len(), 2);
-    assert_eq!(launches[1].cwd, first.path());
+    assert_eq!(launches[1].cwd, first.path().canonicalize().unwrap());
     assert_eq!(launches[1].model.as_deref(), Some("original-model"));
     assert_eq!(launches[1].config, json!({"mode":"original"}));
     assert_eq!(runtime.sessions().await.unwrap().len(), 1);

@@ -97,7 +97,7 @@ async fn sessions_share_a_folder_and_retain_selections_across_relink_restart_and
             .await
             .options
             .cwd,
-        second.path()
+        second.path().canonicalize().unwrap()
     );
     runtime.shutdown().await.unwrap();
     drop(runtime);
@@ -112,7 +112,7 @@ async fn sessions_share_a_folder_and_retain_selections_across_relink_restart_and
     assert_eq!(inherited.directory, original.directory);
     assert_eq!(inherited.source, original.source);
     assert_ne!(inherited.binding_id, original.binding_id);
-    assert_eq!(fork.options.cwd, first.path());
+    assert_eq!(fork.options.cwd, first.path().canonicalize().unwrap());
     runtime.shutdown().await.unwrap();
 }
 
@@ -162,7 +162,7 @@ async fn default_changes_only_select_new_contexts_and_stale_preparations_fail() 
             .await
             .options
             .cwd,
-        second.path()
+        second.path().canonicalize().unwrap()
     );
     runtime.shutdown().await.unwrap();
     drop(runtime);

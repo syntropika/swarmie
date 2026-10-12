@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Qualify runtime-only installation ownership and preservation in disposable directories."""
 import hashlib
+import html
 import json
 import os
 from pathlib import Path
@@ -102,6 +103,29 @@ class RuntimeInstallerTests(unittest.TestCase):
         self.assertIn('service still references', self.run_installer('--uninstall', success=False).stderr)
         self.assertTrue((self.prefix / 'bin/swarmie').is_file())
         unit.unlink()
+        self.run_installer('--uninstall')
+
+    def test_service_launcher_references_protect_the_installation(self):
+        self.bin_dir = self.root / 'launchers & tools'
+        self.run_installer()
+        launcher = self.bin_dir / 'swarmie'
+        marker = (self.prefix / '.swarmie-runtime-install.json').read_bytes()
+        units = (
+            (self.home / '.config/systemd/user/swarmie.service',
+             'ExecStart="' + str(launcher) + '" serve\n'),
+            (self.home / 'Library/LaunchAgents/com.swarmie.daemon.plist',
+             '<plist><dict><key>ProgramArguments</key><array><string>' +
+             html.escape(str(launcher)) + '</string></array></dict></plist>'),
+        )
+        for unit, contents in units:
+            with self.subTest(unit=unit.name):
+                unit.parent.mkdir(parents=True, exist_ok=True)
+                unit.write_text(contents)
+                self.assertIn('service still references', self.run_installer('--uninstall', success=False).stderr)
+                self.assertTrue(launcher.is_symlink())
+                self.assertTrue((self.prefix / 'bin/swarmie').is_file())
+                self.assertEqual((self.prefix / '.swarmie-runtime-install.json').read_bytes(), marker)
+                unit.unlink()
         self.run_installer('--uninstall')
 
     def test_symlinked_prefix_and_owned_binary_are_refused(self):

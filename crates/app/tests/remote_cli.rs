@@ -113,7 +113,7 @@ async fn terminal_open_encodes_a_real_project_and_session_without_launching_when
     );
     assert!(
         url.query_pairs()
-            .any(|(key, value)| key == "project" && value == root.path().to_string_lossy())
+            .any(|(key, value)| key == "project" && value == root.path().canonicalize().unwrap().to_string_lossy())
     );
 }
 #[cfg(target_os = "linux")]

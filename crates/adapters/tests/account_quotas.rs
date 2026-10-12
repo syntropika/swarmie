@@ -9,7 +9,7 @@ impl Fixture {
     fn new() -> Self {
         let path = std::env::temp_dir().join(format!("swarmie-account-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&path).unwrap();
-        Self(path)
+        Self(path.canonicalize().unwrap())
     }
     fn query(&self, provider: &str) -> AccountQuery {
         let mut query = AccountQuery::new(provider, &self.0);

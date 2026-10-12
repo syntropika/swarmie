@@ -452,13 +452,33 @@ pub async fn run(root: &Path, command: RuntimeCommand) -> Result<()> {
 async fn proxy(path: PathBuf) -> Result<()> {
     #[cfg(unix)]
     {
-        let mut socket = tokio::net::UnixStream::connect(&path).await.map_err(|_| {
+        let socket = tokio::net::UnixStream::connect(&path).await.map_err(|_| {
             Error::Provider(
                 "runtime socket unavailable; start the installed runtime explicitly".into(),
             )
         })?;
-        let mut io = tokio::io::join(tokio::io::stdin(), tokio::io::stdout());
-        tokio::io::copy_bidirectional(&mut io, &mut socket).await?;
+        use tokio::io::AsyncWriteExt;
+        let (mut reader, mut writer) = socket.into_split();
+        let upstream = async {
+            tokio::io::copy(&mut tokio::io::stdin(), &mut writer).await?;
+            // macOS can report ENOTCONN when the peer already closed after a clean EOF.
+            match writer.shutdown().await {
+                Err(error) if error.kind() == std::io::ErrorKind::NotConnected => Ok(()),
+                result => result,
+            }
+        };
+        let downstream = async {
+            let mut output = tokio::io::stdout();
+            match tokio::io::copy(&mut reader, &mut output).await {
+                // The client may close its output pipe before the peer's WebSocket close reply.
+                Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+                result => {
+                    result?;
+                    output.shutdown().await
+                }
+            }
+        };
+        tokio::try_join!(upstream, downstream)?;
         Ok(())
     }
     #[cfg(not(unix))]

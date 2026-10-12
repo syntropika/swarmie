@@ -65,7 +65,7 @@ def install(args):
         for unit in service_units():
             if unit.is_file():
                 contents = html.unescape(unit.read_text())
-                candidates = (str(prefix), str(prefix.resolve()))
+                candidates = (str(prefix), str(prefix.resolve()), str(launcher), str(launcher.resolve()))
                 if any(value in contents or value.replace('\\', '\\\\').replace('\"', '\\\"').replace('%', '%%') in contents for value in candidates):
                     raise SystemExit('The service still references this installation. Explicitly stop and uninstall the service first.')
         if launcher.is_symlink():

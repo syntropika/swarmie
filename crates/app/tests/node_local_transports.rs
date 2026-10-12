@@ -80,7 +80,8 @@ async fn private_socket_and_transparent_stdio_proxy_share_identity_and_preserve_
     result(socket_rpc(&mut socket, 4, "session/prompt", json!({"sessionId":id,"text":"survive disconnect","idempotencyKey":"socket-once"}), Some(&target)).await);
     socket.close(None).await.unwrap();
     drop(socket);
-    tokio::time::timeout(Duration::from_secs(3), proxy.wait()).await.unwrap().unwrap();
+    let proxy_status = tokio::time::timeout(Duration::from_secs(3), proxy.wait()).await.unwrap().unwrap();
+    assert!(proxy_status.success(), "a clean proxy disconnect must exit successfully: {proxy_status}");
     assert!(!nonexistent_client_state.exists(), "proxy must not create or own runtime state");
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {

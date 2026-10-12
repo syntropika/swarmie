@@ -10,7 +10,7 @@ impl Fixture {
     fn new() -> Self {
         let path = std::env::temp_dir().join(format!("execution-policy-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&path).unwrap();
-        Self(path)
+        Self(path.canonicalize().unwrap())
     }
     fn options(&self, harness: &str) -> SpawnOptions {
         let mut options = SpawnOptions::new(harness, &self.0);

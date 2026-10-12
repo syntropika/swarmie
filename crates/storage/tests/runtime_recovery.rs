@@ -388,7 +388,7 @@ async fn abrupt_running_resume_closes_the_old_turn_once_and_preserves_its_identi
             provider: "controlled".into(),
             id: "native-source".into(),
         },
-        options: SpawnOptions::new("controlled", directory.path()),
+        options: SpawnOptions::new("controlled", directory.path().canonicalize().unwrap()),
         capabilities: Capabilities {
             resume: true.into(),
             ..Default::default()
