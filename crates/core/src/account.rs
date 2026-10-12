@@ -37,6 +37,8 @@ impl AccountQuery {
     /// Supplies the shared process launcher without requesting a runtime session.
     pub fn connection_options(&self) -> SpawnOptions {
         SpawnOptions {
+            project_id: None,
+            project_revision: None,
             harness: self.harness.clone(),
             cwd: self.cwd.clone(),
             model: None,

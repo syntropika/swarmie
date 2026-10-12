@@ -48,9 +48,9 @@ impl Harness for TestHarness {
                 id: "native".into(),
             },
             capabilities: Capabilities {
-                cancel: true,
-                compact: true,
-                permissions: true,
+                cancel: true.into(),
+                compact: true.into(),
+                permissions: true.into(),
                 ..Default::default()
             },
             events,
@@ -109,7 +109,9 @@ impl AgentBackend for Backend {
             .unwrap();
         self.tx
             .send(BackendEvent::TurnFinished {
-                reason: "completed".into(),
+                outcome: TurnOutcome::Completed,
+
+                native_reason: None,
                 raw: None,
             })
             .await
@@ -292,7 +294,7 @@ async fn kill_preempts_a_slow_native_cancel_acknowledgement() {
                     id: "native".into(),
                 },
                 capabilities: Capabilities {
-                    cancel: true,
+                    cancel: true.into(),
                     ..Default::default()
                 },
                 events,
@@ -416,6 +418,38 @@ async fn failed_snapshot_storage_rejects_new_provider_work() {
     }
     #[async_trait]
     impl SessionStore for FailingStore {
+        async fn local_catalog(&self) -> Result<LocalCatalog> {
+            self.memory.local_catalog().await
+        }
+        async fn update_catalog(&self, update: CatalogUpdate) -> Result<CatalogRecord> {
+            self.memory.update_catalog(update).await
+        }
+        async fn prepare_context(
+            &self,
+            session_id: &str,
+            binding_id: &str,
+            selection: ContextSelection,
+        ) -> Result<WorkingContext> {
+            self.memory
+                .prepare_context(session_id, binding_id, selection)
+                .await
+        }
+        async fn working_context(&self, id: &str) -> Result<Option<WorkingContext>> {
+            self.memory.working_context(id).await
+        }
+
+        async fn commit(&self, write: SessionWrite<'_>) -> Result<()> {
+            if self.fail.load(Ordering::SeqCst) {
+                return Err(Error::Storage("injected write failure".into()));
+            }
+            self.memory.commit(write).await
+        }
+        async fn save_submission(&self, record: &SubmissionRecord) -> Result<()> {
+            self.memory.save_submission(record).await
+        }
+        async fn submissions(&self, id: &str) -> Result<Vec<SubmissionRecord>> {
+            self.memory.submissions(id).await
+        }
         async fn save(&self, snapshot: &SessionSnapshot) -> Result<()> {
             if self.fail.load(Ordering::SeqCst) {
                 Err(Error::Storage("injected write failure".into()))
@@ -472,6 +506,38 @@ async fn failed_journal_ends_the_session_and_reports_acceptance_failure() {
     }
     #[async_trait]
     impl SessionStore for JournalStore {
+        async fn local_catalog(&self) -> Result<LocalCatalog> {
+            self.memory.local_catalog().await
+        }
+        async fn update_catalog(&self, update: CatalogUpdate) -> Result<CatalogRecord> {
+            self.memory.update_catalog(update).await
+        }
+        async fn prepare_context(
+            &self,
+            session_id: &str,
+            binding_id: &str,
+            selection: ContextSelection,
+        ) -> Result<WorkingContext> {
+            self.memory
+                .prepare_context(session_id, binding_id, selection)
+                .await
+        }
+        async fn working_context(&self, id: &str) -> Result<Option<WorkingContext>> {
+            self.memory.working_context(id).await
+        }
+
+        async fn commit(&self, write: SessionWrite<'_>) -> Result<()> {
+            if !write.events.is_empty() && self.fail.load(Ordering::SeqCst) {
+                return Err(Error::Storage("injected journal failure".into()));
+            }
+            self.memory.commit(write).await
+        }
+        async fn save_submission(&self, record: &SubmissionRecord) -> Result<()> {
+            self.memory.save_submission(record).await
+        }
+        async fn submissions(&self, id: &str) -> Result<Vec<SubmissionRecord>> {
+            self.memory.submissions(id).await
+        }
         fn transcript_durability(&self) -> Option<&'static str> {
             Some("memory")
         }

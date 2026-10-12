@@ -18,24 +18,26 @@ use tokio::sync::{Mutex, RwLock};
 pub struct OpenCodeHarness;
 fn capabilities() -> Capabilities {
     Capabilities {
-        resume: true,
-        fork: true,
-        cancel: true,
-        permissions: true,
-        reasoning: true,
-        usage: true,
-        models: true,
-        configure: true,
-        images: true,
-        rollback: true,
-        compact: true,
+        commands: true.into(),
+        ephemeral: false.into(),
+        output_schema: true.into(),
+        tools_disabled: false.into(),
+        fork_at_message: true.into(),
+
+        resume: true.into(),
+        fork: true.into(),
+        cancel: true.into(),
+        permissions: true.into(),
+        operation_approvals: true.into(),
+        reasoning: true.into(),
+        usage: true.into(),
+        models: true.into(),
+        configure: true.into(),
+        images: true.into(),
+        rollback: true.into(),
+        compact: true.into(),
         metadata: BTreeMap::from([
-            ("forkAtMessage".into(), json!(true)),
             ("mcpTransports".into(), json!(["stdio", "http", "sse"])),
-            ("toolsDisabled".into(), json!(false)),
-            ("ephemeral".into(), json!(false)),
-            ("outputSchema".into(), json!(true)),
-            ("commands".into(), json!(true)),
             ("rollbackScopes".into(), json!(["conversation_and_files"])),
         ]),
         ..Default::default()
@@ -392,7 +394,8 @@ async fn connect_opencode(
     let request_task = requests.clone();
     let active = Arc::new(AtomicBool::new(false));
     let active_task = active.clone();
-    let outcome: Arc<RwLock<String>> = Arc::new(RwLock::new("completed".into()));
+    let outcome: Arc<RwLock<(TurnOutcome, Option<String>)>> =
+        Arc::new(RwLock::new((TurnOutcome::Completed, None)));
     let outcome_task = outcome.clone();
     let http_task = http.clone();
     let session = id.clone();
@@ -577,13 +580,15 @@ async fn connect_opencode(
                             _ => (),
                         }
                         let finished = active_task.swap(false, Ordering::SeqCst);
+                        let completion = outcome_task.read().await.clone();
                         if finished {
                             http_task.diagnostics.turn(false);
                         }
                         if finished
                             && tx
                                 .send(BackendEvent::TurnFinished {
-                                    reason: outcome_task.read().await.clone(),
+                                    outcome: completion.0,
+                                    native_reason: completion.1,
                                     raw: Some(f),
                                 })
                                 .await
@@ -606,7 +611,8 @@ async fn connect_opencode(
                                 ))
                                 .await;
                             BackendEvent::TurnFinished {
-                                reason: "failed".into(),
+                                outcome: TurnOutcome::Failed,
+                                native_reason: None,
                                 raw: Some(f.clone()),
                             }
                         }
@@ -683,6 +689,21 @@ async fn connect_opencode(
                                     .await;
                             }
                             if info["time"]["completed"].is_number() {
+                                let mut held = outcome_task.write().await;
+                                if held.0 != TurnOutcome::Cancelled {
+                                    if !info["error"].is_null() {
+                                        held.0 = match info["error"]["name"].as_str() {
+                                            Some("MessageAbortedError") => TurnOutcome::Cancelled,
+                                            Some("ContextOverflowError") => TurnOutcome::Limited,
+                                            _ => TurnOutcome::Failed,
+                                        };
+                                        held.1 = info["error"]["name"].as_str().map(String::from);
+                                    } else {
+                                        held.0 = outcome::opencode(info["finish"].as_str());
+                                        held.1 = info["finish"].as_str().map(String::from);
+                                    }
+                                }
+                                drop(held);
                                 let window = windows_task
                                 .read()
                                 .await
@@ -920,7 +941,7 @@ fn model_choices(catalog: &Value) -> Value {
         if let Some(models) = provider["models"].as_object() {
             for (id, model) in models {
                 let native = json!({"providerID":provider["id"],"modelID":id});
-                choices.push(json!({"id":model_key(&native),"label":model["name"].as_str().unwrap_or(id),"variants":model_variants(catalog,&native)}));
+                choices.push(json!({"id":model_key(&native),"label":model["name"].as_str().unwrap_or(id),"variants":model_variants(catalog,&native),"provider":provider["id"],"metadata":model}));
             }
         }
     }
@@ -1020,7 +1041,7 @@ struct OpenCodeBackend {
     tx: mpsc::Sender<BackendEvent>,
     output_schema: Option<Value>,
     active: Arc<AtomicBool>,
-    outcome: Arc<RwLock<String>>,
+    outcome: Arc<RwLock<(TurnOutcome, Option<String>)>>,
 }
 #[derive(Clone)]
 struct Selection {
@@ -1059,7 +1080,7 @@ impl AgentBackend for OpenCodeBackend {
         if let Some(effort) = selection.effort {
             body["variant"] = json!(effort);
         }
-        *self.outcome.write().await = "completed".into();
+        *self.outcome.write().await = (TurnOutcome::Completed, None);
         self.active.store(true, Ordering::SeqCst);
         self.http.diagnostics.turn(true);
         if let Err(e) = self
@@ -1074,7 +1095,7 @@ impl AgentBackend for OpenCodeBackend {
         Ok(())
     }
     async fn cancel(&self) -> Result<()> {
-        *self.outcome.write().await = "cancelled".into();
+        *self.outcome.write().await = (TurnOutcome::Cancelled, None);
         self.http
             .post(&format!("/session/{}/abort", self.id), json!({}))
             .await?;
@@ -1292,10 +1313,10 @@ impl AgentBackend for OpenCodeBackend {
             .await?;
         Ok(())
     }
-    async fn models(&self) -> Result<Value> {
-        Ok(model_choices(&self.http.get("/config/providers").await?))
+    async fn models(&self) -> Result<Vec<ModelDescriptor>> {
+        settings::model_descriptors(model_choices(&self.http.get("/config/providers").await?))
     }
-    async fn configuration(&self) -> Result<Value> {
+    async fn configuration(&self) -> Result<Vec<SettingDescriptor>> {
         let catalog = self.http.get("/config/providers").await?;
         let selection = self.model.lock().await.clone();
         let mut descriptors = vec![settings::select(
@@ -1322,7 +1343,7 @@ impl AgentBackend for OpenCodeBackend {
                 ),
             ));
         }
-        Ok(json!(descriptors))
+        settings::descriptors(json!(descriptors))
     }
     async fn close(&self) -> Result<()> {
         self.http.diagnostics.turn(false);

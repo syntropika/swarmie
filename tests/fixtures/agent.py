@@ -50,7 +50,7 @@ def finish(request=None, reason="completed"):
     global active
     active = False
     if mode == "codex":
-        notify("turn/completed", {"threadId": session, "turn": {"id": f"turn-{turn}", "status": reason}})
+        notify("turn/completed", {"threadId": session, "turn": {"id": f"turn-{turn}", "status": "interrupted" if reason == "cancelled" else reason}})
     elif mode == "pi":
         emit({"type": "agent_end", "messages": []})
         emit({"type": "agent_settled"})
@@ -76,6 +76,19 @@ def prompt(request, value):
             active = False
             return
         emit({"type": "agent_start"})
+    if value.startswith("terminal:"):
+        payload = json.loads(value.removeprefix("terminal:"))
+        active = False
+        if mode == "codex":
+            notify("turn/completed", {"threadId": session, "turn": {"id": f"turn-{turn}", **payload}})
+        elif mode == "claude":
+            emit({"type": "result", "is_error": False, **payload})
+        elif mode == "pi":
+            emit({"type": "message_end", "message": {"role": "assistant", **payload}})
+            emit({"type": "agent_settled"})
+        else:
+            response(request, payload)
+        return
     if value == "permission" and mode != "pi":
         permission = request
         if mode == "codex":

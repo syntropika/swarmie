@@ -13,3 +13,5 @@ thiserror.workspace = true
 uuid.workspace = true
 tokio-stream.workspace = true
 futures-util.workspace = true
+tokio-util = { version = "0.7", features = ["rt"] }
+jsonschema = { version = "0.33", default-features = false }

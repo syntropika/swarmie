@@ -1,3 +1,4 @@
+use crate::WorkingContext;
 use crate::semantic::{PlanUpdate, Question, QuestionAnswer, SubagentInfo, ToolDetails};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -36,10 +37,17 @@ pub enum Error {
     Unsupported(String),
     #[error("invalid request: {0}")]
     Invalid(String),
+    #[error("idempotency key already belongs to a different submission")]
+    IdempotencyConflict,
     #[error("session is closed")]
     Closed,
     #[error("session is busy")]
     Busy,
+    /// An adapter may use this only with authoritative evidence of no native effects.
+    #[error("native input rejected without effects: {0}")]
+    Rejected(String),
+    #[error("operation cancelled: {0}")]
+    Cancelled(String),
     #[error("provider error: {0}")]
     Provider(String),
     #[error("request timed out: {0}")]
@@ -54,30 +62,87 @@ pub enum Error {
     Json(#[from] serde_json::Error),
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Capabilities {
-    pub resume: bool,
-    pub fork: bool,
-    pub steering: bool,
-    pub cancel: bool,
-    pub permissions: bool,
-    pub reasoning: bool,
-    pub usage: bool,
-    pub models: bool,
-    pub configure: bool,
-    pub rollback: bool,
-    pub compact: bool,
-    pub modes: bool,
-    pub images: bool,
+    #[serde(default = "queue_capability")]
+    pub queue: crate::Capability,
+    pub commands: crate::Capability,
+    pub quotas: crate::Capability,
+    pub ephemeral: crate::Capability,
+    pub output_schema: crate::Capability,
+    pub tools_disabled: crate::Capability,
+    pub fork_at_message: crate::Capability,
+    pub fork_before_user: crate::Capability,
+    pub native_skill_inputs: crate::Capability,
+    pub submission_reconciliation: crate::Capability,
+
+    pub resume: crate::Capability,
+    pub fork: crate::Capability,
+    pub steering: crate::Capability,
+    pub cancel: crate::Capability,
+    pub permissions: crate::Capability,
+    pub operation_approvals: crate::Capability,
+    pub reasoning: crate::Capability,
+    pub usage: crate::Capability,
+    pub models: crate::Capability,
+    pub configure: crate::Capability,
+    pub rollback: crate::Capability,
+    pub compact: crate::Capability,
+    pub modes: crate::Capability,
+    pub images: crate::Capability,
     #[serde(default)]
     pub metadata: BTreeMap<String, Value>,
 }
+fn queue_capability() -> crate::Capability {
+    crate::Capability {
+        source: crate::CapabilitySource::Runtime,
+        ..true.into()
+    }
+}
+impl Default for Capabilities {
+    fn default() -> Self {
+        Self {
+            queue: queue_capability(),
+            commands: Default::default(),
+            quotas: Default::default(),
+            ephemeral: Default::default(),
+            output_schema: Default::default(),
+            tools_disabled: Default::default(),
+            fork_at_message: Default::default(),
+            fork_before_user: Default::default(),
+            native_skill_inputs: Default::default(),
+            submission_reconciliation: Default::default(),
+
+            resume: Default::default(),
+            fork: Default::default(),
+            steering: Default::default(),
+            cancel: Default::default(),
+            permissions: Default::default(),
+            operation_approvals: Default::default(),
+            reasoning: Default::default(),
+            usage: Default::default(),
+            models: Default::default(),
+            configure: Default::default(),
+            rollback: Default::default(),
+            compact: Default::default(),
+            modes: Default::default(),
+            images: Default::default(),
+            metadata: BTreeMap::new(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SpawnOptions {
     pub harness: String,
+    #[serde(default)]
     pub cwd: PathBuf,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub project_revision: Option<u64>,
     #[serde(default)]
     pub model: Option<String>,
     /// Provider-specific configuration remains opaque to the core.
@@ -98,6 +163,9 @@ pub struct SessionExecutionOptions {
     pub mcp_servers: Vec<McpServer>,
     #[serde(default)]
     pub tools: ToolPolicy,
+    /// Explicit host tool grants; native tool permissions remain independent.
+    #[serde(default)]
+    pub host_tools: Vec<crate::HostToolGrant>,
     #[serde(default)]
     pub output_schema: Option<Value>,
     #[serde(default)]
@@ -153,6 +221,8 @@ impl SpawnOptions {
         Self {
             harness: harness.into(),
             cwd: cwd.into(),
+            project_id: None,
+            project_revision: None,
             model: None,
             config: Value::Null,
             execution: SessionExecutionOptions::default(),
@@ -179,6 +249,9 @@ pub enum SessionState {
 #[serde(rename_all = "camelCase")]
 pub struct SessionSnapshot {
     pub id: String,
+    pub working_context: Option<WorkingContext>,
+    #[serde(default)]
+    pub execution_policy: crate::ExecutionPolicy,
     pub native: NativeSessionRef,
     pub options: SpawnOptions,
     pub capabilities: Capabilities,
@@ -354,6 +427,42 @@ pub struct ContextUsage {
     pub remaining_tokens: Option<u64>,
     pub percent: Option<f64>,
 }
+/// A turn's terminal execution result, independent of native provider vocabulary.
+/// Completion describes the execution cycle, not achievement of a user goal.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnOutcome {
+    Completed,
+    Cancelled,
+    Interrupted,
+    Failed,
+    Limited,
+    Refused,
+    Handled,
+    #[default]
+    Unknown,
+}
+impl TurnOutcome {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::Cancelled => "cancelled",
+            Self::Interrupted => "interrupted",
+            Self::Failed => "failed",
+            Self::Limited => "limited",
+            Self::Refused => "refused",
+            Self::Handled => "handled",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+impl std::fmt::Display for TurnOutcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[serde(tag = "type", content = "data")]
@@ -379,7 +488,11 @@ pub enum EventKind {
     #[serde(rename = "turn.started")]
     TurnStarted,
     #[serde(rename = "turn.ended")]
-    TurnEnded { reason: String },
+    TurnEnded {
+        outcome: TurnOutcome,
+        #[serde(rename = "nativeReason", skip_serializing_if = "Option::is_none")]
+        native_reason: Option<String>,
+    },
     #[serde(rename = "message.user")]
     UserMessage(Prompt),
     #[serde(rename = "message.assistant")]
@@ -447,7 +560,8 @@ pub enum BackendEvent {
         raw: Option<Value>,
     },
     TurnFinished {
-        reason: String,
+        outcome: TurnOutcome,
+        native_reason: Option<String>,
         raw: Option<Value>,
     },
     NativeSessionChanged(NativeSessionRef),

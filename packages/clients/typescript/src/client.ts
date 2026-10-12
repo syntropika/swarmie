@@ -45,7 +45,9 @@ export class Client {
   schema(){return this.call("runtime/schema",{});}
   discover(){return this.call("runtime/discover",{});}
   spawn(options:InputSpawnOptions):Promise<SessionSnapshot>{return this.call("session/create",options);}
-  prompt(sessionId:string,prompt:string|InputPromptContent[]){return this.call("session/prompt",{sessionId,...(typeof prompt==="string" ? {text:prompt}:{content:prompt})});}
+  prompt(sessionId:string,prompt:string|InputPromptContent[],idempotencyKey:string){return this.call("session/prompt",{sessionId,idempotencyKey,...(typeof prompt==="string" ? {text:prompt}:{content:prompt})});}
+  submission(sessionId:string,idempotencyKey:string){return this.call("session/submission",{sessionId,idempotencyKey});}
+  reconcileSubmission(sessionId:string,idempotencyKey:string){return this.call("session/submission/reconcile",{sessionId,idempotencyKey});}
   close(sessionId:string){return this.call("session/close",{sessionId});}
   async *events(sessionId:string,options:EventOptions={}):AsyncGenerator<RuntimeEvent> {
     let sequence=options.afterSequence ?? 0;const timeout=positive(options.timeoutMs ?? 600000,"timeoutMs");const interval=positive(options.pollIntervalMs ?? 200,"pollIntervalMs");const end=performance.now()+timeout;

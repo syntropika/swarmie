@@ -1,9 +1,12 @@
+import { clientRequest, nativeClient } from "./clientTransport";
+import type { DirectoryResource, DefaultDirectory, ProjectRecord, RuntimeIdentity, LocalStoreIdentity } from "../../../../packages/clients/typescript/src/generated";
 import {
   NotificationService,
   readNotificationPreferences,
   type NotificationPreferences,
 } from "./notifications";
 import { WorkspaceCache, hydrateThreads } from "./cache";
+import { retainNode, sameNode, validNodeIdentity, workspaceStorageKey, rpcPath, routeTargetKey } from "./nodeScope";
 import { fingerprint } from "./reviewed";
 import {
   newThread,
@@ -17,6 +20,10 @@ import {
   type SessionSnapshot,
   type ExtensionInfo,
   type Configuration,
+  type Model,
+  type ConfigurationReceipt,
+  type SubmissionReceipt,
+  type ConfigurationPreview,
   type Attachment,
   type PromptPart,
   type Queued,
@@ -28,7 +35,12 @@ import {
   type FileLocation,
 } from "./context";
 
+export type NodeWorkspaceOptions = {
+  node?: LocalStoreIdentity;
+  rpcPath?: string;
+};
 export type Workspace = {
+  node?: LocalStoreIdentity;
   projects: Project[];
   threads: Thread[];
   activeId: string;
@@ -49,11 +61,18 @@ export class RpcError extends Error {
   constructor(
     message: string,
     public readonly code: number,
+    public readonly data?: unknown,
   ) {
     super(message);
   }
 }
-const storageKey = "mpai.workspace.v2";
+class RuntimeUnavailable extends Error {}
+class StaleConnectionResponse extends RuntimeUnavailable {}
+function validIdentity(value: unknown): value is RuntimeIdentity {
+  const target = value as RuntimeIdentity | undefined;
+  return !!target && typeof target.incarnationId === "string" && !!target.incarnationId &&
+    validNodeIdentity(target.identity);
+}
 function mergeConfiguration(
   defaults: Record<string, unknown>,
   overrides: Record<string, unknown>,
@@ -101,8 +120,18 @@ export class WorkspaceStore {
   private polling = false;
   private requestId = 0;
   private token = "";
+  private runtimeIdentity?: RuntimeIdentity;
+  private retainedTarget?: LocalStoreIdentity;
+  private readonly endpoint: string;
+  private readonly targetStorageKey: string;
+  private connectionEpoch = 0;
+  private connection?: Promise<void>;
+  private connecting = false;
+  private reconnectAt = Infinity;
+  private reconnectDelay = 1000;
+  private heartbeatAt = 0;
   private notificationService = new NotificationService();
-  private cache = new WorkspaceCache();
+  private cache?: WorkspaceCache;
   private edited = new Map<string, Set<keyof Thread>>();
   private configurationEdited = new Set<string>();
   private defaultsPending = new Map<string, Promise<void>>();
@@ -133,14 +162,32 @@ export class WorkspaceStore {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
-  constructor() {
+  constructor(options: NodeWorkspaceOptions = {}) {
+    this.endpoint = rpcPath(options.rpcPath);
+    this.targetStorageKey = routeTargetKey(this.endpoint);
+    let node = options.node;
+    if (!node) {
+      try {
+        const saved = JSON.parse(localStorage.getItem(this.targetStorageKey) ?? "null");
+        if (validNodeIdentity(saved)) node = saved;
+      } catch {
+        /* Corrupt route metadata must not prevent startup. */
+      }
+    }
+    if (node) {
+      this.retainedTarget = retainNode(node);
+      this.snapshot.node = this.retainedTarget;
+    }
+    this.hydration = this.retainedTarget ? this.loadWorkspace(this.retainedTarget) : Promise.resolve();
+    if (typeof window !== "undefined")
+      window.addEventListener("pagehide", () => this.persist());
+  }
+  private async loadWorkspace(node: LocalStoreIdentity) {
+    this.cache = new WorkspaceCache(node);
     try {
-      const saved = JSON.parse(localStorage.getItem(storageKey) ?? "null");
-      if (
-        saved?.version === 2 &&
-        Array.isArray(saved.projects) &&
-        Array.isArray(saved.threads)
-      ) {
+      const saved = JSON.parse(localStorage.getItem(workspaceStorageKey(node)) ?? "null");
+      if (saved?.version === 3 && validNodeIdentity(saved.node) && sameNode(saved.node, node) &&
+        Array.isArray(saved.projects) && Array.isArray(saved.threads)) {
         this.snapshot = {
           ...this.snapshot,
           projects: saved.projects,
@@ -150,25 +197,23 @@ export class WorkspaceStore {
         };
       }
     } catch {
-      /* Corrupt browser storage must not prevent startup. */
+      /* Corrupt node metadata must not prevent startup. */
     }
-    this.hydration = this.cache
-      .load()
-      .then((saved) => {
-        if (saved)
-          this.snapshot = {
-            ...this.snapshot,
-            threads: hydrateThreads(
-              this.snapshot.threads,
-              saved.threads,
-              this.edited,
-            ),
-          };
-        this.listeners.forEach((listener) => listener());
-      })
-      .catch((error) => this.storageError(error));
-    if (typeof window !== "undefined")
-      window.addEventListener("pagehide", () => this.persist());
+    try {
+      const saved = await this.cache.load();
+      if (saved) {
+        const current = this.snapshot.threads;
+        const nativeThreads = saved.threads.map((thread) => current.find((item) => item.id === thread.id) ?? thread);
+        const ids = new Set(nativeThreads.map((thread) => thread.id));
+        nativeThreads.push(...current.filter((thread) => !ids.has(thread.id)));
+        this.snapshot = {
+          ...this.snapshot,
+          ...(nativeClient() && saved.metadata ? { ...saved.metadata, activeId: this.snapshot.activeId || saved.metadata.activeId } : {}),
+          threads: hydrateThreads(nativeClient() ? nativeThreads : current, saved.threads, this.edited),
+        };
+      }
+      this.listeners.forEach((listener) => listener());
+    } catch (error) { this.storageError(error); }
   }
   private publish(patch: Partial<Workspace>) {
     this.snapshot = { ...this.snapshot, ...patch };
@@ -183,14 +228,20 @@ export class WorkspaceStore {
     };
     this.listeners.forEach((listener) => listener());
   }
-  private persist() {
+  private persist(requireIdentityStorage = false) {
+    if (!this.retainedTarget) {
+      if (requireIdentityStorage) throw new Error("Verify a node before recording submission intent.");
+      return;
+    }
     this.revision++;
     try {
-      const { projects, threads, activeId, customChatDirectory } = this.snapshot;
+      const { projects, threads, activeId, customChatDirectory } =
+        this.snapshot;
       localStorage.setItem(
-        storageKey,
+        workspaceStorageKey(this.retainedTarget),
         JSON.stringify({
-          version: 2,
+          version: 3,
+          node: this.retainedTarget,
           projects,
           activeId,
           customChatDirectory,
@@ -214,8 +265,9 @@ export class WorkspaceStore {
       );
     } catch (error) {
       this.storageError(error);
+      if (requireIdentityStorage) throw error;
     }
-    if (!this.cache.available()) {
+    if (!this.cache?.available()) {
       if (
         this.snapshot.threads.some(
           (thread) =>
@@ -238,9 +290,10 @@ export class WorkspaceStore {
     try {
       while (this.cachePending) {
         this.cachePending = false;
-        await this.cache.save({
+        await this.cache!.save({
           threads: this.snapshot.threads,
           revision: this.revision,
+          metadata: { projects: this.snapshot.projects, activeId: this.snapshot.activeId, customChatDirectory: this.snapshot.customChatDirectory },
         });
       }
     } catch (error) {
@@ -264,11 +317,7 @@ export class WorkspaceStore {
     const fields = this.edited.get(id) ?? new Set<keyof Thread>();
     for (const key of Object.keys(patch)) fields.add(key as keyof Thread);
     this.edited.set(id, fields);
-    if (
-      ["harness", "model", "worktreeId"].some(
-        (key) => key in patch,
-      )
-    )
+    if (["harness", "model", "worktreeId"].some((key) => key in patch))
       this.configurationEdited.add(id);
     this.publish({
       threads: this.snapshot.threads.map((t) =>
@@ -337,7 +386,7 @@ export class WorkspaceStore {
     const result = await this.invokeExtension<{ content: string }>(
       "workspace",
       "files.read",
-      { projectId: thread.worktreeId, path: location.path },
+      { projectId: thread.worktreeId, path: location.path, sessionId: thread.sessionId },
     );
     const text = lineExcerpt(
       result.content,
@@ -373,6 +422,7 @@ export class WorkspaceStore {
     this.publish({ activeId: id, review: undefined, error: "" });
   }
   setError(error: unknown) {
+    if (error instanceof StaleConnectionResponse) return;
     this.publish({
       error: error instanceof Error ? error.message : String(error),
       busy: false,
@@ -381,37 +431,75 @@ export class WorkspaceStore {
   dismissError() {
     this.publish({ error: "" });
   }
-  async rpc<T>(method: string, params: unknown = {}): Promise<T> {
-    const response = await fetch("/rpc", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: ++this.requestId,
-        method,
-        params,
-      }),
-      signal: AbortSignal.timeout(120_000),
-    });
-    if (!response.ok)
-      throw new Error(
-        response.status === 401
-          ? "Enter the daemon token in Settings, then reconnect."
-          : `The daemon returned HTTP ${response.status}.`,
-      );
+  private unavailable(error: unknown) {
+    this.reconnectAt = Date.now() + this.reconnectDelay;
+    this.reconnectDelay = Math.min(30_000, this.reconnectDelay * 2);
+    this.publish({ connected: false, busy: false, error: "Runtime is unavailable. Your draft is saved. Reconnecting…" });
+    return new RuntimeUnavailable(error instanceof Error ? error.message : String(error));
+  }
+  rpc<T>(method: string, params: unknown = {}): Promise<T> {
+    return this.rpcAt<T>(this.endpoint, method, params);
+  }
+  previewPath(path: string): string {
+    if (!/^\/preview\/[0-9a-f-]+\//i.test(path)) throw new Error("Invalid node preview path.");
+    return this.endpoint === "/rpc" ? path : this.endpoint.slice(0, -4) + path;
+  }
+  disconnect() {
+    this.connection = undefined;
+    this.connectionEpoch++;
+    this.runtimeIdentity = undefined;
+    this.reconnectAt = Infinity;
+    this.publish({ connected: false, busy: false, error: "" });
+  }
+  observeDisconnected() {
+    this.connectionEpoch++;
+    this.runtimeIdentity = undefined;
+    this.reconnectAt = Infinity;
+    this.publish({ connected: false, error: "The node connection was interrupted. Reconnecting…" });
+  }
+  private async rpcAt<T>(endpoint: string, method: string, params: unknown): Promise<T> {
+    if (method !== "runtime/initialize" && !this.runtimeIdentity)
+      throw new Error("Connect to the runtime before using it.");
+    if (method !== "runtime/initialize" && !this.snapshot.connected && !this.connecting)
+      throw new RuntimeUnavailable("Reconnect to the runtime before continuing.");
+    const epoch = this.connectionEpoch;
+    const target = this.runtimeIdentity;
+    const assertCurrent = () => {
+      if (epoch !== this.connectionEpoch || target !== this.runtimeIdentity)
+        throw new StaleConnectionResponse("This response belongs to an earlier runtime connection. Reconnect to read authoritative state; the original command may have completed.");
+    };
+    let response: Response;
+    try {
+      response = await clientRequest(endpoint, {
+        jsonrpc: "2.0", id: ++this.requestId, method, params,
+        ...(target ? { expectedRuntime: target } : {}),
+      }, this.token, method === "runtime/initialize" ? 5000 : 120_000);
+    } catch (error) {
+      assertCurrent();
+      throw this.unavailable(error);
+    }
+    assertCurrent();
+    if (!response.ok) {
+      this.reconnectAt = Infinity;
+      this.publish({ connected: false });
+      throw new Error(response.status === 401
+        ? "Enter the runtime token in Settings, then reconnect."
+        : `The runtime returned HTTP ${response.status}. Reconnect in Settings.`);
+    }
     const body = await response.json();
-    if (body.error) throw new RpcError(body.error.message, body.error.code);
+    assertCurrent();
+    if (body.error) {
+      if (body.error.code === -32006) this.unavailable(new Error(body.error.message));
+      if (body.error.code === -32005) {
+        this.reconnectAt = Date.now() + 1000;
+        this.publish({ connected: false, error: "The runtime changed. Reconnecting before continuing…" });
+      }
+      throw new RpcError(body.error.message, body.error.code, body.error.data);
+    }
     return body.result as T;
   }
   extension<T>(command: string, args: unknown) {
-    return this.rpc<T>("extension/invoke", {
-      extensionId: "git",
-      command,
-      arguments: args,
-    });
+    return this.invokeExtension<T>("git", command, args);
   }
   async setNotifications(preferences: NotificationPreferences) {
     await this.notificationService.configure(preferences);
@@ -430,12 +518,43 @@ export class WorkspaceStore {
     });
     return result;
   }
-  async connect(token = this.token) {
+  connect(token = this.token): Promise<void> {
+    if (this.connection) return this.connection;
+    const connection = this.connectRuntime(token).finally(() => { if (this.connection === connection) this.connection = undefined; });
+    this.connection = connection;
+    return connection;
+  }
+  private async connectRuntime(token: string) {
+    const epoch = ++this.connectionEpoch;
     await this.hydration;
+    if (epoch !== this.connectionEpoch) return;
     this.token = token;
     this.publish({ busy: true, error: "", connected: false });
+    this.connecting = true;
+    this.runtimeIdentity = undefined;
+    this.reconnectAt = Infinity;
     try {
-      await this.rpc("runtime/initialize");
+      const initialized = await this.rpc<{ name: string; protocolVersion: string; runtimeIdentity: RuntimeIdentity }>("runtime/initialize");
+      if (initialized.name !== "mpai" || initialized.protocolVersion !== "1" || !validIdentity(initialized.runtimeIdentity))
+        throw new Error("This runtime does not support the required connection protocol.");
+      const target = initialized.runtimeIdentity;
+      if (this.retainedTarget && !sameNode(this.retainedTarget, target.identity))
+        throw new Error("This connection now points to a different environment. Your saved chats and drafts have been kept.");
+      const node = this.retainedTarget ?? retainNode(target.identity);
+      localStorage.setItem(this.targetStorageKey, JSON.stringify(node));
+      if (!this.retainedTarget) {
+        const drafts = this.snapshot.threads.filter((thread) => !thread.sessionId);
+        const activeId = this.snapshot.activeId;
+        this.retainedTarget = node;
+        this.snapshot = { ...this.snapshot, node };
+        this.hydration = this.loadWorkspace(node);
+        await this.hydration;
+        if (epoch !== this.connectionEpoch) return;
+        const ids = new Set(this.snapshot.threads.map((thread) => thread.id));
+        const fresh = drafts.filter((thread) => !ids.has(thread.id));
+        if (fresh.length) this.publish({ threads: [...fresh, ...this.snapshot.threads], activeId });
+      }
+      this.runtimeIdentity = Object.freeze({ identity: node, incarnationId: target.incarnationId });
       const [harnesses, extensions] = await Promise.all([
         this.rpc<Detection[]>("runtime/discover"),
         this.rpc<ExtensionInfo[]>("extension/list"),
@@ -449,30 +568,33 @@ export class WorkspaceStore {
       });
       if (extensions.some((e) => e.id === "workspace")) {
         try {
-          const path = await this.resolveChatDirectory(this.snapshot.customChatDirectory);
-          for (const thread of this.snapshot.threads.filter((t) => !t.projectId && !t.worktreeId)) {
+          const path = await this.resolveChatDirectory();
+          for (const thread of this.snapshot.threads.filter(
+            (t) => !t.projectId && !t.worktreeId,
+          )) {
             this.updateThread(thread.id, { worktreeId: path }, false);
           }
         } catch (error) {
           this.setError(error);
         }
       }
-      for (const project of this.snapshot.projects) {
-        const opened = await this.openProjectRecord(project.path);
-        this.publish({
-          projects: this.snapshot.projects.map((p) =>
-            p.id === project.id
-              ? { ...p, ...opened, name: project.name || opened.name }
-              : p,
-          ),
-        });
+      const catalog = await this.rpc<ProjectRecord[]>("project/list");
+      const projects: Project[] = [];
+      for (const record of catalog) {
+        if (record.archived) continue;
+        const directory = record.directory ? await this.rpc<DirectoryResource>("directory/get", record.directory) : undefined;
+        const path = directory?.path ?? "";
+        try { projects.push(await this.openProjectRecord(path, record)); }
+        catch { projects.push({ id: record.id, revision: record.revision, name: record.name, path, git: false, worktrees: [] }); }
       }
+      this.publish({ projects });
       await this.restoreSessions();
       if (!this.snapshot.threads.length) this.createThread();
       for (const thread of this.snapshot.threads.filter((t) => t.sessionId)) {
         try {
           await this.restoreThread(thread.id);
         } catch (error) {
+          if (!this.snapshot.connected) throw error;
           this.updateThread(
             thread.id,
             {
@@ -484,44 +606,37 @@ export class WorkspaceStore {
           );
         }
       }
+      this.reconnectDelay = 1000;
+      this.heartbeatAt = Date.now() + 5000;
     } catch (error) {
-      this.setError(error);
-    }
+      if (epoch !== this.connectionEpoch) return;
+      this.publish({ connected: false });
+      if (!(error instanceof RuntimeUnavailable)) this.setError(error);
+    } finally { if (epoch === this.connectionEpoch) this.connecting = false; }
   }
-  async openProjectRecord(path: string): Promise<Project> {
+  async openProjectRecord(path: string, retained?: ProjectRecord): Promise<Project> {
+    let host = retained;
+    if (!host) {
+      const directory = await this.rpc<DirectoryResource>("directory/register", { path });
+      const projects = await this.rpc<ProjectRecord[]>("project/list");
+      host = projects.find(p => !p.archived && p.directory?.id === directory.id)
+        ?? await this.rpc<ProjectRecord>("project/create", {
+          name: directory.path.split("/").filter(Boolean).at(-1) ?? directory.path,
+          directory: { id: directory.id, revision: directory.revision },
+        });
+      path = directory.path;
+    }
     if (this.snapshot.git) {
       try {
-        const project = await this.extension<Project>("project.open", { path });
-        return {
-          ...project,
-          name: project.name || project.path.split("/").filter(Boolean).at(-1) || project.path,
-          git: true,
-        };
+        const git = await this.extension<Project>("project.open", { path });
+        return { ...git, id: host.id, revision: host.revision, gitId: git.id, name: host.name, git: true };
       } catch (error) {
-        if (!this.snapshot.extensions.some((e) => e.id === "workspace"))
-          throw error;
+        if (!this.snapshot.extensions.some(e => e.id === "workspace")) throw error;
       }
     }
-    const folder = await this.invokeExtension<{ id: string; path: string }>(
-      "workspace",
-      "project.open",
-      { path },
-    );
-    return {
-      ...folder,
-      git: false,
-      name: folder.path.split("/").filter(Boolean).at(-1) ?? folder.path,
-      worktrees: [
-        {
-          id: folder.path,
-          path: folder.path,
-          branch: null,
-          isMain: true,
-          locked: false,
-          prunable: false,
-        },
-      ],
-    };
+    const folder = await this.invokeExtension<{ id: string; path: string }>("workspace", "project.open", { path });
+    return { id: host.id, revision: host.revision, path: folder.path, name: host.name, git: false,
+      worktrees: [{ id: folder.path, path: folder.path, branch: null, isMain: true, locked: false, prunable: false }] };
   }
   async openWorkspace(thread: Thread) {
     const project = this.snapshot.projects.find(
@@ -534,16 +649,25 @@ export class WorkspaceStore {
     return this.invokeExtension<{ id: string; path: string }>(
       "workspace",
       "project.open",
-      { path: cwd },
+      { path: cwd, sessionId: thread.sessionId },
     );
   }
   async openProject(path: string, name?: string) {
     this.publish({ busy: true, error: "" });
     try {
       const opened = await this.openProjectRecord(path);
+      if (name?.trim() && name.trim() !== opened.name) {
+        const renamed = await this.rpc<ProjectRecord>("project/update", { projectId: opened.id, expectedRevision: opened.revision, name: name.trim() });
+        opened.name = renamed.name; opened.revision = renamed.revision;
+      }
       const project = {
         ...opened,
-        name: name?.trim() || this.snapshot.projects.find((p) => p.id === opened.id)?.name || opened.name || opened.path.split("/").filter(Boolean).at(-1) || opened.path,
+        name:
+          name?.trim() ||
+          this.snapshot.projects.find((p) => p.id === opened.id)?.name ||
+          opened.name ||
+          opened.path.split("/").filter(Boolean).at(-1) ||
+          opened.path,
       };
       this.publish({
         projects: [
@@ -559,14 +683,25 @@ export class WorkspaceStore {
       return undefined;
     }
   }
-  private async resolveChatDirectory(path?: string) {
-    const result = await this.invokeExtension<{ path: string }>("workspace", "conversation.directory", path ? { path } : {});
-    this.publish({ chatDirectory: result.path });
-    return result.path;
+  private async resolveChatDirectory() {
+    const selected = await this.rpc<DefaultDirectory | null>("settings/directory");
+    if (selected) {
+      const directory = await this.rpc<DirectoryResource>("directory/get", selected.directory);
+      this.publish({ chatDirectory: directory.path });
+      return directory.path;
+    }
+    const initial = await this.invokeExtension<{ path: string }>("workspace", "conversation.directory", {});
+    const directory = await this.rpc<DirectoryResource>("directory/register", { path: initial.path });
+    await this.rpc("settings/setDirectory", { expectedRevision: 0, directory: { id: directory.id, revision: directory.revision } });
+    this.publish({ chatDirectory: directory.path });
+    return directory.path;
   }
   async setChatDirectory(path?: string) {
-    const directory = await this.resolveChatDirectory(path?.trim() || undefined);
-    this.publish({ customChatDirectory: path?.trim() ? directory : undefined });
+    const chosen = await this.invokeExtension<{ path: string }>("workspace", "conversation.directory", path?.trim() ? { path: path.trim() } : {});
+    const directory = await this.rpc<DirectoryResource>("directory/register", { path: chosen.path });
+    const selected = await this.rpc<DefaultDirectory | null>("settings/directory");
+    await this.rpc("settings/setDirectory", { expectedRevision: selected?.revision ?? 0, directory: { id: directory.id, revision: directory.revision } });
+    this.publish({ chatDirectory: directory.path, customChatDirectory: path?.trim() ? directory.path : undefined });
     this.persist();
   }
   createThread(projectId?: string) {
@@ -579,6 +714,10 @@ export class WorkspaceStore {
         this.snapshot.harnesses.find((h) => h.available)?.harness ??
         "codex",
     );
+    if (project) {
+      thread.projectDirectory = project.path;
+      thread.projectRevision = project.revision;
+    }
     this.publish({
       threads: [thread, ...this.snapshot.threads],
       activeId: thread.id,
@@ -586,31 +725,27 @@ export class WorkspaceStore {
       error: "",
     });
     if (!project && !thread.worktreeId && this.snapshot.connected) {
-      const pending = this.resolveChatDirectory(this.snapshot.customChatDirectory).then((path) => {
+      const pending = this.resolveChatDirectory().then((path) => {
         this.updateThread(thread.id, { worktreeId: path }, false);
       });
       this.defaultsPending.set(thread.id, pending);
       void pending.catch((error) => this.setError(error));
     }
     if (
-      project && thread.worktreeId &&
-      this.snapshot.extensions.some((e) => e.id === "resources")
+      project &&
+      thread.worktreeId &&
+      (this.snapshot.connected || this.snapshot.extensions.some((e) => e.id === "resources"))
     ) {
-      const pending = this.invokeExtension<{
-        harness?: string;
-        model?: string;
-        config?: Record<string, unknown> | null;
-        workspace?: string | null;
-      }>("resources", "project.get", {
-        cwd: project?.path ?? thread.worktreeId,
-      }).then(async (defaults) => {
-        if (this.configurationEdited.has(thread.id)) return;
+      const pending = this.rpc<ProjectRecord>("project/get", { projectId: project.id }).then(async (record) => {
+        const directory = record.directory ? await this.rpc<DirectoryResource>("directory/get", record.directory) : undefined;
+        const defaults = { ...record.launch, cwd: directory?.path, revision: record.revision };
+        const edited = this.configurationEdited.has(thread.id);
         if (
-          defaults.workspace &&
+          defaults.cwd &&
           !project?.worktrees.some(
             (worktree) =>
-              worktree.path === defaults.workspace ||
-              worktree.id === defaults.workspace,
+              worktree.path === defaults.cwd ||
+              worktree.id === defaults.cwd,
           )
         )
           throw new Error(
@@ -620,13 +755,15 @@ export class WorkspaceStore {
           (item) => item.id === thread.id,
         )!;
         this.updateThread(thread.id, {
-          harness: defaults.harness ?? thread.harness,
-          model: defaults.model ?? thread.model,
-          config: mergeConfiguration(
-            defaults.config ?? {},
+          harness: edited ? current.harness : defaults.harness ?? thread.harness,
+          model: edited ? current.model : defaults.model ?? thread.model,
+          config: edited ? current.config : mergeConfiguration(
+            (defaults.config ?? {}) as Record<string, unknown>,
             current.config ?? {},
           ),
-          worktreeId: defaults.workspace ?? current.worktreeId,
+          worktreeId: current.worktreeId === thread.worktreeId ? defaults.cwd ?? current.worktreeId : current.worktreeId,
+          projectDirectory: defaults.cwd ?? undefined,
+          projectRevision: defaults.revision,
         });
       });
       this.defaultsPending.set(thread.id, pending);
@@ -638,19 +775,8 @@ export class WorkspaceStore {
     for (const session of sessions) {
       if (this.snapshot.threads.some((t) => t.sessionId === session.id))
         continue;
-      let project = this.snapshot.projects.find((p) =>
-        p.worktrees.some(
-          (w) => w.path === session.options.cwd || w.id === session.options.cwd,
-        ),
-      );
-      if (!project && session.options.cwd !== this.snapshot.chatDirectory) {
-        try {
-          project = await this.openProjectRecord(session.options.cwd);
-          this.publish({ projects: [...this.snapshot.projects, project] });
-        } catch {
-          /* A removed project does not hide its archived conversation. */
-        }
-      }
+      const source = session.workingContext?.source;
+      const project = source?.kind === "project_folder" ? this.snapshot.projects.find(p => p.id === source.projectId) : undefined;
       const thread = newThread(
         project?.id ?? "",
         session.options.cwd,
@@ -670,6 +796,7 @@ export class WorkspaceStore {
             updatedAtMs: session.metadata?.updatedAtMs || thread.updatedAtMs,
             state: session.state,
             capabilities: session.capabilities,
+            executionPolicy: session.executionPolicy,
           },
         ],
       });
@@ -677,7 +804,8 @@ export class WorkspaceStore {
   }
   loadMessageTimes(id: string): Promise<void> {
     const thread = this.snapshot.threads.find((item) => item.id === id);
-    if (!thread?.sessionId || !this.snapshot.connected) return Promise.resolve();
+    if (!thread?.sessionId || !this.snapshot.connected)
+      return Promise.resolve();
     const sessionId = thread.sessionId;
     const key = `${id}:${sessionId}`;
     const pending = this.messageTimes.get(key);
@@ -687,12 +815,19 @@ export class WorkspaceStore {
       let afterSequence = 0;
       for (;;) {
         const events = await this.rpc<Event[]>("session/transcript", {
-          sessionId, afterSequence, limit: 256,
+          sessionId,
+          afterSequence,
+          limit: 256,
         });
         if (!events.length) break;
         for (const event of events) {
-          if (event.type === "message.user" && typeof event.timestampMs === "number" &&
-              Number.isFinite(event.timestampMs) && event.timestampMs > 0 && event.timestampMs <= 8640000000000000)
+          if (
+            event.type === "message.user" &&
+            typeof event.timestampMs === "number" &&
+            Number.isFinite(event.timestampMs) &&
+            event.timestampMs > 0 &&
+            event.timestampMs <= 8640000000000000
+          )
             times.set(`user-${event.sequence}`, new Date(event.timestampMs));
         }
         const nextSequence = Math.max(...events.map((event) => event.sequence));
@@ -704,7 +839,9 @@ export class WorkspaceStore {
       let changed = false;
       const messages = latest.messages.map((message) => {
         if (message.role !== "user") return message;
-        const date = message.createdAt ? new Date(message.createdAt) : undefined;
+        const date = message.createdAt
+          ? new Date(message.createdAt)
+          : undefined;
         const saved = message.id ? times.get(message.id) : undefined;
         if (saved && (!date || !Number.isFinite(date.getTime()))) {
           changed = true;
@@ -756,10 +893,23 @@ export class WorkspaceStore {
       );
       if (events.length < 256) break;
     }
+    await this.recoverSubmissions(id);
+    const unresolved = this.snapshot.threads
+      .find((item) => item.id === id)
+      ?.submissionKeys?.some(
+        (entry) =>
+          !entry.receipt ||
+          entry.receipt.recoveryRequired ||
+          !["accepted", "rejected"].includes(entry.receipt.delivery),
+      );
     let current = snapshot;
-    let state = snapshot.state;
+    let state = unresolved ? "needs_input" : snapshot.state;
     const archived = snapshot.metadata?.archived ?? thread.archived;
-    if (!archived && !["closed", "failed"].includes(snapshot.state)) {
+    if (
+      !unresolved &&
+      !archived &&
+      !["closed", "failed"].includes(snapshot.state)
+    ) {
       try {
         const resumed = await this.resumeSession(thread);
         current = resumed;
@@ -841,26 +991,38 @@ export class WorkspaceStore {
     let thread = this.snapshot.threads.find((t) => t.id === id)!;
     if (!thread) throw new Error("Select a conversation first.");
     if (!thread.worktreeId) {
-      if (thread.projectId) throw new Error("The project folder is unavailable.");
-      const path = await this.resolveChatDirectory(this.snapshot.customChatDirectory);
+      if (thread.projectId)
+        throw new Error("The project folder is unavailable.");
+      const path = await this.resolveChatDirectory();
       this.updateThread(id, { worktreeId: path }, false);
       thread = this.snapshot.threads.find((t) => t.id === id)!;
     }
     if (!thread.sessionId) {
       const options = {
         harness: thread.harness,
-        cwd: thread.worktreeId,
-        model: thread.model || thread.configurations?.find((option) => option.id === "model")?.value || null,
+        ...(thread.projectId && thread.projectDirectory === thread.worktreeId
+          ? { projectId: thread.projectId, projectRevision: thread.projectRevision }
+          : thread.projectId ? { cwd: thread.worktreeId } : {}),
+        model:
+          thread.model ||
+          thread.configurations?.find((option) => option.id === "model")
+            ?.value ||
+          null,
         config: thread.config ?? {},
       };
-      const session = await this.rpc<SessionSnapshot>("session/create", options);
+      const session = await this.rpc<SessionSnapshot>(
+        "session/create",
+        options,
+      );
       this.updateThread(id, {
+        worktreeId: session.options.cwd,
         sessionId: session.id,
         capabilities: session.capabilities,
+        executionPolicy: session.executionPolicy,
         state: session.state ?? "idle",
       });
     } else if (["closed", "failed"].includes(thread.state)) {
-      if (!thread.capabilities?.resume)
+      if (thread.capabilities?.resume?.availability !== "available")
         throw new Error(
           "This harness cannot resume its saved session. Start a new chat to preserve this history.",
         );
@@ -868,6 +1030,7 @@ export class WorkspaceStore {
       this.updateThread(id, {
         state: session.state,
         capabilities: session.capabilities,
+        executionPolicy: session.executionPolicy,
         error: undefined,
       });
     }
@@ -926,8 +1089,7 @@ export class WorkspaceStore {
     );
     if (
       skills.length &&
-      (thread.capabilities?.metadata as Record<string, unknown> | undefined)
-        ?.nativeSkillInputs !== true
+      thread.capabilities?.nativeSkillInputs?.availability !== "available"
     )
       throw new Error(
         "This harness does not accept selected native skill paths. Remove the native skill or choose a supported harness.",
@@ -939,14 +1101,21 @@ export class WorkspaceStore {
     const retainedAttachments: Attachment[] = [];
     if (attachments.some((attachment) => attachment.binary)) {
       if (!this.snapshot.extensions.some((e) => e.id === "workspace"))
-        throw new Error("Enable the workspace extension to attach media or binary files.");
+        throw new Error(
+          "Enable the workspace extension to attach media or binary files.",
+        );
     }
-    if (attachments.some((attachment) => attachment.binary && !(attachment.path && attachment.assetId)))
+    if (
+      attachments.some(
+        (attachment) =>
+          attachment.binary && !(attachment.path && attachment.assetId),
+      )
+    )
       await this.openWorkspace(thread);
     for (const attachment of attachments) {
       let retained = { ...attachment, data: "" };
       if (attachment.image) {
-        if (!thread.capabilities?.images)
+        if (thread.capabilities?.images?.availability !== "available")
           throw new Error(
             "This harness does not accept images. Remove the image or choose an image-capable harness.",
           );
@@ -963,6 +1132,7 @@ export class WorkspaceStore {
                 "assets.write",
                 {
                   projectId: thread.worktreeId,
+                  sessionId: thread.sessionId,
                   name: attachment.name,
                   data: attachment.data,
                 },
@@ -992,7 +1162,10 @@ export class WorkspaceStore {
     content.push(
       ...skills.map((skill) => ({ type: "skill" as const, data: skill })),
     );
-    if (delivery === "steer" && !thread.capabilities?.steering)
+    if (
+      delivery === "steer" &&
+      thread.capabilities?.steering?.availability !== "available"
+    )
       throw new Error(
         "This harness does not support steering. Queue a follow-up instead.",
       );
@@ -1000,12 +1173,8 @@ export class WorkspaceStore {
       throw new Error(
         "Choose Queue follow-up or Steer while the agent is working.",
       );
-    if (delivery === "prompt")
-      this.updateThread(id, {
-        state: "running",
-        error: undefined,
-        turnId: undefined,
-      });
+    let requestKey: string | undefined;
+    let attempted = false;
     try {
       const params =
         attachments.length || skills.length
@@ -1027,13 +1196,46 @@ export class WorkspaceStore {
         contextItems: selectedContext,
       };
       const beforeSend = this.snapshot.threads.find((item) => item.id === id)!;
+      requestKey = delivery === "prompt" ? crypto.randomUUID() : undefined;
       this.updateThread(id, {
         promptRecords: [...(beforeSend.promptRecords ?? []), record],
+        ...(requestKey
+          ? {
+              state: "running",
+              error: undefined,
+              turnId: undefined,
+              submissionKeys: [
+                ...(beforeSend.submissionKeys ?? []),
+                { key: requestKey, recordId: record.id },
+              ],
+            }
+          : {}),
       });
-      await this.rpc(
+      if (requestKey) {
+        this.persist(true);
+        if (nativeClient()) {
+          await this.cacheWriter;
+          await this.cache!.save({ threads: this.snapshot.threads, revision: this.revision, metadata: { projects: this.snapshot.projects, activeId: this.snapshot.activeId, customChatDirectory: this.snapshot.customChatDirectory } });
+        }
+      }
+      attempted = true;
+      const result = await this.rpc<SubmissionReceipt>(
         `session/${delivery === "prompt" ? "prompt" : delivery}`,
-        params,
+        { ...params, ...(requestKey ? { idempotencyKey: requestKey } : {}) },
       );
+      if (requestKey) {
+        this.recordSubmissionReceipt(id, requestKey, result);
+        if (result.delivery === "rejected")
+          throw new RpcError(
+            result.error || "The harness rejected this input without effects.",
+            -32005,
+          );
+        if (result.delivery !== "accepted" || result.recoveryRequired)
+          throw new Error(
+            result.error ||
+              "Delivery confirmation is missing. Check this session before starting more work.",
+          );
+      }
       const current = this.snapshot.threads.find((t) => t.id === id)!;
       const sentIds = new Set(attachments.map((a) => a.id));
       const contextIds = new Set(selectedContext.map((item) => item.id));
@@ -1058,9 +1260,140 @@ export class WorkspaceStore {
       }
       if (delivery === "queue") await this.refreshQueue(id);
     } catch (error) {
-      if (delivery === "prompt") this.updateThread(id, { state: "idle" });
+      if (error instanceof StaleConnectionResponse) throw error;
+      if (delivery === "prompt") {
+        if (!attempted) {
+          const latest = this.snapshot.threads.find((item) => item.id === id)!;
+          this.updateThread(id, {
+            state: thread.state,
+            submissionKeys: latest.submissionKeys?.filter(
+              (entry) => entry.key !== requestKey,
+            ),
+          });
+        } else if (
+          error instanceof RpcError &&
+          [-32602, -32001, -32002, -32003, -32005].includes(error.code)
+        ) {
+          const latest = this.snapshot.threads.find((item) => item.id === id)!;
+          this.updateThread(id, {
+            state: thread.state,
+            submissionKeys:
+              error.code === -32005
+                ? latest.submissionKeys
+                : latest.submissionKeys?.filter(
+                    (entry) => entry.key !== requestKey,
+                  ),
+          });
+        } else {
+          this.updateThread(id, {
+            state: "needs_input",
+            error:
+              "Delivery confirmation is missing. Reconnect to check the original submission.",
+          });
+          await this.recoverSubmissions(id).catch(() => {});
+        }
+      }
       throw error;
     }
+  }
+  private recordSubmissionReceipt(
+    id: string,
+    key: string,
+    receipt: SubmissionReceipt,
+  ) {
+    const thread = this.snapshot.threads.find((item) => item.id === id)!;
+    this.updateThread(
+      id,
+      {
+        submissionKeys: thread.submissionKeys?.map((entry) =>
+          entry.key === key ? { ...entry, receipt } : entry,
+        ),
+      },
+      false,
+    );
+    this.persist();
+  }
+  async recoverSubmissions(id: string, reconcile = false) {
+    const thread = this.snapshot.threads.find((item) => item.id === id);
+    if (!thread?.sessionId) return;
+    for (const entry of thread.submissionKeys ?? []) {
+      if (
+        entry.receipt &&
+        ["accepted", "rejected"].includes(entry.receipt.delivery) &&
+        !entry.receipt.recoveryRequired
+      )
+        continue;
+      const receipt = await this.rpc<SubmissionReceipt | null>(
+        reconcile ? "session/submission/reconcile" : "session/submission",
+        {
+          sessionId: thread.sessionId,
+          idempotencyKey: entry.key,
+        },
+      );
+      // Absence after a transport failure cannot prove the original request will not arrive.
+      if (!receipt) continue;
+      const current = this.snapshot.threads.find((item) => item.id === id)!;
+      if (current.sessionId !== thread.sessionId) return;
+      this.recordSubmissionReceipt(id, entry.key, receipt);
+      if (receipt.delivery === "accepted" && !receipt.recoveryRequired) {
+        const record = current.promptRecords?.find(
+          (record) => record.id === entry.recordId,
+        );
+        const snapshot = await this.rpc<SessionSnapshot>("session/get", {
+          sessionId: thread.sessionId,
+        });
+        const latest = this.snapshot.threads.find((item) => item.id === id)!;
+        if (latest.sessionId !== thread.sessionId) return;
+        this.updateThread(id, {
+          state:
+            latest.sequence > snapshot.sequence ? latest.state : snapshot.state,
+          turnId:
+            latest.sequence > snapshot.sequence
+              ? latest.turnId
+              : (snapshot.turn ?? undefined),
+          submitted: true,
+          error: undefined,
+          ...(record
+            ? {
+                draft: latest.draft === record.text ? "" : latest.draft,
+                attachments: latest.attachments?.filter(
+                  (item) =>
+                    !record.attachments.some((sent) => sent.id === item.id),
+                ),
+                contextItems: latest.contextItems?.filter(
+                  (item) =>
+                    !record.contextItems.some((sent) => sent.id === item.id),
+                ),
+              }
+            : {}),
+        });
+      }
+    }
+  }
+  async checkSubmissionRecovery(id: string) {
+    const thread = this.snapshot.threads.find((item) => item.id === id);
+    if (!thread?.sessionId) return;
+    await this.resumeSession(thread);
+    try {
+      await this.recoverSubmissions(id, true);
+    } catch (error) {
+      if (error instanceof RpcError && error.code === -32001) {
+        this.updateThread(id, {
+          state: "needs_input",
+          error: "This harness cannot confirm the original submission. The request may have changed files. Pending work remains paused.",
+        });
+        return;
+      }
+      throw error;
+    }
+    await this.restoreThread(id);
+    const latest = this.snapshot.threads.find((item) => item.id === id);
+    const unresolved = latest?.submissionKeys?.find((entry) =>
+      !entry.receipt || entry.receipt.recoveryRequired || !["accepted", "rejected"].includes(entry.receipt.delivery));
+    if (unresolved) this.updateThread(id, {
+      state: "needs_input",
+      error: unresolved.receipt?.error ?? "We cannot confirm whether this request finished. Check again before sending more work.",
+    });
   }
   async refreshQueue(id: string) {
     const thread = this.snapshot.threads.find((t) => t.id === id)!;
@@ -1156,12 +1489,30 @@ export class WorkspaceStore {
       "agent/configuration",
       { sessionId: thread.sessionId },
     );
-    const models = thread.capabilities?.models
-      ? await this.rpc<{ id: string; label: string }[]>("agent/models", {
-          sessionId: thread.sessionId,
-        })
-      : [];
-    this.updateThread(id, { configurations: configuration, models }, false);
+    const models =
+      thread.capabilities?.models?.availability === "available"
+        ? await this.rpc<Model[]>("agent/models", {
+            sessionId: thread.sessionId,
+          })
+        : [];
+    const values = Object.fromEntries(
+      configuration
+        .filter((descriptor) => descriptor.id !== "executionProfile" && "value" in descriptor)
+        .map((descriptor) => [descriptor.id, descriptor.value]),
+    );
+    this.updateThread(
+      id,
+      {
+        configurations: configuration,
+        executionPolicy: configuration.find((descriptor) => descriptor.id === "executionProfile")?.metadata?.policy as Thread["executionPolicy"],
+        models,
+        config: { ...thread.config, ...values },
+        ...("model" in values
+          ? { model: typeof values.model === "string" ? values.model : "" }
+          : {}),
+      },
+      false,
+    );
   }
   async previewControls(id: string) {
     const defaults = this.defaultsPending.get(id);
@@ -1169,15 +1520,42 @@ export class WorkspaceStore {
     const thread = this.snapshot.threads.find((item) => item.id === id);
     if (!thread || !this.snapshot.connected || !thread.worktreeId) return;
     if (thread.sessionId) return this.loadControls(id);
-    const options = { harness: thread.harness, cwd: thread.worktreeId, model: thread.model || null, config: thread.config ?? {} };
+    const options = {
+      harness: thread.harness,
+      ...(thread.projectId && thread.projectDirectory === thread.worktreeId
+        ? { projectId: thread.projectId, projectRevision: thread.projectRevision }
+        : thread.projectId ? { cwd: thread.worktreeId } : {}),
+      model: thread.model || null,
+      config: thread.config ?? {},
+    };
     const key = `${id}:${JSON.stringify(options)}`;
     const existing = this.controlPreviews.get(key);
     if (existing) return existing;
     const pending = (async () => {
-      const result = await this.rpc<{ configuration: Configuration[]; models: { id: string; label: string }[] }>("runtime/configuration", options);
+      const result = await this.rpc<ConfigurationPreview>(
+        "runtime/configuration",
+        options,
+      );
       const current = this.snapshot.threads.find((item) => item.id === id);
-      if (!current || current.sessionId || current.harness !== options.harness || current.worktreeId !== options.cwd || (current.model || null) !== options.model || JSON.stringify(current.config ?? {}) !== JSON.stringify(options.config)) return;
-      this.updateThread(id, { configurations: result.configuration, models: result.models }, false);
+      if (
+        !current ||
+        current.sessionId ||
+        current.harness !== options.harness ||
+        current.worktreeId !== thread.worktreeId ||
+        (current.model || null) !== options.model ||
+        JSON.stringify(current.config ?? {}) !== JSON.stringify(options.config)
+      )
+        return;
+      this.updateThread(
+        id,
+        {
+          capabilities: result.capabilities,
+          configurations: result.configuration ?? undefined,
+          executionPolicy: result.executionPolicy,
+          models: result.models ?? undefined,
+        },
+        false,
+      );
     })().finally(() => this.controlPreviews.delete(key));
     this.controlPreviews.set(key, pending);
     return pending;
@@ -1188,22 +1566,45 @@ export class WorkspaceStore {
   async configureMany(id: string, config: Record<string, unknown>) {
     const thread = this.snapshot.threads.find((t) => t.id === id)!;
     if (!thread.sessionId) {
+      const values = { ...thread.config, ...config };
+      if (!("executionProfile" in config) && Object.keys(config).some((key) => thread.executionPolicy?.controlledSettings.includes(key))) delete values.executionProfile;
       this.updateThread(id, {
-        config: { ...thread.config, ...config },
+        config: values,
         ...("model" in config ? { model: String(config.model) } : {}),
       });
       return;
     }
-    await this.rpc("agent/configure", {
-      sessionId: thread.sessionId,
-      config,
-    });
-    this.updateThread(id, {
-      config: { ...thread.config, ...config },
-      ...("model" in config ? { model: String(config.model) } : {}),
-    });
-    await this.loadControls(id);
+    try {
+      const receipt = await this.rpc<ConfigurationReceipt>("agent/configure", {
+        sessionId: thread.sessionId,
+        config,
+      });
+      const values = { ...thread.config, ...receipt.values };
+      if (!receipt.executionPolicy.requested) delete values.executionProfile;
+      this.updateThread(id, {
+        config: values,
+        configurations: receipt.configuration,
+        executionPolicy: receipt.executionPolicy,
+        ...("model" in receipt.values
+          ? {
+              model:
+                typeof receipt.values.model === "string"
+                  ? receipt.values.model
+                  : "",
+            }
+          : {}),
+      });
+    } catch (error) {
+      // Reconcile observed state after a partially applied native update.
+      try {
+        await this.loadControls(id);
+      } catch {
+        /* Keep the original update failure. */
+      }
+      throw error;
+    }
   }
+
   async compact(id: string) {
     const thread = await this.ensureSession(id);
     await this.rpc("session/compact", { sessionId: thread.sessionId });
@@ -1222,6 +1623,7 @@ export class WorkspaceStore {
       ...newThread(thread.projectId, thread.worktreeId, thread.harness),
       sessionId: snapshot.id,
       capabilities: snapshot.capabilities,
+      executionPolicy: snapshot.executionPolicy,
       title: `${thread.title} · fork`,
       state: snapshot.state,
       model: thread.model,
@@ -1456,6 +1858,10 @@ export class WorkspaceStore {
     await this.restoreThread(id);
   }
   invokeExtension<T>(extensionId: string, command: string, args: unknown) {
+    if (extensionId === "git" && args && typeof args === "object" && "projectId" in args) {
+      const project = this.snapshot.projects.find(p => p.id === (args as { projectId: string }).projectId);
+      if (project) args = { ...args, projectId: project.gitId ?? project.path };
+    }
     return this.rpc<T>("extension/invoke", {
       extensionId,
       command,
@@ -1540,12 +1946,12 @@ export class WorkspaceStore {
   async refreshProject(id: string) {
     const project = this.snapshot.projects.find((p) => p.id === id);
     if (!project) return;
-    const opened = await this.openProjectRecord(project.path);
-    this.publish({
-      projects: this.snapshot.projects.map((p) =>
-        p.id === id ? { ...p, ...opened, name: p.name || opened.name } : p,
-      ),
-    });
+    const record = await this.rpc<ProjectRecord>("project/get", { projectId: id });
+    const directory = record.directory ? await this.rpc<DirectoryResource>("directory/get", record.directory) : undefined;
+    let opened: Project;
+    try { opened = await this.openProjectRecord(directory?.path ?? "", record); }
+    catch { opened = { id: record.id, revision: record.revision, name: record.name, path: directory?.path ?? "", git: false, worktrees: [] }; }
+    this.publish({ projects: this.snapshot.projects.map((p) => p.id === id ? opened : p) });
   }
   async removeWorktree() {
     const thread = this.active();
@@ -1568,14 +1974,31 @@ export class WorkspaceStore {
     this.updateThread(thread.id, { worktreeId: worktrees[0]?.id ?? "" });
   }
   async poll() {
-    if (this.polling || !this.snapshot.connected) return;
+    if (this.polling || this.connection) return;
+    if (!this.snapshot.connected) {
+      if (Date.now() >= this.reconnectAt) await this.connect();
+      return;
+    }
     this.polling = true;
     try {
+      if (!nativeClient() && this.runtimeIdentity && Date.now() >= this.heartbeatAt) {
+        await this.rpc("runtime/initialize");
+        this.heartbeatAt = Date.now() + 5000;
+      }
       for (const thread of this.snapshot.threads.filter(
         (t) =>
           t.sessionId && !["closed", "failed", "starting"].includes(t.state),
       )) {
         try {
+          if (
+            thread.submissionKeys?.some(
+              (entry) =>
+                !entry.receipt ||
+                entry.receipt.recoveryRequired ||
+                !["accepted", "rejected"].includes(entry.receipt.delivery),
+            )
+          )
+            await this.recoverSubmissions(thread.id);
           const events = await this.rpc<Event[]>("session/events", {
             sessionId: thread.sessionId,
             afterSequence: thread.sequence,
@@ -1601,7 +2024,7 @@ export class WorkspaceStore {
           );
           if (typeof document !== "undefined")
             void this.notificationService
-              .events(next, events, this.snapshot.notifications)
+              .events(next, events, this.snapshot.notifications, this.retainedTarget!)
               .catch((error) =>
                 this.setError(
                   new Error(`Desktop notification failed: ${String(error)}`),
@@ -1618,6 +2041,7 @@ export class WorkspaceStore {
           )
             await this.review().catch((error) => this.setError(error));
         } catch (error) {
+          if (!this.snapshot.connected || error instanceof RuntimeUnavailable) break;
           const current = this.snapshot.threads.find((t) => t.id === thread.id);
           if (
             !current ||
@@ -1632,6 +2056,8 @@ export class WorkspaceStore {
           });
         }
       }
+    } catch (error) {
+      if (this.snapshot.connected) this.setError(error);
     } finally {
       this.polling = false;
     }

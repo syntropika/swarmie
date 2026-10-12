@@ -117,19 +117,19 @@ def main():
         client.call('runtime/initialize')
         for name, path in skills.items():
             session = client.call('session/create', {'harness': 'codex', 'cwd': str(project), 'model': 'gpt-5.3-codex', 'execution': {'configHome': str(config)}, 'config': {'executable': str(codex), 'modelProvider': 'fixture', 'approvalPolicy': 'never', 'sandbox': 'read-only'}})
-            assert session['capabilities']['metadata']['nativeSkillInputs'] is True
+            assert session['capabilities']['nativeSkillInputs']['availability'] == 'available'
             commands = client.call('agent/commands', {'sessionId': session['id']})
             same_name = [entry for entry in commands if entry['name'] == 'same-name']
             assert {entry['path'] for entry in same_name} == {str(item) for item in skills.values()}, same_name
             first_event = len(client.events)
             request_index = len(server.receipts)
-            client.call('session/prompt', {'sessionId': session['id'], 'content': [{'type': 'text', 'data': 'Follow the explicitly selected native skill.'}, {'type': 'skill', 'data': {'name': 'same-name', 'path': str(path)}}]})
+            client.call('session/prompt', {'sessionId': session['id'], 'idempotencyKey': str(uuid.uuid4()), 'content': [{'type': 'text', 'data': 'Follow the explicitly selected native skill.'}, {'type': 'skill', 'data': {'name': 'same-name', 'path': str(path)}}]})
             deadline = time.monotonic() + 60
             while not any(event['type'] == 'turn.ended' for event in client.events[first_event:]):
                 client.next(deadline)
             events = client.events[first_event:]
             terminal = next(event for event in events if event['type'] == 'turn.ended')
-            assert terminal['data']['reason'] == 'completed', terminal
+            assert terminal['data']['outcome'] == 'completed', terminal
             text = ''.join(event['data']['text'] for event in events if event['type'] == 'text.delta')
             assert text == MARKERS[name], text
             requests = server.receipts[request_index:]
@@ -137,7 +137,7 @@ def main():
             assert all(not request['authorizationPresent'] for request in requests)
             assert all(request['loadedInstructionMarkers'][name] for request in requests)
             assert all(not request['loadedInstructionMarkers'][other] for request in requests for other in MARKERS if other != name)
-            results.append({'selectedName': 'same-name', 'selectedPath': str(path), 'nativeSkillsListed': same_name, 'runtimeSessionId': session['id'], 'nativeSessionId': session['native']['id'], 'modelRequests': len(requests), 'modelSawSelectedInstructionsOnly': True, 'reply': text, 'turnReason': terminal['data']['reason']})
+            results.append({'selectedName': 'same-name', 'selectedPath': str(path), 'nativeSkillsListed': same_name, 'runtimeSessionId': session['id'], 'nativeSessionId': session['native']['id'], 'modelRequests': len(requests), 'modelSawSelectedInstructionsOnly': True, 'reply': text, 'turnOutcome': terminal['data']['outcome']})
             (out / 'results.json').write_text(json.dumps(results, indent=2) + '\n', encoding='utf-8')
             client.call('session/close', {'sessionId': session['id']})
         summary = {'installedNativeVersion': version, 'nativeCodexSha256': hashlib.sha256(codex.read_bytes()).hexdigest(), 'mpaiSha256': hashlib.sha256(binary.read_bytes()).hexdigest(), 'freshConfigHome': str(config), 'userCredentialsUsed': False, 'authorizationHeadersPresent': False, 'exactPathCasesPassed': len(results), 'sameNameDistinctPathsListed': True, 'actualResponsesRequests': len(server.receipts)}

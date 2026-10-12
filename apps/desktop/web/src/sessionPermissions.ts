@@ -1,38 +1,34 @@
+import type { ExecutionPolicy, ExecutionProfile } from "../../../../packages/clients/typescript/src/generated";
 import type { Thread } from "./protocol";
 
-export const permissionModes = [
-  { id: "ask", label: "Ask for approval", description: "Ask before actions outside the workspace or using the internet" },
-  { id: "review", label: "Approve for me", description: "Automatically review requests and ask about potentially unsafe actions" },
-  { id: "full", label: "Full access", description: "Unrestricted access to the internet and files on your computer" },
+const unavailable = [
+  { profile: "ask", label: "Ask for approval" },
+  { profile: "review", label: "Approve for me" },
+  { profile: "full", label: "Full access" },
 ] as const;
-export type PermissionMode = typeof permissionModes[number]["id"];
+export type PermissionMode = Exclude<ExecutionProfile, "native_custom">;
 
 export function sessionPermissions(thread: Thread) {
-  const fields = thread.configurations ?? [];
-  const field = (id: string) => fields.find((entry) => entry.id === id);
-  const value = (id: string) => (!thread.sessionId ? thread.config?.[id] : undefined) ?? field(id)?.value;
-  const supports = (id: string, next: string) => !!field(id)?.choices?.some((choice) => choice.id === next);
-  const codex = !!field("approvalPolicy");
-  const reviewer = field("approvalsReviewer");
-  const patches: Record<PermissionMode, Record<string, unknown>> = codex ? {
-    ask: { approvalPolicy: "on-request", sandbox: "workspace-write", ...(reviewer ? { approvalsReviewer: "user" } : {}) },
-    review: { approvalPolicy: "on-request", sandbox: "workspace-write", approvalsReviewer: "auto_review" },
-    full: { approvalPolicy: "never", sandbox: "danger-full-access", ...(reviewer ? { approvalsReviewer: "user" } : {}) },
-  } : { ask: { permissionMode: "default" }, review: {}, full: { permissionMode: "bypassPermissions" } };
-  let selected: PermissionMode | undefined;
-  if (codex) {
-    if (value("approvalPolicy") === "never" && value("sandbox") === "danger-full-access" && (!reviewer || value("approvalsReviewer") === "user")) selected = "full";
-    if (value("approvalPolicy") === "on-request" && value("sandbox") === "workspace-write") {
-      if (!reviewer || value("approvalsReviewer") === "user") selected = "ask";
-      else if (value("approvalsReviewer") === "auto_review") selected = "review";
-    }
-  } else if (value("permissionMode") === "default") selected = "ask";
-  else if (value("permissionMode") === "bypassPermissions") selected = "full";
-  const options = permissionModes.map((mode) => {
-    const patch = patches[mode.id];
-    const available = Object.keys(patch).length > 0 && Object.entries(patch).every(([id, next]) => supports(id, String(next)));
-    const locked = !!thread.sessionId && Object.keys(patch).some((id) => !field(id)?.live);
-    return { ...mode, patch, available, locked };
-  });
-  return { selected, label: permissionModes.find((mode) => mode.id === selected)?.label ?? (fields.length ? "Custom permissions" : "Permissions"), options };
+  const field = thread.configurations?.find((entry) => entry.id === "executionProfile");
+  const policy = thread.executionPolicy ?? field?.metadata?.policy as ExecutionPolicy | undefined;
+  const draft = !thread.sessionId ? thread.config?.executionProfile : undefined;
+  const selected = (draft ?? policy?.requested ?? (policy?.status === "staged" ? policy.plannedProfile : policy?.observed?.profile)) as PermissionMode | undefined;
+  const choices = policy?.choices ?? unavailable.map((choice) => ({
+    ...choice, description: "Execution permissions have not been described by the server",
+    capability: { availability: "unknown", reason: "Execution permissions have not been described by the server" },
+    mapping: "unknown", application: "next_turn",
+  }));
+  const options = choices.filter((choice) => choice.profile !== "native_custom").map((choice) => ({
+    id: choice.profile as PermissionMode, label: choice.label, description: choice.description,
+    available: choice.capability.availability === "available" && choice.mapping === "equivalent",
+    reason: choice.capability.reason ?? (choice.mapping !== "equivalent" ? "No equivalent native configuration is available" : undefined),
+    locked: !!thread.sessionId && (choice.application === "creation_only" || (thread.state !== "idle" && choice.application !== "current_turn")),
+    patch: { executionProfile: choice.profile },
+  }));
+  const label = options.find((choice) => choice.id === selected)?.label ?? (policy?.observed ? "Custom permissions" : "Permissions");
+  const status = policy?.dispatchBlocked ? policy.reason ?? "Select a supported policy before continuing" :
+    policy?.status === "staged" ? "Selected for the next turn. Current native permissions are shown separately." :
+    policy?.status === "unknown" ? "Current native permissions have not been confirmed." : undefined;
+  const observedLabel = options.find((choice) => choice.id === policy?.observed?.profile)?.label ?? (policy?.observed ? "Custom permissions" : undefined);
+  return { selected, label, options, status, observedLabel, policy };
 }

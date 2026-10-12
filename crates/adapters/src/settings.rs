@@ -25,7 +25,7 @@ pub fn validate(config: &Value, descriptors: &Value) -> Result<()> {
 }
 
 pub fn select(id: &str, label: &str, value: Value, choices: Value) -> Value {
-    json!({"id":id,"label":label,"type":"select","value":value,"choices":choices,"live":true})
+    json!({"id":id,"label":label,"type":"select","value":value,"choices":choices,"application":"next_turn"})
 }
 pub fn choices(values: &[&str]) -> Value {
     Value::Array(values.iter().map(|v| json!({"id":v,"label":v})).collect())
@@ -41,7 +41,7 @@ pub fn models(value: &Value) -> Vec<Value> {
 pub fn model_choices(value: &Value) -> Value {
     Value::Array(models(value).iter().filter_map(|m| {
         let id = m["model"].as_str().or_else(|| m["id"].as_str()).or_else(|| m["value"].as_str())?;
-        Some(json!({"id":id,"label":m["displayName"].as_str().or_else(|| m["name"].as_str()).unwrap_or(id)}))
+        Some(json!({"id":id,"label":m["displayName"].as_str().or_else(|| m["name"].as_str()).unwrap_or(id),"description":m["description"].as_str(),"metadata":m}))
     }).collect())
 }
 pub fn questions(value: &Value) -> Value {
@@ -53,4 +53,38 @@ pub fn questions(value: &Value) -> Value {
         }).collect()).unwrap_or_default();
         json!({"id":id,"prompt":q["question"].as_str().or_else(|| q["prompt"].as_str()).unwrap_or("Answer the question"),"options":options,"multiple":q["multiSelect"]==true || q["multiple"]==true,"allowText":q["isOther"].as_bool().or_else(|| q["custom"].as_bool()).unwrap_or(true),"secret":q["isSecret"]==true})
     }).collect()).unwrap_or_default())
+}
+
+/// Parse the adapter's common descriptors, rejecting malformed catalogs.
+pub fn descriptors(value: Value) -> Result<Vec<mpai::SettingDescriptor>> {
+    serde_json::from_value(value)
+        .map_err(|error| Error::Provider(format!("invalid configuration descriptors: {error}")))
+}
+pub fn model_descriptors(value: Value) -> Result<Vec<mpai::ModelDescriptor>> {
+    let mut entries = value
+        .as_array()
+        .cloned()
+        .ok_or_else(|| Error::Provider("model catalog must be an array".into()))?;
+    for entry in &mut entries {
+        let object = entry
+            .as_object_mut()
+            .ok_or_else(|| Error::Provider("model descriptor must be an object".into()))?;
+        let extra: Vec<_> = object
+            .keys()
+            .filter(|key| {
+                !["id", "label", "description", "provider", "metadata"].contains(&key.as_str())
+            })
+            .cloned()
+            .collect();
+        let mut metadata = object
+            .remove("metadata")
+            .and_then(|value| value.as_object().cloned())
+            .unwrap_or_default();
+        for key in extra {
+            metadata.insert(key.clone(), object.remove(&key).unwrap());
+        }
+        object.insert("metadata".into(), Value::Object(metadata));
+    }
+    serde_json::from_value(json!(entries))
+        .map_err(|error| Error::Provider(format!("invalid model descriptors: {error}")))
 }

@@ -2,9 +2,34 @@
   "turns": [
     {
       "steps": [
-        {"type":"text","text":"client-ready","itemId":"client-message"},
-        {"type":"end","reason":"completed"}
+        {
+          "type": "text",
+          "text": "client-ready",
+          "itemId": "client-message"
+        },
+        {
+          "type": "end",
+          "outcome": "completed"
+        }
       ]
+    }
+  ],
+  "models": [
+    {
+      "id": "client-model",
+      "label": "Client model",
+      "metadata": {
+        "nativeField": "retained"
+      }
+    }
+  ],
+  "configuration": [
+    {
+      "id": "fast",
+      "label": "Fast mode",
+      "type": "boolean",
+      "value": false,
+      "application": "next_turn"
     }
   ]
 }

@@ -1,4 +1,5 @@
 use mpai::Runtime;
+use mpai::TurnOutcome;
 use mpai_git::GitExtension;
 use protocol::RuntimeService;
 use serde_json::{Value, json};
@@ -223,6 +224,8 @@ async fn review_scopes_stage_literal_names_and_keep_turn_checkpoints_isolated() 
     let id = uuid::Uuid::new_v4().to_string();
     let turn = uuid::Uuid::new_v4().to_string();
     let snapshot = SessionSnapshot {
+        working_context: None,
+        execution_policy: Default::default(),
         id: id.clone(),
         native: NativeSessionRef {
             provider: "fixture".into(),
@@ -255,7 +258,9 @@ async fn review_scopes_stage_literal_names_and_keep_turn_checkpoints_isolated() 
     extension
         .on_event(&RuntimeEvent {
             kind: EventKind::TurnEnded {
-                reason: "completed".into(),
+                outcome: TurnOutcome::Completed,
+
+                native_reason: None,
             },
             ..start
         })

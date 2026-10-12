@@ -34,7 +34,7 @@ class Everyday(native.Desktop):
             first = script["turns"][0]
             normal = [{"steps": [{"type": "text", "itemId": "ack-" + str(index),
                                     "text": "Everyday fixture prompt " + str(index) + " received."},
-                                   {"type": "end", "reason": "completed"}]} for index in range(1, 13)]
+                                   {"type": "end", "outcome": "completed"}]} for index in range(1, 13)]
             permission = {"id": "everyday-permission", "kind": "permission",
                 "title": "Fixture requires a harmless permission", "description": "Allow the controlled fixture to complete.",
                 "paths": [], "options": [{"id": "allow", "label": "Allow fixture", "kind": "allow"},
@@ -43,7 +43,7 @@ class Everyday(native.Desktop):
                 {"type": "sleep", "milliseconds": 3000}, {"type": "request", "request": permission},
                 {"type": "await_answer", "id": permission["id"], "option": "allow"},
                 {"type": "text", "itemId": "permission-finished", "text": "Permission fixture completed."},
-                {"type": "end", "reason": "completed"}]}]
+                {"type": "end", "outcome": "completed"}]}]
             path.write_text(json.dumps(script, indent=2) + "\n", encoding="utf-8")
         return super().child(command, **kwargs)
 

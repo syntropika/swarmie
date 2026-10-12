@@ -18,7 +18,7 @@ test("HTTP enforces identity, byte limit and cancellation",async()=>{
     if(request.method==="slow"){setTimeout(()=>res.end("{}"),100);return;}
     res.setHeader("content-type","application/json");res.end(JSON.stringify({jsonrpc:"2.0",id:request.method==="wrong"?"wrong":request.id,result:request.method==="large"?"x".repeat(2048):null}));
   });server.listen(0,"127.0.0.1");await once(server,"listening");const url=`http://127.0.0.1:${server.address().port}`;
-  try { const client=Client.http(url,{timeoutMs:20,maxResponseBytes:1024});assert.equal(await client.callRaw("null"),null);await assert.rejects(client.callRaw("wrong"),ProtocolError);await assert.rejects(client.callRaw("large"),ProtocolError);await assert.rejects(client.callRaw("slow")); }
+  try { const client=Client.http(url,{timeoutMs:1000,maxResponseBytes:1024});assert.equal(await client.callRaw("null"),null);await assert.rejects(client.callRaw("wrong"),ProtocolError);await assert.rejects(client.callRaw("large"),ProtocolError);await assert.rejects(Client.http(url,{timeoutMs:20}).callRaw("slow")); }
   finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });
 test("event polling rejects unordered transcript and has a deadline",async()=>{
@@ -32,10 +32,21 @@ async function conformance(client){
  assert.ok((await client.discover()).some(harness=>harness.harness==="mock" && harness.available));
  await assert.rejects(client.callRaw("not/a/method"),error=>error instanceof RpcError && error.code===-32601);
  const session=await client.spawn({harness:"mock",cwd:process.env.MPAI_TEST_CWD??process.cwd()});
- try {assert.equal((await client.prompt(session.id,[{type:"text",data:"Reply"}])).accepted,true);
+ try {
+ assert.equal(session.capabilities.queue.source,"runtime");
+ assert.equal(session.capabilities.configure.availability,"available");
+ const models=await client.call("agent/models",{sessionId:session.id});assert.equal(models[0].metadata.nativeField,"retained");
+ const settings=await client.call("agent/configuration",{sessionId:session.id});assert.equal(settings[0].application,"next_turn");
+ const configured=await client.call("agent/configure",{sessionId:session.id,config:{fast:true}});assert.equal(configured.values.fast,true);assert.equal(configured.configuration[0].value,true);
+ assert.equal(settings.at(-1).id,"executionProfile");assert.equal(configured.executionPolicy.status,"unknown");assert.equal(configured.executionPolicy.dispatchBlocked,false);assert.equal(configured.executionPolicy.choices.length,3);
+ assert.equal((await client.prompt(session.id,[{type:"text",data:"Reply"}],"request-1")).delivery,"accepted");
  const events=await client.waitForTurn(session.id,{afterSequence:session.sequence,timeoutMs:3000,pollIntervalMs:5});
- assert.equal(events.filter(event=>event.type==="text.delta").map(event=>event.data.text).join(""),"client-ready");assert.ok(events.some(event=>event.type==="turn.ended"));assert.ok(events.every((e,i)=>i===0||e.sequence>events[i-1].sequence));
- const replay=await client.call("session/transcript",{sessionId:session.id,limit:4096});assert.ok(replay.some(e=>e.type==="text.delta"));
+ assert.equal(events.filter(event=>event.type==="text.delta").map(event=>event.data.text).join(""),"client-ready");assert.equal(events.find(event=>event.type==="turn.ended")?.data.outcome,"completed");assert.ok(events.every((e,i)=>i===0||e.sequence>events[i-1].sequence));
+ const recovered=await client.submission(session.id,"request-1");assert.equal(recovered.delivery,"accepted");assert.equal(recovered.outcome,"completed");
+ assert.equal((await client.reconcileSubmission(session.id,"request-1")).id,recovered.id);
+ const duplicate=await client.prompt(session.id,"Reply","request-1");assert.equal(duplicate.id,recovered.id);
+ await assert.rejects(client.prompt(session.id,"Changed","request-1"),error=>error instanceof RpcError && error.code===-32004 && error.data.code==="idempotency_conflict");
+ const replay=await client.call("session/transcript",{sessionId:session.id,limit:4096});assert.ok(replay.some(e=>e.type==="text.delta"));assert.equal(replay.filter(e=>e.type==="turn.started").length,1);
  }finally{await client.close(session.id);}
 }
 test("live HTTP daemon conformance",{skip:!process.env.MPAI_TEST_URL},async()=>{

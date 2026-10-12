@@ -35,7 +35,7 @@ impl Default for AttachmentOptions {
 impl AttachmentOptions {
     pub fn for_capabilities(capabilities: &Capabilities) -> Self {
         Self {
-            images_supported: capabilities.images,
+            images_supported: capabilities.images.is_available(),
             ..Self::default()
         }
     }

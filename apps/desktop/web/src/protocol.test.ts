@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { newThread, reduceEvents, type Event, type Thread } from "./protocol";
-import { WorkspaceStore } from "./workspace";
+import { WorkspaceStore, RpcError } from "./workspace";
+const testNode = { environmentId: "e", storeId: "s", ownerScopeId: "o" };
 const event = (
   sequence: number,
   type: string,
@@ -11,7 +12,7 @@ const event = (
 describe("ordered provider replay", () => {
   it("records the actual rerouted model without replacing the requested selection", () => {
     const initial = {...newThread("p","w","codex"),sessionId:"s",model:"requested-model"};
-    const rerouted = reduceEvents(initial,[event(1,"turn.started",{}),event(2,"model.rerouted",{fromModel:"requested-model",toModel:"actual-model",reason:"fixture"}),event(3,"turn.ended",{reason:"completed"})]);
+    const rerouted = reduceEvents(initial,[event(1,"turn.started",{}),event(2,"model.rerouted",{fromModel:"requested-model",toModel:"actual-model",reason:"fixture"}),event(3,"turn.ended",{outcome:"completed"})]);
     expect(rerouted.model).toBe("requested-model");
     expect(rerouted.actualModel).toBe("actual-model");
     expect(reduceEvents(rerouted,[event(4,"turn.started",{})]).actualModel).toBeUndefined();
@@ -78,7 +79,7 @@ describe("ordered provider replay", () => {
     expect(pending.permissions.map((p) => p.id)).toEqual(["b"]);
     const finished = reduceEvents(pending, [
       event(4, "state.changed", "running"),
-      event(5, "turn.ended", { reason: "completed" }),
+      event(5, "turn.ended", { outcome: "completed" }),
     ]);
     expect(finished.state).toBe("idle");
     expect(finished.permissions).toEqual([]);
@@ -90,18 +91,19 @@ describe("session submission", () => {
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn() });
   });
   it("keeps the accepted session available for retry after a rejected prompt", async () => {
-    const workspace = new WorkspaceStore();
+    const workspace = new WorkspaceStore({ node: testNode });
     const rpc = vi.spyOn(workspace, "rpc");
-    rpc.mockResolvedValueOnce({
+    vi.spyOn(workspace, "openProjectRecord").mockResolvedValue({
       id: "p",
       path: "/repo",
-      worktrees: [{ id: "w", path: "/repo", branch: "main" }],
-    });
+      worktrees: [{ id: "/repo", path: "/repo", branch: "main", isMain: true, locked: false, prunable: false }],
+    name: "Repo",
+  });
     await workspace.openProject("/repo");
     const id = workspace.active()!.id;
     rpc
-      .mockResolvedValueOnce({ id: "accepted-session" })
-      .mockRejectedValueOnce(new Error("Provider unavailable"));
+      .mockResolvedValueOnce({ id: "accepted-session", options: { cwd: "/repo" } })
+      .mockRejectedValueOnce(new RpcError("Provider unavailable", -32002));
     await expect(workspace.send(id, "Keep this draft")).rejects.toThrow(
       "Provider unavailable",
     );
@@ -110,26 +112,28 @@ describe("session submission", () => {
       state: "idle",
       title: "New chat",
     });
-    rpc.mockResolvedValueOnce({ accepted: true }).mockResolvedValueOnce({});
+    rpc.mockResolvedValueOnce({ delivery: "accepted", recoveryRequired: false }).mockResolvedValueOnce({});
     await workspace.send(id, "Keep this draft");
     expect(rpc).toHaveBeenCalledWith("session/prompt", {
       sessionId: "accepted-session",
       text: "Keep this draft",
+      idempotencyKey: expect.any(String),
     });
   });
   it("does not overwrite completion that arrives before the prompt acknowledgment", async () => {
-    const workspace = new WorkspaceStore();
+    const workspace = new WorkspaceStore({ node: testNode });
     const rpc = vi.spyOn(workspace, "rpc");
-    rpc.mockResolvedValueOnce({
+    vi.spyOn(workspace, "openProjectRecord").mockResolvedValue({
       id: "p",
       path: "/repo",
-      worktrees: [{ id: "w", path: "/repo", branch: "main" }],
-    });
+      worktrees: [{ id: "/repo", path: "/repo", branch: "main", isMain: true, locked: false, prunable: false }],
+    name: "Repo",
+  });
     await workspace.openProject("/repo");
     const id = workspace.active()!.id;
-    rpc.mockResolvedValueOnce({ id: "s" }).mockImplementationOnce(async () => {
+    rpc.mockResolvedValueOnce({ id: "s", options: { cwd: "/repo" } }).mockImplementationOnce(async () => {
       workspace.updateThread(id, { state: "idle" });
-      return { accepted: true };
+      return { delivery: "accepted", recoveryRequired: false };
     });
     rpc.mockResolvedValueOnce({});
     await workspace.send(id, "A quick turn");
@@ -139,26 +143,26 @@ describe("session submission", () => {
 
 it("an in-flight event page cannot reopen a closed session", async () => {
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn() });
-  const workspace = new WorkspaceStore();
+  const workspace = new WorkspaceStore({ node: testNode });
   const rpc = vi.spyOn(workspace, "rpc");
-  rpc.mockResolvedValueOnce({
+  vi.spyOn(workspace, "openProjectRecord").mockResolvedValue({
     id: "p",
     path: "/repo",
-    worktrees: [{ id: "w", path: "/repo", branch: "main" }],
+    worktrees: [{ id: "/repo", path: "/repo", branch: "main", isMain: true, locked: false, prunable: false }],
+  name: "Repo",
   });
   await workspace.openProject("/repo");
   const id = workspace.active()!.id;
   workspace.updateThread(id, { sessionId: "s" });
-  rpc
-    .mockResolvedValueOnce({})
-    .mockResolvedValueOnce([{ harness: "codex", available: true }])
-    .mockResolvedValueOnce([{ id: "git" }])
-    .mockResolvedValueOnce({
-      id: "p",
-      path: "/repo",
-      worktrees: [{ id: "w", path: "/repo" }],
-    })
-    .mockResolvedValueOnce({ state: "idle" });
+  rpc.mockImplementation(async (method) => {
+    if (method === "runtime/initialize") return { name: "mpai", protocolVersion: "1", runtimeIdentity: { identity: { environmentId: "e", storeId: "s", ownerScopeId: "o" }, incarnationId: "r" } } as any;
+    if (method === "runtime/discover") return [{ harness: "codex", available: true }] as any;
+    if (method === "extension/list") return [{ id: "git" }] as any;
+    if (method === "project/list" || method === "session/list" || method === "session/transcript") return [] as any;
+    if (method === "session/get" || method === "session/resume") return { id: "s", state: "idle", options: { cwd: "/repo" } } as any;
+    if (method === "session/queue/list") return { items: [], paused: false } as any;
+    return {} as any;
+  });
   await workspace.connect();
   let resolvePage!: (events: Event[]) => void;
   rpc.mockImplementationOnce(
@@ -180,14 +184,14 @@ describe("workspace continuity", () => {
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn() }),
   );
   it("resumes a native saved session without clearing its transcript", async () => {
-    const workspace = new WorkspaceStore();
+    const workspace = new WorkspaceStore({ node: testNode });
     workspace.createThread();
     const id = workspace.active()!.id;
     workspace.updateThread(id, {
       sessionId: "saved",
       worktreeId: "/repo",
       state: "closed",
-      capabilities: { resume: true },
+      capabilities: { resume: { availability: "available" as const, source: "harness" as const, evidence: "declared" as const } },
       messages: [
         {
           id: "old",
@@ -200,8 +204,8 @@ describe("workspace continuity", () => {
       .spyOn(workspace, "rpc")
       .mockImplementation(async (method) =>
         method === "session/resume"
-          ? { id: "saved", state: "idle", capabilities: { resume: true } }
-          : {},
+          ? { id: "saved", state: "idle", capabilities: { resume: { availability: "available" as const, source: "harness" as const, evidence: "declared" as const } } }
+          : { delivery: "accepted", recoveryRequired: false },
       );
     await workspace.send(id, "Continue");
     expect(rpc).toHaveBeenCalledWith("session/resume", { sessionId: "saved" });
@@ -209,14 +213,14 @@ describe("workspace continuity", () => {
     expect(workspace.active()!.messages).toHaveLength(1);
   });
   it("does not substitute a new session when native resume is unavailable", async () => {
-    const workspace = new WorkspaceStore();
+    const workspace = new WorkspaceStore({ node: testNode });
     workspace.createThread();
     const id = workspace.active()!.id;
     workspace.updateThread(id, {
       sessionId: "saved",
       worktreeId: "/repo",
       state: "closed",
-      capabilities: { resume: false },
+      capabilities: { resume: { availability: "unsupported" as const, source: "harness" as const, evidence: "declared" as const } },
     });
     const rpc = vi.spyOn(workspace, "rpc");
     await expect(workspace.send(id, "Continue")).rejects.toThrow(
@@ -225,7 +229,7 @@ describe("workspace continuity", () => {
     expect(rpc).not.toHaveBeenCalled();
   });
   it("keeps a newer draft when a slower accepted send completes", async () => {
-    const workspace = new WorkspaceStore();
+    const workspace = new WorkspaceStore({ node: testNode });
     workspace.createThread();
     const id = workspace.active()!.id;
     workspace.updateThread(id, {
@@ -236,13 +240,13 @@ describe("workspace continuity", () => {
     });
     vi.spyOn(workspace, "rpc").mockImplementation(async () => {
       workspace.updateThread(id, { draft: "Next message" });
-      return {};
+      return { delivery: "accepted", recoveryRequired: false };
     });
     await workspace.send(id, "First");
     expect(workspace.active()!.draft).toBe("Next message");
   });
   it("queues explicitly without claiming to steer an unsupported harness", async () => {
-    const workspace = new WorkspaceStore();
+    const workspace = new WorkspaceStore({ node: testNode });
     workspace.createThread();
     const id = workspace.active()!.id;
     workspace.updateThread(id, {
@@ -250,7 +254,7 @@ describe("workspace continuity", () => {
       worktreeId: "/repo",
       state: "running",
       title: "Existing",
-      capabilities: { steering: false },
+      capabilities: { steering: { availability: "unsupported" as const, source: "harness" as const, evidence: "declared" as const } },
     });
     const rpc = vi
       .spyOn(workspace, "rpc")
@@ -268,13 +272,13 @@ describe("workspace continuity", () => {
     expect(workspace.active()!.state).toBe("running");
   });
   it("restores durable pages then uses the current native state over historical close events", async () => {
-    const workspace = new WorkspaceStore();
+    const workspace = new WorkspaceStore({ node: testNode });
     workspace.createThread();
     const id = workspace.active()!.id;
     workspace.updateThread(id, { sessionId: "s", worktreeId: "/repo" });
     const rpc = vi.spyOn(workspace, "rpc").mockImplementation(async (method) =>
       method === "session/get"
-        ? { state: "idle", capabilities: { resume: true } }
+        ? { state: "idle", capabilities: { resume: { availability: "available" as const, source: "harness" as const, evidence: "declared" as const } } }
         : method === "session/transcript"
           ? [
               event(1, "message.user", {
@@ -282,7 +286,7 @@ describe("workspace continuity", () => {
               }),
               event(2, "session.ended", {}),
             ]
-          : { state: "idle", capabilities: { resume: true } },
+          : { state: "idle", capabilities: { resume: { availability: "available" as const, source: "harness" as const, evidence: "declared" as const } } },
     );
     await workspace.restoreThread(id);
     expect(workspace.active()!.state).toBe("idle");
@@ -356,25 +360,27 @@ it("keeps image attachments visible after durable replay", () => {
 });
 it("an optional review failure cannot turn an accepted provider completion into a failed session", async () => {
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn() });
-  const workspace = new WorkspaceStore();
+  const workspace = new WorkspaceStore({ node: testNode });
   workspace.createThread();
   const id = workspace.active()!.id;
   workspace.updateThread(id, { sessionId: "s", state: "running" });
   const rpc = vi
     .spyOn(workspace, "rpc")
     .mockImplementation(async (method) =>
-      method === "runtime/discover"
+      method === "runtime/initialize"
+        ? { name: "mpai", protocolVersion: "1", runtimeIdentity: { identity: { environmentId: "e", storeId: "s", ownerScopeId: "o" }, incarnationId: "r" } }
+        : method === "runtime/discover"
         ? []
         : method === "extension/list"
           ? []
-          : method === "session/list"
+          : (method === "session/list" || method === "project/list")
             ? []
             : method === "session/get"
-              ? { state: "running", capabilities: { resume: true } }
+              ? { state: "running", capabilities: { resume: { availability: "available" as const, source: "harness" as const, evidence: "declared" as const } } }
               : method === "session/transcript"
                 ? []
                 : method === "session/resume"
-                  ? { state: "running", capabilities: { resume: true } }
+                  ? { state: "running", capabilities: { resume: { availability: "available" as const, source: "harness" as const, evidence: "declared" as const } } }
                   : method === "session/queue/list"
                     ? { items: [], paused: false }
                     : method === "session/events"

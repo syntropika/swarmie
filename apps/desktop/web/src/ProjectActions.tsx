@@ -79,6 +79,7 @@ export function ProjectActions({
                     url: string;
                   }>("workspace", "project.publish", {
                     projectId: thread.worktreeId,
+        ...(thread.sessionId ? { sessionId: thread.sessionId } : {}),
                     name: publishName || project.name,
                     visibility,
                     push: true,

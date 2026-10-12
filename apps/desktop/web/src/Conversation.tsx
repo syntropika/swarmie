@@ -203,7 +203,7 @@ function AssistantMessage() {
       </MessagePrimitive.If>
       <ActionBarPrimitive.Root className="pointer-events-none mt-3 flex h-7 items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/assistant-message:pointer-events-auto group-hover/assistant-message:opacity-100 group-focus-within/assistant-message:pointer-events-auto group-focus-within/assistant-message:opacity-100 motion-reduce:transition-none" hideWhenRunning>
       <MessageActions copied={copied} reaction={null} regenerating={false} onCopy={copy} />
-      {host?.thread.capabilities?.fork &&
+      {host?.thread.capabilities?.fork?.availability === "available" &&
         anchor &&
         host.thread.state === "idle" && (
           <Tooltip><Button
@@ -297,6 +297,15 @@ export function Conversation({
     window.addEventListener("mpai:composer-text", applyDraft);
     return () => window.removeEventListener("mpai:composer-text", applyDraft);
   }, [thread.id]);
+  const [checkingRecovery, setCheckingRecovery] = useState(false);
+  const unresolvedSubmission = thread.submissionKeys?.some((entry) =>
+    !entry.receipt || entry.receipt.recoveryRequired || !["accepted", "rejected"].includes(entry.receipt.delivery));
+  const checkRecovery = async () => {
+    setCheckingRecovery(true);
+    try { await store.checkSubmissionRecovery(thread.id); }
+    catch (error) { store.setError(error); }
+    finally { setCheckingRecovery(false); }
+  };
   const submitDuringTurn = async (delivery: "queue" | "steer") => {
     setSending(true);
     try {
@@ -393,8 +402,16 @@ export function Conversation({
                   <div className="running-label">
                     <span className="status-dot working" />{" "}
                     {thread.state === "needs_input"
-                      ? "Waiting for your permission"
+                      ? unresolvedSubmission ? "Checking delivery of your request" : "Waiting for your permission"
                       : "Working on your request…"}
+                  </div>
+                )}
+                {unresolvedSubmission && (
+                  <div role="status">
+                    <p>We cannot confirm whether your request finished. Pending work is paused.</p>
+                    <Button variant="ghost" disabled={checkingRecovery} onClick={() => void checkRecovery()}>
+                      {checkingRecovery ? "Checking…" : "Check request status"}
+                    </Button>
                   </div>
                 )}
                 {thread.error && (
@@ -561,7 +578,7 @@ export function Conversation({
                         <ListPlus size={14} />
                         Queue
                       </Button>
-                      {thread.capabilities?.steering && (
+                      {thread.capabilities?.steering?.availability === "available" && (
                         <Button
                           variant="ghost"
                           size="sm"

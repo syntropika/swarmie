@@ -37,19 +37,20 @@ it("shows context occupancy from real token counts and handles unknown capacity"
   expect(screen.getByRole("button", { name: "Context window: usage unavailable" })).toBeTruthy();
 });
 
-it("does not pretend edit-only permissions provide an automatic approval reviewer", () => {
-  const thread = { config: {}, configurations: [{ id: "permissionMode", type: "select", label: "Permissions", live: true, value: "acceptEdits", choices: [{ id: "default", label: "Default" }, { id: "acceptEdits", label: "Accept edits" }, { id: "bypassPermissions", label: "Bypass" }] }] } as Thread;
+it("leaves raw controls unclassified until the server describes the policy", () => {
+  const thread = { config: {}, configurations: [{ id: "permissionMode", type: "select" as const, label: "Permissions", application: "next_turn" as const, value: "acceptEdits", choices: [{ id: "default", label: "Default" }, { id: "acceptEdits", label: "Accept edits" }, { id: "bypassPermissions", label: "Bypass" }] }] } as Thread;
   const result = sessionPermissions(thread);
-  expect(result.label).toBe("Custom permissions");
-  expect(result.options.find((option) => option.id === "review")?.available).toBe(false);
-  expect(result.options.find((option) => option.id === "ask")?.patch).toEqual({ permissionMode: "default" });
-  expect(result.options.find((option) => option.id === "full")?.patch).toEqual({ permissionMode: "bypassPermissions" });
+  expect(result.label).toBe("Permissions");
+  expect(result.options.every((option) => !option.available)).toBe(true);
+  expect(result.options.find((option) => option.id === "ask")?.patch).toEqual({ executionProfile: "ask" });
 });
 
-it("disables presets whose native settings cannot change in an active session", () => {
-  const thread = { sessionId: "native", configurations: [
-    { id: "permissionMode", type: "select", label: "Permissions", live: false, value: "default", choices: [{ id: "default", label: "Default" }, { id: "bypassPermissions", label: "Bypass" }] },
-  ] } as Thread;
+it("disables common choices whose advertised application requires a new session", () => {
+  const thread = { sessionId: "native", executionPolicy: {
+    revision: 0, requested: null, status: "unknown", planned: null, plannedProfile: null, observed: null,
+    controlledSettings: [], dispatchBlocked: false, reason: null, bindingId: null, nativeSession: null,
+    choices: [{ profile: "full", label: "Full access", description: "Server coverage", application: "creation_only", mapping: "equivalent", capability: { availability: "available", source: "harness", evidence: "declared" } }],
+  } } as unknown as Thread;
   expect(sessionPermissions(thread).options.find((option) => option.id === "full")).toMatchObject({ available: true, locked: true });
 });
 
@@ -58,9 +59,9 @@ it("toggles native Fast mode without changing reasoning effort", async () => {
   const store = new WorkspaceStore();
   await store.ready(); store.createThread();
   const thread = { ...store.active()!, worktreeId: "/Documents", configurations: [
-    { id: "model", type: "select", label: "Model", live: true, value: "native", choices: [{ id: "native", label: "Native" }] },
-    { id: "effort", type: "select", label: "Effort", live: true, value: "high", choices: [{ id: "low", label: "Low" }, { id: "high", label: "High" }] },
-    { id: "fast", type: "boolean", label: "Fast mode", live: true, value: false },
+    { id: "model", type: "select" as const, label: "Model", application: "next_turn" as const, value: "native", choices: [{ id: "native", label: "Native" }] },
+    { id: "effort", type: "select" as const, label: "Effort", application: "next_turn" as const, value: "high", choices: [{ id: "low", label: "Low" }, { id: "high", label: "High" }] },
+    { id: "fast", type: "boolean" as const, label: "Fast mode", application: "next_turn" as const, value: false },
   ] };
   vi.spyOn(store, "previewControls").mockResolvedValue();
   const configure = vi.spyOn(store, "configure").mockResolvedValue();
@@ -79,7 +80,7 @@ it("keeps cached controls while busy and refreshes when idle without a session-s
   const store = new WorkspaceStore();
   await store.ready(); store.createThread();
   const thread = { ...store.active()!, worktreeId: "/Documents", state: "running", configurations: [
-    { id: "model", type: "select", label: "Model", live: true, value: "native", choices: [{ id: "native", label: "Native" }] },
+    { id: "model", type: "select" as const, label: "Model", application: "next_turn" as const, value: "native", choices: [{ id: "native", label: "Native" }] },
   ] };
   const preview = vi.spyOn(store, "previewControls").mockRejectedValue(new Error("session is busy"));
   const view = render(<SessionControls thread={thread} store={store} connected />);
@@ -90,4 +91,18 @@ it("keeps cached controls while busy and refreshes when idle without a session-s
   await waitFor(() => expect(preview).toHaveBeenCalledOnce());
   expect(screen.queryByText("session is busy")).toBeNull();
   expect(screen.queryByRole("button", { name: "Start session to load models" })).toBeNull();
+});
+
+it("explains unavailable configuration and does not enable it as a truthy capability object", async () => {
+  localStorage.clear();
+  const store = new WorkspaceStore();
+  await store.ready(); store.createThread();
+  const thread: Thread = { ...store.active()!, worktreeId: "/Documents", sessionId: "native", capabilities: {
+    configure: { availability: "unavailable", source: "harness", evidence: "declared", reason: "Settings require a new session" },
+  }, configurations: [{ id: "model", label: "Model", type: "select", value: "native", choices: [{ id: "native", label: "Native" }], application: "creation_only" }] };
+  vi.spyOn(store, "previewControls").mockResolvedValue();
+  render(<SessionControls thread={thread} store={store} connected />);
+  await userEvent.click(screen.getByRole("button", { name: "Select model: Native" }));
+  await waitFor(() => expect(screen.getByText("Settings require a new session")).toBeTruthy());
+  expect((screen.getByRole("combobox", { name: "Choose model: Native" }) as HTMLButtonElement).disabled).toBe(true);
 });

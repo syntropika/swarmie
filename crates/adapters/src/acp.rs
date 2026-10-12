@@ -27,8 +27,16 @@ impl Harness for AcpHarness {
             &self.id,
             &self.executable,
             Capabilities {
-                cancel: true,
-                permissions: true,
+                models: Capability::unknown("Model choices are discovered when a session opens"),
+                configure: Capability::unknown("Settings are discovered when a session opens"),
+                modes: Capability::unknown("Modes are discovered when a session opens"),
+                resume: Capability::unknown("Resume support requires native initialization"),
+                images: Capability::unknown("Image support requires native initialization"),
+                cancel: true.into(),
+                permissions: true.into(),
+                operation_approvals: Capability::unknown(
+                    "ACP permission requests are optional; operation coverage is provider-specific",
+                ),
                 ..Default::default()
             },
         ))
@@ -70,12 +78,16 @@ impl Harness for AcpHarness {
         }
         let caps = &init["agentCapabilities"];
         let mut capabilities = Capabilities {
-            resume: caps["loadSession"] == true,
-            cancel: true,
-            permissions: true,
-            reasoning: true,
-            usage: true,
-            images: caps["promptCapabilities"]["image"] == true,
+            commands: true.into(),
+            resume: Capability::negotiated(caps["loadSession"] == true),
+            cancel: true.into(),
+            permissions: true.into(),
+            operation_approvals: Capability::unknown(
+                "ACP permission requests are optional; operation coverage is provider-specific",
+            ),
+            reasoning: true.into(),
+            usage: true.into(),
+            images: Capability::negotiated(caps["promptCapabilities"]["image"] == true),
             ..Default::default()
         };
         let mcp_servers = mcp_servers(o, caps)?;
@@ -86,17 +98,10 @@ impl Harness for AcpHarness {
         if caps["mcpCapabilities"]["sse"] == true {
             transports.push("sse");
         }
-        capabilities.metadata = BTreeMap::from([
-            ("mcpTransports".into(), json!(transports)),
-            ("toolsDisabled".into(), json!(false)),
-            ("ephemeral".into(), json!(false)),
-            ("outputSchema".into(), json!(false)),
-            ("commands".into(), json!(true)),
-            ("forkAtMessage".into(), json!(false)),
-        ]);
+        capabilities.metadata = BTreeMap::from([("mcpTransports".into(), json!(transports))]);
         let mut params = json!({"cwd":o.cwd,"mcpServers":mcp_servers});
         let method = if let Some(s) = saved {
-            if !capabilities.resume {
+            if !capabilities.resume.is_available() {
                 return Err(Error::Unsupported("ACP resume".into()));
             }
             params["sessionId"] = json!(s.id);
@@ -105,18 +110,21 @@ impl Harness for AcpHarness {
             "session/new"
         };
         let mut result = wire.request(method, params).await?;
-        capabilities.models =
-            result["models"]["availableModels"].is_array() || model_option(&result).is_some();
-        capabilities.configure = capabilities.models
-            || result["modes"]["availableModes"].is_array()
-            || result["configOptions"].is_array();
-        capabilities.modes = result["modes"]["availableModes"].is_array();
+        capabilities.models = Capability::negotiated(
+            result["models"]["availableModels"].is_array() || model_option(&result).is_some(),
+        );
+        capabilities.configure = Capability::negotiated(
+            capabilities.models.is_available()
+                || result["modes"]["availableModes"].is_array()
+                || result["configOptions"].is_array(),
+        );
+        capabilities.modes = Capability::negotiated(result["modes"]["availableModes"].is_array());
         let session = saved
             .map(|s| s.id.clone())
             .or_else(|| result["sessionId"].as_str().map(String::from))
             .ok_or_else(|| Error::Provider("missing ACP session id".into()))?;
         if let Some(model) = &o.model {
-            if !capabilities.models {
+            if !capabilities.models.is_available() {
                 return Err(Error::Unsupported("ACP initial model selection".into()));
             }
             if let Some(option) = model_option(&result) {
@@ -197,14 +205,16 @@ impl Harness for AcpHarness {
                                 ))
                                 .await;
                         }
-                        let reason = if f.get("error").is_some() {
-                            "failed"
+                        let native_reason = f["result"]["stopReason"].as_str().map(String::from);
+                        let outcome = if f.get("error").is_some() {
+                            TurnOutcome::Failed
                         } else {
-                            f["result"]["stopReason"].as_str().unwrap_or("end_turn")
+                            outcome::acp(native_reason.as_deref())
                         };
                         if tx
                             .send(BackendEvent::TurnFinished {
-                                reason: reason.into(),
+                                outcome,
+                                native_reason,
                                 raw: Some(f),
                             })
                             .await
@@ -457,7 +467,7 @@ impl Harness for AcpHarness {
                 }
             }
         });
-        let images = capabilities.images;
+        let images = capabilities.images.is_available();
         Ok(BackendConnection {
             native: native(&self.id, session.clone()),
             capabilities,
@@ -557,12 +567,12 @@ impl AgentBackend for AcpBackend {
             .map(Value::Array)
             .unwrap_or(json!([])))
     }
-    async fn models(&self) -> Result<Value> {
+    async fn models(&self) -> Result<Vec<ModelDescriptor>> {
         let state = self.configuration.read().await;
         if let Some(option) = model_option(&state) {
-            return Ok(json!(config_choices(option)));
+            return settings::model_descriptors(json!(config_choices(option)));
         }
-        Ok(Value::Array(
+        settings::model_descriptors(Value::Array(
             state["models"]["availableModels"]
                 .as_array()
                 .map(|a| {
@@ -573,7 +583,7 @@ impl AgentBackend for AcpBackend {
                 .unwrap_or_default(),
         ))
     }
-    async fn configuration(&self) -> Result<Value> {
+    async fn configuration(&self) -> Result<Vec<SettingDescriptor>> {
         let state = self.configuration.read().await.clone();
         let mut fields = vec![];
         if state["models"]["availableModels"].is_array() {
@@ -581,7 +591,7 @@ impl AgentBackend for AcpBackend {
                 "model",
                 "Model",
                 state["models"]["currentModelId"].clone(),
-                self.models().await?,
+                json!(self.models().await?),
             ));
         }
         if let Some(modes) = state["modes"]["availableModes"].as_array() {
@@ -610,7 +620,7 @@ impl AgentBackend for AcpBackend {
                 }
             }
         }
-        Ok(json!(fields))
+        settings::descriptors(json!(fields))
     }
     async fn configure(&self, config: Value) -> Result<Value> {
         let fields = config
@@ -619,10 +629,9 @@ impl AgentBackend for AcpBackend {
         let descriptors = self.configuration().await?;
         for (id, value) in fields {
             let valid = descriptors
-                .as_array()
-                .and_then(|a| a.iter().find(|d| d["id"] == *id))
-                .and_then(|d| d["choices"].as_array())
-                .is_some_and(|a| a.iter().any(|c| c["id"] == *value));
+                .iter()
+                .find(|descriptor| descriptor.id == *id)
+                .is_some_and(|descriptor| descriptor.validate(value).is_ok());
             if !valid {
                 return Err(Error::Invalid(format!("unsupported choice for {id}")));
             }
@@ -668,12 +677,12 @@ impl AgentBackend for AcpBackend {
         let descriptors = self.configuration().await?;
         self.tx
             .send(BackendEvent::Content {
-                kind: Box::new(EventKind::ConfigurationUpdated(descriptors.clone())),
+                kind: Box::new(EventKind::ConfigurationUpdated(json!(descriptors))),
                 raw: None,
             })
             .await
             .map_err(|_| Error::Closed)?;
-        Ok(descriptors)
+        Ok(json!(descriptors))
     }
     async fn close(&self) -> Result<()> {
         self.wire.close().await

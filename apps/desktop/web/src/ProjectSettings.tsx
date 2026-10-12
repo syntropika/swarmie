@@ -9,10 +9,11 @@ import type { Thread, Project } from "./protocol";
 import type { WorkspaceStore } from "./workspace";
 export type ProjectDefaults = {
   cwd: string;
+  projectId: string;
+  revision: number;
   model?: string | null;
   harness?: string | null;
   config?: Record<string, unknown> | null;
-  workspace?: string | null;
 };
 export function parseNativeDefaults(text: string): Record<string, unknown> {
   const value: unknown = JSON.parse(text);
@@ -42,14 +43,16 @@ export function projectDefaultsPayload(
     throw new Error("Choose an available workspace from this project.");
   parseNativeDefaults(config);
   return {
-    cwd: project.path,
+    projectId: project.id,
+    expectedRevision: project.revision ?? 0,
     model: model || null,
     config: JSON.parse(config) as Record<string, unknown> | null,
-    workspace: workspace || null,
+    directoryPath: workspace || project.path,
     ...(harness !== undefined ? { harness: harness || null } : {}),
   };
 }
 export function ProjectSettings({ store, thread }: { store: WorkspaceStore; thread: Thread }) {
+  const [revision, setRevision] = useState(0);
   const [defaultModel, setDefaultModel] = useState("");
   const [defaultHarness, setDefaultHarness] = useState("");
   const [defaultConfig, setDefaultConfig] = useState("{}");
@@ -71,13 +74,14 @@ export function ProjectSettings({ store, thread }: { store: WorkspaceStore; thre
   const load = async () => {
     const [secrets, defaults] = await Promise.all([
       store.invokeExtension<{ credentials: typeof credentials }>("resources", "credentials.status", {}),
-      projectRoot ? store.invokeExtension<ProjectDefaults>("resources", "project.get", { cwd: projectRoot }) : Promise.resolve({} as ProjectDefaults),
+      project ? store.invokeExtension<ProjectDefaults>("resources", "project.get", { projectId: project?.id }) : Promise.resolve({} as ProjectDefaults),
     ]);
     setCredentials(secrets.credentials);
+    setRevision(defaults.revision ?? 0);
     setDefaultModel(defaults.model ?? "");
     setDefaultHarness(defaults.harness ?? "");
     setDefaultConfig(JSON.stringify(defaults.config ?? {}, null, 2));
-    setDefaultWorkspace(defaults.workspace ?? "");
+    setDefaultWorkspace(defaults.cwd ?? "");
   };
   useEffect(() => { void run(load); }, [projectRoot]);
   return (
@@ -158,13 +162,14 @@ export function ProjectSettings({ store, thread }: { store: WorkspaceStore; thre
               "resources",
               "project.set",
               projectDefaultsPayload(
-                project,
+                { ...project, revision },
                 defaultModel,
                 defaultConfig,
                 defaultWorkspace,
                 defaultHarness,
               ),
             );
+            await store.refreshProject(project.id);
             await load();
           })
         }

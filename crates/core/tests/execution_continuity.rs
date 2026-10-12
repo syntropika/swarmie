@@ -9,8 +9,37 @@ use tokio::sync::{Mutex, mpsc};
 struct Store(Arc<MemoryStore>);
 #[async_trait]
 impl SessionStore for Store {
+    async fn local_catalog(&self) -> Result<LocalCatalog> {
+        self.0.local_catalog().await
+    }
+    async fn update_catalog(&self, update: CatalogUpdate) -> Result<CatalogRecord> {
+        self.0.update_catalog(update).await
+    }
+    async fn prepare_context(
+        &self,
+        session_id: &str,
+        binding_id: &str,
+        selection: ContextSelection,
+    ) -> Result<WorkingContext> {
+        self.0
+            .prepare_context(session_id, binding_id, selection)
+            .await
+    }
+    async fn working_context(&self, id: &str) -> Result<Option<WorkingContext>> {
+        self.0.working_context(id).await
+    }
+
+    async fn commit(&self, write: SessionWrite<'_>) -> Result<()> {
+        self.0.commit(write).await
+    }
     fn transcript_durability(&self) -> Option<&'static str> {
         Some("memory")
+    }
+    async fn save_submission(&self, record: &SubmissionRecord) -> Result<()> {
+        self.0.save_submission(record).await
+    }
+    async fn submissions(&self, id: &str) -> Result<Vec<SubmissionRecord>> {
+        self.0.submissions(id).await
     }
     async fn save(&self, s: &SessionSnapshot) -> Result<()> {
         self.0.save(s).await
@@ -42,15 +71,14 @@ struct NativeHarness {
 }
 fn capabilities() -> Capabilities {
     Capabilities {
-        resume: true,
-        fork: true,
-        metadata: BTreeMap::from([
-            ("forkAtMessage".into(), json!(true)),
-            ("mcpTransports".into(), json!(["stdio", "http", "sse"])),
-            ("toolsDisabled".into(), json!(true)),
-            ("outputSchema".into(), json!(true)),
-            ("ephemeral".into(), json!(true)),
-        ]),
+        ephemeral: true.into(),
+        output_schema: true.into(),
+        tools_disabled: true.into(),
+        fork_at_message: true.into(),
+
+        resume: true.into(),
+        fork: true.into(),
+        metadata: BTreeMap::from([("mcpTransports".into(), json!(["stdio", "http", "sse"]))]),
         ..Default::default()
     }
 }
@@ -202,7 +230,9 @@ impl AgentBackend for NativeBackend {
             .map_err(|_| Error::Closed)?;
         self.tx
             .send(BackendEvent::TurnFinished {
-                reason: "completed".into(),
+                outcome: TurnOutcome::Completed,
+
+                native_reason: None,
                 raw: None,
             })
             .await

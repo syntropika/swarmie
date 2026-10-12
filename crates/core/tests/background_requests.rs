@@ -58,11 +58,11 @@ impl Harness for IndependentHarness {
                 id: "parent-with-background-child".into(),
             },
             capabilities: Capabilities {
-                cancel: true,
-                compact: true,
-                rollback: true,
-                fork: true,
-                permissions: true,
+                cancel: true.into(),
+                compact: true.into(),
+                rollback: true.into(),
+                fork: true.into(),
+                permissions: true.into(),
                 ..Default::default()
             },
             events,
@@ -75,7 +75,9 @@ impl AgentBackend for IndependentBackend {
         self.observations.prompts.lock().await.push(prompt.text()?);
         self.input
             .send(BackendEvent::TurnFinished {
-                reason: "completed".into(),
+                outcome: TurnOutcome::Completed,
+
+                native_reason: None,
                 raw: None,
             })
             .await
@@ -124,6 +126,9 @@ struct BackgroundPolicy(PolicyObservations);
 impl RuntimeExtension for BackgroundPolicy {
     fn id(&self) -> &str {
         "background-policy"
+    }
+    fn permission_authority(&self) -> bool {
+        true
     }
     async fn on_permission(
         &self,

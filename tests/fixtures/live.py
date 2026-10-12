@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Exercise installed native harnesses through mpai's stdio daemon."""
+import uuid
 import argparse
 import json
 import os
@@ -64,13 +65,13 @@ class Client:
 
     def turn(self, session, prompt, expected, require_tool=False):
         first = len(self.events)
-        self.call("session/prompt", {"sessionId": session, "text": prompt})
+        self.call("session/prompt", {"sessionId": session, "text": prompt, "idempotencyKey": str(uuid.uuid4())})
         deadline = time.monotonic() + self.timeout
         while not any(e["type"] == "turn.ended" for e in self.events[first:]):
             self.next(deadline)
         events = self.events[first:]
         terminal = next(e for e in events if e["type"] == "turn.ended")
-        assert terminal["data"]["reason"] == "completed", terminal
+        assert terminal["data"]["outcome"] == "completed", terminal
         text = "".join(e["data"]["text"] for e in events if e["type"] == "text.delta")
         assert expected in text, "expected model output missing"
         if require_tool:

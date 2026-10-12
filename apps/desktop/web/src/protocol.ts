@@ -1,3 +1,14 @@
+import type {
+  Capabilities,
+  SettingDescriptor,
+  ModelDescriptor,
+  ConfigurationReceipt,
+  ConfigurationPreview,
+  SubmissionReceipt,
+  WorkingContext,
+  ExecutionPolicy,
+} from "../../../../packages/clients/typescript/src/generated";
+export type { ConfigurationReceipt, ConfigurationPreview, SubmissionReceipt };
 import type { ThreadMessageLike } from "@assistant-ui/react";
 import type { ContextItem, FileLocation } from "./context";
 
@@ -11,6 +22,8 @@ export type Worktree = {
 };
 export type Project = {
   id: string;
+  revision?: number;
+  gitId?: string;
   path: string;
   name: string;
   git?: boolean;
@@ -32,15 +45,9 @@ export type Question = {
   allowText?: boolean;
   secret?: boolean;
 };
-export type Capability = { [key: string]: boolean | Record<string, unknown> };
-export type Configuration = {
-  id: string;
-  label: string;
-  type: string;
-  value?: unknown;
-  choices?: { id: string; label: string }[];
-  live: boolean;
-};
+export type Capability = Partial<Capabilities>;
+export type Configuration = SettingDescriptor;
+export type Model = ModelDescriptor;
 export type Attachment = {
   id: string;
   name: string;
@@ -73,9 +80,13 @@ export type ExtensionInfo = {
 };
 export type SessionSnapshot = {
   id: string;
+  workingContext?: WorkingContext | null;
+  executionPolicy?: ExecutionPolicy;
   options: {
     harness: string;
     cwd: string;
+    projectId?: string | null;
+    projectRevision?: number | null;
     model?: string;
     config?: Record<string, unknown>;
   };
@@ -108,6 +119,8 @@ export type Event = {
   raw?: Record<string, unknown>;
 };
 export type Thread = {
+  projectRevision?: number;
+  projectDirectory?: string;
   submitted?: boolean;
   id: string;
   title: string;
@@ -129,6 +142,11 @@ export type Thread = {
   messageAnchors?: Record<string, string>;
   outputFiles?: string[];
   fileDrafts?: Record<string, { content: string; original: string }>;
+  submissionKeys?: {
+    key: string;
+    recordId: string;
+    receipt?: SubmissionReceipt;
+  }[];
   promptRecords?: {
     id: string;
     key: string;
@@ -140,7 +158,8 @@ export type Thread = {
   }[];
   capabilities?: Capability;
   configurations?: Configuration[];
-  models?: { id: string; label: string }[];
+  executionPolicy?: ExecutionPolicy;
+  models?: Model[];
   config?: Record<string, unknown>;
   archived?: boolean;
   draft?: string;
@@ -207,7 +226,13 @@ export function errorMessage(value: unknown, harness: string): string {
 }
 
 export function hasConversation(thread: Thread): boolean {
-  return !!thread.submitted || thread.messages.some((message) => message.role === "user");
+  return (
+    !!thread.submitted ||
+    !!thread.submissionKeys?.some(
+      (entry) => !entry.receipt || entry.receipt.delivery !== "rejected",
+    ) ||
+    thread.messages.some((message) => message.role === "user")
+  );
 }
 
 export function newThread(
@@ -291,11 +316,27 @@ export function reduceEvents(previous: Thread, events: Event[]): Thread {
         thread.messages.push({
           id: userId,
           role: "user",
-          ...(typeof event.timestampMs === "number" && Number.isFinite(event.timestampMs) && event.timestampMs > 0 && event.timestampMs <= 8640000000000000 ? { createdAt: new Date(event.timestampMs) } : {}),
+          ...(typeof event.timestampMs === "number" &&
+          Number.isFinite(event.timestampMs) &&
+          event.timestampMs > 0 &&
+          event.timestampMs <= 8640000000000000
+            ? { createdAt: new Date(event.timestampMs) }
+            : {}),
           content,
         });
         thread.assistantId = undefined;
         thread.itemId = undefined;
+        break;
+      }
+      case "session.updated": {
+        const options = data.options as SessionSnapshot["options"] | undefined;
+        if (options) {
+          thread.config = options.config ?? {};
+          thread.model = options.model ?? "";
+        }
+        if (data.executionPolicy) thread.executionPolicy = data.executionPolicy as ExecutionPolicy;
+        if (Array.isArray(data.configuration))
+          thread.configurations = data.configuration as Configuration[];
         break;
       }
       case "text.delta": {

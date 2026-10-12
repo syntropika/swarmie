@@ -198,7 +198,7 @@ impl ResourcesExtension {
                     self.observe(&mut state, event);
                 }
                 state.scanned.insert(snapshot.id.clone(), after);
-                self.persist(&state)?;
+                self.persist(&state).await?;
                 if runtime.transcript_durability().is_none() {
                     break;
                 }
@@ -211,7 +211,7 @@ impl ResourcesExtension {
             let mut state = self.0.state.lock().await;
             state.history_truncated = true;
             state.usage_truncated = true;
-            self.persist(&state)?;
+            self.persist(&state).await?;
         }
         Ok(())
     }

@@ -197,10 +197,10 @@ async fn kiro_native_model_config_options_and_announced_commands_are_preserved()
     options.model = Some("model-b".into());
     let harness = AcpHarness::new("kiro", "kiro-cli", vec!["acp".into()]);
     let mut c = harness.connect(&options, None, false).await.unwrap();
-    assert!(c.capabilities.models);
-    assert_eq!(c.backend.models().await.unwrap()[0]["id"], "model-a");
+    assert!(c.capabilities.models.is_available());
+    assert_eq!(json!(c.backend.models().await.unwrap())[0]["id"], "model-a");
     assert_eq!(
-        c.backend.configuration().await.unwrap()[0]["value"],
+        json!(c.backend.configuration().await.unwrap())[0]["value"],
         "model-b"
     );
     c.backend

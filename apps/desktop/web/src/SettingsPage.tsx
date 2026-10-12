@@ -1,12 +1,13 @@
 import { useState } from "react";
+import { NodeSettings } from "./NodeSettings";
+import type { NodeClient, NodesState } from "./nodes";
 import { InputGroup } from "@/components/ui/input-group";
-import { Settings, Bell, Keyboard, Download, Plug, Search, X, Cable } from "lucide-react";
+import { Settings, Bell, Keyboard, Download, Plug, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { ChatDirectorySettings } from "./ChatDirectorySettings";
 import { NativeHistory } from "./NativeHistory";
-import { HarnessIcon } from "./HarnessSelect";
 import { shortcutBinding, defaultShortcuts, type Shortcuts } from "./shortcuts";
 import type { WorkspaceStore, Workspace } from "./workspace";
 
@@ -15,26 +16,25 @@ const sections = [
   { id: "notifications", title: "Notifications", icon: Bell },
   { id: "import", title: "Import", icon: Download },
   { id: "shortcuts", title: "Keyboard shortcuts", icon: Keyboard },
-  { id: "connections", title: "Connections", icon: Plug },
+  { id: "connections", title: "Nodes", icon: Plug },
 ] as const;
 
-export function SettingsPage({ store, state, shortcuts, setShortcuts, reconnect, onClose }: {
+export function SettingsPage({ store, state, shortcuts, setShortcuts, onClose, client, nodes }: {
+  client: NodeClient;
+  nodes: NodesState;
   store: WorkspaceStore;
   state: Workspace;
   shortcuts: Shortcuts;
   setShortcuts: (value: Shortcuts) => void;
-  reconnect: (token: string) => Promise<void>;
   onClose: () => void;
 }) {
   const [section, setSection] = useState<string>("general");
   const [query, setQuery] = useState("");
-  const [token, setToken] = useState("");
   const [working, setWorking] = useState(false);
   const perform = async (action: () => Promise<unknown>) => {
     setWorking(true);
     try { await action(); } catch (error) { store.setError(error); } finally { setWorking(false); }
   };
-  const connectAndOpen = reconnect;
   const matches = sections.filter((entry) => entry.title.toLowerCase().includes(query.toLowerCase()));
   return <div className="settings-page">
     <aside className="settings-navigation" aria-label="Settings navigation">
@@ -121,74 +121,7 @@ export function SettingsPage({ store, state, shortcuts, setShortcuts, reconnect,
                 </Button>
         </div>}
         {section === "import" && <div className="settings-section"><NativeHistory store={store} /></div>}
-        {section === "connections" && <div className="settings-section">
-              <div className="connection-status">
-                <Cable size={20} />
-                <div>
-                  <strong>
-                    {state.connected ? "Connected" : "Connect to your daemon"}
-                  </strong>
-                  <p>{window.location.origin}</p>
-                </div>
-                <span
-                  className={`connection-dot ${state.connected ? "connected" : ""}`}
-                />
-              </div>
-              <label>
-                Daemon token
-                <Input
-                  type="password"
-                  autoComplete="off"
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                  placeholder="Optional bearer token"
-                />
-              </label>
-              <Button
-                variant="ghost"
-                className="primary-button"
-                disabled={state.busy}
-                onClick={() => void connectAndOpen(token).catch((e) => store.setError(e))}
-              >
-                {state.busy ? "Connecting…" : "Reconnect"}
-              </Button>
-              <h3>Available harnesses</h3>
-              {state.harnesses.some((item) => item.available) ? (
-                state.harnesses.filter((item) => item.available).map((h) => (
-                  <div className="harness-row" key={h.harness}>
-                    <HarnessIcon harness={h.harness} />
-                    <span>{h.harness}</span>
-                    <span className="muted">
-                      {h.authState ?? "Installed"}
-                    </span>
-                    {h.available && (
-                      <Button
-                        variant="ghost"
-                        className="small-button"
-                        disabled={working}
-                        onClick={() =>
-                          void perform(() => store.probe(h.harness))
-                        }
-                      >
-                        Check readiness
-                      </Button>
-                    )}
-                    {(h.message || h.error) && (
-                      <p className="panel-note">{h.message || h.error}</p>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <p className="muted">
-                  Install a harness and make its executable available to the
-                  daemon, then reconnect.
-                </p>
-              )}
-              <p className="panel-note">
-                Harnesses use their own credentials and provider configuration.
-                The token stays in memory.
-              </p>
-        </div>}
+        {section === "connections" && <NodeSettings client={client} nodes={nodes} />}
       </div>
     </main>
   </div>;

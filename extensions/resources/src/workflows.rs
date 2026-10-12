@@ -25,7 +25,7 @@ impl ResourcesExtension {
                 }
                 if extension.0.text_dirty.load(Ordering::SeqCst) {
                     let state = extension.0.state.lock().await;
-                    if let Err(error) = extension.persist(&state) {
+                    if let Err(error) = extension.persist(&state).await {
                         extension.record_error(error);
                     }
                 }
@@ -42,6 +42,10 @@ impl ResourcesExtension {
                     break;
                 };
                 let extension = ResourcesExtension(inner);
+                if let Err(error) = extension.ensure_loaded().await {
+                    extension.record_error(error);
+                    continue;
+                }
                 if extension.0.stopped.load(Ordering::SeqCst) {
                     break;
                 }
@@ -201,7 +205,7 @@ impl ResourcesExtension {
                 }
                 capacity(state.schedules.contains_key(&id), state.schedules.len())?;
                 state.schedules.insert(id, schedule.clone());
-                self.persist(&state)?;
+                self.persist(&state).await?;
                 Ok(serde_json::to_value(schedule)?)
             }
             "schedules.remove" => {
@@ -215,7 +219,7 @@ impl ResourcesExtension {
                     return Err(Error::Busy);
                 }
                 state.schedules.remove(id);
-                self.persist(&state)?;
+                self.persist(&state).await?;
                 Ok(json!({"removed":true}))
             }
             "schedules.run" => self.run_schedule(text(p, "id")?).await,
@@ -293,7 +297,7 @@ impl ResourcesExtension {
                 }
                 let mut state = self.0.state.lock().await;
                 state.jobs.remove(id);
-                self.persist(&state)?;
+                self.persist(&state).await?;
                 self.0.jobs.lock().unwrap().remove(id);
                 Ok(json!({"removed":true}))
             }
@@ -335,7 +339,7 @@ impl ResourcesExtension {
             schedule.status = "running".into();
             schedule.error = None;
             let schedule = schedule.clone();
-            self.persist(&state)?;
+            self.persist(&state).await?;
             schedule
         };
         let result = async {
@@ -359,7 +363,7 @@ impl ResourcesExtension {
         } else {
             current.enabled = false;
         }
-        self.persist(&state)?;
+        self.persist(&state).await?;
         result.map(|mut value| {
             value["id"] = json!(id);
             value
@@ -423,7 +427,7 @@ impl ResourcesExtension {
                 ));
             }
             state.jobs.insert(id.clone(), job.clone());
-            self.persist(&state)?;
+            self.persist(&state).await?;
         }
         let weak = Arc::downgrade(&self.0);
         let task_id = id.clone();
@@ -455,7 +459,7 @@ impl ResourcesExtension {
                     }
                     .into();
                 }
-                if let Err(error) = extension.persist(&state) {
+                if let Err(error) = extension.persist(&state).await {
                     extension.record_error(error);
                 }
             }
@@ -480,7 +484,7 @@ impl ResourcesExtension {
             return Ok(false);
         }
         update(&mut job.targets[index]);
-        self.persist(&state)?;
+        self.persist(&state).await?;
         Ok(true)
     }
     async fn target_text(&self, id: &str, index: usize, delta: &str) -> Result<()> {
@@ -547,17 +551,9 @@ impl ResourcesExtension {
                             })
                             .await?;
                         }
-                        EventKind::TurnEnded { reason } => {
+                        EventKind::TurnEnded { outcome, .. } => {
                             self.target_update(id, index, |target| {
-                                target.status = if reason == "completed"
-                                    || reason == "end_turn"
-                                    || reason == "stop"
-                                {
-                                    "completed"
-                                } else {
-                                    reason.as_str()
-                                }
-                                .into();
+                                target.status = outcome.to_string();
                             })
                             .await?;
                             return Ok(());
@@ -624,7 +620,7 @@ impl ResourcesExtension {
                 .collect::<Vec<_>>();
             // Claim cancellation atomically with collecting known native sessions. A concurrent spawn closes itself when its target update is rejected.
             job.status = "cancelling".into();
-            self.persist(&state)?;
+            self.persist(&state).await?;
             ids
         };
         let mut errors = Vec::new();
@@ -652,7 +648,7 @@ impl ResourcesExtension {
             }
         }
         let output = json!({"job":job,"errors":errors});
-        self.persist(&state)?;
+        self.persist(&state).await?;
         Ok(output)
     }
 }

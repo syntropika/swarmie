@@ -128,7 +128,7 @@ async fn mock_stream_tools_questions_multiturn_and_cancellation_use_the_real_eng
     let turn = agent.snapshot().await.turn.unwrap();
     agent.cancel_turn(turn).await.unwrap();
     assert!(ended(&mut events).await.iter().any(
-        |event| matches!(&event.kind, EventKind::TurnEnded { reason } if reason == "cancelled")
+        |event| matches!(&event.kind, EventKind::TurnEnded { outcome, .. } if outcome.as_str() == "cancelled")
     ));
     agent.prompt("third").await.unwrap();
     assert!(
@@ -140,7 +140,7 @@ async fn mock_stream_tools_questions_multiturn_and_cancellation_use_the_real_eng
     assert_eq!(agent.snapshot().await.turns_completed, 3);
     assert!(matches!(
         agent.prompt("exhausted").await,
-        Err(Error::Invalid(_))
+        Err(Error::Rejected(_))
     ));
     agent.close().await.unwrap();
 }
@@ -225,18 +225,24 @@ async fn generate_waits_for_native_terminal_after_recoverable_errors() {
         "recovered"
     );
     assert!(runtime.sessions().await.unwrap().is_empty());
-    for reason in ["failed", "cancelled"] {
+    for outcome in [
+        TurnOutcome::Failed,
+        TurnOutcome::Cancelled,
+        TurnOutcome::Interrupted,
+        TurnOutcome::Limited,
+        TurnOutcome::Refused,
+        TurnOutcome::Handled,
+        TurnOutcome::Unknown,
+    ] {
         let runtime = Runtime::builder()
             .harness(MockHarness::new(MockScript::default().turn(vec![
                 error(),
                 MockStep::text("partial"),
-                MockStep::End {
-                    reason: reason.into(),
-                },
+                MockStep::End { outcome },
             ])))
             .build();
         assert!(
-            matches!(runtime.generate(options(),"prompt").await,Err(Error::Provider(message)) if message.contains(reason) && message.contains("temporary provider overload"))
+            matches!(runtime.generate(options(),"prompt").await,Err(Error::Provider(message)) if message.contains(outcome.as_str()) && message.contains("temporary provider overload"))
         );
     }
     let runtime = Runtime::builder()

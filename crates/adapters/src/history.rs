@@ -177,7 +177,7 @@ async fn discover_all(query: &NativeHistoryQuery) -> Result<Vec<NativeHistorySes
             metadata: json!({"nativeHistory":true}),
         });
     }
-    sessions.sort_by(|a, b| b.updated_at_ms.cmp(&a.updated_at_ms));
+    sessions.sort_by_key(|a| std::cmp::Reverse(a.updated_at_ms));
     Ok(sessions)
 }
 pub async fn discover(query: &NativeHistoryQuery) -> Result<Vec<NativeHistorySession>> {
@@ -484,7 +484,9 @@ pub async fn read(
             records.push(NativeHistoryRecord {
                 turn_id: Some(previous),
                 kind: EventKind::TurnEnded {
-                    reason: "imported".into(),
+                    outcome: TurnOutcome::Unknown,
+
+                    native_reason: None,
                 },
                 raw: None,
             });
@@ -567,7 +569,9 @@ pub async fn read(
         records.push(NativeHistoryRecord {
             turn_id: Some(turn),
             kind: EventKind::TurnEnded {
-                reason: "imported".into(),
+                outcome: TurnOutcome::Unknown,
+
+                native_reason: None,
             },
             raw: None,
         });

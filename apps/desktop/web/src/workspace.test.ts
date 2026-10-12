@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { WorkspaceStore } from "./workspace";
+import { WorkspaceStore, RpcError } from "./workspace";
 import { WorkspaceCache } from "./cache";
 import type {
   SessionSnapshot,
@@ -22,33 +22,39 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
+const executionPolicy = {
+  revision: 0, requested: null, status: "unknown" as const, planned: null, plannedProfile: null, observed: null,
+  controlledSettings: [], choices: [], dispatchBlocked: false, reason: null, bindingId: null, nativeSession: null,
+};
 const session = (id = "native"): SessionSnapshot => ({
   id,
   state: "idle",
   options: { harness: "pi", cwd: "/project" },
-  capabilities: { resume: true },
+  capabilities: { resume: { availability: "available" as const, source: "harness" as const, evidence: "declared" as const } },
   sequence: 0,
 });
 it("persists a chosen project name when the folder is reopened or refreshed", async () => {
   const store = setup(false);
-  vi.spyOn(store, "openProjectRecord").mockResolvedValue({ id: "/project", path: "/project", name: "project", worktrees: [] });
+  vi.spyOn(store, "openProjectRecord").mockResolvedValue({ id: "/project", revision: 1, path: "/project", name: "project", worktrees: [] });
+  vi.spyOn(store, "rpc").mockImplementation(async (method) => {
+    if (method === "directory/get") return { path: "/project" } as any;
+    return { id: "/project", name: "Custom name", revision: 2, directory: { id: "directory", revision: 1 }, launch: {} } as any;
+  });
   expect(await store.openProject("/project", "Custom name")).toMatchObject({ name: "Custom name" });
   expect(await store.openProject("/project")).toMatchObject({ name: "Custom name" });
+  vi.mocked(store.openProjectRecord).mockResolvedValue({ id: "/project", revision: 2, path: "/project", name: "Custom name", worktrees: [] });
   await store.refreshProject("/project");
   expect(store.getSnapshot().projects[0]).toMatchObject({ name: "Custom name" });
 });
-it("names a Git project recovered from a native session when the descriptor has no display name", async () => {
+it("does not infer project membership from a native session path", async () => {
   const store = setup(false);
   store.getSnapshot().projects = [];
-  store.getSnapshot().git = true;
   vi.spyOn(store, "rpc").mockResolvedValue([session()]);
-  vi.spyOn(store, "extension").mockResolvedValue({
-    id: "/project", path: "/project", worktrees: [],
-  });
+  const open = vi.spyOn(store, "openProjectRecord");
   await store.restoreSessions();
-  expect(store.getSnapshot().projects[0]).toMatchObject({
-    id: "/project", name: "project", git: true,
-  });
+  expect(open).not.toHaveBeenCalled();
+  expect(store.getSnapshot().projects).toEqual([]);
+  expect(store.getSnapshot().threads[0]).toMatchObject({ projectId: "", worktreeId: "/project" });
 });
 it("recovers the native public launch configuration for subsequent generation", async () => {
   const store = setup(false);
@@ -100,12 +106,14 @@ it("keeps native conversation dates when recovering and replaying historical thr
     updatedAtMs: 2,
   });
 });
+const testNode = { environmentId: "workspace-test-node", storeId: "workspace-test-store", ownerScopeId: "workspace-test-owner" };
 function setup(resources = true) {
-  const store = new WorkspaceStore();
+  const store = new WorkspaceStore({ node: testNode });
   store.getSnapshot().extensions = resources ? [{ id: "resources" }] : [];
   store.getSnapshot().projects = [
     {
       id: "/project",
+      revision: 1,
       path: "/project",
       name: "project",
       worktrees: [
@@ -170,9 +178,9 @@ it("waits for project defaults despite typing and deduplicates simultaneous nati
     .spyOn(store, "rpc")
     .mockImplementation(async (method, params: any) => {
       if (method === "session/create") return session() as any;
-      if (method !== "extension/invoke") throw new Error(`Unexpected ${method}`);
-      if (params.command === "project.get") return defaults as any;
-      throw new Error(`Unexpected ${params.command}`);
+      if (method === "project/get") return defaults as any;
+      if (method === "directory/get") return { path: "/project" } as any;
+      throw new Error(`Unexpected ${method}`);
     });
   store.createThread("/project");
   const id = store.active()!.id;
@@ -188,7 +196,7 @@ it("waits for project defaults despite typing and deduplicates simultaneous nati
       ([method]: any) => method === "session/create",
     ),
   ).toHaveLength(0);
-  resolve({ harness: "pi", model: "native-model" });
+  resolve({ revision: 1, directory: { id: "directory", revision: 1 }, launch: { harness: "pi", model: "native-model" } });
   const result = await first;
   expect(result.model).toBe("native-model");
   expect(result.draft).toBe("Typed before defaults loaded");
@@ -199,7 +207,7 @@ it("waits for project defaults despite typing and deduplicates simultaneous nati
   ).toEqual([
     [
       "session/create",
-      { cwd: "/project", harness: "pi", model: "native-model", config: { thinkingLevel: "high" } },
+      { projectId: "/project", projectRevision: 1, harness: "pi", model: "native-model", config: { thinkingLevel: "high" } },
     ],
   ]);
 });
@@ -211,7 +219,7 @@ it("resumes saved sessions through the resources extension", async () => {
   store.updateThread(id, {
     sessionId: "peer",
     state: "closed",
-    capabilities: { resume: true },
+    capabilities: { resume: { availability: "available" as const, source: "harness" as const, evidence: "declared" as const } },
   });
   const rpc = vi.spyOn(store, "rpc").mockResolvedValue(session("peer"));
   await store.ensureSession(id);
@@ -228,14 +236,14 @@ it("recovers a still-live handle even when the native harness cannot resume clos
   store.updateThread(id, {
     sessionId: "live",
     state: "idle",
-    capabilities: { resume: false },
+    capabilities: { resume: { availability: "unsupported" as const, source: "harness" as const, evidence: "declared" as const } },
   });
   vi.spyOn(store, "rpc").mockImplementation(async (method) => {
     if (method === "session/transcript") return [] as any;
     if (method === "session/queue/list")
       return { items: [], paused: false } as any;
     if (method === "session/get" || method === "session/resume")
-      return { ...session("live"), capabilities: { resume: false } } as any;
+      return { ...session("live"), capabilities: { resume: { availability: "unsupported" as const, source: "harness" as const, evidence: "declared" as const } } } as any;
     throw new Error(`Unexpected ${method}`);
   });
   await store.restoreThread(id);
@@ -259,14 +267,15 @@ it("launches a saved secondary workspace with project permissions and explicit n
     .spyOn(store, "rpc")
     .mockImplementation(async (method, params: any) => {
       if (method === "session/create") return session() as any;
-      if (params.command === "project.get") {
-        expect(params.arguments.cwd).toBe("/project");
+      if (method === "directory/get") return { path: "/secondary" } as any;
+      if (method === "project/get") {
+        expect(params.projectId).toBe("/project");
         return {
-          workspace: "/secondary",
-          config: {
+          revision: 2, directory: { id: "secondary", revision: 1 },
+          launch: { config: {
             approvalPolicy: "on-request",
             nested: { default: true, replace: "project" },
-          },
+          } },
         } as any;
       }
       throw new Error(`Unexpected ${method}`);
@@ -277,7 +286,8 @@ it("launches a saved secondary workspace with project permissions and explicit n
   await store.ensureSession(id);
   expect(rpc).toHaveBeenCalledWith("session/create", {
     harness: "codex",
-    cwd: "/secondary",
+    projectId: "/project",
+    projectRevision: 2,
     model: null,
     config: {
       approvalPolicy: "on-request",
@@ -326,7 +336,7 @@ it("restores original prompt, context, image, text and binary attachments before
   store.updateThread(id, {
     sessionId: "native",
     state: "idle",
-    capabilities: { resume: true, images: true, rollback: true },
+    capabilities: { resume: { availability: "available" as const, source: "harness" as const, evidence: "declared" as const }, images: { availability: "available" as const, source: "harness" as const, evidence: "declared" as const }, rollback: { availability: "available" as const, source: "harness" as const, evidence: "declared" as const } },
     draft: "Inspect originals",
     attachments,
     contextItems: context,
@@ -378,13 +388,13 @@ it("restores original prompt, context, image, text and binary attachments before
             data: {},
           },
         ];
-        return null as any;
+        return { delivery: "accepted", recoveryRequired: false } as any;
       }
       if (method === "session/metadata") return null as any;
       if (method === "session/get" || method === "session/resume")
         return {
           ...session(),
-          capabilities: { resume: true, images: true, rollback: true },
+          capabilities: { resume: { availability: "available" as const, source: "harness" as const, evidence: "declared" as const }, images: { availability: "available" as const, source: "harness" as const, evidence: "declared" as const }, rollback: { availability: "available" as const, source: "harness" as const, evidence: "declared" as const } },
         } as any;
       if (method === "session/transcript")
         return events.filter(
@@ -447,7 +457,7 @@ it("submits an exact native skill path separately from prompt text and preserves
     sessionId: "native",
     title: "Existing",
     state: "idle",
-    capabilities: { metadata: { nativeSkillInputs: true } },
+    capabilities: { nativeSkillInputs: { availability: "available", source: "harness", evidence: "declared" } },
     contextItems: [
       {
         id: "selected-skill",
@@ -459,10 +469,11 @@ it("submits an exact native skill path separately from prompt text and preserves
       },
     ],
   });
-  const rpc = vi.spyOn(store, "rpc").mockResolvedValue(null);
+  const rpc = vi.spyOn(store, "rpc").mockResolvedValue({ delivery: "accepted", recoveryRequired: false });
   await store.send(id, "$same-name apply it");
   expect(rpc).toHaveBeenCalledExactlyOnceWith("session/prompt", {
     sessionId: "native",
+    idempotencyKey: expect.any(String),
     content: [
       { type: "text", data: "$same-name apply it" },
       { type: "skill", data: skill },
@@ -523,7 +534,7 @@ function branchStore() {
     sessionId: "native",
     state: "idle",
     config: { thinkingLevel: "high" },
-    capabilities: { resume: true },
+    capabilities: { resume: { availability: "available" as const, source: "harness" as const, evidence: "declared" as const } },
   });
   const rpc = vi
     .spyOn(store, "rpc")
@@ -707,23 +718,35 @@ it("launches a projectless chat in its resolved directory without inheriting a p
     if (command === "conversation.directory") return directory as any;
     throw new Error(`Unexpected ${command}`);
   });
-  const rpc = vi.spyOn(store, "rpc").mockResolvedValue(session());
+  const rpc = vi.spyOn(store, "rpc").mockImplementation(async (method) => {
+    if (method === "settings/directory") return null as any;
+    if (method === "directory/register") return { id: "documents", revision: 1, path: "/Documents" } as any;
+    if (method === "settings/setDirectory") return {} as any;
+    if (method === "session/create") return { ...session(), options: { harness: "pi", cwd: "/Documents" } } as any;
+    throw new Error(`Unexpected ${method}`);
+  });
   store.createThread();
   const id = store.active()!.id;
   store.updateThread(id, { draft: "A chat without a project", harness: "pi", model: "fixture/model" });
   const launched = store.ensureSession(id);
-  expect(rpc).not.toHaveBeenCalled();
+  expect(rpc.mock.calls.some(([method]) => method === "session/create")).toBe(false);
   resolve({ path: "/Documents" });
   await launched;
   expect(store.active()).toMatchObject({ projectId: "", worktreeId: "/Documents", draft: "A chat without a project", harness: "pi" });
   expect(store.getSnapshot().projects).toHaveLength(1);
   expect(invoke).toHaveBeenCalledWith("workspace", "conversation.directory", {});
-  expect(rpc).toHaveBeenCalledWith("session/create", expect.objectContaining({ cwd: "/Documents", harness: "pi", model: "fixture/model" }));
+  expect(rpc).toHaveBeenCalledWith("session/create", { harness: "pi", model: "fixture/model", config: {} });
 });
 
 it("persists a custom chat directory and resets to Documents without moving existing chats", async () => {
   const store = setup(false);
   const invoke = vi.spyOn(store, "invokeExtension").mockImplementation(async (_extension, _command, args: any) => ({ path: args.path || "/Documents" }) as any);
+  vi.spyOn(store, "rpc").mockImplementation(async (method, params: any) => {
+    if (method === "directory/register") return { id: params.path, revision: 1, path: params.path } as any;
+    if (method === "settings/directory") return null as any;
+    if (method === "settings/setDirectory") return {} as any;
+    throw new Error(`Unexpected ${method}`);
+  });
   await store.setChatDirectory(" /custom ");
   store.createThread();
   const first = store.active()!;
@@ -761,7 +784,7 @@ it("shows a conversation only after the first prompt is accepted and keeps it vi
   store.getSnapshot().chatDirectory = "/Documents";
   const rpc = vi.spyOn(store, "rpc").mockImplementation(async (method) => {
     if (method === "session/create") return session() as any;
-    if (method === "session/prompt") throw new Error("Prompt rejected");
+    if (method === "session/prompt") throw new RpcError("Prompt rejected", -32002);
     return {} as any;
   });
   store.createThread();
@@ -769,23 +792,23 @@ it("shows a conversation only after the first prompt is accepted and keeps it vi
   expect(hasConversation(store.active()!)).toBe(false);
   await expect(store.send(id, "First message")).rejects.toThrow("Prompt rejected");
   expect(hasConversation(store.active()!)).toBe(false);
-  rpc.mockResolvedValue({} as any);
+  rpc.mockResolvedValue({ delivery: "accepted", recoveryRequired: false } as any);
   await store.send(id, "First message");
   expect(hasConversation(store.active()!)).toBe(true);
   await store.flushPersistence();
   const saved = JSON.parse(vi.mocked(localStorage.setItem).mock.calls.at(-1)![1]);
   vi.spyOn(localStorage, "getItem").mockReturnValue(JSON.stringify(saved));
-  const restored = new WorkspaceStore();
+  const restored = new WorkspaceStore({ node: testNode });
   await restored.ready();
   expect(hasConversation(restored.active()!)).toBe(true);
 });
 
 it("previews the effective native model without launching or listing a chat and pins it at send", async () => {
   const store = setup(false);
-  store.getSnapshot().connected = true;
   store.createThread("/project");
+  store.getSnapshot().connected = true;
   const id = store.active()!.id;
-  const configuration = [{ id: "model", label: "Model", type: "select", value: "native-model", choices: [{ id: "native-model", label: "Native Model" }], live: true }];
+  const configuration = [{ id: "model", label: "Model", type: "select" as const, value: "native-model", choices: [{ id: "native-model", label: "Native Model" }], application: "next_turn" as const }];
   const rpc = vi.spyOn(store, "rpc").mockImplementation(async (method) => {
     if (method === "runtime/configuration") return { configuration, models: configuration[0].choices } as any;
     if (method === "session/create") return session() as any;
@@ -797,13 +820,13 @@ it("previews the effective native model without launching or listing a chat and 
   expect(hasConversation(store.active()!)).toBe(false);
   expect(store.active()!.configurations?.[0].value).toBe("native-model");
   await store.ensureSession(id);
-  expect(rpc).toHaveBeenCalledWith("session/create", { harness: "codex", cwd: "/project", model: "native-model", config: {} });
+  expect(rpc).toHaveBeenCalledWith("session/create", { harness: "codex", projectId: "/project", projectRevision: 1, model: "native-model", config: {} });
 });
 
 it("discards a model preview returned after the draft changes harness", async () => {
   const store = setup(false);
-  store.getSnapshot().connected = true;
   store.createThread("/project");
+  store.getSnapshot().connected = true;
   let resolve!: (value: any) => void;
   vi.spyOn(store, "rpc").mockImplementation(() => new Promise((done) => { resolve = done; }));
   const id = store.active()!.id;
@@ -819,14 +842,137 @@ it("applies permission settings atomically and retains the current config when n
   const store = setup(false);
   store.createThread();
   const id = store.active()!.id;
-  store.updateThread(id, { sessionId: "native", config: { approvalPolicy: "never", sandbox: "danger-full-access" } });
+  store.updateThread(id, { sessionId: "native", config: { executionProfile: "full", approvalPolicy: "never", sandbox: "danger-full-access" } });
   const patch = { approvalPolicy: "on-request", sandbox: "workspace-write", approvalsReviewer: "auto_review" };
   const rpc = vi.spyOn(store, "rpc").mockRejectedValue(new Error("Unsupported reviewer"));
   vi.spyOn(store, "loadControls").mockResolvedValue();
   await expect(store.configureMany(id, patch)).rejects.toThrow("Unsupported reviewer");
-  expect(store.active()!.config).toEqual({ approvalPolicy: "never", sandbox: "danger-full-access" });
-  rpc.mockResolvedValue(null);
+  expect(store.active()!.config).toEqual({ executionProfile: "full", approvalPolicy: "never", sandbox: "danger-full-access" });
+  rpc.mockResolvedValue({ values: patch, configuration: [], executionPolicy });
   await store.configureMany(id, patch);
   expect(rpc).toHaveBeenLastCalledWith("agent/configure", { sessionId: "native", config: patch });
   expect(store.active()!.config).toEqual(patch);
+});
+
+it("uses confirmed configuration values when a model change resets other settings", async () => {
+  const store = setup(false);
+  store.createThread();
+  const id = store.active()!.id;
+  store.updateThread(id, { sessionId: "native", model: "previous", config: { model: "previous", effort: "high", fast: true } });
+  vi.spyOn(store, "rpc").mockResolvedValue({
+    executionPolicy,
+    values: { model: "selected", effort: "low", fast: false },
+    configuration: [{ id: "effort", label: "Thinking", type: "select", application: "next_turn", value: "low" }],
+  });
+  await store.configureMany(id, { model: "selected" });
+  expect(store.active()!.model).toBe("selected");
+  expect(store.active()!.config).toEqual({ model: "selected", effort: "low", fast: false });
+  expect(store.active()!.configurations?.[0].value).toBe("low");
+});
+
+it("persists submission identity before dispatch and recovers a lost response with reads", async () => {
+  const store = setup(false);
+  store.createThread();
+  const id = store.active()!.id;
+  store.updateThread(id, { sessionId: "native", worktreeId: "/project", draft: "Original" });
+  let originalKey = "";
+  const rpc = vi.spyOn(store, "rpc").mockImplementation(async (method, params: any) => {
+    if (method === "session/prompt") {
+      originalKey = params.idempotencyKey;
+      const saved = JSON.parse(vi.mocked(localStorage.setItem).mock.calls.at(-1)![1]);
+      expect(saved.threads[0].submissionKeys[0].key).toBe(originalKey);
+      store.updateThread(id, { draft: "New draft" });
+      throw new Error("Response lost");
+    }
+    if (method === "session/submission") {
+      expect(params.idempotencyKey).toBe(originalKey);
+      return { id: "submission", sessionId: "native", idempotencyKey: originalKey, turnId: "turn", delivery: "accepted", recoveryRequired: false, outcome: "completed", error: null } as any;
+    }
+    if (method === "session/get") return session() as any;
+    throw new Error(`Unexpected ${method}`);
+  });
+  await expect(store.send(id, "Original")).rejects.toThrow("Response lost");
+  expect(store.active()).toMatchObject({ state: "idle", draft: "New draft", submitted: true });
+  expect(rpc.mock.calls.filter(([method]) => method === "session/prompt")).toHaveLength(1);
+  expect(rpc.mock.calls.some(([method]) => method === "session/resume")).toBe(false);
+});
+
+it("keeps uncertain delivery blocked with its original key and draft", async () => {
+  const store = setup(false);
+  store.createThread();
+  const id = store.active()!.id;
+  store.updateThread(id, { sessionId: "native", worktreeId: "/project", draft: "Original" });
+  const rpc = vi.spyOn(store, "rpc").mockImplementation(async (method, params: any) => {
+    if (method === "session/prompt") throw new Error("Disconnected");
+    if (method === "session/submission") return { delivery: "unknown", recoveryRequired: true, idempotencyKey: params.idempotencyKey } as any;
+    throw new Error(`Unexpected ${method}`);
+  });
+  await expect(store.send(id, "Original")).rejects.toThrow("Disconnected");
+  expect(store.active()).toMatchObject({ state: "needs_input", draft: "Original" });
+  expect(store.active()!.submissionKeys).toHaveLength(1);
+  expect(hasConversation(store.active()!)).toBe(true);
+  await expect(store.send(id, "Original")).rejects.toThrow("Choose Queue follow-up");
+  expect(rpc.mock.calls.filter(([method]) => method === "session/prompt")).toHaveLength(1);
+});
+
+it("does not dispatch when local storage cannot retain the submission key", async () => {
+  const store = setup(false);
+  store.createThread();
+  const id = store.active()!.id;
+  store.updateThread(id, { sessionId: "native", worktreeId: "/project" });
+  const rpc = vi.spyOn(store, "rpc");
+  vi.mocked(localStorage.setItem).mockImplementation(() => { throw new Error("Storage full"); });
+  await expect(store.send(id, "Original")).rejects.toThrow("Storage full");
+  expect(rpc).not.toHaveBeenCalled();
+  expect(store.active()!.state).toBe("idle");
+  expect(store.active()!.submissionKeys).toEqual([]);
+});
+
+it("checks native submission evidence without resending and preserves an edited draft", async () => {
+  const store = setup(false);
+  store.createThread();
+  const id = store.active()!.id;
+  store.updateThread(id, { sessionId: "native", draft: "Edited draft", submissionKeys: [{key:"original",recordId:"record",receipt:{id:"attempt",sessionId:"native",idempotencyKey:"original",turnId:"turn",delivery:"unknown",recoveryRequired:true,outcome:null,error:null}}] });
+  const rpc = vi.spyOn(store, "rpc").mockImplementation(async (method, params: any) => {
+    if (method === "session/submission/reconcile") {
+      expect(params.idempotencyKey).toBe("original");
+      return {id:"attempt",sessionId:"native",idempotencyKey:"original",turnId:"turn",delivery:"accepted",recoveryRequired:false,outcome:"completed",error:null} as any;
+    }
+    if (method === "session/get" || method === "session/resume") return { id:"native",state:"idle",sequence:3,capabilities:{},metadata:{},options:{harness:"codex"} } as any;
+    if (method === "session/transcript") return [] as any;
+    if (method === "session/queue/list") return {items:[],paused:true} as any;
+    throw new Error(`Unexpected ${method}`);
+  });
+  await store.checkSubmissionRecovery(id);
+  expect(store.active()).toMatchObject({draft:"Edited draft",state:"idle"});
+  expect(store.active()!.submissionKeys![0].receipt).toMatchObject({outcome:"completed",recoveryRequired:false});
+  expect(rpc.mock.calls.some(([method]) => method === "session/prompt")).toBe(false);
+});
+
+it("keeps unsupported native recovery visible and paused", async () => {
+  const store = setup(false);
+  store.createThread();
+  const id = store.active()!.id;
+  store.updateThread(id, { sessionId:"native",draft:"Original",submissionKeys:[{key:"original",recordId:"record"}] });
+  const rpc = vi.spyOn(store,"rpc").mockImplementation(async (method) => {
+    if (method === "session/resume") return {} as any;
+    if (method === "session/submission/reconcile") throw new RpcError("unsupported", -32001);
+    throw new Error(`Unexpected ${method}`);
+  });
+  await store.checkSubmissionRecovery(id);
+  expect(store.active()).toMatchObject({state:"needs_input",draft:"Original"});
+  expect(store.active()!.error).toContain("cannot confirm the original submission");
+  expect(rpc.mock.calls.some(([method]) => method === "session/prompt")).toBe(false);
+});
+
+it("clears a draft common selection only when an advertised native policy control is explicitly changed", async () => {
+  const store = setup(false); store.createThread();
+  const id = store.active()!.id;
+  store.updateThread(id, { config: { executionProfile: "ask" }, executionPolicy: { ...executionPolicy, controlledSettings: ["nativeApproval"] } });
+  await store.configureMany(id, { model: "selected" });
+  expect(store.active()!.config?.executionProfile).toBe("ask");
+  await store.configureMany(id, { nativeApproval: "custom" });
+  expect(store.active()!.config).toEqual({ model: "selected", nativeApproval: "custom" });
+  await store.configureMany(id, { executionProfile: "review" });
+  expect(store.active()!.config?.executionProfile).toBe("review");
 });

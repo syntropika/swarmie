@@ -9,12 +9,10 @@ export default defineConfig({
   build: { outDir: "../dist", emptyOutDir: true, target: "es2022" },
   server: {
     host: "127.0.0.1",
-    proxy: {
-      "/rpc": {
-        target: "http://127.0.0.1:7447",
-        changeOrigin: true,
-        headers: { Origin: "http://127.0.0.1:7447" },
-      },
-    },
+    proxy: Object.fromEntries(["/rpc", "/client/rpc", "/nodes", "/preview"].map((path) => [path, {
+      target: "http://127.0.0.1:7447",
+      changeOrigin: true,
+      headers: { Origin: "http://127.0.0.1:7447" },
+    }])),
   },
 });

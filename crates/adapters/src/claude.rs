@@ -44,7 +44,7 @@ fn configuration_for(init: &Value, config: &Value) -> Value {
             ));
         }
         if model["supportsFastMode"] == true {
-            fields.push(json!({"id":"fast","label":"Fast mode","type":"boolean","value":config["fast"],"live":true}));
+            fields.push(json!({"id":"fast","label":"Fast mode","type":"boolean","value":config["fast"],"application":"next_turn"}));
         }
     }
     json!(fields)
@@ -167,26 +167,26 @@ fn quota_windows(receipt: &Value) -> Result<Value> {
 
 fn capabilities() -> Capabilities {
     Capabilities {
-        resume: true,
-        fork: true,
-        cancel: true,
-        permissions: true,
-        reasoning: true,
-        usage: true,
-        models: true,
-        configure: true,
-        images: true,
-        rollback: true,
-        compact: true,
-        metadata: BTreeMap::from([
-            ("mcpTransports".into(), json!(["stdio", "http", "sse"])),
-            ("toolsDisabled".into(), json!(true)),
-            ("outputSchema".into(), json!(true)),
-            ("ephemeral".into(), json!(true)),
-            ("forkAtMessage".into(), json!(true)),
-            ("quotas".into(), json!(true)),
-            ("commands".into(), json!(true)),
-        ]),
+        commands: true.into(),
+        quotas: true.into(),
+        ephemeral: true.into(),
+        output_schema: true.into(),
+        tools_disabled: true.into(),
+        fork_at_message: true.into(),
+
+        resume: true.into(),
+        fork: true.into(),
+        cancel: true.into(),
+        permissions: true.into(),
+        operation_approvals: true.into(),
+        reasoning: true.into(),
+        usage: true.into(),
+        models: true.into(),
+        configure: true.into(),
+        images: true.into(),
+        rollback: true.into(),
+        compact: true.into(),
+        metadata: BTreeMap::from([("mcpTransports".into(), json!(["stdio", "http", "sse"]))]),
         ..Default::default()
     }
 }
@@ -194,6 +194,13 @@ fn capabilities() -> Capabilities {
 impl Harness for ClaudeHarness {
     fn id(&self) -> &str {
         "claude"
+    }
+    fn compile_execution_profile(
+        &self,
+        _options: &SpawnOptions,
+        profile: ExecutionProfile,
+    ) -> Result<ExecutionPolicyPlan> {
+        super::policy::claude_plan(profile)
     }
     async fn detect(&self) -> Result<Detection> {
         Ok(detection("claude", "claude", capabilities()))
@@ -288,6 +295,19 @@ impl Harness for ClaudeHarness {
         let config = Arc::new(RwLock::new(
             json!({"model":o.model,"permissionMode":o.config["permissionMode"].as_str().unwrap_or("default"),"effort":o.config["effort"],"fast":o.config["fast"]}),
         ));
+        let policy_observation = Arc::new(RwLock::new(
+            launched
+                .init
+                .get("permissionMode")
+                .filter(|mode| mode.is_string())
+                .map(|mode| {
+                    super::policy::claude_observation(
+                        mode.clone(),
+                        PolicyEvidence::NativeReceipt,
+                        launched.init["version"].as_str().map(String::from),
+                    )
+                }),
+        ));
         let commands = Arc::new(RwLock::new(command_catalog(&launched.init["commands"])));
         let history: History = Arc::default();
         let compaction: Compaction = Arc::default();
@@ -302,6 +322,7 @@ impl Harness for ClaudeHarness {
             compaction.clone(),
             tx.clone(),
             o.execution.output_schema.is_some(),
+            policy_observation.clone(),
         );
         let mut capabilities = capabilities();
         if o.config.get("nativeHistory").is_some_and(Value::is_object) {
@@ -310,12 +331,14 @@ impl Harness for ClaudeHarness {
                 .insert("rollbackHistorySupported".into(), json!(false));
         }
         if o.execution.ephemeral {
-            capabilities.resume = false;
-            capabilities.fork = false;
-            capabilities.rollback = false;
-            capabilities
-                .metadata
-                .insert("forkAtMessage".into(), json!(false));
+            capabilities.resume =
+                Capability::unavailable("Ephemeral sessions do not retain native history");
+            capabilities.fork =
+                Capability::unavailable("Ephemeral sessions do not retain native history");
+            capabilities.rollback =
+                Capability::unavailable("Ephemeral sessions do not retain native history");
+            capabilities.fork_at_message =
+                Capability::unavailable("Ephemeral sessions do not retain native history");
         }
         capabilities.metadata.insert("rollbackHistory".into(), json!("completed turns observed by this live connection after its latest native compaction; earlier resumed or compacted history cannot be rolled back"));
         let file_rewind = !o
@@ -342,6 +365,7 @@ impl Harness for ClaudeHarness {
                 options: o.clone(),
                 requests,
                 config,
+                policy_observation,
                 commands,
                 history,
                 compaction,
@@ -524,6 +548,7 @@ fn attach_decoder(
     compaction: Compaction,
     tx: mpsc::Sender<BackendEvent>,
     schema_enabled: bool,
+    policy_observation: Arc<RwLock<Option<PolicyObservation>>>,
 ) -> LiveConnection {
     let Launched {
         wire,
@@ -543,6 +568,7 @@ fn attach_decoder(
         compaction,
         tx,
         schema_enabled,
+        policy_observation,
     )
     .abort_handle();
     LiveConnection {
@@ -564,6 +590,7 @@ fn decode(
     compaction: Compaction,
     tx: mpsc::Sender<BackendEvent>,
     schema_enabled: bool,
+    policy_observation: Arc<RwLock<Option<PolicyObservation>>>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut message_id = None;
@@ -762,6 +789,12 @@ fn decode(
                     }
                     Some("status") if f["permissionMode"].is_string() => {
                         config_task.write().await["permissionMode"] = f["permissionMode"].clone();
+                        *policy_observation.write().await =
+                            Some(super::policy::claude_observation(
+                                f["permissionMode"].clone(),
+                                PolicyEvidence::NativeReceipt,
+                                f["version"].as_str().map(String::from),
+                            ));
                         let _ = tx
                             .send(BackendEvent::content(
                                 EventKind::ConfigurationUpdated(config_task.read().await.clone()),
@@ -858,13 +891,23 @@ fn decode(
                         config_task.write().await["model"] = f["model"].clone();
                     }
                     if let Some(s) = f["session_id"].as_str() {
-                        *native_id.write().await = s.into();
-                        let _ = tx
-                            .send(BackendEvent::NativeSessionChanged(native(
-                                "claude",
-                                s.into(),
-                            )))
-                            .await;
+                        let changed = {
+                            let mut current = native_id.write().await;
+                            if current.as_str() == s {
+                                false
+                            } else {
+                                *current = s.into();
+                                true
+                            }
+                        };
+                        if changed {
+                            let _ = tx
+                                .send(BackendEvent::NativeSessionChanged(native(
+                                    "claude",
+                                    s.into(),
+                                )))
+                                .await;
+                        }
                     }
                     BackendEvent::content(EventKind::SessionUpdated(f.clone()), f.clone())
                 }
@@ -1085,14 +1128,8 @@ fn decode(
                             .await;
                     }
                     BackendEvent::TurnFinished {
-                        reason: if cancelled {
-                            "cancelled"
-                        } else if f["is_error"] == true {
-                            "failed"
-                        } else {
-                            "completed"
-                        }
-                        .into(),
+                        outcome: outcome::claude(&f, cancelled),
+                        native_reason: f["subtype"].as_str().map(String::from),
                         raw: Some(f.clone()),
                     }
                 }
@@ -1110,6 +1147,7 @@ struct ClaudeBackend {
     options: SpawnOptions,
     requests: Arc<RwLock<BTreeMap<String, Value>>>,
     config: Arc<RwLock<Value>>,
+    policy_observation: Arc<RwLock<Option<PolicyObservation>>>,
     commands: Arc<RwLock<Value>>,
     history: History,
     compaction: Compaction,
@@ -1166,7 +1204,19 @@ impl AgentBackend for ClaudeBackend {
     }
     async fn cancel(&self) -> Result<()> {
         let connection = self.current.read().await;
-        let receipt = connection.wire.request("interrupt", json!({})).await?;
+        let previous = {
+            let mut history = self.history.lock().unwrap();
+            let previous = history.cancelled;
+            history.cancelled = history.user.is_some();
+            previous
+        };
+        let receipt = match connection.wire.request("interrupt", json!({})).await {
+            Ok(receipt) => receipt,
+            Err(error) => {
+                self.history.lock().unwrap().cancelled = previous;
+                return Err(error);
+            }
+        };
         let cancelled_queued = {
             let mut history = self.history.lock().unwrap();
             let cancelled = receipt["cancelled"]
@@ -1189,7 +1239,8 @@ impl AgentBackend for ClaudeBackend {
             connection.wire.set_active(false);
             self.events
                 .send(BackendEvent::TurnFinished {
-                    reason: "cancelled".into(),
+                    outcome: TurnOutcome::Cancelled,
+                    native_reason: None,
                     raw: Some(receipt),
                 })
                 .await
@@ -1248,9 +1299,9 @@ impl AgentBackend for ClaudeBackend {
         requests.remove(&r.id);
         Ok(())
     }
-    async fn models(&self) -> Result<Value> {
+    async fn models(&self) -> Result<Vec<ModelDescriptor>> {
         let connection = self.current.read().await;
-        Ok(settings::model_choices(&connection.init["models"]))
+        settings::model_descriptors(settings::model_choices(&connection.init["models"]))
     }
     async fn configure(&self, v: Value) -> Result<Value> {
         let connection = self.current.read().await;
@@ -1278,6 +1329,12 @@ impl AgentBackend for ClaudeBackend {
                         .wire
                         .request("set_permission_mode", json!({"mode":value}))
                         .await?;
+                    *self.policy_observation.write().await =
+                        Some(super::policy::claude_observation(
+                            value.clone(),
+                            PolicyEvidence::NativeAcknowledgement,
+                            None,
+                        ));
                 }
                 "effort" => {
                     connection
@@ -1311,9 +1368,22 @@ impl AgentBackend for ClaudeBackend {
         }
         Ok(self.config.read().await.clone())
     }
-    async fn configuration(&self) -> Result<Value> {
+    async fn execution_policy(&self) -> Result<ExecutionPolicyReport> {
+        Ok(super::policy::claude_report(
+            &*self.config.read().await,
+            self.policy_observation.read().await.clone(),
+        ))
+    }
+    async fn compile_execution_profile(
+        &self,
+        profile: ExecutionProfile,
+    ) -> Result<ExecutionPolicyPlan> {
+        self.execution_policy().await?.require(profile)?;
+        super::policy::claude_plan(profile)
+    }
+    async fn configuration(&self) -> Result<Vec<SettingDescriptor>> {
         let connection = self.current.read().await;
-        Ok(configuration_for(
+        settings::descriptors(configuration_for(
             &connection.init,
             &*self.config.read().await,
         ))
@@ -1464,6 +1534,7 @@ impl AgentBackend for ClaudeBackend {
         *self.commands.write().await = command_catalog(&replacement.init["commands"]);
         current.decoder.abort();
         let old_wire = current.wire.clone();
+        *self.policy_observation.write().await = None;
         let next = attach_decoder(
             replacement,
             self.requests.clone(),
@@ -1473,6 +1544,7 @@ impl AgentBackend for ClaudeBackend {
             self.compaction.clone(),
             self.events.clone(),
             self.options.execution.output_schema.is_some(),
+            self.policy_observation.clone(),
         );
         *current = next;
         self.requests.write().await.clear();

@@ -12,15 +12,6 @@ pub const MAX_TEXT: usize = 64 * 1024;
 pub const MAX_ITEMS: usize = 128;
 const MAX_STATE_BYTES: u64 = 64 * 1024 * 1024;
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub struct ProjectDefaults {
-    pub cwd: PathBuf,
-    pub model: Option<String>,
-    pub harness: Option<String>,
-    pub config: Value,
-    pub workspace: Option<PathBuf>,
-}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Template {
     pub id: String,
@@ -98,7 +89,6 @@ pub struct FanoutJob {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct State {
-    pub projects: BTreeMap<String, ProjectDefaults>,
     pub templates: BTreeMap<String, Template>,
     pub schedules: BTreeMap<String, Schedule>,
     pub jobs: BTreeMap<String, FanoutJob>,

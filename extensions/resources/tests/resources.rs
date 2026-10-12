@@ -13,6 +13,18 @@ async fn call(runtime: &Runtime, command: &str, args: Value) -> Value {
         .await
         .unwrap()
 }
+async fn create_host_project(runtime: &Runtime, path: &std::path::Path) -> String {
+    let directory = runtime.register_directory(path).await.unwrap();
+    runtime
+        .create_project(
+            "Test project".into(),
+            Some(directory.reference()),
+            ProjectLaunchDefaults::default(),
+        )
+        .await
+        .unwrap()
+        .id
+}
 async fn idle(agent: &Agent) {
     tokio::time::timeout(Duration::from_secs(3), async {
         while agent.snapshot().await.state != SessionState::Idle {
@@ -24,7 +36,7 @@ async fn idle(agent: &Agent) {
 }
 fn end() -> MockStep {
     MockStep::End {
-        reason: "completed".into(),
+        outcome: TurnOutcome::Completed,
     }
 }
 
@@ -41,7 +53,7 @@ async fn templates_resources_and_history_are_real_and_durable() {
             MockScript::default().expect("Inspect source", vec![MockStep::text("done"), end()]),
         ))
         .store(
-            storage::FileSessionStore::new(sessions.path())
+            storage::SqliteSessionStore::new(sessions.path())
                 .await
                 .unwrap(),
         )
@@ -127,7 +139,7 @@ async fn templates_resources_and_history_are_real_and_durable() {
     runtime.shutdown().await.unwrap();
     let runtime = Runtime::builder()
         .store(
-            storage::FileSessionStore::new(sessions.path())
+            storage::SqliteSessionStore::new(sessions.path())
                 .await
                 .unwrap(),
         )
@@ -305,7 +317,7 @@ async fn fanout_is_independent_streams_actual_text_and_cancels_native_turns() {
     assert!(
         events
             .iter()
-            .any(|e| matches!(&e.kind,EventKind::TurnEnded{reason} if reason=="cancelled"))
+            .any(|e| matches!(&e.kind,EventKind::TurnEnded { outcome, .. } if outcome.as_str() == "cancelled"))
     );
     runtime.shutdown().await.unwrap();
 }
@@ -348,7 +360,7 @@ async fn historical_usage_backfills_and_counts_cumulative_increments_once() {
     let runtime = Runtime::builder()
         .harness(MockHarness::new(MockScript::default().turn(steps)))
         .store(
-            storage::FileSessionStore::new(sessions.path())
+            storage::SqliteSessionStore::new(sessions.path())
                 .await
                 .unwrap(),
         )
@@ -366,7 +378,7 @@ async fn historical_usage_backfills_and_counts_cumulative_increments_once() {
     runtime.shutdown().await.unwrap();
     let runtime = Runtime::builder()
         .store(
-            storage::FileSessionStore::new(sessions.path())
+            storage::SqliteSessionStore::new(sessions.path())
                 .await
                 .unwrap(),
         )
@@ -445,6 +457,7 @@ async fn incomplete_comparisons_are_interrupted_durably_and_weak_runtime_does_no
     let root = tempfile::tempdir().unwrap();
     let project = tempfile::tempdir().unwrap();
     let runtime = Runtime::builder()
+        .store(storage::SqliteSessionStore::new(root.path()).await.unwrap())
         .harness(MockHarness::new(MockScript::default().turn(vec![
             MockStep::Sleep {
                 milliseconds: 10000,
@@ -474,6 +487,7 @@ async fn incomplete_comparisons_are_interrupted_durably_and_weak_runtime_does_no
     drop(runtime);
     assert!(weak.upgrade().is_none());
     let runtime = Runtime::builder()
+        .store(storage::SqliteSessionStore::new(root.path()).await.unwrap())
         .extension(ResourcesExtension::open(root.path()).unwrap())
         .build();
     let status = call(&runtime, "fanout.status", json!({"id":id})).await;
@@ -541,7 +555,7 @@ impl Harness for ForkMock {
     }
     async fn detect(&self) -> Result<Detection> {
         let mut value = self.0.detect().await?;
-        value.capabilities.fork = true;
+        value.capabilities.fork = true.into();
         Ok(value)
     }
     async fn connect(
@@ -551,7 +565,7 @@ impl Harness for ForkMock {
         _fork: bool,
     ) -> Result<BackendConnection> {
         let mut connection = self.0.connect(options, None, false).await?;
-        connection.capabilities.fork = true;
+        connection.capabilities.fork = true.into();
         Ok(connection)
     }
 }
@@ -570,7 +584,7 @@ async fn inherited_fork_usage_is_not_charged_twice_in_live_or_backfilled_dashboa
     let runtime = Runtime::builder()
         .harness(harness)
         .store(
-            storage::FileSessionStore::new(sessions.path())
+            storage::SqliteSessionStore::new(sessions.path())
                 .await
                 .unwrap(),
         )
@@ -600,7 +614,7 @@ async fn inherited_fork_usage_is_not_charged_twice_in_live_or_backfilled_dashboa
     let fresh = tempfile::tempdir().unwrap();
     let runtime = Runtime::builder()
         .store(
-            storage::FileSessionStore::new(sessions.path())
+            storage::SqliteSessionStore::new(sessions.path())
                 .await
                 .unwrap(),
         )
@@ -620,7 +634,7 @@ impl Harness for ResumeMock {
     }
     async fn detect(&self) -> Result<Detection> {
         let mut value = self.0.detect().await?;
-        value.capabilities.resume = true;
+        value.capabilities.resume = true.into();
         Ok(value)
     }
     async fn connect(
@@ -630,7 +644,7 @@ impl Harness for ResumeMock {
         _fork: bool,
     ) -> Result<BackendConnection> {
         let mut connection = self.0.connect(options, None, false).await?;
-        connection.capabilities.resume = true;
+        connection.capabilities.resume = true.into();
         if let Some(native) = native {
             connection.native = native.clone();
         }
@@ -674,9 +688,11 @@ async fn aliases_and_project_native_defaults_are_durable_and_have_explicit_prece
     let workspace = tempfile::tempdir().unwrap();
     let mock = MockHarness::new(MockScript::default());
     let runtime = Runtime::builder()
+        .store(storage::SqliteSessionStore::new(root.path()).await.unwrap())
         .harness(mock.clone())
         .extension(ResourcesExtension::open(root.path()).unwrap())
         .build();
+    let project_id = create_host_project(&runtime, project.path()).await;
     call(&runtime,"templates.put",json!({"id":"review","name":"Review","text":"Review {{file}}","aliases":["inspect","check"]})).await;
     for (id, aliases) in [
         ("other", json!(["inspect"])),
@@ -702,29 +718,29 @@ async fn aliases_and_project_native_defaults_are_durable_and_have_explicit_prece
     )
     .await;
     assert_eq!(rendered, json!({"id":"review","text":"Review main.rs"}));
-    let defaults=call(&runtime,"project.set",json!({"cwd":project.path(),"harness":"mock","workspace":workspace.path(),"config":{"permissionMode":"plan","nested":{"keep":true,"mode":"project"}}})).await;
+    let defaults=call(&runtime,"project.set",json!({"expectedRevision":runtime.project(&project_id).await.unwrap().revision,"projectId":project_id,"harness":"mock","directoryPath":workspace.path(),"config":{"permissionMode":"plan","nested":{"keep":true,"mode":"project"}}})).await;
     assert_eq!(
-        defaults["workspace"],
+        defaults["cwd"],
         json!(std::fs::canonicalize(workspace.path()).unwrap())
     );
     call(
         &runtime,
         "project.set",
-        json!({"cwd":project.path(),"config":{"nested":{"added":42}}}),
+        json!({"expectedRevision":runtime.project(&project_id).await.unwrap().revision,"projectId":project_id,"config":{"nested":{"added":42}}}),
     )
     .await;
     assert_eq!(
-        call(&runtime, "project.get", json!({"cwd":project.path()})).await["workspace"],
-        defaults["workspace"]
+        call(&runtime, "project.get", json!({"projectId":project_id})).await["cwd"],
+        defaults["cwd"]
     );
     call(
         &runtime,
         "session.create",
-        json!({"cwd":project.path(),"config":{"nested":{"mode":"explicit"}}}),
+        json!({"projectId":project_id,"config":{"nested":{"mode":"explicit"}}}),
     )
     .await;
     let launch = &mock.launches().await[0];
-    assert_eq!(launch.cwd, project.path());
+    assert_eq!(launch.cwd, workspace.path());
     assert_eq!(
         launch.config,
         json!({"permissionMode":"plan","nested":{"keep":true,"mode":"explicit","added":42}})
@@ -734,7 +750,7 @@ async fn aliases_and_project_native_defaults_are_durable_and_have_explicit_prece
             .invoke_extension(
                 "resources",
                 "project.set",
-                json!({"cwd":project.path(),"config":{"apiToken":"secret"}})
+                json!({"expectedRevision":runtime.project(&project_id).await.unwrap().revision,"projectId":project_id,"config":{"apiToken":"secret"}})
             )
             .await
             .is_err()
@@ -744,16 +760,20 @@ async fn aliases_and_project_native_defaults_are_durable_and_have_explicit_prece
             .invoke_extension(
                 "resources",
                 "project.set",
-                json!({"cwd":project.path(),"workspace":workspace.path().join("missing")})
+                json!({"expectedRevision":runtime.project(&project_id).await.unwrap().revision,"projectId":project_id,"directoryPath":workspace.path().join("missing")})
             )
             .await
             .is_err()
     );
     runtime.shutdown().await.unwrap();
-    let extension = ResourcesExtension::open(root.path()).unwrap();
+    let runtime = Runtime::builder()
+        .store(storage::SqliteSessionStore::new(root.path()).await.unwrap())
+        .extension(ResourcesExtension::open(root.path()).unwrap())
+        .build();
     assert_eq!(
-        extension
-            .invoke(
+        runtime
+            .invoke_extension(
+                "resources",
                 "templates.render",
                 json!({"id":"check","variables":{"file":"lib.rs"}})
             )
@@ -762,8 +782,8 @@ async fn aliases_and_project_native_defaults_are_durable_and_have_explicit_prece
         "Review lib.rs"
     );
     assert_eq!(
-        extension
-            .invoke("project.get", json!({"cwd":project.path()}))
+        runtime
+            .invoke_extension("resources", "project.get", json!({"projectId":project_id}))
             .await
             .unwrap()["config"]["permissionMode"],
         "plan"
@@ -794,6 +814,7 @@ async fn comparison_text_is_coalesced_but_final_status_and_shutdown_are_durable(
     ))
     .named("pending");
     let runtime = Runtime::builder()
+        .store(storage::SqliteSessionStore::new(root.path()).await.unwrap())
         .harness(mock)
         .harness(pending_mock)
         .extension(ResourcesExtension::open(root.path()).unwrap())
@@ -819,15 +840,11 @@ async fn comparison_text_is_coalesced_but_final_status_and_shutdown_are_durable(
             .await,
         Err(Error::Busy)
     ));
-    let state: Value =
-        serde_json::from_slice(&std::fs::read(root.path().join("resources.json")).unwrap())
-            .unwrap();
+    let state: Value = runtime.extension_state("resources").await.unwrap().unwrap();
     assert_ne!(state["jobs"][id]["targets"][0]["text"], "ABC");
     tokio::time::timeout(Duration::from_secs(2), async {
         loop {
-            let state: Value =
-                serde_json::from_slice(&std::fs::read(root.path().join("resources.json")).unwrap())
-                    .unwrap();
+            let state: Value = runtime.extension_state("resources").await.unwrap().unwrap();
             if state["jobs"][id]["targets"][0]["text"] == "ABC" {
                 break;
             }
@@ -843,9 +860,7 @@ async fn comparison_text_is_coalesced_but_final_status_and_shutdown_are_durable(
     })
     .await
     .unwrap();
-    let saved: Value =
-        serde_json::from_slice(&std::fs::read(root.path().join("resources.json")).unwrap())
-            .unwrap();
+    let saved: Value = runtime.extension_state("resources").await.unwrap().unwrap();
     assert_eq!(saved["jobs"][id]["status"], "completed");
     assert_eq!(saved["jobs"][id]["targets"][0]["text"], "ABC");
     let list = call(&runtime, "fanout.list", json!({"status":"completed"})).await;
@@ -894,9 +909,12 @@ async fn comparison_text_is_coalesced_but_final_status_and_shutdown_are_durable(
     .await
     .unwrap();
     runtime.shutdown().await.unwrap();
-    let extension = ResourcesExtension::open(root.path()).unwrap();
-    let saved = extension
-        .invoke("fanout.status", json!({"id":pending_id}))
+    let runtime = Runtime::builder()
+        .store(storage::SqliteSessionStore::new(root.path()).await.unwrap())
+        .extension(ResourcesExtension::open(root.path()).unwrap())
+        .build();
+    let saved = runtime
+        .invoke_extension("resources", "fanout.status", json!({"id":pending_id}))
         .await
         .unwrap();
     assert_eq!(saved["status"], "interrupted");
@@ -909,9 +927,11 @@ async fn private_credentials_and_project_defaults_remain_durable() {
     let project = tempfile::tempdir().unwrap();
     let mock = MockHarness::new(MockScript::default());
     let runtime = Runtime::builder()
+        .store(storage::SqliteSessionStore::new(root.path()).await.unwrap())
         .harness(mock.clone())
         .extension(ResourcesExtension::open(root.path()).unwrap())
         .build();
+    let project_id = create_host_project(&runtime, project.path()).await;
     call(
         &runtime,
         "credentials.set",
@@ -924,13 +944,14 @@ async fn private_credentials_and_project_defaults_remain_durable() {
             .to_string()
             .contains("private-value")
     );
-    call(&runtime, "project.set", json!({"cwd":project.path(),"harness":"mock","model":"saved-model","config":{"nested":{"keep":true,"mode":"saved"}}})).await;
+    call(&runtime, "project.set", json!({"expectedRevision":runtime.project(&project_id).await.unwrap().revision,"projectId":project_id,"harness":"mock","model":"saved-model","config":{"nested":{"keep":true,"mode":"saved"}}})).await;
     runtime.shutdown().await.unwrap();
     let runtime = Runtime::builder()
+        .store(storage::SqliteSessionStore::new(root.path()).await.unwrap())
         .harness(mock.clone())
         .extension(ResourcesExtension::open(root.path()).unwrap())
         .build();
-    let snapshot = call(&runtime, "session.create", json!({"cwd":project.path(),"model":"explicit-model","config":{"nested":{"mode":"explicit"}}})).await;
+    let snapshot = call(&runtime, "session.create", json!({"projectId":project_id,"model":"explicit-model","config":{"nested":{"mode":"explicit"}}})).await;
     assert_eq!(snapshot["options"]["model"], "explicit-model");
     let launch = &mock.launches().await[0];
     assert_eq!(
@@ -938,6 +959,16 @@ async fn private_credentials_and_project_defaults_remain_durable() {
         json!({"nested":{"keep":true,"mode":"explicit"}})
     );
     assert!(launch.execution.env.is_empty());
+    assert!(
+        !runtime
+            .extension_state("resources")
+            .await
+            .unwrap()
+            .unwrap()
+            .to_string()
+            .contains("private-value")
+    );
+    assert!(root.path().join("credentials.json").is_file());
     assert_eq!(
         call(&runtime, "credentials.status", json!({})).await["credentials"][0]["id"],
         "key"
@@ -953,6 +984,7 @@ async fn project_and_explicit_native_controls_reject_sensitive_fields() {
         .harness(MockHarness::new(MockScript::default()))
         .extension(ResourcesExtension::open(root.path()).unwrap())
         .build();
+    let project_id = create_host_project(&runtime, project.path()).await;
     for config in [
         json!({"apiToken":"private"}),
         json!({"nested":{"headers":{"Authorization":"private"}}}),
@@ -964,17 +996,31 @@ async fn project_and_explicit_native_controls_reject_sensitive_fields() {
             "text.generate",
             "account.quotas",
         ] {
-            assert!(runtime.invoke_extension("resources",command,json!({"cwd":project.path(),"harness":"mock","config":config,"text":"unused"})).await.is_err());
+            let mut args = json!({"projectId":project_id,"harness":"mock","config":config});
+            if command == "project.set" {
+                args["expectedRevision"] =
+                    json!(runtime.project(&project_id).await.unwrap().revision);
+            } else {
+                args["text"] = json!("unused");
+            }
+            assert!(
+                runtime
+                    .invoke_extension("resources", command, args)
+                    .await
+                    .is_err()
+            );
         }
     }
-    call(&runtime,"project.set",json!({"cwd":project.path(),"harness":"mock","config":{"maxTokens":512,"tokenBudget":true}})).await;
+    call(&runtime,"project.set",json!({"expectedRevision":runtime.project(&project_id).await.unwrap().revision,"projectId":project_id,"harness":"mock","config":{"maxTokens":512,"tokenBudget":true}})).await;
     call(
         &runtime,
         "project.set",
-        json!({"cwd":project.path(),"config":null}),
+        json!({"expectedRevision":runtime.project(&project_id).await.unwrap().revision,"projectId":project_id,"config":null}),
     )
     .await;
-    assert!(call(&runtime, "project.get", json!({"cwd":project.path()})).await["config"].is_null());
+    assert!(
+        call(&runtime, "project.get", json!({"projectId":project_id})).await["config"].is_null()
+    );
     runtime.shutdown().await.unwrap();
 }
 
@@ -1012,7 +1058,7 @@ async fn managed_peer_resume_retains_saved_native_model_and_controls() {
     let runtime = Runtime::builder()
         .harness(ResumeMock(mock.clone()))
         .store(
-            storage::FileSessionStore::new(sessions.path())
+            storage::SqliteSessionStore::new(sessions.path())
                 .await
                 .unwrap(),
         )
@@ -1025,7 +1071,7 @@ async fn managed_peer_resume_retains_saved_native_model_and_controls() {
     let runtime = Runtime::builder()
         .harness(ResumeMock(mock.clone()))
         .store(
-            storage::FileSessionStore::new(sessions.path())
+            storage::SqliteSessionStore::new(sessions.path())
                 .await
                 .unwrap(),
         )
@@ -1055,16 +1101,17 @@ async fn native_account_query_uses_project_defaults_without_a_conversation() {
         .harness(harness.clone())
         .extension(ResourcesExtension::open(root.path()).unwrap())
         .build();
+    let project_id = create_host_project(&runtime, project.path()).await;
     call(
         &runtime,
         "project.set",
-        json!({"cwd":project.path(),"harness":"account","config":{"endpoint":"http://localhost"}}),
+        json!({"expectedRevision":runtime.project(&project_id).await.unwrap().revision,"projectId":project_id,"harness":"account","config":{"endpoint":"http://localhost"}}),
     )
     .await;
     let quotas = call(
         &runtime,
         "account.quotas",
-        json!({"cwd":project.path(),"config":{"mode":"readonly"}}),
+        json!({"projectId":project_id,"config":{"mode":"readonly"}}),
     )
     .await;
     assert_eq!(quotas["windows"][0]["usedPercent"], 23);
@@ -1076,5 +1123,75 @@ async fn native_account_query_uses_project_defaults_without_a_conversation() {
     assert!(captured[0].execution.env.is_empty());
     drop(captured);
     assert!(runtime.sessions().await.unwrap().is_empty());
+    runtime.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn session_resources_block_unavailable_folders_but_saved_templates_remain_readable() {
+    let root = tempfile::tempdir().unwrap();
+    let parent = tempfile::tempdir().unwrap();
+    let folder = parent.path().join("folder");
+    std::fs::create_dir(&folder).unwrap();
+    let runtime = Runtime::builder()
+        .harness(MockHarness::new(Default::default()))
+        .extension(ResourcesExtension::open(root.path()).unwrap())
+        .build();
+    let saved = runtime
+        .spawn(SpawnOptions::new("mock", &folder))
+        .await
+        .unwrap()
+        .snapshot()
+        .await;
+    call(
+        &runtime,
+        "templates.put",
+        json!({"id":"retained","name":"Retained","text":"Saved prompt"}),
+    )
+    .await;
+    std::fs::rename(&folder, parent.path().join("original")).unwrap();
+    assert!(
+        runtime
+            .invoke_extension("resources", "resources.list", json!({"sessionId":saved.id}))
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        call(&runtime, "templates.list", json!({"sessionId":saved.id})).await["templates"][0]["text"],
+        "Saved prompt"
+    );
+    runtime.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn session_scoped_generation_keeps_original_directory_and_controls_after_project_edits() {
+    let root = tempfile::tempdir().unwrap();
+    let first = tempfile::tempdir().unwrap();
+    let second = tempfile::tempdir().unwrap();
+    let mock = MockHarness::new(
+        MockScript::default().expect("summarize", vec![MockStep::text("retained"), end()]),
+    );
+    let runtime = Runtime::builder()
+        .harness(mock.clone())
+        .extension(ResourcesExtension::open(root.path()).unwrap())
+        .build();
+    let project_id = create_host_project(&runtime, first.path()).await;
+    call(&runtime,"project.set",json!({"projectId":project_id,"expectedRevision":1,"harness":"mock","model":"original-model","config":{"mode":"original"}})).await;
+    let saved = call(&runtime, "session.create", json!({"projectId":project_id})).await;
+    call(&runtime,"project.set",json!({"projectId":project_id,"expectedRevision":2,"directoryPath":second.path(),"model":"new-model","config":{"mode":"new"}})).await;
+    assert_eq!(
+        call(
+            &runtime,
+            "text.generate",
+            json!({"sessionId":saved["id"],"text":"summarize"})
+        )
+        .await["text"],
+        "retained"
+    );
+    let launches = mock.launches().await;
+    assert_eq!(launches.len(), 2);
+    assert_eq!(launches[1].cwd, first.path());
+    assert_eq!(launches[1].model.as_deref(), Some("original-model"));
+    assert_eq!(launches[1].config, json!({"mode":"original"}));
+    assert_eq!(runtime.sessions().await.unwrap().len(), 1);
     runtime.shutdown().await.unwrap();
 }

@@ -25,12 +25,14 @@ mpai-git.workspace = true
 mpai-workspace.workspace = true
 mpai-permissions.workspace = true
 mpai-resources.workspace = true
-axum = "0.8"
+axum = { version = "0.8", features = ["ws"] }
 tower-http = { version = "0.6", features = ["fs"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 sha2 = "0.10"
 semver = "1"
+fs2 = "0.4"
 base64 = "0.22"
+tokio-util = { version = "0.7", features = ["rt"] }
+libc = "0.2"
 [dev-dependencies]
 tempfile = "3"
-libc = "0.2"

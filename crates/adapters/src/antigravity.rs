@@ -13,16 +13,17 @@ use tokio::sync::{Mutex, RwLock};
 pub struct AntigravityHarness;
 fn capabilities() -> Capabilities {
     Capabilities {
-        resume: true,
-        cancel: true,
-        usage: true,
-        models: true,
+        ephemeral: false.into(),
+        output_schema: true.into(),
+        tools_disabled: false.into(),
+
+        resume: true.into(),
+        cancel: true.into(),
+        usage: true.into(),
+        models: true.into(),
         metadata: BTreeMap::from([
             ("wire".into(), json!("native_stream_json")),
             ("contextUsage".into(), json!(true)),
-            ("toolsDisabled".into(), json!(false)),
-            ("ephemeral".into(), json!(false)),
-            ("outputSchema".into(), json!(true)),
             ("mcpTransports".into(), json!([])),
             ("configurationScope".into(), json!("creation_only")),
             ("cancelStrategy".into(), json!("restart_and_resume")),
@@ -395,7 +396,12 @@ fn pump(
             if let Some(reason) = finished
                 && tx
                     .send(BackendEvent::TurnFinished {
-                        reason: reason.into(),
+                        outcome: if reason == "completed" {
+                            TurnOutcome::Completed
+                        } else {
+                            TurnOutcome::Failed
+                        },
+                        native_reason: None,
                         raw: Some(frame),
                     })
                     .await
@@ -492,7 +498,8 @@ impl AgentBackend for AntigravityBackend {
         }
         self.tx
             .send(BackendEvent::TurnFinished {
-                reason: "cancelled".into(),
+                outcome: TurnOutcome::Cancelled,
+                native_reason: None,
                 raw: None,
             })
             .await
@@ -512,12 +519,12 @@ impl AgentBackend for AntigravityBackend {
             "Antigravity headless interactive permissions".into(),
         ))
     }
-    async fn configuration(&self) -> Result<Value> {
-        Ok(
-            json!({"options":[],"metadata":{"scope":"creation_only","native":self.init.read().await["init"]}}),
-        )
+    async fn configuration(&self) -> Result<Vec<SettingDescriptor>> {
+        Err(Error::Unsupported(
+            "Antigravity settings apply only at session creation".into(),
+        ))
     }
-    async fn models(&self) -> Result<Value> {
+    async fn models(&self) -> Result<Vec<ModelDescriptor>> {
         let (exe, mut args) = launch(&self.options, "agy", vec![]);
         args.extend(["--output-format=json".into(), "models".into()]);
         let mut command = tokio::process::Command::new(exe);
@@ -538,7 +545,7 @@ impl AgentBackend for AntigravityBackend {
         let models = report["command"]["data"]["models"]
             .as_array()
             .ok_or_else(|| Error::Provider("Antigravity model catalog omitted models".into()))?;
-        Ok(Value::Array(models.iter().filter_map(|m| Some(json!({"id":m["id"].as_str()?,"name":m["label"].as_str().or(m["id"].as_str())?,"provider":"antigravity","metadata":m}))).collect()))
+        settings::model_descriptors(Value::Array(models.iter().filter_map(|m| Some(json!({"id":m["id"].as_str()?,"label":m["label"].as_str().or(m["id"].as_str())?,"provider":"antigravity","metadata":m}))).collect()))
     }
     async fn close(&self) -> Result<()> {
         let _operation = self.operation.lock().await;

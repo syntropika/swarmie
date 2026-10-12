@@ -49,7 +49,6 @@ public struct EventOptions: Sendable {
     public var pollInterval: TimeInterval
     public init(afterSequence: UInt64 = 0, timeout: TimeInterval = 600, pollInterval: TimeInterval = 0.2) { self.afterSequence = afterSequence; self.timeout = timeout; self.pollInterval = pollInterval }
 }
-public struct PromptReceipt: Codable, Sendable { public let accepted: Bool }
 
 // An actor gives concurrent requests unique IDs without sharing mutable encoders.
 public actor Client {
@@ -94,8 +93,10 @@ public actor Client {
     public func schema() async throws -> JSONValue { try await call("runtime/schema", params: [String: String]()) }
     public func discover() async throws -> [Detection] { try await call("runtime/discover", params: [String: String]()) }
     public func spawn(_ options: InputSpawnOptions) async throws -> SessionSnapshot { try await call("session/create", params: options) }
-    public func prompt(sessionID: String, text: String) async throws -> PromptReceipt { try await call("session/prompt", params: ["sessionId": sessionID, "text": text]) }
-    public func prompt(sessionID: String, content: [InputPromptContent]) async throws -> PromptReceipt { try await call("session/prompt", params: JSONValue.object(["sessionId": .string(sessionID), "content": .array(content)])) }
+    public func prompt(sessionID: String, text: String, idempotencyKey: String) async throws -> SubmissionReceipt { try await call("session/prompt", params: ["sessionId": sessionID, "text": text, "idempotencyKey": idempotencyKey]) }
+    public func prompt(sessionID: String, content: [InputPromptContent], idempotencyKey: String) async throws -> SubmissionReceipt { try await call("session/prompt", params: JSONValue.object(["sessionId": .string(sessionID), "content": .array(content), "idempotencyKey": .string(idempotencyKey)])) }
+    public func submission(sessionID: String, idempotencyKey: String) async throws -> SubmissionReceipt? { try await call("session/submission", params: ["sessionId": sessionID, "idempotencyKey": idempotencyKey]) }
+    public func reconcileSubmission(sessionID: String, idempotencyKey: String) async throws -> SubmissionReceipt? { try await call("session/submission/reconcile", params: ["sessionId": sessionID, "idempotencyKey": idempotencyKey]) }
     public func close(sessionID: String) async throws { let _: JSONValue = try await call("session/close", params: ["sessionId": sessionID]) }
     public nonisolated func events(sessionID: String, options: EventOptions = EventOptions()) throws -> EventStream {
         try EventStream(client: self, sessionID: sessionID, options: options)

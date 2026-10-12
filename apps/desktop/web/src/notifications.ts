@@ -1,4 +1,6 @@
 import type { Event, Thread } from "./protocol";
+import type { LocalStoreIdentity } from "../../../../packages/clients/typescript/src/generated";
+import { nodeKey } from "./nodeScope";
 export type NotificationPreferences = {
   enabled: boolean;
   completion: boolean;
@@ -63,6 +65,7 @@ export class NotificationService {
     thread: Thread,
     events: Event[],
     preferences: NotificationPreferences,
+    node: LocalStoreIdentity,
   ) {
     for (const event of events) {
       const payload = notificationFor(
@@ -71,8 +74,10 @@ export class NotificationService {
         preferences,
         document.hasFocus(),
       );
-      if (!payload || this.seen.has(payload.id)) continue;
-      this.seen.add(payload.id);
+      if (!payload) continue;
+      const id = JSON.stringify([nodeKey(node), payload.id]);
+      if (this.seen.has(id)) continue;
+      this.seen.add(id);
       if (this.seen.size > 512)
         this.seen.delete(this.seen.values().next().value!);
       if (
@@ -81,7 +86,7 @@ export class NotificationService {
       )
         new Notification(payload.title, {
           body: payload.body,
-          tag: payload.id,
+          tag: id,
         });
     }
   }

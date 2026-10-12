@@ -96,13 +96,31 @@ func TestLiveHTTPConformance(t *testing.T) {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	session, err := client.Spawn(ctx, InputSpawnOptions{Harness: "mock", Cwd: cwd})
+	session, err := client.Spawn(ctx, InputSpawnOptions{Harness: "mock", Cwd: &cwd})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer client.Close(ctx, session.Id)
-	receipt, err := client.PromptContent(ctx, session.Id, []InputPromptContent{TextContent("Reply")})
-	if err != nil || !receipt.Accepted {
+	if session.Capabilities.Queue.Source != "runtime" || session.Capabilities.Configure.Availability != "available" {
+		t.Fatal("capability contract")
+	}
+	var models []ModelDescriptor
+	if err = client.Call(ctx, "agent/models", map[string]any{"sessionId": session.Id}, &models); err != nil || len(models) != 1 || string(models[0].Metadata["nativeField"]) != `"retained"` {
+		t.Fatal("model catalog", err)
+	}
+	var settings []SettingDescriptor
+	if err = client.Call(ctx, "agent/configuration", map[string]any{"sessionId": session.Id}, &settings); err != nil || len(settings) != 2 || settings[0].Application != "next_turn" || settings[1].Id != "executionProfile" {
+		t.Fatal("configuration catalog", err)
+	}
+	var configured ConfigurationReceipt
+	if err = client.Call(ctx, "agent/configure", map[string]any{"sessionId": session.Id, "config": map[string]any{"fast": true}}, &configured); err != nil || string(configured.Values["fast"]) != "true" {
+		t.Fatal("configuration receipt", err)
+	}
+	if configured.ExecutionPolicy.Status != "unknown" || configured.ExecutionPolicy.DispatchBlocked || len(configured.ExecutionPolicy.Choices) != 3 {
+		t.Fatal("execution policy receipt")
+	}
+	receipt, err := client.PromptContent(ctx, session.Id, []InputPromptContent{TextContent("Reply")}, "request-1")
+	if err != nil || receipt.Delivery != "accepted" {
 		t.Fatalf("prompt: %+v %v", receipt, err)
 	}
 	events, err := client.WaitForTurn(ctx, session.Id, EventOptions{AfterSequence: session.Sequence, Timeout: 3 * time.Second, PollInterval: 5 * time.Millisecond})
@@ -128,6 +146,30 @@ func TestLiveHTTPConformance(t *testing.T) {
 	}
 	if text != "client-ready" || events[len(events)-1].Type != "turn.ended" {
 		t.Fatalf("unexpected output: %q", text)
+	}
+	var terminal struct {
+		Outcome TurnOutcome `json:"outcome"`
+	}
+	if err = json.Unmarshal(events[len(events)-1].Data, &terminal); err != nil || terminal.Outcome != "completed" {
+		t.Fatalf("unexpected terminal outcome: %+v %v", terminal, err)
+	}
+	recovered, err := client.Submission(ctx, session.Id, "request-1")
+	if err != nil || recovered == nil || recovered.Id != receipt.Id {
+		t.Fatal("submission recovery", err)
+	}
+	reconciled, err := client.ReconcileSubmission(ctx, session.Id, "request-1")
+	if err != nil || reconciled == nil || reconciled.Id != recovered.Id {
+		t.Fatal("reconciliation receipt", err)
+	}
+
+	duplicate, err := client.Prompt(ctx, session.Id, "Reply", "request-1")
+	if err != nil || duplicate.Id != receipt.Id {
+		t.Fatal("duplicate submission", err)
+	}
+	_, err = client.Prompt(ctx, session.Id, "Changed", "request-1")
+	var conflict *RPCError
+	if !errors.As(err, &conflict) || conflict.Code != -32004 {
+		t.Fatal("idempotency conflict", err)
 	}
 	var replay []RuntimeEvent
 	if err = client.Call(ctx, "session/transcript", map[string]any{"sessionId": session.Id, "limit": 4096}, &replay); err != nil || len(replay) < len(events) {

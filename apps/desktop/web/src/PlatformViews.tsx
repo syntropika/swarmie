@@ -88,7 +88,8 @@ export function BrowserPreview({ store, thread }: Host) {
         previewId: string;
         url: string;
         relayPath: string;
-      }>("workspace", "preview.start", { projectId: thread.worktreeId, path });
+      }>("workspace", "preview.start", { projectId: thread.worktreeId,
+        ...(thread.sessionId ? { sessionId: thread.sessionId } : {}), path });
       if (request !== generation.current) {
         await store.invokeExtension("workspace", "preview.stop", {
           previewId: result.previewId,
@@ -98,7 +99,7 @@ export function BrowserPreview({ store, thread }: Host) {
       active.current = result.previewId;
       setPreview({
         ...result,
-        url: new URL(result.relayPath, window.location.origin).href,
+        url: new URL(store.previewPath(result.relayPath), window.location.origin).href,
       });
     } catch (e) {
       store.setError(e);

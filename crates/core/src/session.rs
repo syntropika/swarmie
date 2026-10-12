@@ -12,9 +12,13 @@ use tokio::sync::{RwLock, broadcast, mpsc, oneshot};
 
 pub type EventStream = std::pin::Pin<Box<dyn Stream<Item = Result<RuntimeEvent>> + Send>>;
 const HISTORY_LIMIT: usize = 4096;
+#[path = "session_policy.rs"]
+mod policy;
 type Reply<T> = oneshot::Sender<Result<T>>;
 pub(crate) enum Command {
-    Prompt(Prompt, Reply<()>),
+    Prompt(String, Prompt, Reply<SubmissionReceipt>),
+    Submission(String, Reply<Option<SubmissionReceipt>>),
+    ReconcileSubmission(String, Reply<Option<SubmissionReceipt>>),
     Steer(Prompt, Reply<()>),
     Cancel(Option<String>, Reply<()>),
     QueueAdd(Prompt, Reply<QueuedPrompt>),
@@ -23,11 +27,11 @@ pub(crate) enum Command {
     QueuePause(bool, Reply<()>),
     Metadata(SessionMetadataUpdate, Reply<SessionSnapshot>),
     Permission(PermissionResponse, Reply<()>),
-    Configure(Value, Reply<Value>),
-    Configuration(Reply<Value>),
+    Configure(Value, Reply<ConfigurationReceipt>),
+    Configuration(Reply<Vec<SettingDescriptor>>),
     SlashCommands(Reply<Value>),
     Quotas(Reply<Value>),
-    Models(Reply<Value>),
+    Models(Reply<Vec<ModelDescriptor>>),
     Rollback(u64, RollbackScope, Reply<()>),
     Compact(Reply<()>),
     Close(bool, Reply<()>),
@@ -96,7 +100,47 @@ impl Agent {
         rx.await.map_err(|_| Error::Closed)?
     }
     pub async fn prompt(&self, prompt: impl Into<Prompt>) -> Result<()> {
-        self.request(|r| Command::Prompt(prompt.into(), r)).await
+        let receipt = self
+            .submit(uuid::Uuid::new_v4().to_string(), prompt)
+            .await?;
+        if receipt.delivery == DeliveryKnowledge::Accepted {
+            if receipt.error.as_deref() == Some("session closed after native acceptance") {
+                Err(Error::Closed)
+            } else {
+                Ok(())
+            }
+        } else if receipt.delivery == DeliveryKnowledge::Rejected {
+            Err(Error::Rejected(receipt.error.unwrap_or_else(|| {
+                "native input rejected without effects".into()
+            })))
+        } else if self.0.closed.load(Ordering::SeqCst) {
+            Err(Error::Closed)
+        } else {
+            Err(Error::Provider(receipt.error.unwrap_or_else(|| {
+                "submission delivery is uncertain".into()
+            })))
+        }
+    }
+    pub async fn submit(
+        &self,
+        key: impl Into<String>,
+        prompt: impl Into<Prompt>,
+    ) -> Result<SubmissionReceipt> {
+        let key = key.into();
+        crate::submission::validate_client_submission_key(&key)?;
+        self.request(|r| Command::Prompt(key, prompt.into(), r))
+            .await
+    }
+    pub async fn submission(&self, key: impl Into<String>) -> Result<Option<SubmissionReceipt>> {
+        self.request(|r| Command::Submission(key.into(), r)).await
+    }
+    pub async fn reconcile_submission(
+        &self,
+        key: impl Into<String>,
+    ) -> Result<Option<SubmissionReceipt>> {
+        let key = key.into();
+        crate::submission::validate_submission_key(&key)?;
+        self.request(|r| Command::ReconcileSubmission(key, r)).await
     }
     pub async fn steer(&self, prompt: impl Into<Prompt>) -> Result<()> {
         self.request(|r| Command::Steer(prompt.into(), r)).await
@@ -131,13 +175,13 @@ impl Agent {
     pub async fn respond_permission(&self, response: PermissionResponse) -> Result<()> {
         self.request(|r| Command::Permission(response, r)).await
     }
-    pub async fn configure(&self, config: Value) -> Result<Value> {
+    pub async fn configure(&self, config: Value) -> Result<ConfigurationReceipt> {
         self.request(|r| Command::Configure(config, r)).await
     }
-    pub async fn models(&self) -> Result<Value> {
+    pub async fn models(&self) -> Result<Vec<ModelDescriptor>> {
         self.request(Command::Models).await
     }
-    pub async fn configuration(&self) -> Result<Value> {
+    pub async fn configuration(&self) -> Result<Vec<SettingDescriptor>> {
         self.request(Command::Configuration).await
     }
     pub async fn slash_commands(&self) -> Result<Value> {
@@ -165,6 +209,8 @@ impl Agent {
     }
 }
 pub(crate) struct Engine {
+    pub host_tools: Option<Arc<crate::tools::HostToolScope>>,
+    pub submissions: BTreeMap<String, SubmissionRecord>,
     pub recovered_turn: Option<String>,
     pub inflight_queue: Option<String>,
     pub storage_error: Option<String>,
@@ -184,11 +230,14 @@ pub(crate) struct Engine {
 }
 impl Drop for Engine {
     fn drop(&mut self) {
+        if let Some(tools) = &self.host_tools {
+            tools.revoke();
+        }
         self.execution.lock().unwrap().take();
     }
 }
 impl Engine {
-    async fn emit(&mut self, kind: EventKind, raw: Option<Value>) {
+    pub(crate) async fn emit(&mut self, kind: EventKind, raw: Option<Value>) {
         if self.storage_error.is_some() {
             return;
         }
@@ -203,21 +252,19 @@ impl Engine {
             raw,
         };
         let persistence_error = if self.store.transcript_durability().is_some() {
-            self.store.append_event(&event).await.err()
+            self.store
+                .commit(SessionWrite {
+                    snapshot: Some(&self.snapshot),
+                    events: std::slice::from_ref(&event),
+                    ..Default::default()
+                })
+                .await
+                .err()
         } else {
             None
         };
-        *self.shared.write().await = self.snapshot.clone();
-        let mut h = self.history.write().await;
-        if h.len() == HISTORY_LIMIT {
-            h.pop_front();
-        }
-        h.push_back(event.clone());
-        drop(h);
-        let _ = self.events.send(event.clone());
-        let _ = self.global.send(event.clone());
-        for ext in &self.extensions {
-            ext.on_event(&event).await;
+        if persistence_error.is_none() {
+            self.publish(&event).await;
         }
         if let Some(error) = persistence_error {
             // Report storage failure without recursively attempting to journal that error.
@@ -225,6 +272,9 @@ impl Engine {
             self.storage_error = Some(error.to_string());
             self.snapshot.state = SessionState::Failed;
             self.closed.store(true, Ordering::SeqCst);
+            if let Some(tools) = &self.host_tools {
+                tools.revoke();
+            }
             let diagnostic = RuntimeEvent {
                 sequence: self.snapshot.sequence,
                 kind: EventKind::Error {
@@ -265,7 +315,24 @@ impl Engine {
             }
         }
     }
-    async fn persist(&mut self) {
+    async fn publish(&self, event: &RuntimeEvent) {
+        if let Some(tools) = &self.host_tools {
+            tools.observe(&self.snapshot);
+        }
+        *self.shared.write().await = self.snapshot.clone();
+        let mut history = self.history.write().await;
+        if history.len() == HISTORY_LIMIT {
+            history.pop_front();
+        }
+        history.push_back(event.clone());
+        drop(history);
+        let _ = self.events.send(event.clone());
+        let _ = self.global.send(event.clone());
+        for extension in &self.extensions {
+            extension.on_event(event).await;
+        }
+    }
+    pub(crate) async fn persist(&mut self) {
         if let Err(e) = self.store.save(&self.snapshot).await {
             self.emit(
                 EventKind::Error {
@@ -276,14 +343,20 @@ impl Engine {
             .await;
         }
     }
-    async fn state(&mut self, state: SessionState) {
+    pub(crate) async fn state(&mut self, state: SessionState) {
         if self.snapshot.state != state {
             self.snapshot.state = state.clone();
             self.emit(EventKind::StateChanged(state), None).await;
             self.persist().await;
         }
     }
-    async fn finish(&mut self, reason: String, raw: Option<Value>) {
+
+    async fn finish(
+        &mut self,
+        outcome: TurnOutcome,
+        native_reason: Option<String>,
+        raw: Option<Value>,
+    ) {
         if self.snapshot.turn.is_none() {
             if raw.is_some() {
                 self.emit(EventKind::Raw, raw).await;
@@ -301,21 +374,57 @@ impl Engine {
             )
             .await;
         }
-        self.emit(EventKind::TurnEnded { reason }, raw).await;
-        self.snapshot.turn = None;
+        if let Some(tools) = &self.host_tools {
+            tools.cancel_turn();
+        }
         self.snapshot.turns_completed += 1;
+        self.emit(
+            EventKind::TurnEnded {
+                outcome,
+                native_reason,
+            },
+            raw,
+        )
+        .await;
+        self.snapshot.turn = None;
         self.snapshot.metadata.updated_at_ms = crate::runtime::timestamp_ms();
         self.state(SessionState::Idle).await;
     }
-    async fn save_queue(&mut self, queue: PromptQueue) -> Result<()> {
-        let previous = std::mem::replace(&mut self.snapshot.queue, queue);
-        if let Err(error) = self.store.save(&self.snapshot).await {
-            self.snapshot.queue = previous;
-            return Err(error);
-        }
-        self.emit(EventKind::QueueChanged(self.snapshot.queue.clone()), None)
-            .await;
+    async fn commit_change(
+        &mut self,
+        mut snapshot: SessionSnapshot,
+        kind: EventKind,
+    ) -> Result<()> {
+        snapshot.sequence += 1;
+        let event = RuntimeEvent {
+            session_id: snapshot.id.clone(),
+            sequence: snapshot.sequence,
+            turn_id: snapshot.turn.clone(),
+            source: snapshot.options.harness.clone(),
+            timestamp_ms: crate::runtime::timestamp_ms(),
+            kind,
+            raw: None,
+        };
+        self.store
+            .commit(SessionWrite {
+                snapshot: Some(&snapshot),
+                events: if self.store.transcript_durability().is_some() {
+                    std::slice::from_ref(&event)
+                } else {
+                    &[]
+                },
+                ..Default::default()
+            })
+            .await?;
+        self.snapshot = snapshot;
+        self.publish(&event).await;
         Ok(())
+    }
+    async fn save_queue(&mut self, queue: PromptQueue) -> Result<()> {
+        let mut snapshot = self.snapshot.clone();
+        snapshot.queue = queue;
+        let kind = EventKind::QueueChanged(snapshot.queue.clone());
+        self.commit_change(snapshot, kind).await
     }
     async fn queue_command(&mut self, command: Command) {
         match command {
@@ -355,6 +464,9 @@ impl Engine {
                         .find(|item| item.id == id)
                         .ok_or_else(|| Error::Invalid("prompt is no longer queued".into()))?;
                     item.prompt = prompt;
+                    if self.submissions.contains_key(&format!("queue:{}", id)) {
+                        item.id = uuid::Uuid::new_v4().to_string();
+                    }
                     self.save_queue(queue).await
                 }
                 .await;
@@ -376,23 +488,20 @@ impl Engine {
                 let _ = reply.send(result);
             }
             Command::QueuePause(paused, reply) => {
+                if !paused && self.dispatch_blocked() {
+                    let _ = reply.send(Err(Error::Busy));
+                    return;
+                }
                 let mut queue = self.snapshot.queue.clone();
                 queue.paused = paused;
                 let _ = reply.send(self.save_queue(queue).await);
             }
             Command::Metadata(update, reply) => {
                 let result = async {
-                    let previous = self.snapshot.clone();
-                    crate::runtime::apply_metadata(&mut self.snapshot, update)?;
-                    if let Err(error) = self.store.save(&self.snapshot).await {
-                        self.snapshot = previous;
-                        return Err(error);
-                    }
-                    self.emit(
-                        EventKind::SessionUpdated(json!({"metadata":self.snapshot.metadata})),
-                        None,
-                    )
-                    .await;
+                    let mut snapshot = self.snapshot.clone();
+                    crate::runtime::apply_metadata(&mut snapshot, update)?;
+                    let kind = EventKind::SessionUpdated(json!({"metadata":snapshot.metadata}));
+                    self.commit_change(snapshot, kind).await?;
                     Ok(self.snapshot.clone())
                 }
                 .await;
@@ -401,35 +510,9 @@ impl Engine {
             _ => unreachable!("queue and metadata commands only"),
         }
     }
-    async fn start_prompt(&mut self, mut prompt: Prompt) -> Result<()> {
-        if self.snapshot.turn.is_some() || !self.permissions.is_empty() {
-            return Err(Error::Busy);
-        }
-        // Refuse new provider work when even the current durable snapshot cannot be saved.
-        self.store.save(&self.snapshot).await?;
-        for ext in &self.extensions {
-            ext.before_prompt(&self.snapshot, &mut prompt).await?;
-        }
-        let backend = self.backend.clone();
-        let submitted = prompt.clone();
-        self.controlled(
-            Box::pin(async move { backend.prompt(&submitted).await }),
-            true,
-        )
-        .await?;
-        self.snapshot.turn = Some(uuid::Uuid::new_v4().to_string());
-        self.state(SessionState::Running).await;
-        if let Some(error) = &self.storage_error {
-            return Err(Error::Storage(error.clone()));
-        }
-        self.emit(EventKind::TurnStarted, None).await;
-        self.emit(EventKind::UserMessage(prompt), None).await;
-        self.storage_error
-            .as_ref()
-            .map_or(Ok(()), |error| Err(Error::Storage(error.clone())))
-    }
     async fn promote_queue(&mut self) {
-        if self.snapshot.turn.is_some()
+        if self.dispatch_blocked()
+            || self.snapshot.turn.is_some()
             || !self.permissions.is_empty()
             || self.snapshot.queue.paused
             || self.snapshot.queue.items.is_empty()
@@ -438,7 +521,18 @@ impl Engine {
         }
         let item = self.snapshot.queue.items[0].clone();
         self.inflight_queue = Some(item.id.clone());
-        let result = self.start_prompt(item.prompt.clone()).await;
+        let result = self
+            .submit_prompt(format!("queue:{}", item.id), item.prompt.clone())
+            .await
+            .and_then(|receipt| {
+                if receipt.delivery == DeliveryKnowledge::Accepted {
+                    Ok(())
+                } else {
+                    Err(Error::Provider(
+                        "queued submission delivery is uncertain".into(),
+                    ))
+                }
+            });
         self.inflight_queue = None;
         if self.closed.load(Ordering::SeqCst) {
             self.snapshot.queue.paused = true;
@@ -451,7 +545,7 @@ impl Engine {
             let _ = self.save_queue(queue).await;
             self.emit(
                 EventKind::Error {
-                    message: format!("queued prompt was not accepted: {error}"),
+                    message: format!("queued prompt delivery did not complete: {error}"),
                 },
                 None,
             )
@@ -484,6 +578,24 @@ impl Engine {
         }
         if request.kind == "question" && response.option == "answer" {
             validate_question_answers(request, &response.data)?;
+        }
+        let declined = request.options.iter().any(|o| {
+            o.id == response.option
+                && matches!(
+                    o.kind.as_str(),
+                    "deny" | "deny_once" | "deny_session" | "cancel"
+                )
+        });
+        if !declined {
+            if self.snapshot.execution_policy.dispatch_blocked {
+                return Err(Error::Busy);
+            }
+            let context = self
+                .snapshot
+                .working_context
+                .as_ref()
+                .ok_or_else(|| Error::Storage("missing working context".into()))?;
+            verify_context(context).await?;
         }
         let backend = self.backend.clone();
         let submitted = response.clone();
@@ -568,30 +680,44 @@ impl Engine {
                     self.permissions.insert(p.id.clone(), p.clone());
                     self.state(SessionState::NeedsInput).await;
                     self.emit(kind.clone(), raw).await;
-                    for ext in self.extensions.clone() {
-                        match ext.on_permission(&self.snapshot, p).await {
+                    if let Some(authority) = self
+                        .extensions
+                        .iter()
+                        .find(|extension| extension.permission_authority())
+                        .cloned()
+                    {
+                        let decision = authority.on_permission(&self.snapshot, p).await;
+                        let result = match decision {
                             Ok(Some(response)) => {
-                                if let Err(e) = self.answer(response).await {
-                                    self.emit(
-                                        EventKind::Error {
-                                            message: e.to_string(),
-                                        },
-                                        None,
+                                let declined = p.options.iter().any(|option| {
+                                    option.id == response.option
+                                        && matches!(
+                                            option.kind.as_str(),
+                                            "deny" | "deny_once" | "deny_session" | "cancel"
+                                        )
+                                });
+                                if !declined
+                                    && matches!(
+                                        self.snapshot.execution_policy.requested,
+                                        Some(ExecutionProfile::Ask | ExecutionProfile::Review)
                                     )
-                                    .await;
+                                {
+                                    Err(Error::Unsupported("The selected execution profile leaves unresolved native requests to the user".into()))
+                                } else {
+                                    self.answer(response).await
                                 }
-                                break;
                             }
-                            Err(e) => {
-                                self.emit(
-                                    EventKind::Error {
-                                        message: e.to_string(),
-                                    },
-                                    None,
-                                )
-                                .await
-                            }
-                            _ => (),
+                            Ok(None) => Ok(()),
+                            Err(error) => Err(error),
+                        };
+                        if let Err(error) = result {
+                            self.emit(
+                                EventKind::Error {
+                                    message: error.to_string(),
+                                },
+                                None,
+                            )
+                            .await;
                         }
                     }
                 } else if let EventKind::ConfigurationUpdated(configuration) = &kind {
@@ -610,6 +736,12 @@ impl Engine {
                         }
                     }
                     self.emit(kind, raw).await;
+                    if let Err(error) = self.refresh_execution_policy().await {
+                        self.snapshot.execution_policy.dispatch_blocked =
+                            self.snapshot.execution_policy.requested.is_some();
+                        self.snapshot.execution_policy.status = PolicyStatus::Unknown;
+                        self.snapshot.execution_policy.reason = Some(error.to_string());
+                    }
                     self.persist().await;
                 } else if let EventKind::PermissionResolved { id, .. } = &kind {
                     self.permissions.remove(id);
@@ -626,20 +758,49 @@ impl Engine {
                     self.emit(kind, raw).await;
                 }
             }
-            BackendEvent::TurnFinished { reason, raw } => self.finish(reason, raw).await,
+            BackendEvent::TurnFinished {
+                outcome,
+                native_reason,
+                raw,
+            } => {
+                self.settle_submission(outcome, native_reason.clone(), raw.clone())
+                    .await;
+                self.finish(outcome, native_reason, raw).await;
+            }
             BackendEvent::NativeSessionChanged(native) => {
                 self.snapshot.native = native;
+                self.clear_permissions().await;
+                self.snapshot.execution_policy.native_session = Some(self.snapshot.native.clone());
+                self.snapshot.execution_policy.observed = None;
+                self.snapshot.execution_policy.status = PolicyStatus::Unknown;
+                self.snapshot.execution_policy.dispatch_blocked =
+                    self.snapshot.execution_policy.requested.is_some();
                 self.emit(
-                    EventKind::SessionUpdated(json!({"native":self.snapshot.native})),
+                    EventKind::SessionUpdated(json!({"native":self.snapshot.native,"executionPolicy":self.snapshot.execution_policy})),
                     None,
                 )
                 .await;
                 self.persist().await;
+                if let Some(profile) = self.snapshot.execution_policy.requested
+                    && let Err(error) = self
+                        .apply_configuration(json!({"executionProfile":profile}))
+                        .await
+                {
+                    self.snapshot.execution_policy.reason = Some(error.to_string());
+                    self.emit(
+                        EventKind::SessionUpdated(
+                            json!({"executionPolicy":self.snapshot.execution_policy}),
+                        ),
+                        None,
+                    )
+                    .await;
+                    self.persist().await;
+                }
             }
             BackendEvent::Exited { message } => {
                 self.emit(EventKind::Error { message }, None).await;
                 self.clear_permissions().await;
-                self.finish("failed".into(), None).await;
+                self.finish(TurnOutcome::Failed, None, None).await;
                 self.snapshot.queue.paused = true;
                 self.state(SessionState::Failed).await;
                 self.closed.store(true, Ordering::SeqCst);
@@ -651,7 +812,7 @@ impl Engine {
         false
     }
     /// Lifecycle requests preempt slow provider acceptance and configuration calls.
-    async fn controlled<T>(
+    pub(crate) async fn controlled<T>(
         &mut self,
         mut operation: std::pin::Pin<Box<dyn std::future::Future<Output = Result<T>> + Send>>,
         defer_cancel: bool,
@@ -672,13 +833,14 @@ impl Engine {
                     }
                     // Nested cancellation can close the session after native acceptance.
                     // Never allow an accepted prompt to reopen that terminal session.
-                    if self.closed.load(Ordering::SeqCst) { return Err(Error::Closed); }
+                    if self.closed.load(Ordering::SeqCst) && !defer_cancel { return Err(Error::Closed); }
                     return result;
                 }
                 command = self.commands.recv() => match command {
                     Some(Command::Close(_, _)) | None => {
+                        if let Some(tools) = &self.host_tools { tools.revoke(); }
                         let result = self.backend.kill().await;
-                        self.snapshot.queue.paused = true; self.clear_permissions().await; self.finish("cancelled".into(),None).await; self.state(SessionState::Closed).await;
+                        self.snapshot.queue.paused = true; self.clear_permissions().await; self.finish(TurnOutcome::Cancelled,None,None).await; self.state(SessionState::Closed).await;
                         self.closed.store(true,Ordering::SeqCst); self.emit(EventKind::SessionEnded,None).await; self.persist().await;
                         if let Some(Command::Close(_,reply)) = command { let _ = reply.send(result); }
                         for reply in cancel_replies { let _ = reply.send(Err(Error::Closed)); }
@@ -686,6 +848,7 @@ impl Engine {
                     }
                     Some(Command::Cancel(expected, reply)) => {
                         if expected.as_ref().is_some_and(|turn| self.snapshot.turn.as_ref() != Some(turn)) { let _ = reply.send(Err(Error::Invalid("turn is no longer active".into()))); continue; }
+                        if let Some(tools) = &self.host_tools { tools.cancel_turn(); }
                         let mut queue = self.snapshot.queue.clone(); queue.paused = true;
                         if let Err(error) = self.save_queue(queue).await { let _ = reply.send(Err(error)); continue; }
                         if cancel_replies.is_empty() { cancel_deadline.as_mut().reset(tokio::time::Instant::now()+std::time::Duration::from_secs(5)); }
@@ -695,14 +858,23 @@ impl Engine {
                             tokio::spawn(async move { let result = tokio::time::timeout(std::time::Duration::from_secs(5),backend.cancel()).await.unwrap_or_else(|_| Err(Error::Timeout("cancel acknowledgement".into()))); let _ = reply.send(result); });
                         }
                     }
-                    Some(Command::Prompt(_,r) | Command::Steer(_,r) | Command::Rollback(_,_,r) | Command::Compact(r)) => { let _ = r.send(Err(Error::Busy)); }
+                    Some(Command::Prompt(key,prompt,reply)) => {
+                        let result = self.retained_submission(&key,&prompt).and_then(|receipt| receipt.ok_or(Error::Busy));
+                        let _ = reply.send(result);
+                    }
+                    Some(Command::Submission(key,reply)) => { let _ = reply.send(Ok(self.submissions.get(&key).map(|r| r.receipt.clone()))); }
+                    Some(Command::ReconcileSubmission(_,r)) => { let _ = r.send(Err(Error::Busy)); }
+                    Some(Command::Steer(_,r) | Command::Rollback(_,_,r) | Command::Compact(r)) => { let _ = r.send(Err(Error::Busy)); }
                     Some(Command::Permission(_,r)) => { let _ = r.send(Err(Error::Busy)); }
-                    Some(Command::Models(r) | Command::Configuration(r) | Command::SlashCommands(r) | Command::Quotas(r) | Command::Configure(_,r)) => { let _ = r.send(Err(Error::Busy)); }
+                    Some(Command::Models(r)) => { let _ = r.send(Err(Error::Busy)); }
+                    Some(Command::Configuration(r)) => { let _ = r.send(Err(Error::Busy)); }
+                    Some(Command::Configure(_,r)) => { let _ = r.send(Err(Error::Busy)); }
+                    Some(Command::SlashCommands(r) | Command::Quotas(r)) => { let _ = r.send(Err(Error::Busy)); }
                     Some(command @ (Command::QueueAdd(..) | Command::QueueUpdate(..) | Command::QueueRemove(..) | Command::QueuePause(..) | Command::Metadata(..))) => self.queue_command(command).await,
                 },
                 _ = &mut cancel_deadline, if !cancel_replies.is_empty() => {
                     let _ = self.backend.kill().await;
-                    self.snapshot.queue.paused = true; self.clear_permissions().await; self.finish("cancelled".into(),None).await; self.state(SessionState::Closed).await;
+                    self.snapshot.queue.paused = true; self.clear_permissions().await; self.finish(TurnOutcome::Cancelled,None,None).await; self.state(SessionState::Closed).await;
                     self.closed.store(true,Ordering::SeqCst); self.emit(EventKind::SessionEnded,None).await; self.persist().await;
                     for reply in cancel_replies { let _ = reply.send(Err(Error::Timeout("prompt acceptance during cancellation; session terminated".into()))); }
                     return Err(Error::Closed);
@@ -715,7 +887,8 @@ impl Engine {
             self.snapshot.turn = Some(turn);
             self.emit(
                 EventKind::TurnEnded {
-                    reason: "interrupted".into(),
+                    outcome: TurnOutcome::Interrupted,
+                    native_reason: None,
                 },
                 None,
             )
@@ -764,11 +937,16 @@ impl Engine {
                 cmd = self.commands.recv() => {
                     let Some(cmd) = cmd else { break };
                     match cmd {
-                        Command::Prompt(p, reply) => { let result = self.start_prompt(p).await; let _ = reply.send(result); }
+                        Command::Prompt(key,p, reply) => { let result = self.submit_prompt(key,p).await; let _ = reply.send(result); }
+                        Command::Submission(key,reply) => { let _ = reply.send(Ok(self.submissions.get(&key).map(|r| r.receipt.clone()))); }
+                        Command::ReconcileSubmission(key,reply) => { let result = self.reconcile_retained_submission(&key).await; let _ = reply.send(result); }
                         Command::Steer(mut p, reply) => {
                             let result = async {
-                                if !self.snapshot.capabilities.steering { return Err(Error::Unsupported("steering".into())); }
+                                if self.dispatch_blocked() { return Err(Error::Busy); }
+                                if !self.snapshot.capabilities.steering.is_available() { return Err(Error::Unsupported("steering".into())); }
                                 if self.snapshot.turn.is_none() { return Err(Error::Invalid("steering requires an active turn".into())); }
+                                let context = self.snapshot.working_context.as_ref().ok_or_else(|| Error::Storage("session has no retained working context".into()))?;
+                                verify_context(context).await?;
                                 for ext in &self.extensions { ext.before_prompt(&self.snapshot, &mut p).await?; }
                                 let backend = self.backend.clone(); let submitted = p.clone();
                                 self.controlled(Box::pin(async move { backend.steer(&submitted).await }),false).await?;
@@ -778,6 +956,7 @@ impl Engine {
                         Command::Cancel(expected, reply) => {
                             let result = async {
                                 if expected.as_ref().is_some_and(|turn| self.snapshot.turn.as_ref() != Some(turn)) { return Err(Error::Invalid("turn is no longer active".into())); }
+                                if let Some(tools) = &self.host_tools { tools.cancel_turn(); }
                                 let mut queue = self.snapshot.queue.clone(); queue.paused = true; self.save_queue(queue).await?;
                                 let active_turn = self.snapshot.turn.is_some();
                                 self.cancel_permissions().await;
@@ -795,35 +974,23 @@ impl Engine {
                             let _ = reply.send(result);
                         }
                         Command::Permission(r, reply) => { let result = self.answer(r).await; let _ = reply.send(result); }
-                        Command::Models(reply) => { let backend = self.backend.clone(); let result = self.controlled(Box::pin(async move { backend.models().await }),false).await; let _ = reply.send(result); }
-                        Command::Configuration(reply) => { let backend = self.backend.clone(); let result = self.controlled(Box::pin(async move { backend.configuration().await }),false).await; let _ = reply.send(result); }
+                        Command::Models(reply) => { let backend = self.backend.clone(); let capability = self.snapshot.capabilities.models.clone(); let result = self.controlled(Box::pin(async move { capability.require("models")?; backend.models().await }),false).await; let _ = reply.send(result); }
+                        Command::Configuration(reply) => { let result = self.describe_configuration().await; let _ = reply.send(result); }
                         Command::SlashCommands(reply) => { let backend = self.backend.clone(); let result = self.controlled(Box::pin(async move { backend.commands().await }),false).await; let _ = reply.send(result); }
                         Command::Quotas(reply) => { let backend = self.backend.clone(); let result = self.controlled(Box::pin(async move { backend.quotas().await }),false).await; let _ = reply.send(result); }
                         Command::Configure(v, reply) => {
-                            let backend = self.backend.clone(); let submitted = v.clone();
-                            let mut result = self.controlled(Box::pin(async move { backend.configure(submitted).await }),false).await;
-                            if let Ok(response) = &result {
-                                let mut accepted = v.as_object().cloned().unwrap_or_default();
-                                // A native reset can change a setting absent from the submitted patch.
-                                if let Some(acknowledged) = response.as_object() {
-                                    accepted.extend(acknowledged.iter().filter(|(_,value)|!value.is_object() && !value.is_array()).map(|(key,value)|(key.clone(),value.clone())));
-                                }
-                                if !accepted.is_empty() {
-                                    let mut config = self.snapshot.options.config.as_object().cloned().unwrap_or_default();
-                                    config.extend(accepted.clone());
-                                    self.snapshot.options.config = Value::Object(config);
-                                    if let Some(model) = accepted.get("model") { self.snapshot.options.model = model.as_str().map(String::from); }
-                                }
-                                if let Err(error) = self.store.save(&self.snapshot).await { result = Err(error); }
-                                else { self.emit(EventKind::SessionUpdated(json!({"configuration":response,"options":self.snapshot.options})), None).await; }
-                            }
+                            let result = self.apply_configuration(v).await;
                             let _ = reply.send(result);
                         }
                         command @ (Command::QueueAdd(..) | Command::QueueUpdate(..) | Command::QueueRemove(..) | Command::QueuePause(..) | Command::Metadata(..)) => self.queue_command(command).await,
                         Command::Rollback(n, scope, reply) => {
                             let result = async {
-                                if self.snapshot.turn.is_some() || !self.permissions.is_empty() { return Err(Error::Busy); }
+                                if self.dispatch_blocked() || self.snapshot.turn.is_some() || !self.permissions.is_empty() { return Err(Error::Busy); }
                                 if n == 0 { return Err(Error::Invalid("turns must be positive".into())); }
+                                if scope == RollbackScope::ConversationAndFiles {
+                                    let context = self.snapshot.working_context.as_ref().ok_or_else(|| Error::Storage("missing working context".into()))?;
+                                    verify_context(context).await?;
+                                }
                                 let backend = self.backend.clone();
                                 self.controlled(Box::pin(async move { backend.rollback_with(n, scope).await }), false).await?;
                                 self.snapshot.turns_completed = self.snapshot.turns_completed.saturating_sub(n);
@@ -832,13 +999,14 @@ impl Engine {
                             }.await;
                             let _ = reply.send(result);
                         }
-                        Command::Compact(reply) => { let result = if self.snapshot.turn.is_some() || !self.permissions.is_empty() { Err(Error::Busy) } else { { let backend = self.backend.clone(); self.controlled(Box::pin(async move { backend.compact().await }),false).await } }; let _ = reply.send(result); }
+                        Command::Compact(reply) => { let result = if self.dispatch_blocked() || self.snapshot.turn.is_some() || !self.permissions.is_empty() { Err(Error::Busy) } else { { let backend = self.backend.clone(); self.controlled(Box::pin(async move { backend.compact().await }),false).await } }; let _ = reply.send(result); }
                         Command::Close(kill, reply) => {
+                            if let Some(tools) = &self.host_tools { tools.revoke(); }
                             // Native teardown settles control requests without waiting for an
                             // approval acknowledgement that the provider may never complete.
                             let result = if kill { self.backend.kill().await } else { self.backend.close().await };
                             self.clear_permissions().await;
-                            self.finish("cancelled".into(), None).await;
+                            self.finish(TurnOutcome::Cancelled, None, None).await;
                             self.snapshot.queue.paused = true; self.state(SessionState::Closed).await; self.closed.store(true,Ordering::SeqCst); self.emit(EventKind::SessionEnded, None).await; self.persist().await;
                             let _ = reply.send(result); break;
                         }
@@ -849,6 +1017,9 @@ impl Engine {
                     if self.handle_event(event).await { break; }
                 }
             }
+        }
+        if let Some(tools) = &self.host_tools {
+            tools.revoke();
         }
         let _ = self.backend.kill().await;
         for ext in &self.extensions {

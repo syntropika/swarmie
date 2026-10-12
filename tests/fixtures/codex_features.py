@@ -9,6 +9,7 @@ import uuid
 ledger_path = os.environ["MPAI_FIXTURE_LEDGER"]
 thread = None
 pending_child = None
+submission_ids = {}
 
 
 def load():
@@ -36,11 +37,14 @@ def notify(method, params):
     emit({"jsonrpc": "2.0", "method": method, "params": params})
 
 
-def complete(text, turn_id):
+def complete(text, turn_id, silent=False):
     ledger = load()
     item = {"id": "message-" + turn_id, "type": "agentMessage", "text": text}
-    ledger[thread].append({"id": turn_id, "status": "completed", "items": [item]})
+    user = {"id": "user-" + turn_id, "type": "userMessage", "clientId": submission_ids.get(turn_id), "content": []}
+    ledger[thread].append({"id": turn_id, "status": "completed", "items": [user, item]})
     save(ledger)
+    if silent:
+        return
     notify("item/agentMessage/delta", {"threadId": thread, "itemId": item["id"], "delta": text})
     notify("item/completed", {"threadId": thread, "item": item})
     notify("turn/completed", {"threadId": thread, "turn": {"id": turn_id, "status": "completed"}})
@@ -81,6 +85,12 @@ for line in sys.stdin:
         response(request, {"rateLimits": {"limitId": "other", "primary": {"usedPercent": 99}}, "rateLimitsByLimitId": {"codex": {"planType": "fixture", "primary": {"usedPercent": 25, "windowDurationMins": 300, "resetsAt": 2000000000}}}, "rateLimitResetCredits": {"availableCount": 0}})
     elif method == "turn/start":
         turn_id = str(uuid.uuid4())
+        submission_ids[turn_id] = params.get("clientUserMessageId")
+        prompt = params["input"][0]["text"]
+        if prompt == "uncertain-completed":
+            complete("Recovered answer", turn_id, silent=True)
+            emit({"jsonrpc": "2.0", "id": request["id"], "error": {"code": -32000, "message": "native acknowledgement lost after completion"}})
+            continue
         response(request, {"turn": {"id": turn_id}})
         notify("turn/started", {"threadId": thread, "turn": {"id": turn_id}})
         prompt = params["input"][0]["text"]
@@ -110,8 +120,29 @@ for line in sys.stdin:
         response(request, {})
         time.sleep(0.15)
         notify("item/completed", {"threadId": thread, "item": {"id": "compact", "type": "contextCompaction"}})
-    elif method == "thread/rollback":
+    elif method == "thread/turns/list":
+        assert params["sortDirection"] == "desc"
+        assert params["itemsView"] in ("notLoaded", "full")
+        turns = list(reversed(load()[params["threadId"]]))
+        offset = int(params.get("cursor") or 0)
+        size = int(os.environ.get("MPAI_FIXTURE_PAGE_SIZE", params["limit"]))
+        page = turns[offset:offset + size]
+        next_cursor = str(offset + size) if offset + size < len(turns) else None
+        if os.environ.get("MPAI_FIXTURE_REPEAT_CURSOR") and params.get("cursor"):
+            next_cursor = params["cursor"]
+            page = []
+        if os.environ.get("MPAI_FIXTURE_MISSING_TURN_ID") and page:
+            page[0] = {**page[0], "id": None}
+        if os.environ.get("MPAI_FIXTURE_ACTIVE_TURN") and page:
+            page[0] = {**page[0], "status": "inProgress"}
+        response(request, {"data": page, "nextCursor": next_cursor})
+    elif method == "thread/revert":
+        assert set(params) == {"threadId", "beforeTurnId"}
         ledger = load()
-        ledger[thread] = ledger[thread][:-params["numTurns"]]
+        history = ledger[params["threadId"]]
+        cut = next(i for i, turn in enumerate(history) if turn["id"] == params["beforeTurnId"])
+        ledger[params["threadId"]] = history[:cut]
         save(ledger)
-        response(request, {"thread": {"id": thread}})
+        response(request, {"thread": {"id": params["threadId"]}})
+    elif method == "thread/rollback":
+        emit({"jsonrpc": "2.0", "id": request["id"], "error": {"code": -32601, "message": "removed method"}})

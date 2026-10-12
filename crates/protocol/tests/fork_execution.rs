@@ -43,12 +43,11 @@ impl Harness for Peer {
             events,
             backend: Box::new(Backend(tx)),
             capabilities: Capabilities {
-                fork: true,
-                resume: true,
-                metadata: BTreeMap::from([
-                    ("forkAtMessage".into(), json!(true)),
-                    ("mcpTransports".into(), json!(["stdio", "http"])),
-                ]),
+                fork_at_message: true.into(),
+
+                fork: true.into(),
+                resume: true.into(),
+                metadata: BTreeMap::from([("mcpTransports".into(), json!(["stdio", "http"]))]),
                 ..Default::default()
             },
         })
@@ -78,7 +77,9 @@ impl AgentBackend for Backend {
             .map_err(|_| Error::Closed)?;
         self.0
             .send(BackendEvent::TurnFinished {
-                reason: "completed".into(),
+                outcome: TurnOutcome::Completed,
+
+                native_reason: None,
                 raw: None,
             })
             .await
@@ -143,7 +144,7 @@ async fn rpc_controls_extension_created_handles_and_uses_reopened_runtime_handle
     let prompted = call(
         &service,
         "session/prompt",
-        json!({"sessionId":id,"text":"Extension-created session"}),
+        json!({"sessionId":id,"text":"Extension-created session","idempotencyKey":"Extension-created session"}),
     )
     .await;
     assert!(prompted.get("error").is_none(), "{prompted}");
@@ -160,7 +161,7 @@ async fn rpc_controls_extension_created_handles_and_uses_reopened_runtime_handle
         call(
             &service,
             "session/prompt",
-            json!({"sessionId":id,"text":"Closed"})
+            json!({"sessionId":id,"text":"Closed","idempotencyKey":"Closed"})
         )
         .await
         .get("error")
@@ -189,7 +190,7 @@ async fn rpc_controls_extension_created_handles_and_uses_reopened_runtime_handle
     let prompted = call(
         &service,
         "session/prompt",
-        json!({"sessionId":cached_id,"text":"Fresh reopened handle"}),
+        json!({"sessionId":cached_id,"text":"Fresh reopened handle","idempotencyKey":"Fresh reopened handle"}),
     )
     .await;
     assert!(prompted.get("error").is_none(), "{prompted}");
@@ -227,7 +228,7 @@ async fn rpc_fork_inherits_live_secrets_and_accepts_replacement_execution_for_me
         call(
             &service,
             "session/prompt",
-            json!({"sessionId":id,"text":"turn"})
+            json!({"sessionId":id,"text":"turn","idempotencyKey":"turn"})
         )
         .await
         .get("error")

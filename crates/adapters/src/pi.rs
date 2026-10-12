@@ -25,28 +25,29 @@ impl PiHarness {
 }
 fn capabilities() -> Capabilities {
     Capabilities {
-        resume: true,
-        fork: true,
-        steering: true,
-        cancel: true,
-        reasoning: true,
-        usage: true,
-        permissions: true,
-        models: true,
-        configure: true,
-        compact: true,
-        images: true,
+        fork_before_user: true.into(),
+        commands: true.into(),
+        ephemeral: true.into(),
+        output_schema: false.into(),
+        tools_disabled: true.into(),
+        fork_at_message: false.into(),
+
+        resume: true.into(),
+        fork: true.into(),
+        steering: true.into(),
+        cancel: true.into(),
+        reasoning: true.into(),
+        usage: true.into(),
+        permissions: true.into(),
+        models: true.into(),
+        configure: true.into(),
+        compact: true.into(),
+        images: true.into(),
         metadata: BTreeMap::from([
-            ("forkAtMessage".into(), json!(false)),
-            ("forkBeforeUser".into(), json!(true)),
             (
                 "nativeUserEntryFork".into(),
                 json!({"position":"before_user_message","target":"user_entry_id","api":"PiHarness::fork_before_user"}),
             ),
-            ("commands".into(), json!(true)),
-            ("toolsDisabled".into(), json!(true)),
-            ("ephemeral".into(), json!(true)),
-            ("outputSchema".into(), json!(false)),
             ("mcpTransports".into(), json!([])),
         ]),
         ..Default::default()
@@ -161,7 +162,8 @@ async fn connect_pi(
         .ok_or_else(|| Error::Provider("Pi get_state omitted session reference".into()))?
         .to_string();
     let settled = Arc::new(AtomicBool::new(o.config["legacyAgentEnd"] != true));
-    let outcome: Arc<RwLock<String>> = Arc::new(RwLock::new("completed".into()));
+    let outcome: Arc<RwLock<(TurnOutcome, Option<String>)>> =
+        Arc::new(RwLock::new((TurnOutcome::Completed, None)));
     let outcome_task = outcome.clone();
     let settled_task = settled.clone();
     let (tx, events) = mpsc::channel(512);
@@ -195,16 +197,20 @@ async fn connect_pi(
                 "agent_settled" => {
                     wire_task.set_active(false);
                     settled_task.store(true, Ordering::SeqCst);
+                    let (outcome, native_reason) = outcome_task.read().await.clone();
                     BackendEvent::TurnFinished {
-                        reason: outcome_task.read().await.clone(),
+                        outcome,
+                        native_reason,
                         raw: Some(f.clone()),
                     }
                 }
                 "agent_end" if !settled_task.load(Ordering::SeqCst) => {
                     wire_task.set_active(false);
                     // Legacy Pi lacks agent_settled. Modern state exposes isRunning; explicit override is available.
+                    let (outcome, native_reason) = outcome_task.read().await.clone();
                     BackendEvent::TurnFinished {
-                        reason: outcome_task.read().await.clone(),
+                        outcome,
+                        native_reason,
                         raw: Some(f.clone()),
                     }
                 }
@@ -286,13 +292,13 @@ async fn connect_pi(
                 }
                 "message_end" => {
                     let message = &f["message"];
-                    if message["role"] == "assistant" && *outcome_task.read().await != "cancelled" {
-                        *outcome_task.write().await = match message["stopReason"].as_str() {
-                            Some("error") => "failed",
-                            Some("aborted") => "cancelled",
-                            _ => "completed",
+                    if message["role"] == "assistant" {
+                        let reason = message["stopReason"].as_str();
+                        let mut held = outcome_task.write().await;
+                        if held.0 != TurnOutcome::Cancelled {
+                            held.0 = outcome::pi(reason);
                         }
-                        .into();
+                        held.1 = reason.map(String::from);
                     }
                     if let Some(usage) = message.get("usage") {
                         let context = match wire_task
@@ -378,8 +384,12 @@ async fn connect_pi(
         native: native("pi", id),
         capabilities: {
             let mut caps = capabilities();
-            caps.resume = !o.execution.ephemeral;
-            caps.fork = !o.execution.ephemeral;
+            caps.resume = if o.execution.ephemeral {
+                Capability::unavailable("Ephemeral sessions do not retain native history")
+            } else {
+                true.into()
+            };
+            caps.fork = caps.resume.clone();
             if o.execution.ephemeral {
                 caps.metadata
                     .insert("nativeUserEntryFork".into(), json!(false));
@@ -415,7 +425,7 @@ fn native_context(value: &Value, fallback_window: u64) -> ContextUsage {
 struct PiBackend {
     wire: JsonProcess,
     tx: mpsc::Sender<BackendEvent>,
-    outcome: Arc<RwLock<String>>,
+    outcome: Arc<RwLock<(TurnOutcome, Option<String>)>>,
     dialogs: Arc<RwLock<BTreeMap<String, Value>>>,
     context_window: Arc<AtomicU64>,
 }
@@ -437,7 +447,7 @@ fn params(p: &Prompt) -> Result<Value> {
 impl AgentBackend for PiBackend {
     async fn prompt(&self, p: &Prompt) -> Result<()> {
         let params = params(p)?;
-        *self.outcome.write().await = "completed".into();
+        *self.outcome.write().await = (TurnOutcome::Completed, None);
         self.wire.set_active(true);
         let r = match self.wire.request("prompt", params).await {
             Ok(r) => r,
@@ -450,7 +460,8 @@ impl AgentBackend for PiBackend {
             self.wire.set_active(false);
             self.tx
                 .send(BackendEvent::TurnFinished {
-                    reason: "handled".into(),
+                    outcome: TurnOutcome::Handled,
+                    native_reason: Some("handled".into()),
                     raw: Some(r),
                 })
                 .await
@@ -463,7 +474,7 @@ impl AgentBackend for PiBackend {
         Ok(())
     }
     async fn cancel(&self) -> Result<()> {
-        *self.outcome.write().await = "cancelled".into();
+        *self.outcome.write().await = (TurnOutcome::Cancelled, None);
         self.wire.request("clear_queue", json!({})).await?;
         self.wire
             .request_timeout("abort", json!({}), Duration::from_secs(15))
@@ -565,14 +576,14 @@ impl AgentBackend for PiBackend {
         }
         Ok(commands)
     }
-    async fn models(&self) -> Result<Value> {
+    async fn models(&self) -> Result<Vec<ModelDescriptor>> {
         let models = self.wire.request("get_available_models", json!({})).await?;
-        Ok(Value::Array(settings::models(&models).iter().filter_map(|m| Some(json!({"id":format!("{}/{}",m["provider"].as_str()?,m["id"].as_str()?),"label":m["name"].as_str().or(m["id"].as_str())}))).collect()))
+        settings::model_descriptors(Value::Array(settings::models(&models).iter().filter_map(|m| Some(json!({"id":format!("{}/{}",m["provider"].as_str()?,m["id"].as_str()?),"label":m["name"].as_str().or(m["id"].as_str()),"provider":m["provider"],"metadata":m}))).collect()))
     }
-    async fn configuration(&self) -> Result<Value> {
+    async fn configuration(&self) -> Result<Vec<SettingDescriptor>> {
         let state = self.wire.request("get_state", json!({})).await?;
         let models = self.wire.request("get_available_models", json!({})).await?;
-        let choices = Value::Array(settings::models(&models).iter().filter_map(|m| Some(json!({"id":format!("{}/{}",m["provider"].as_str()?,m["id"].as_str()?),"label":m["name"].as_str().or(m["id"].as_str())}))).collect());
+        let choices = Value::Array(settings::models(&models).iter().filter_map(|m| Some(json!({"id":format!("{}/{}",m["provider"].as_str()?,m["id"].as_str()?),"label":m["name"].as_str().or(m["id"].as_str()),"provider":m["provider"],"metadata":m}))).collect());
         let model = state["model"].clone();
         let mut descriptors = vec![settings::select(
             "model",
@@ -604,7 +615,7 @@ impl AgentBackend for PiBackend {
                 ));
             }
         }
-        Ok(json!(descriptors))
+        settings::descriptors(json!(descriptors))
     }
     async fn compact(&self) -> Result<()> {
         self.wire

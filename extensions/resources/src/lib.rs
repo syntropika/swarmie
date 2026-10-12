@@ -24,6 +24,7 @@ pub struct ResourcesExtension(pub(crate) Arc<Inner>);
 pub(crate) struct Inner {
     root: PathBuf,
     state: AsyncMutex<State>,
+    loaded: AtomicBool,
     credentials: AsyncMutex<BTreeMap<String, String>>,
     runtime: Mutex<Option<WeakRuntime>>,
     stopped: AtomicBool,
@@ -39,36 +40,15 @@ pub(crate) struct Inner {
 impl ResourcesExtension {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let root = private_root(path.as_ref())?;
-        let mut state: State = load(&root.join("resources.json"))?;
-        for schedule in state
-            .schedules
-            .values_mut()
-            .filter(|s| s.status == "running")
-        {
-            schedule.enabled = false;
-            schedule.status = "interrupted".into();
-            schedule.error =
-                Some("Daemon stopped during delivery; inspect before enabling again".into());
+        if root.join("resources.json").exists() {
+            return Err(Error::Storage("legacy resource state exists; choose a fresh development resource root; existing files were preserved".into()));
         }
-        for job in state
-            .jobs
-            .values_mut()
-            .filter(|j| j.status == "running" || j.status == "cancelling")
-        {
-            job.status = "interrupted".into();
-            for target in job
-                .targets
-                .iter_mut()
-                .filter(|t| matches!(t.status.as_str(), "running" | "needs_input" | "pending"))
-            {
-                target.status = "interrupted".into();
-            }
-        }
-        save(&root.join("resources.json"), &state)?;
+        let state = State::default();
         let credentials = load(&root.join("credentials.json"))?;
         Ok(Self(Arc::new(Inner {
             root,
             state: AsyncMutex::new(state),
+            loaded: AtomicBool::new(false),
             credentials: AsyncMutex::new(credentials),
             runtime: Mutex::new(None),
             stopped: AtomicBool::new(false),
@@ -94,8 +74,66 @@ impl ResourcesExtension {
             .and_then(WeakRuntime::upgrade)
             .ok_or(Error::Closed)
     }
-    fn persist(&self, state: &State) -> Result<()> {
-        save(&self.0.root.join("resources.json"), state)?;
+    fn host_runtime(&self) -> Result<Runtime> {
+        self.0
+            .runtime
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(WeakRuntime::upgrade)
+            .ok_or(Error::Closed)
+    }
+    async fn ensure_loaded(&self) -> Result<()> {
+        if self.0.loaded.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        let mut state = self.0.state.lock().await;
+        if self.0.loaded.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        let mut restored: State = self
+            .host_runtime()?
+            .extension_state("resources")
+            .await?
+            .map(serde_json::from_value)
+            .transpose()?
+            .unwrap_or_default();
+        for schedule in restored
+            .schedules
+            .values_mut()
+            .filter(|s| s.status == "running")
+        {
+            schedule.enabled = false;
+            schedule.status = "interrupted".into();
+            schedule.error =
+                Some("Daemon stopped during delivery; inspect before enabling again".into());
+        }
+        for job in restored
+            .jobs
+            .values_mut()
+            .filter(|j| j.status == "running" || j.status == "cancelling")
+        {
+            job.status = "interrupted".into();
+            for target in job
+                .targets
+                .iter_mut()
+                .filter(|t| matches!(t.status.as_str(), "running" | "needs_input" | "pending"))
+            {
+                target.status = "interrupted".into();
+            }
+        }
+
+        self.host_runtime()?
+            .save_extension_state("resources", serde_json::to_value(&restored)?)
+            .await?;
+        *state = restored;
+        self.0.loaded.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+    async fn persist(&self, state: &State) -> Result<()> {
+        self.host_runtime()?
+            .save_extension_state("resources", serde_json::to_value(state)?)
+            .await?;
         self.0.text_dirty.store(false, Ordering::SeqCst);
         Ok(())
     }
@@ -153,6 +191,10 @@ impl RuntimeExtension for ResourcesExtension {
         self.start_scheduler();
     }
     async fn shutdown(&self) {
+        if let Err(error) = self.ensure_loaded().await {
+            self.record_error(error);
+            return;
+        }
         self.0.stopped.store(true, Ordering::SeqCst);
         if let Some(task) = self.0.scheduler.lock().unwrap().take() {
             task.abort();
@@ -187,7 +229,7 @@ impl RuntimeExtension for ResourcesExtension {
             schedule.enabled = false;
             schedule.status = "interrupted".into();
         }
-        if let Err(e) = self.persist(&state) {
+        if let Err(e) = self.persist(&state).await {
             self.record_error(e);
         }
     }
@@ -219,6 +261,7 @@ impl RuntimeExtension for ResourcesExtension {
         .collect()
     }
     async fn invoke(&self, command: &str, params: Value) -> Result<Value> {
+        self.ensure_loaded().await?;
         if !params.is_object() {
             return Err(Error::Invalid(
                 "extension arguments must be an object".into(),
@@ -243,6 +286,10 @@ impl RuntimeExtension for ResourcesExtension {
         }
     }
     async fn after_spawn(&self, snapshot: &SessionSnapshot) {
+        if let Err(error) = self.ensure_loaded().await {
+            self.record_error(error);
+            return;
+        }
         let mut state = self.0.state.lock().await;
         let previous = state.sessions.get(&snapshot.id);
         let inherited_sequence = previous
@@ -266,14 +313,18 @@ impl RuntimeExtension for ResourcesExtension {
                 inherited_sequence,
             },
         );
-        if let Err(e) = self.persist(&state) {
+        if let Err(e) = self.persist(&state).await {
             self.record_error(e);
         }
     }
     async fn on_event(&self, event: &RuntimeEvent) {
+        if let Err(error) = self.ensure_loaded().await {
+            self.record_error(error);
+            return;
+        }
         let mut state = self.0.state.lock().await;
         if self.observe(&mut state, event)
-            && let Err(e) = self.persist(&state)
+            && let Err(e) = self.persist(&state).await
         {
             self.record_error(e);
         }

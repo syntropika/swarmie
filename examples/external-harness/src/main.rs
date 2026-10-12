@@ -55,7 +55,9 @@ impl AgentBackend for EchoBackend {
             .map_err(|_| Error::Closed)?;
         self.0
             .send(BackendEvent::TurnFinished {
-                reason: "completed".into(),
+                outcome: TurnOutcome::Completed,
+
+                native_reason: None,
                 raw: None,
             })
             .await

@@ -353,6 +353,43 @@ impl RuntimeExtension for GitExtension {
             eprintln!("Git checkpoint: {error}");
         }
     }
+    async fn before_invoke(
+        &self,
+        command: &str,
+        p: &Value,
+        context: Option<&mpai::ContextStatus>,
+    ) -> Result<()> {
+        let Some(context) = context else {
+            return Ok(());
+        };
+        if command == "checkpoints" {
+            return Ok(());
+        }
+        if !context.available {
+            return Err(Error::Invalid(
+                context
+                    .reason
+                    .clone()
+                    .unwrap_or_else(|| "working directory unavailable".into()),
+            ));
+        }
+        let path = if command == "project.open" {
+            tokio::fs::canonicalize(required(p, "path")?).await?
+        } else {
+            let root = self.project(p).await?;
+            if p["worktreeId"].is_string() {
+                self.tree(&root, p).await?.path
+            } else {
+                root
+            }
+        };
+        if path != context.context.directory.path {
+            return Err(Error::Invalid(
+                "git workspace differs from the retained session directory".into(),
+            ));
+        }
+        Ok(())
+    }
     async fn invoke(&self, command: &str, p: Value) -> Result<Value> {
         if command == "project.open" {
             return self.open(&p).await;

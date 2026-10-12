@@ -9,17 +9,28 @@ pub const PROTOCOL_VERSION: &str = "1";
 #[derive(Clone)]
 pub struct RuntimeService {
     runtime: Runtime,
+    stop: tokio::sync::watch::Sender<bool>,
     agents: Arc<RwLock<BTreeMap<String, Agent>>>,
 }
 impl RuntimeService {
     pub fn new(runtime: Runtime) -> Self {
         Self {
             runtime,
+            stop: tokio::sync::watch::channel(false).0,
             agents: Arc::default(),
         }
     }
     pub fn runtime(&self) -> &Runtime {
         &self.runtime
+    }
+    /// Wait for an explicit owner stop request, including requests made before subscription.
+    pub async fn wait_for_shutdown(&self) {
+        let mut stop = self.stop.subscribe();
+        while !*stop.borrow_and_update() {
+            if stop.changed().await.is_err() {
+                return;
+            }
+        }
     }
     pub async fn shutdown(&self) -> Result<()> {
         self.runtime.shutdown().await?;
@@ -40,15 +51,75 @@ impl RuntimeService {
     }
     pub async fn invoke(&self, method: &str, p: Value) -> Result<Value> {
         match method {
+            "runtime/shutdown" => {
+                self.stop.send_replace(true);
+                Ok(Value::Null)
+            }
+            "directory/get" => {
+                let reference: DirectoryRef =
+                    serde_json::from_value(p).map_err(|e| Error::Invalid(e.to_string()))?;
+                Ok(json!(
+                    self.runtime.local_catalog().await?.directory(&reference)?
+                ))
+            }
+            "directory/register" => {
+                let args: DirectoryRegistration =
+                    serde_json::from_value(p).map_err(|e| Error::Invalid(e.to_string()))?;
+                Ok(serde_json::to_value(
+                    self.runtime.register_directory(&args.path).await?,
+                )?)
+            }
+            "project/create" => {
+                let args: ProjectCreate =
+                    serde_json::from_value(p).map_err(|e| Error::Invalid(e.to_string()))?;
+                Ok(serde_json::to_value(
+                    self.runtime
+                        .create_project(args.name, args.directory, args.launch)
+                        .await?,
+                )?)
+            }
+            "project/list" => Ok(json!(
+                self.runtime
+                    .local_catalog()
+                    .await?
+                    .projects
+                    .into_values()
+                    .collect::<Vec<_>>()
+            )),
+            "project/get" => Ok(json!(
+                self.runtime.project(required(&p, "projectId")?).await?
+            )),
+            "project/update" => {
+                let args: ProjectUpdate =
+                    serde_json::from_value(p).map_err(|e| Error::Invalid(e.to_string()))?;
+                Ok(json!(self.runtime.update_project(args).await?))
+            }
+            "settings/directory" => {
+                Ok(json!(self.runtime.local_catalog().await?.default_directory))
+            }
+            "settings/setDirectory" => {
+                let args: DefaultDirectoryUpdate =
+                    serde_json::from_value(p).map_err(|e| Error::Invalid(e.to_string()))?;
+                Ok(json!(
+                    self.runtime
+                        .set_default_directory(args.expected_revision, args.directory)
+                        .await?
+                ))
+            }
+            "session/context" => Ok(json!(
+                self.runtime
+                    .session_context(required(&p, "sessionId")?)
+                    .await?
+            )),
             "runtime/initialize" => Ok(
-                json!({"name":"mpai","version":env!("CARGO_PKG_VERSION"),"protocolVersion":PROTOCOL_VERSION,"methods":METHODS,"eventHistoryLimit":4096,"transcriptDurability":self.runtime.transcript_durability()}),
+                json!({"name":"mpai","version":env!("CARGO_PKG_VERSION"),"protocolVersion":PROTOCOL_VERSION,"methods":METHODS,"eventHistoryLimit":4096,"transcriptDurability":self.runtime.transcript_durability(),"runtimeIdentity":self.runtime.identity().await?}),
             ),
             "runtime/schema" => Ok(protocol_schema()),
             "runtime/discover" => Ok(serde_json::to_value(self.runtime.discover().await?)?),
             "runtime/configuration" => {
                 let options: SpawnOptions =
                     serde_json::from_value(p).map_err(|error| Error::Invalid(error.to_string()))?;
-                self.runtime.preview_configuration(options).await
+                Ok(json!(self.runtime.preview_configuration(options).await?))
             }
             "runtime/probe" => Ok(serde_json::to_value(
                 self.runtime.probe(required(&p, "harness")?).await?,
@@ -263,9 +334,29 @@ impl RuntimeService {
                 )?)
             }
             "session/prompt" => {
-                self.agent(&p).await?.prompt(prompt(&p)?).await?;
-                Ok(json!({"accepted":true}))
+                let receipt = self
+                    .runtime
+                    .submit(
+                        required(&p, "sessionId")?,
+                        required(&p, "idempotencyKey")?,
+                        prompt(&p)?,
+                    )
+                    .await?;
+                Ok(json!(receipt))
             }
+            "session/submission" => Ok(json!(
+                self.runtime
+                    .submission(required(&p, "sessionId")?, required(&p, "idempotencyKey")?)
+                    .await?
+            )),
+            "session/submission/reconcile" => Ok(json!(
+                self.runtime
+                    .reconcile_submission(
+                        required(&p, "sessionId")?,
+                        required(&p, "idempotencyKey")?
+                    )
+                    .await?
+            )),
             "session/steer" => {
                 self.agent(&p).await?.steer(prompt(&p)?).await?;
                 Ok(json!({"accepted":true}))
@@ -290,9 +381,11 @@ impl RuntimeService {
                 self.agent(&p).await?.respond_permission(r).await?;
                 Ok(Value::Null)
             }
-            "agent/configure" => self.agent(&p).await?.configure(p["config"].clone()).await,
-            "agent/models" => self.agent(&p).await?.models().await,
-            "agent/configuration" => self.agent(&p).await?.configuration().await,
+            "agent/configure" => Ok(json!(
+                self.agent(&p).await?.configure(p["config"].clone()).await?
+            )),
+            "agent/models" => Ok(json!(self.agent(&p).await?.models().await?)),
+            "agent/configuration" => Ok(json!(self.agent(&p).await?.configuration().await?)),
             "agent/commands" => self.agent(&p).await?.slash_commands().await,
             "agent/quotas" => self.agent(&p).await?.quotas().await,
             "session/rollback" => {
@@ -362,6 +455,29 @@ impl RuntimeService {
         {
             return Some(rpc_error(Value::Null, -32600, "invalid JSON-RPC request"));
         }
+        // Target checks run at the receiving owner, before any method dispatch.
+        if let Some(expected) = r.get("expectedRuntime") {
+            let expected = match serde_json::from_value::<RuntimeIdentity>(expected.clone()) {
+                Ok(expected) => expected,
+                Err(_) => return id.map(|id| rpc_error(id, -32602, "invalid expectedRuntime")),
+            };
+            match self.runtime.identity().await {
+                Ok(actual) if actual == expected => {}
+                Ok(_) => {
+                    return id.map(|id| {
+                        let mut response = rpc_error(
+                            id,
+                            -32005,
+                            "runtime target changed; reconnect before sending commands",
+                        );
+                        response["error"]["data"] =
+                            json!({"code":"runtime_target_mismatch","effectKnowledge":"none"});
+                        response
+                    });
+                }
+                Err(error) => return id.map(|id| rpc_error(id, -32000, &error.to_string())),
+            }
+        }
         let method = r["method"].as_str().unwrap();
         let result = if !METHODS.contains(&method) {
             Err(Error::Unsupported(format!("method {method}")))
@@ -381,17 +497,44 @@ impl RuntimeService {
                     Error::Unsupported(_) if !METHODS.contains(&method) => -32601,
                     Error::Invalid(_) | Error::Json(_) => -32602,
                     Error::Unsupported(_) => -32001,
+                    Error::IdempotencyConflict => -32004,
                     Error::Busy => -32002,
                     Error::Closed => -32003,
                     _ => -32000,
                 };
-                rpc_error(id, code, &e.to_string())
+                let mut response = rpc_error(id, code, &e.to_string());
+                if method == "session/prompt" {
+                    let (failure, effect) = match &e {
+                        Error::IdempotencyConflict => ("idempotency_conflict", "none"),
+                        Error::Invalid(_) | Error::Json(_) => ("invalid_input", "none"),
+                        Error::Busy => ("unavailable", "none"),
+                        Error::Unsupported(_) => ("unavailable", "none"),
+                        Error::Closed => ("unavailable", "none"),
+                        Error::Storage(_) | Error::Io(_) => ("storage_failure", "unknown"),
+                        _ => ("native_failure", "unknown"),
+                    };
+                    response["error"]["data"] = json!({
+                        "code":failure,"effectKnowledge":effect,
+                        "recovery":{"method":"session/submission","sessionId":r["params"]["sessionId"],"idempotencyKey":r["params"]["idempotencyKey"]}
+                    });
+                }
+                response
             }
         })
     }
 }
 pub const METHODS: &[&str] = &[
+    "directory/get",
+    "directory/register",
+    "project/create",
+    "project/list",
+    "project/get",
+    "project/update",
+    "settings/directory",
+    "settings/setDirectory",
+    "session/context",
     "runtime/initialize",
+    "runtime/shutdown",
     "runtime/schema",
     "runtime/discover",
     "runtime/configuration",
@@ -420,6 +563,8 @@ pub const METHODS: &[&str] = &[
     "session/queue/pause",
     "session/events",
     "session/prompt",
+    "session/submission",
+    "session/submission/reconcile",
     "session/steer",
     "session/cancel",
     "permission/respond",

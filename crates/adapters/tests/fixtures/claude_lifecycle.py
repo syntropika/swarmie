@@ -40,6 +40,7 @@ model = flag("--model") or "fixture-model"
 settings = {}
 queued = None
 pending_permission = None
+pending_active = None
 
 
 def emit(value):
@@ -99,6 +100,9 @@ for line in sys.stdin:
             settings.update(control["settings"])
             receipt(request, {})
         elif operation == "interrupt":
+            if pending_active is not None:
+                emit({"type": "result", "subtype": "error_during_execution" if pending_active else "success", "is_error": pending_active})
+                pending_active = None
             receipt(request, {"cancelled": [queued] if queued else []})
             queued = None
         else:
@@ -125,6 +129,9 @@ for line in sys.stdin:
         emit({"type": "stream_event", "event": {"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "id": "denied-bash", "name": "Bash", "input": {"command": "forbidden"}}}})
         emit({"type": "system", "subtype": "permission_denied", "tool_use_id": "denied-bash", "message": "Native rule refused tool"})
         emit({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "denied-bash", "content": "Denied", "is_error": True}]}})
+    if text in ("active-native-cancel", "successful-cancel-race"):
+        pending_active = text == "active-native-cancel"
+        continue
     if text == "queued-native-cancel":
         queued = request["uuid"]
         continue

@@ -149,18 +149,26 @@ func (c *Client) Spawn(ctx context.Context, options InputSpawnOptions) (SessionS
 	return value, err
 }
 
-type PromptReceipt struct {
-	Accepted bool `json:"accepted"`
-}
-
-func (c *Client) Prompt(ctx context.Context, sessionID, text string) (PromptReceipt, error) {
-	var value PromptReceipt
-	err := c.Call(ctx, "session/prompt", map[string]any{"sessionId": sessionID, "text": text}, &value)
+func (c *Client) Prompt(ctx context.Context, sessionID, text, idempotencyKey string) (SubmissionReceipt, error) {
+	var value SubmissionReceipt
+	err := c.Call(ctx, "session/prompt", map[string]any{"sessionId": sessionID, "text": text, "idempotencyKey": idempotencyKey}, &value)
 	return value, err
 }
-func (c *Client) PromptContent(ctx context.Context, sessionID string, content []InputPromptContent) (PromptReceipt, error) {
-	var value PromptReceipt
-	err := c.Call(ctx, "session/prompt", map[string]any{"sessionId": sessionID, "content": content}, &value)
+func (c *Client) PromptContent(ctx context.Context, sessionID string, content []InputPromptContent, idempotencyKey string) (SubmissionReceipt, error) {
+	var value SubmissionReceipt
+	err := c.Call(ctx, "session/prompt", map[string]any{"sessionId": sessionID, "content": content, "idempotencyKey": idempotencyKey}, &value)
+	return value, err
+}
+func (c *Client) Submission(ctx context.Context, sessionID, idempotencyKey string) (*SubmissionReceipt, error) {
+	var value *SubmissionReceipt
+	err := c.Call(ctx, "session/submission", map[string]any{"sessionId": sessionID, "idempotencyKey": idempotencyKey}, &value)
+	return value, err
+}
+
+// ReconcileSubmission inspects an open native connection without submitting work.
+func (c *Client) ReconcileSubmission(ctx context.Context, sessionID, idempotencyKey string) (*SubmissionReceipt, error) {
+	var value *SubmissionReceipt
+	err := c.Call(ctx, "session/submission/reconcile", map[string]any{"sessionId": sessionID, "idempotencyKey": idempotencyKey}, &value)
 	return value, err
 }
 func (c *Client) Close(ctx context.Context, sessionID string) error {

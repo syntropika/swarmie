@@ -32,6 +32,25 @@ pub fn protocol_schema() -> Value {
     let extensions = schema::<Vec<ExtensionInfo>>(&mut output);
     let queued = schema::<QueuedPrompt>(&mut output);
     let queue = schema::<PromptQueue>(&mut output);
+    let models = schema::<Vec<ModelDescriptor>>(&mut output);
+    let configuration = schema::<Vec<SettingDescriptor>>(&mut output);
+    let receipt = schema::<ConfigurationReceipt>(&mut output);
+    let submission = schema::<SubmissionReceipt>(&mut output);
+    let optional_submission = schema::<Option<SubmissionReceipt>>(&mut output);
+    let preview = schema::<ConfigurationPreview>(&mut output);
+    let directory_ref = input_schema::<DirectoryRef>(&mut input);
+    let directory_input = input_schema::<DirectoryRegistration>(&mut input);
+    let project_input = input_schema::<ProjectCreate>(&mut input);
+    let project_update = input_schema::<ProjectUpdate>(&mut input);
+    let default_update = input_schema::<DefaultDirectoryUpdate>(&mut input);
+    let directory_record = schema::<DirectoryResource>(&mut output);
+    let project_record = schema::<ProjectRecord>(&mut output);
+    let project_list = schema::<Vec<ProjectRecord>>(&mut output);
+    let default_record = schema::<Option<DefaultDirectory>>(&mut output);
+    let selected_default = schema::<DefaultDirectory>(&mut output);
+    let context_status = schema::<ContextStatus>(&mut output);
+    let runtime_identity = schema::<RuntimeIdentity>(&mut output);
+    let request_target = input_schema::<RuntimeIdentity>(&mut input);
     let mut methods = Map::new();
     for &method in METHODS {
         let session = || object(&["sessionId"], [("sessionId", json!({"type":"string"}))]);
@@ -48,6 +67,18 @@ pub fn protocol_schema() -> Value {
         };
         let unit = json!({"type":"null"});
         let (params, result) = match method {
+            "directory/get" => (directory_ref.clone(), directory_record.clone()),
+            "directory/register" => (directory_input.clone(), directory_record.clone()),
+            "project/create" => (project_input.clone(), project_record.clone()),
+            "project/update" => (project_update.clone(), project_record.clone()),
+            "project/list" => (object(&[], []), project_list.clone()),
+            "project/get" => (
+                object(&["projectId"], [("projectId", json!({"type":"string"}))]),
+                project_record.clone(),
+            ),
+            "settings/directory" => (object(&[], []), default_record.clone()),
+            "settings/setDirectory" => (default_update.clone(), selected_default.clone()),
+            "session/context" => (session(), context_status.clone()),
             "runtime/initialize" => (
                 object(&[], []),
                 object(
@@ -58,6 +89,7 @@ pub fn protocol_schema() -> Value {
                         "methods",
                         "eventHistoryLimit",
                         "transcriptDurability",
+                        "runtimeIdentity",
                     ],
                     [
                         ("name", json!({"type":"string"})),
@@ -66,12 +98,14 @@ pub fn protocol_schema() -> Value {
                         ("methods", json!({"type":"array","items":{"type":"string"}})),
                         ("eventHistoryLimit", json!({"type":"integer"})),
                         ("transcriptDurability", json!({"type":["string","null"]})),
+                        ("runtimeIdentity", runtime_identity.clone()),
                     ],
                 ),
             ),
+            "runtime/shutdown" => (object(&[], []), unit.clone()),
             "runtime/schema" => (object(&[], []), json!({"type":"object"})),
             "runtime/discover" => (object(&[], []), discovery.clone()),
-            "runtime/configuration" => (spawn.clone(), json!({"type":"object"})),
+            "runtime/configuration" => (spawn.clone(), preview.clone()),
             "runtime/probe" => (
                 object(&["harness"], [("harness", json!({"type":"string"}))]),
                 probe.clone(),
@@ -143,7 +177,15 @@ pub fn protocol_schema() -> Value {
                 json!({"allOf":[session(),object(&["paused"],[("paused",json!({"type":"boolean"}))])]}),
                 unit.clone(),
             ),
-            "session/prompt" | "session/steer" => (
+            "session/prompt" => (
+                json!({"allOf":[session(),prompt(),object(&["idempotencyKey"],[("idempotencyKey",json!({"type":"string","minLength":1,"maxLength":128}))])]}),
+                submission.clone(),
+            ),
+            "session/submission" | "session/submission/reconcile" => (
+                json!({"allOf":[session(),object(&["idempotencyKey"],[("idempotencyKey",json!({"type":"string","minLength":1,"maxLength":128}))])]}),
+                optional_submission.clone(),
+            ),
+            "session/steer" => (
                 json!({"allOf":[session(),prompt()]}),
                 object(&["accepted"], [("accepted", json!({"type":"boolean"}))]),
             ),
@@ -153,12 +195,12 @@ pub fn protocol_schema() -> Value {
             ),
             "permission/respond" => (json!({"allOf":[session(),permission]}), unit.clone()),
             "agent/configure" => (
-                json!({"allOf":[session(),object(&["config"],[("config",json!(true))])]}),
-                json!(true),
+                json!({"allOf":[session(),object(&["config"],[("config",json!({"type":"object"}))])]}),
+                receipt.clone(),
             ),
-            "agent/models" | "agent/configuration" | "agent/commands" | "agent/quotas" => {
-                (session(), json!(true))
-            }
+            "agent/models" => (session(), models.clone()),
+            "agent/configuration" => (session(), configuration.clone()),
+            "agent/commands" | "agent/quotas" => (session(), json!(true)),
             "session/rollback" => (
                 json!({"allOf":[session(),object(&["turns"],[("turns",json!({"type":"integer","minimum":1})),("scope",rollback_scope.clone())])]}),
                 unit.clone(),
@@ -173,7 +215,7 @@ pub fn protocol_schema() -> Value {
         prefix_input_refs(&mut value);
         definitions.insert(format!("Input{name}"), value);
     }
-    json!({"$schema":"https://json-schema.org/draft/2020-12/schema","title":"mpai runtime protocol","$defs":definitions,"x-protocolVersion":PROTOCOL_VERSION,"x-methods":methods,"x-event":event})
+    json!({"$schema":"https://json-schema.org/draft/2020-12/schema","title":"mpai runtime protocol","$defs":definitions,"x-protocolVersion":PROTOCOL_VERSION,"x-methods":methods,"x-event":event,"x-requestTarget":request_target})
 }
 fn schema<T: JsonSchema>(generator: &mut SchemaGenerator) -> Value {
     generator.subschema_for::<T>().to_value()

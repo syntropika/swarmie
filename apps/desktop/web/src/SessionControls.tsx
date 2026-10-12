@@ -48,10 +48,12 @@ export function SessionControls({
   const effort = thread.configurations?.find((option) => ["effort", "reasoningEffort", "thinkingLevel"].includes(option.id) && option.choices?.length);
   const effortValue = String((!thread.sessionId ? thread.config?.[effort?.id ?? ""] : undefined) ?? effort?.value ?? "");
   const effortLabel = effort?.choices?.find((item) => item.id === effortValue)?.label;
-  const permission = thread.configurations?.find((option) => ["approvalPolicy", "permissionMode"].includes(option.id));
+  const permission = thread.configurations?.find((option) => option.id === "executionProfile");
   const nativeValue = (id: string) => (!thread.sessionId ? thread.config?.[id] : undefined) ?? thread.configurations?.find((option) => option.id === id)?.value;
   const { label: permissionLabel, selected: permissionMode } = sessionPermissions(thread);
-  const canConfigure = !loading && thread.state === "idle" && (!thread.sessionId || !!thread.capabilities?.configure);
+  const canConfigure = !loading && !thread.permissions.length && (!thread.sessionId || thread.capabilities?.configure?.availability === "available");
+  const canEdit = (option?: { application: "creation_only" | "next_turn" | "current_turn" }) => canConfigure &&
+    (!!option && (!thread.sessionId ? thread.state === "idle" : option.application !== "creation_only" && (thread.state === "idle" || option.application === "current_turn")));
   const fast = thread.configurations?.find((option) => option.id === "fast" && option.type === "boolean");
   const run = async (action: () => Promise<unknown>) => {
     setLoading(true);
@@ -66,7 +68,7 @@ export function SessionControls({
     }
   };
   const fastControl = <Tooltip><Button variant="ghost" size="icon-sm" aria-label="Fast mode" aria-pressed={!!nativeValue("fast")}
-    className={nativeValue("fast") ? "text-[#aaa8ef]" : "text-muted"} disabled={!fast || !canConfigure || (!!thread.sessionId && !fast.live)}
+    className={nativeValue("fast") ? "text-[#aaa8ef]" : "text-muted"} disabled={!canEdit(fast)}
     onClick={() => void run(() => store.configure(thread.id, "fast", !nativeValue("fast")))}><Zap size={16} /></Button>
     <TooltipContent>{!fast ? "Fast mode is not supported by this model" : nativeValue("fast") ? "Turn off Fast mode" : "Turn on Fast mode"}</TooltipContent></Tooltip>;
   return (
@@ -88,17 +90,18 @@ export function SessionControls({
           <h2 className={settings ? "mb-1 text-sm text-muted" : "sr-only"}>{settings ? "How should actions be approved?" : "Model and reasoning effort"}</h2>
           {loading && <p className="muted" role="status">Reading session options…</p>}
           {!settings && !effort?.choices && models.length > 0 && <div className="flex items-center gap-2">{fastControl}<ModelPicker choices={models} value={model} label={modelLabel}
-            disabled={!canConfigure || (!!thread.sessionId && modelOption?.live === false)}
+            disabled={!canEdit(modelOption)}
             onChange={(value) => run(() => store.configure(thread.id, "model", value))} /></div>}
           {!settings && effort?.choices && <ReasoningEffort key={`${model}:${effort.id}`} choices={effort.choices} value={effortValue}
-            disabled={!canConfigure || (!!thread.sessionId && !effort.live)} fastControl={fastControl}
+            disabled={!canEdit(effort)} fastControl={fastControl}
             modelControl={(label) => <ModelPicker choices={models} value={model} label={modelLabel} effort={label}
-              disabled={!canConfigure || (!!thread.sessionId && modelOption?.live === false)}
+              disabled={!canEdit(modelOption)}
               onChange={(value) => run(() => store.configure(thread.id, "model", value))} />}
             onChange={(value) => run(() => store.configure(thread.id, effort.id, value))} />}
           {previewError && <p className="text-xs text-muted" role="status">{previewError}</p>}
           {!settings && !loading && !previewError && !models.length && <p className="muted">This harness does not advertise a model catalog.</p>}
           {settings && !loading && !previewError && !permission && <p className="muted">This harness does not advertise permission settings.</p>}
+          {thread.sessionId && thread.capabilities?.configure?.availability !== "available" && thread.capabilities?.configure?.reason && <p className="text-xs text-muted" role="status">{thread.capabilities.configure.reason}</p>}
           {settings && <PermissionPicker thread={thread} disabled={!canConfigure} onChange={(patch) => run(() => store.configureMany(thread.id, patch))} />}
 
         </div>

@@ -66,19 +66,31 @@
     "Capabilities": {
       "properties": {
         "cancel": {
-          "type": "boolean"
+          "$ref": "#/$defs/Capability"
+        },
+        "commands": {
+          "$ref": "#/$defs/Capability"
         },
         "compact": {
-          "type": "boolean"
+          "$ref": "#/$defs/Capability"
         },
         "configure": {
-          "type": "boolean"
+          "$ref": "#/$defs/Capability"
+        },
+        "ephemeral": {
+          "$ref": "#/$defs/Capability"
         },
         "fork": {
-          "type": "boolean"
+          "$ref": "#/$defs/Capability"
+        },
+        "forkAtMessage": {
+          "$ref": "#/$defs/Capability"
+        },
+        "forkBeforeUser": {
+          "$ref": "#/$defs/Capability"
         },
         "images": {
-          "type": "boolean"
+          "$ref": "#/$defs/Capability"
         },
         "metadata": {
           "additionalProperties": true,
@@ -86,36 +98,73 @@
           "type": "object"
         },
         "models": {
-          "type": "boolean"
+          "$ref": "#/$defs/Capability"
         },
         "modes": {
-          "type": "boolean"
+          "$ref": "#/$defs/Capability"
+        },
+        "nativeSkillInputs": {
+          "$ref": "#/$defs/Capability"
+        },
+        "operationApprovals": {
+          "$ref": "#/$defs/Capability"
+        },
+        "outputSchema": {
+          "$ref": "#/$defs/Capability"
         },
         "permissions": {
-          "type": "boolean"
+          "$ref": "#/$defs/Capability"
+        },
+        "queue": {
+          "$ref": "#/$defs/Capability",
+          "default": {
+            "availability": "available",
+            "evidence": "declared",
+            "source": "runtime"
+          }
+        },
+        "quotas": {
+          "$ref": "#/$defs/Capability"
         },
         "reasoning": {
-          "type": "boolean"
+          "$ref": "#/$defs/Capability"
         },
         "resume": {
-          "type": "boolean"
+          "$ref": "#/$defs/Capability"
         },
         "rollback": {
-          "type": "boolean"
+          "$ref": "#/$defs/Capability"
         },
         "steering": {
-          "type": "boolean"
+          "$ref": "#/$defs/Capability"
+        },
+        "submissionReconciliation": {
+          "$ref": "#/$defs/Capability"
+        },
+        "toolsDisabled": {
+          "$ref": "#/$defs/Capability"
         },
         "usage": {
-          "type": "boolean"
+          "$ref": "#/$defs/Capability"
         }
       },
       "required": [
+        "queue",
+        "commands",
+        "quotas",
+        "ephemeral",
+        "outputSchema",
+        "toolsDisabled",
+        "forkAtMessage",
+        "forkBeforeUser",
+        "nativeSkillInputs",
+        "submissionReconciliation",
         "resume",
         "fork",
         "steering",
         "cancel",
         "permissions",
+        "operationApprovals",
         "reasoning",
         "usage",
         "models",
@@ -125,6 +174,213 @@
         "modes",
         "images",
         "metadata"
+      ],
+      "type": "object"
+    },
+    "Capability": {
+      "properties": {
+        "availability": {
+          "$ref": "#/$defs/CapabilityAvailability"
+        },
+        "evidence": {
+          "$ref": "#/$defs/CapabilityEvidence"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/CapabilitySource"
+        },
+        "sourceId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "availability",
+        "source",
+        "evidence"
+      ],
+      "type": "object"
+    },
+    "CapabilityAvailability": {
+      "enum": [
+        "available",
+        "unavailable",
+        "unsupported",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "CapabilityEvidence": {
+      "description": "Evidence describes the declaration, not certification of live model execution.",
+      "enum": [
+        "declared",
+        "negotiated"
+      ],
+      "type": "string"
+    },
+    "CapabilitySource": {
+      "enum": [
+        "harness",
+        "runtime",
+        "extension"
+      ],
+      "type": "string"
+    },
+    "ConfigurationPreview": {
+      "properties": {
+        "capabilities": {
+          "$ref": "#/$defs/Capabilities"
+        },
+        "configuration": {
+          "description": "None means unavailable; an empty array is an available, empty catalog.",
+          "items": {
+            "$ref": "#/$defs/SettingDescriptor"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "executionPolicy": {
+          "$ref": "#/$defs/ExecutionPolicy"
+        },
+        "models": {
+          "items": {
+            "$ref": "#/$defs/ModelDescriptor"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "capabilities",
+        "executionPolicy",
+        "configuration",
+        "models"
+      ],
+      "type": "object"
+    },
+    "ConfigurationReceipt": {
+      "properties": {
+        "configuration": {
+          "items": {
+            "$ref": "#/$defs/SettingDescriptor"
+          },
+          "type": "array"
+        },
+        "executionPolicy": {
+          "$ref": "#/$defs/ExecutionPolicy"
+        },
+        "raw": true,
+        "values": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "required": [
+        "values",
+        "executionPolicy",
+        "configuration"
+      ],
+      "type": "object"
+    },
+    "ContextSource": {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "project_folder",
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "projectId",
+            "revision"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "project_free_default",
+              "type": "string"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "revision"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An explicit host-directory selection by a CLI/library launcher.",
+          "properties": {
+            "kind": {
+              "const": "explicit_directory",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "native_existing",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ContextStatus": {
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "context": {
+          "$ref": "#/$defs/WorkingContext"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "context",
+        "available",
+        "reason"
       ],
       "type": "object"
     },
@@ -170,6 +426,42 @@
       ],
       "type": "object"
     },
+    "DefaultDirectory": {
+      "properties": {
+        "directory": {
+          "$ref": "#/$defs/DirectoryRef"
+        },
+        "environmentId": {
+          "type": "string"
+        },
+        "ownerScopeId": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision",
+        "environmentId",
+        "ownerScopeId",
+        "directory"
+      ],
+      "type": "object"
+    },
+    "DeliveryKnowledge": {
+      "description": "Knowledge of native delivery, independent of execution outcome.",
+      "enum": [
+        "not_sent",
+        "in_flight",
+        "accepted",
+        "rejected",
+        "unknown"
+      ],
+      "type": "string"
+    },
     "Detection": {
       "properties": {
         "available": {
@@ -193,6 +485,67 @@
         "available",
         "executable",
         "capabilities"
+      ],
+      "type": "object"
+    },
+    "DirectoryOwnership": {
+      "enum": [
+        "user",
+        "external_owner"
+      ],
+      "type": "string"
+    },
+    "DirectoryRef": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "DirectoryResource": {
+      "properties": {
+        "environmentId": {
+          "type": "string"
+        },
+        "fingerprint": {
+          "description": "Node-local continuity evidence, not a filesystem lease or permission grant.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "ownership": {
+          "$ref": "#/$defs/DirectoryOwnership"
+        },
+        "path": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "environmentId",
+        "path",
+        "ownership",
+        "fingerprint"
       ],
       "type": "object"
     },
@@ -356,12 +709,18 @@
           "properties": {
             "data": {
               "properties": {
-                "reason": {
-                  "type": "string"
+                "nativeReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "outcome": {
+                  "$ref": "#/$defs/TurnOutcome"
                 }
               },
               "required": [
-                "reason"
+                "outcome"
               ],
               "type": "object"
             },
@@ -754,6 +1113,142 @@
         }
       ]
     },
+    "ExecutionPolicy": {
+      "description": "A requested selection and its native observation have independent lifetimes.",
+      "properties": {
+        "bindingId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "choices": {
+          "items": {
+            "$ref": "#/$defs/ExecutionProfileChoice"
+          },
+          "type": "array"
+        },
+        "controlledSettings": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "dispatchBlocked": {
+          "type": "boolean"
+        },
+        "nativeSession": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NativeSessionRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "observed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PolicyObservation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "planned": true,
+        "plannedProfile": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExecutionProfile"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "requested": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExecutionProfile"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/$defs/PolicyStatus"
+        }
+      },
+      "required": [
+        "revision",
+        "requested",
+        "status",
+        "planned",
+        "plannedProfile",
+        "observed",
+        "choices",
+        "controlledSettings",
+        "dispatchBlocked",
+        "reason",
+        "bindingId",
+        "nativeSession"
+      ],
+      "type": "object"
+    },
+    "ExecutionProfile": {
+      "enum": [
+        "ask",
+        "review",
+        "full",
+        "native_custom"
+      ],
+      "type": "string"
+    },
+    "ExecutionProfileChoice": {
+      "properties": {
+        "application": {
+          "$ref": "#/$defs/SettingApplication"
+        },
+        "capability": {
+          "$ref": "#/$defs/Capability"
+        },
+        "description": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "mapping": {
+          "$ref": "#/$defs/PolicyMapping"
+        },
+        "profile": {
+          "$ref": "#/$defs/ExecutionProfile"
+        }
+      },
+      "required": [
+        "profile",
+        "label",
+        "description",
+        "capability",
+        "mapping",
+        "application"
+      ],
+      "type": "object"
+    },
     "ExtensionCommand": {
       "properties": {
         "mutates": {
@@ -979,6 +1474,32 @@
       ],
       "type": "object"
     },
+    "HostToolGrant": {
+      "additionalProperties": false,
+      "properties": {
+        "argumentConstraints": {
+          "additionalProperties": {
+            "items": true,
+            "type": "array"
+          },
+          "default": {},
+          "description": "Each constrained argument must equal one of the explicitly allowed values.",
+          "type": "object"
+        },
+        "extensionId": {
+          "type": "string"
+        },
+        "toolId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "extensionId",
+        "toolId",
+        "argumentConstraints"
+      ],
+      "type": "object"
+    },
     "InputAccountExecutionOptions": {
       "additionalProperties": false,
       "properties": {
@@ -1023,6 +1544,97 @@
       "required": [
         "harness",
         "cwd"
+      ],
+      "type": "object"
+    },
+    "InputDefaultDirectoryUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "directory": {
+          "$ref": "#/$defs/InputDirectoryRef"
+        },
+        "expectedRevision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "expectedRevision",
+        "directory"
+      ],
+      "type": "object"
+    },
+    "InputDirectoryRef": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "InputDirectoryRegistration": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "InputHostToolGrant": {
+      "additionalProperties": false,
+      "properties": {
+        "argumentConstraints": {
+          "additionalProperties": {
+            "items": true,
+            "type": "array"
+          },
+          "default": {},
+          "description": "Each constrained argument must equal one of the explicitly allowed values.",
+          "type": "object"
+        },
+        "extensionId": {
+          "type": "string"
+        },
+        "toolId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "extensionId",
+        "toolId"
+      ],
+      "type": "object"
+    },
+    "InputLocalStoreIdentity": {
+      "properties": {
+        "environmentId": {
+          "type": "string"
+        },
+        "ownerScopeId": {
+          "type": "string"
+        },
+        "storeId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "storeId",
+        "environmentId",
+        "ownerScopeId"
       ],
       "type": "object"
     },
@@ -1176,6 +1788,112 @@
       ],
       "type": "object"
     },
+    "InputProjectCreate": {
+      "additionalProperties": false,
+      "properties": {
+        "directory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InputDirectoryRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "launch": {
+          "$ref": "#/$defs/InputProjectLaunchDefaults",
+          "default": {
+            "config": null,
+            "harness": null,
+            "model": null
+          }
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "InputProjectLaunchDefaults": {
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "default": null
+        },
+        "harness": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "InputProjectUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "archived": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "directory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InputDirectoryRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Omission retains the selection; explicit unlink is a separate flag."
+        },
+        "expectedRevision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "launch": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InputProjectLaunchDefaults"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "unlinkDirectory": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "projectId",
+        "expectedRevision"
+      ],
+      "type": "object"
+    },
     "InputPromptContent": {
       "oneOf": [
         {
@@ -1297,6 +2015,23 @@
       ],
       "type": "string"
     },
+    "InputRuntimeIdentity": {
+      "additionalProperties": false,
+      "description": "A retained Environment identity and one live execution-owner incarnation.",
+      "properties": {
+        "identity": {
+          "$ref": "#/$defs/InputLocalStoreIdentity"
+        },
+        "incarnationId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "identity",
+        "incarnationId"
+      ],
+      "type": "object"
+    },
     "InputSessionExecutionOptions": {
       "properties": {
         "configHome": {
@@ -1317,6 +2052,14 @@
         "ephemeral": {
           "default": false,
           "type": "boolean"
+        },
+        "hostTools": {
+          "default": [],
+          "description": "Explicit host tool grants; native tool permissions remain independent.",
+          "items": {
+            "$ref": "#/$defs/InputHostToolGrant"
+          },
+          "type": "array"
         },
         "mcpServers": {
           "default": [],
@@ -1359,6 +2102,7 @@
           "description": "Provider-specific configuration remains opaque to the core."
         },
         "cwd": {
+          "default": "",
           "type": "string"
         },
         "execution": {
@@ -1366,6 +2110,7 @@
           "default": {
             "configHome": null,
             "ephemeral": false,
+            "hostTools": [],
             "mcpServers": [],
             "outputSchema": null,
             "tools": "enabled"
@@ -1380,11 +2125,26 @@
             "string",
             "null"
           ]
+        },
+        "projectId": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "projectRevision": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
-        "harness",
-        "cwd"
+        "harness"
       ],
       "type": "object"
     },
@@ -1394,6 +2154,25 @@
         "disabled"
       ],
       "type": "string"
+    },
+    "LocalStoreIdentity": {
+      "properties": {
+        "environmentId": {
+          "type": "string"
+        },
+        "ownerScopeId": {
+          "type": "string"
+        },
+        "storeId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "storeId",
+        "environmentId",
+        "ownerScopeId"
+      ],
+      "type": "object"
     },
     "McpServer": {
       "properties": {
@@ -1469,6 +2248,37 @@
           "type": "object"
         }
       ]
+    },
+    "ModelDescriptor": {
+      "properties": {
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "type": "object"
     },
     "ModelReroute": {
       "properties": {
@@ -1772,6 +2582,144 @@
           ]
         }
       },
+      "type": "object"
+    },
+    "PolicyEvidence": {
+      "enum": [
+        "native_receipt",
+        "native_acknowledgement"
+      ],
+      "type": "string"
+    },
+    "PolicyMapping": {
+      "enum": [
+        "equivalent",
+        "partial",
+        "unsupported",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "PolicyObservation": {
+      "properties": {
+        "coverage": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "evidence": {
+          "$ref": "#/$defs/PolicyEvidence"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "native": true,
+        "nativeVersion": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "profile": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExecutionProfile"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "profile",
+        "native",
+        "evidence",
+        "coverage",
+        "limitations",
+        "nativeVersion"
+      ],
+      "type": "object"
+    },
+    "PolicyStatus": {
+      "enum": [
+        "staged",
+        "acknowledged",
+        "effective",
+        "rejected",
+        "partial",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "ProjectLaunchDefaults": {
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "default": null
+        },
+        "harness": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "harness",
+        "model",
+        "config"
+      ],
+      "type": "object"
+    },
+    "ProjectRecord": {
+      "properties": {
+        "archived": {
+          "type": "boolean"
+        },
+        "directory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DirectoryRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "launch": {
+          "$ref": "#/$defs/ProjectLaunchDefaults"
+        },
+        "name": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "name",
+        "archived",
+        "directory",
+        "launch"
+      ],
       "type": "object"
     },
     "Prompt": {
@@ -2148,12 +3096,18 @@
           "properties": {
             "data": {
               "properties": {
-                "reason": {
-                  "type": "string"
+                "nativeReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "outcome": {
+                  "$ref": "#/$defs/TurnOutcome"
                 }
               },
               "required": [
-                "reason"
+                "outcome"
               ],
               "type": "object"
             },
@@ -2579,6 +3533,23 @@
       ],
       "type": "object"
     },
+    "RuntimeIdentity": {
+      "additionalProperties": false,
+      "description": "A retained Environment identity and one live execution-owner incarnation.",
+      "properties": {
+        "identity": {
+          "$ref": "#/$defs/LocalStoreIdentity"
+        },
+        "incarnationId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "identity",
+        "incarnationId"
+      ],
+      "type": "object"
+    },
     "SessionExecutionOptions": {
       "properties": {
         "configHome": {
@@ -2591,6 +3562,14 @@
         "ephemeral": {
           "default": false,
           "type": "boolean"
+        },
+        "hostTools": {
+          "default": [],
+          "description": "Explicit host tool grants; native tool permissions remain independent.",
+          "items": {
+            "$ref": "#/$defs/HostToolGrant"
+          },
+          "type": "array"
         },
         "mcpServers": {
           "default": [],
@@ -2611,6 +3590,7 @@
         "configHome",
         "mcpServers",
         "tools",
+        "hostTools",
         "outputSchema",
         "ephemeral"
       ],
@@ -2663,6 +3643,23 @@
         "capabilities": {
           "$ref": "#/$defs/Capabilities"
         },
+        "executionPolicy": {
+          "$ref": "#/$defs/ExecutionPolicy",
+          "default": {
+            "bindingId": null,
+            "choices": [],
+            "controlledSettings": [],
+            "dispatchBlocked": false,
+            "nativeSession": null,
+            "observed": null,
+            "planned": null,
+            "plannedProfile": null,
+            "reason": null,
+            "requested": null,
+            "revision": 0,
+            "status": "unknown"
+          }
+        },
         "id": {
           "type": "string"
         },
@@ -2707,10 +3704,22 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "workingContext": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkingContext"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
         "id",
+        "workingContext",
+        "executionPolicy",
         "native",
         "options",
         "capabilities",
@@ -2734,6 +3743,91 @@
       ],
       "type": "string"
     },
+    "SettingApplication": {
+      "description": "Application scope is independent of whether an execution is currently busy.",
+      "enum": [
+        "creation_only",
+        "next_turn",
+        "current_turn"
+      ],
+      "type": "string"
+    },
+    "SettingChoice": {
+      "properties": {
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "type": "object"
+    },
+    "SettingDescriptor": {
+      "properties": {
+        "application": {
+          "$ref": "#/$defs/SettingApplication"
+        },
+        "choices": {
+          "items": {
+            "$ref": "#/$defs/SettingChoice"
+          },
+          "type": "array"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "type": {
+          "$ref": "#/$defs/SettingType"
+        },
+        "value": {
+          "description": "Absent means unobserved; a present null is an acknowledged reset."
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "type",
+        "application"
+      ],
+      "type": "object"
+    },
+    "SettingType": {
+      "enum": [
+        "select",
+        "boolean",
+        "string",
+        "number"
+      ],
+      "type": "string"
+    },
     "SpawnOptions": {
       "properties": {
         "config": {
@@ -2741,6 +3835,7 @@
           "description": "Provider-specific configuration remains opaque to the core."
         },
         "cwd": {
+          "default": "",
           "type": "string"
         },
         "execution": {
@@ -2748,6 +3843,7 @@
           "default": {
             "configHome": null,
             "ephemeral": false,
+            "hostTools": [],
             "mcpServers": [],
             "outputSchema": null,
             "tools": "enabled"
@@ -2762,11 +3858,29 @@
             "string",
             "null"
           ]
+        },
+        "projectId": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "projectRevision": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
         "harness",
         "cwd",
+        "projectId",
+        "projectRevision",
         "model",
         "config",
         "execution"
@@ -2855,6 +3969,55 @@
           ]
         }
       },
+      "type": "object"
+    },
+    "SubmissionReceipt": {
+      "properties": {
+        "delivery": {
+          "$ref": "#/$defs/DeliveryKnowledge"
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "idempotencyKey": {
+          "type": "string"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TurnOutcome"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "recoveryRequired": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "sessionId",
+        "idempotencyKey",
+        "turnId",
+        "delivery",
+        "recoveryRequired",
+        "outcome",
+        "error"
+      ],
       "type": "object"
     },
     "ToolDetails": {
@@ -2992,6 +4155,20 @@
       },
       "type": "object"
     },
+    "TurnOutcome": {
+      "description": "A turn's terminal execution result, independent of native provider vocabulary.\nCompletion describes the execution cycle, not achievement of a user goal.",
+      "enum": [
+        "completed",
+        "cancelled",
+        "interrupted",
+        "failed",
+        "limited",
+        "refused",
+        "handled",
+        "unknown"
+      ],
+      "type": "string"
+    },
     "Usage": {
       "properties": {
         "cacheWriteTokens": {
@@ -3055,6 +4232,43 @@
         "costUsd"
       ],
       "type": "object"
+    },
+    "WorkingContext": {
+      "properties": {
+        "bindingId": {
+          "type": "string"
+        },
+        "directory": {
+          "$ref": "#/$defs/DirectoryResource"
+        },
+        "environmentId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/ContextSource"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "sessionId",
+        "bindingId",
+        "environmentId",
+        "directory",
+        "source"
+      ],
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3089,7 +4303,12 @@
         ],
         "type": "object"
       },
-      "result": true
+      "result": {
+        "items": {
+          "$ref": "#/$defs/SettingDescriptor"
+        },
+        "type": "array"
+      }
     },
     "agent/configure": {
       "params": {
@@ -3107,7 +4326,9 @@
           },
           {
             "properties": {
-              "config": true
+              "config": {
+                "type": "object"
+              }
             },
             "required": [
               "config"
@@ -3116,7 +4337,9 @@
           }
         ]
       },
-      "result": true
+      "result": {
+        "$ref": "#/$defs/ConfigurationReceipt"
+      }
     },
     "agent/kill": {
       "params": {
@@ -3146,7 +4369,12 @@
         ],
         "type": "object"
       },
-      "result": true
+      "result": {
+        "items": {
+          "$ref": "#/$defs/ModelDescriptor"
+        },
+        "type": "array"
+      }
     },
     "agent/quotas": {
       "params": {
@@ -3168,6 +4396,22 @@
       },
       "result": {
         "$ref": "#/$defs/SessionSnapshot"
+      }
+    },
+    "directory/get": {
+      "params": {
+        "$ref": "#/$defs/InputDirectoryRef"
+      },
+      "result": {
+        "$ref": "#/$defs/DirectoryResource"
+      }
+    },
+    "directory/register": {
+      "params": {
+        "$ref": "#/$defs/InputDirectoryRegistration"
+      },
+      "result": {
+        "$ref": "#/$defs/DirectoryResource"
       }
     },
     "extension/invoke": {
@@ -3223,6 +4467,59 @@
       },
       "result": {
         "type": "null"
+      }
+    },
+    "project/create": {
+      "params": {
+        "$ref": "#/$defs/InputProjectCreate"
+      },
+      "result": {
+        "$ref": "#/$defs/ProjectRecord"
+      }
+    },
+    "project/get": {
+      "params": {
+        "properties": {
+          "projectId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "projectId"
+        ],
+        "type": "object"
+      },
+      "result": {
+        "$ref": "#/$defs/ProjectRecord"
+      }
+    },
+    "project/list": {
+      "params": {
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "result": {
+        "items": {
+          "$ref": "#/$defs/ProjectRecord"
+        },
+        "type": "array"
+      }
+    },
+    "project/update": {
+      "params": {
+        "$ref": "#/$defs/InputProjectUpdate"
+      },
+      "result": {
+        "$ref": "#/$defs/ProjectRecord"
+      }
+    },
+    "runtime/configuration": {
+      "params": {
+        "$ref": "#/$defs/InputSpawnOptions"
+      },
+      "result": {
+        "$ref": "#/$defs/ConfigurationPreview"
       }
     },
     "runtime/discover": {
@@ -3345,6 +4642,9 @@
           "protocolVersion": {
             "type": "string"
           },
+          "runtimeIdentity": {
+            "$ref": "#/$defs/RuntimeIdentity"
+          },
           "transcriptDurability": {
             "type": [
               "string",
@@ -3361,7 +4661,8 @@
           "protocolVersion",
           "methods",
           "eventHistoryLimit",
-          "transcriptDurability"
+          "transcriptDurability",
+          "runtimeIdentity"
         ],
         "type": "object"
       }
@@ -3420,6 +4721,16 @@
       },
       "result": {
         "type": "object"
+      }
+    },
+    "runtime/shutdown": {
+      "params": {
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "result": {
+        "type": "null"
       }
     },
     "session/cancel": {
@@ -3481,6 +4792,22 @@
       },
       "result": {
         "type": "null"
+      }
+    },
+    "session/context": {
+      "params": {
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "type": "object"
+      },
+      "result": {
+        "$ref": "#/$defs/ContextStatus"
       }
     },
     "session/create": {
@@ -3685,19 +5012,24 @@
             },
             "required": [],
             "type": "object"
+          },
+          {
+            "properties": {
+              "idempotencyKey": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "idempotencyKey"
+            ],
+            "type": "object"
           }
         ]
       },
       "result": {
-        "properties": {
-          "accepted": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "accepted"
-        ],
-        "type": "object"
+        "$ref": "#/$defs/SubmissionReceipt"
       }
     },
     "session/queue": {
@@ -4002,6 +5334,86 @@
         "type": "object"
       }
     },
+    "session/submission": {
+      "params": {
+        "allOf": [
+          {
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "idempotencyKey": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "idempotencyKey"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "result": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/SubmissionReceipt"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "session/submission/reconcile": {
+      "params": {
+        "allOf": [
+          {
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "idempotencyKey": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "idempotencyKey"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "result": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/SubmissionReceipt"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
     "session/transcript": {
       "params": {
         "allOf": [
@@ -4058,7 +5470,35 @@
         },
         "type": "array"
       }
+    },
+    "settings/directory": {
+      "params": {
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "result": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/DefaultDirectory"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "settings/setDirectory": {
+      "params": {
+        "$ref": "#/$defs/InputDefaultDirectoryUpdate"
+      },
+      "result": {
+        "$ref": "#/$defs/DefaultDirectory"
+      }
     }
   },
-  "x-protocolVersion": "1"
+  "x-protocolVersion": "1",
+  "x-requestTarget": {
+    "$ref": "#/$defs/InputRuntimeIdentity"
+  }
 }

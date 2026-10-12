@@ -39,7 +39,7 @@ function Files({ store, thread, extensionId, view }: Host) {
   const requests = useRef({ list: 0, file: 0 });
   const currentThread = () =>
     store.getSnapshot().threads.find((t) => t.id === thread.id)!;
-  const args = { projectId: thread.worktreeId };
+  const args = { projectId: thread.worktreeId, ...(thread.sessionId ? { sessionId: thread.sessionId } : {}) };
   const load = async (next: string) => {
     const request = ++requests.current.list;
     try {
@@ -373,6 +373,7 @@ function TerminalView({ store, thread, extensionId, view }: Host) {
     const writes = createTerminalInput(
       (data) => store.invokeExtension(extensionId, "terminal.write", {
         terminalId: id,
+        ...(thread.sessionId ? { sessionId: thread.sessionId } : {}),
         data,
       }),
       (error) => {
@@ -398,6 +399,7 @@ function TerminalView({ store, thread, extensionId, view }: Host) {
     void store
       .invokeExtension<{ terminalId: string }>(extensionId, view.command, {
         projectId: thread.worktreeId,
+        ...(thread.sessionId ? { sessionId: thread.sessionId } : {}),
         cols: terminal.cols,
         rows: terminal.rows,
       })
@@ -504,6 +506,7 @@ function Actions({ store, thread, extensionId, view }: Host) {
     void store
       .invokeExtension<{ actions: typeof actions }>(extensionId, view.command, {
         projectId: thread.worktreeId,
+        ...(thread.sessionId ? { sessionId: thread.sessionId } : {}),
       })
       .then((r) => setActions(r.actions))
       .catch((e) => store.setError(e));
@@ -577,7 +580,8 @@ function Actions({ store, thread, extensionId, view }: Host) {
                 .invokeExtension<{ terminalId: string }>(
                   extensionId,
                   "actions.run",
-                  { projectId: thread.worktreeId, actionId: action.id },
+                  { projectId: thread.worktreeId,
+        ...(thread.sessionId ? { sessionId: thread.sessionId } : {}), actionId: action.id },
                 )
                 .then((r) => {
                   if (generation !== lifecycle.current) {
@@ -655,6 +659,7 @@ function GitReview({ store, thread, extensionId, view }: Host) {
     .projects.find((p) => p.id === thread.projectId);
   const args = {
     projectId: project?.id ?? thread.projectId,
+    ...(thread.sessionId ? { sessionId: thread.sessionId } : {}),
     worktreeId: thread.worktreeId,
   };
   const load = async () => {
@@ -886,7 +891,8 @@ function GitReview({ store, thread, extensionId, view }: Host) {
 function CommandView({ store, thread, extensionId, view }: Host) {
   const [args, setArgs] = useState(
     JSON.stringify(
-      { projectId: thread.worktreeId, sessionId: thread.sessionId },
+      { projectId: thread.worktreeId,
+        ...(thread.sessionId ? { sessionId: thread.sessionId } : {}), sessionId: thread.sessionId },
       null,
       2,
     ),

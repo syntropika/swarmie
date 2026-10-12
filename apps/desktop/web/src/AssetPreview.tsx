@@ -93,6 +93,7 @@ export function MediaPreview({
                   "assets.export",
                   {
                     projectId: thread.worktreeId,
+        ...(thread.sessionId ? { sessionId: thread.sessionId } : {}),
                     path: destination,
                     data: asset.data,
                   },
@@ -155,6 +156,7 @@ export function OutputAssets({
                 .then(() =>
                   store.invokeExtension<Asset>("workspace", "assets.read", {
                     projectId: thread.worktreeId,
+        ...(thread.sessionId ? { sessionId: thread.sessionId } : {}),
                     path: relative,
                   }),
                 )

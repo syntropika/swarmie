@@ -62,13 +62,13 @@ pub(crate) async fn collect(
                     })
                     .await?;
             }
-            EventKind::TurnEnded { reason } => {
-                if reason != "completed" {
+            EventKind::TurnEnded { outcome, .. } => {
+                if outcome != TurnOutcome::Completed {
                     let detail = last_error
                         .map(|message| format!(": {message}"))
                         .unwrap_or_default();
                     return Err(Error::Provider(format!(
-                        "generate turn ended: {reason}{detail}"
+                        "generate turn ended: {outcome}{detail}"
                     )));
                 }
                 let reply = final_text.unwrap_or(text);

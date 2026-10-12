@@ -80,7 +80,7 @@ pub enum MockStep {
         milliseconds: u64,
     },
     End {
-        reason: String,
+        outcome: TurnOutcome,
     },
     Die {
         message: String,
@@ -130,18 +130,19 @@ impl MockHarness {
     }
     fn capabilities(&self) -> Capabilities {
         Capabilities {
-            cancel: true,
-            permissions: true,
-            reasoning: true,
-            usage: true,
-            images: true,
-            models: true,
-            configure: true,
-            metadata: std::collections::BTreeMap::from([
-                ("toolsDisabled".into(), json!(true)),
-                ("ephemeral".into(), json!(true)),
-                ("outputSchema".into(), json!(true)),
-            ]),
+            ephemeral: true.into(),
+            output_schema: true.into(),
+            tools_disabled: true.into(),
+
+            cancel: true.into(),
+            permissions: true.into(),
+            operation_approvals: true.into(),
+            reasoning: true.into(),
+            usage: true.into(),
+            images: true.into(),
+            models: true.into(),
+            configure: true.into(),
+            metadata: Default::default(),
             ..Default::default()
         }
     }
@@ -241,11 +242,11 @@ impl AgentBackend for MockBackend {
         let mut turns = self.turns.lock().await;
         let turn = turns
             .front()
-            .ok_or_else(|| Error::Invalid("mock script has no remaining turns".into()))?;
+            .ok_or_else(|| Error::Rejected("mock script has no remaining turns".into()))?;
         if let Some(expected) = &turn.expected_text
             && prompt.text()? != *expected
         {
-            return Err(Error::Invalid("prompt did not match mock script".into()));
+            return Err(Error::Rejected("prompt did not match mock script".into()));
         }
         let turn = turns.pop_front().expect("checked nonempty script");
         self.observations.prompts.lock().await.push(prompt.clone());
@@ -266,7 +267,8 @@ impl AgentBackend for MockBackend {
                     .await;
                 let _ = events
                     .send(BackendEvent::TurnFinished {
-                        reason: "failed".into(),
+                        outcome: TurnOutcome::Failed,
+                        native_reason: None,
                         raw: None,
                     })
                     .await;
@@ -287,7 +289,8 @@ impl AgentBackend for MockBackend {
             tokio::spawn(async move {
                 let _ = events
                     .send(BackendEvent::TurnFinished {
-                        reason: "cancelled".into(),
+                        outcome: TurnOutcome::Cancelled,
+                        native_reason: None,
                         raw: None,
                     })
                     .await;
@@ -312,11 +315,13 @@ impl AgentBackend for MockBackend {
             .push(response.clone());
         Ok(())
     }
-    async fn models(&self) -> Result<Value> {
-        Ok(json!(self.models))
+    async fn models(&self) -> Result<Vec<ModelDescriptor>> {
+        serde_json::from_value(json!(self.models))
+            .map_err(|error| Error::Provider(error.to_string()))
     }
-    async fn configuration(&self) -> Result<Value> {
-        Ok(json!(*self.configuration.lock().await))
+    async fn configuration(&self) -> Result<Vec<SettingDescriptor>> {
+        serde_json::from_value(json!(*self.configuration.lock().await))
+            .map_err(|error| Error::Provider(error.to_string()))
     }
     async fn configure(&self, config: Value) -> Result<Value> {
         let object = config
@@ -386,10 +391,14 @@ async fn play(
                 tokio::time::sleep(std::time::Duration::from_millis(milliseconds)).await;
                 continue;
             }
-            MockStep::End { reason } => {
+            MockStep::End { outcome } => {
                 running.store(false, Ordering::SeqCst);
                 events
-                    .send(BackendEvent::TurnFinished { reason, raw: None })
+                    .send(BackendEvent::TurnFinished {
+                        outcome,
+                        native_reason: None,
+                        raw: None,
+                    })
                     .await
                     .map_err(|_| Error::Closed)?;
                 return Ok(());
@@ -408,7 +417,8 @@ async fn play(
     running.store(false, Ordering::SeqCst);
     events
         .send(BackendEvent::TurnFinished {
-            reason: "completed".into(),
+            outcome: TurnOutcome::Completed,
+            native_reason: None,
             raw: None,
         })
         .await

@@ -3,20 +3,55 @@ from __future__ import annotations
 from typing import Any, Literal, Union, TypedDict, NotRequired
 
 class Capabilities(TypedDict):
-    cancel: bool
-    compact: bool
-    configure: bool
-    fork: bool
-    images: bool
+    cancel: Capability
+    commands: Capability
+    compact: Capability
+    configure: Capability
+    ephemeral: Capability
+    fork: Capability
+    forkAtMessage: Capability
+    forkBeforeUser: Capability
+    images: Capability
     metadata: dict[str, Any]
-    models: bool
-    modes: bool
-    permissions: bool
-    reasoning: bool
-    resume: bool
-    rollback: bool
-    steering: bool
-    usage: bool
+    models: Capability
+    modes: Capability
+    nativeSkillInputs: Capability
+    operationApprovals: Capability
+    outputSchema: Capability
+    permissions: Capability
+    queue: Capability
+    quotas: Capability
+    reasoning: Capability
+    resume: Capability
+    rollback: Capability
+    steering: Capability
+    submissionReconciliation: Capability
+    toolsDisabled: Capability
+    usage: Capability
+
+class Capability(TypedDict):
+    availability: CapabilityAvailability
+    evidence: CapabilityEvidence
+    reason: NotRequired[Union[str, None]]
+    source: CapabilitySource
+    sourceId: NotRequired[Union[str, None]]
+
+class ConfigurationPreview(TypedDict):
+    capabilities: Capabilities
+    configuration: Union[list[SettingDescriptor], None]
+    executionPolicy: ExecutionPolicy
+    models: Union[list[ModelDescriptor], None]
+
+class ConfigurationReceipt(TypedDict):
+    configuration: list[SettingDescriptor]
+    executionPolicy: ExecutionPolicy
+    raw: NotRequired[Any]
+    values: dict[str, Any]
+
+class ContextStatus(TypedDict):
+    available: bool
+    context: WorkingContext
+    reason: Union[str, None]
 
 class ContextUsage(TypedDict):
     contextWindowTokens: Union[int, None]
@@ -24,11 +59,51 @@ class ContextUsage(TypedDict):
     remainingTokens: Union[int, None]
     usedTokens: Union[int, None]
 
+class DefaultDirectory(TypedDict):
+    directory: DirectoryRef
+    environmentId: str
+    ownerScopeId: str
+    revision: int
+
 class Detection(TypedDict):
     available: bool
     capabilities: Capabilities
     executable: Union[str, None]
     harness: str
+
+class DirectoryRef(TypedDict):
+    id: str
+    revision: int
+
+class DirectoryResource(TypedDict):
+    environmentId: str
+    fingerprint: Union[str, None]
+    id: str
+    ownership: DirectoryOwnership
+    path: str
+    revision: int
+
+class ExecutionPolicy(TypedDict):
+    bindingId: Union[str, None]
+    choices: list[ExecutionProfileChoice]
+    controlledSettings: list[str]
+    dispatchBlocked: bool
+    nativeSession: Union[NativeSessionRef, None]
+    observed: Union[PolicyObservation, None]
+    planned: Any
+    plannedProfile: Union[ExecutionProfile, None]
+    reason: Union[str, None]
+    requested: Union[ExecutionProfile, None]
+    revision: int
+    status: PolicyStatus
+
+class ExecutionProfileChoice(TypedDict):
+    application: SettingApplication
+    capability: Capability
+    description: str
+    label: str
+    mapping: PolicyMapping
+    profile: ExecutionProfile
 
 class ExtensionCommand(TypedDict):
     mutates: bool
@@ -75,6 +150,11 @@ class HarnessProbe(TypedDict):
     message: Union[str, None]
     version: Union[str, None]
 
+class HostToolGrant(TypedDict):
+    argumentConstraints: dict[str, list[Any]]
+    extensionId: str
+    toolId: str
+
 class InputAccountExecutionOptions(TypedDict):
     configHome: NotRequired[Union[str, None]]
     env: NotRequired[dict[str, str]]
@@ -84,6 +164,27 @@ class InputAccountQuery(TypedDict):
     cwd: str
     execution: NotRequired[InputAccountExecutionOptions]
     harness: str
+
+class InputDefaultDirectoryUpdate(TypedDict):
+    directory: InputDirectoryRef
+    expectedRevision: int
+
+class InputDirectoryRef(TypedDict):
+    id: str
+    revision: int
+
+class InputDirectoryRegistration(TypedDict):
+    path: str
+
+class InputHostToolGrant(TypedDict):
+    argumentConstraints: NotRequired[dict[str, list[Any]]]
+    extensionId: str
+    toolId: str
+
+class InputLocalStoreIdentity(TypedDict):
+    environmentId: str
+    ownerScopeId: str
+    storeId: str
 
 class InputMcpServer(TypedDict):
     name: str
@@ -101,10 +202,34 @@ class InputPermissionResponse(TypedDict):
     id: str
     option: str
 
+class InputProjectCreate(TypedDict):
+    directory: NotRequired[Union[InputDirectoryRef, None]]
+    launch: NotRequired[InputProjectLaunchDefaults]
+    name: str
+
+class InputProjectLaunchDefaults(TypedDict):
+    config: NotRequired[Any]
+    harness: NotRequired[Union[str, None]]
+    model: NotRequired[Union[str, None]]
+
+class InputProjectUpdate(TypedDict):
+    archived: NotRequired[Union[bool, None]]
+    directory: NotRequired[Union[InputDirectoryRef, None]]
+    expectedRevision: int
+    launch: NotRequired[Union[InputProjectLaunchDefaults, None]]
+    name: NotRequired[Union[str, None]]
+    projectId: str
+    unlinkDirectory: NotRequired[bool]
+
+class InputRuntimeIdentity(TypedDict):
+    identity: InputLocalStoreIdentity
+    incarnationId: str
+
 class InputSessionExecutionOptions(TypedDict):
     configHome: NotRequired[Union[str, None]]
     env: NotRequired[dict[str, str]]
     ephemeral: NotRequired[bool]
+    hostTools: NotRequired[list[InputHostToolGrant]]
     mcpServers: NotRequired[list[InputMcpServer]]
     outputSchema: NotRequired[Any]
     tools: NotRequired[InputToolPolicy]
@@ -115,14 +240,28 @@ class InputSessionMetadataUpdate(TypedDict):
 
 class InputSpawnOptions(TypedDict):
     config: NotRequired[Any]
-    cwd: str
+    cwd: NotRequired[str]
     execution: NotRequired[InputSessionExecutionOptions]
     harness: str
     model: NotRequired[Union[str, None]]
+    projectId: NotRequired[Union[str, None]]
+    projectRevision: NotRequired[Union[int, None]]
+
+class LocalStoreIdentity(TypedDict):
+    environmentId: str
+    ownerScopeId: str
+    storeId: str
 
 class McpServer(TypedDict):
     name: str
     transport: McpTransport
+
+class ModelDescriptor(TypedDict):
+    description: NotRequired[Union[str, None]]
+    id: str
+    label: str
+    metadata: NotRequired[dict[str, Any]]
+    provider: NotRequired[Union[str, None]]
 
 class ModelReroute(TypedDict):
     fromModel: str
@@ -191,6 +330,27 @@ class PlanUpdate(TypedDict):
     text: NotRequired[Union[str, None]]
     title: NotRequired[Union[str, None]]
 
+class PolicyObservation(TypedDict):
+    coverage: list[str]
+    evidence: PolicyEvidence
+    limitations: list[str]
+    native: Any
+    nativeVersion: Union[str, None]
+    profile: Union[ExecutionProfile, None]
+
+class ProjectLaunchDefaults(TypedDict):
+    config: Any
+    harness: Union[str, None]
+    model: Union[str, None]
+
+class ProjectRecord(TypedDict):
+    archived: bool
+    directory: Union[DirectoryRef, None]
+    id: str
+    launch: ProjectLaunchDefaults
+    name: str
+    revision: int
+
 class Prompt(TypedDict):
     content: list[PromptContent]
 
@@ -226,9 +386,14 @@ class RuntimeEvent(TypedDict):
     type: NotRequired[str]
     data: NotRequired[Any]
 
+class RuntimeIdentity(TypedDict):
+    identity: LocalStoreIdentity
+    incarnationId: str
+
 class SessionExecutionOptions(TypedDict):
     configHome: Union[str, None]
     ephemeral: bool
+    hostTools: list[HostToolGrant]
     mcpServers: list[McpServer]
     outputSchema: Any
     tools: ToolPolicy
@@ -242,6 +407,7 @@ class SessionMetadata(TypedDict):
 
 class SessionSnapshot(TypedDict):
     capabilities: Capabilities
+    executionPolicy: ExecutionPolicy
     id: str
     metadata: SessionMetadata
     native: NativeSessionRef
@@ -251,6 +417,23 @@ class SessionSnapshot(TypedDict):
     state: SessionState
     turn: Union[str, None]
     turnsCompleted: int
+    workingContext: Union[WorkingContext, None]
+
+class SettingChoice(TypedDict):
+    description: NotRequired[Union[str, None]]
+    id: str
+    label: str
+    metadata: NotRequired[dict[str, Any]]
+
+class SettingDescriptor(TypedDict):
+    application: SettingApplication
+    choices: NotRequired[list[SettingChoice]]
+    description: NotRequired[Union[str, None]]
+    id: str
+    label: str
+    metadata: NotRequired[dict[str, Any]]
+    type: SettingType
+    value: NotRequired[Any]
 
 class SpawnOptions(TypedDict):
     config: Any
@@ -258,6 +441,8 @@ class SpawnOptions(TypedDict):
     execution: SessionExecutionOptions
     harness: str
     model: Union[str, None]
+    projectId: Union[str, None]
+    projectRevision: Union[int, None]
 
 class SubagentInfo(TypedDict):
     background: NotRequired[Union[bool, None]]
@@ -272,6 +457,16 @@ class SubagentInfo(TypedDict):
     title: NotRequired[Union[str, None]]
     tokens: NotRequired[Union[int, None]]
     usage: NotRequired[Union[Usage, None]]
+
+class SubmissionReceipt(TypedDict):
+    delivery: DeliveryKnowledge
+    error: Union[str, None]
+    id: str
+    idempotencyKey: str
+    outcome: Union[TurnOutcome, None]
+    recoveryRequired: bool
+    sessionId: str
+    turnId: str
 
 class ToolDetails(TypedDict):
     command: NotRequired[Union[str, None]]
@@ -306,15 +501,37 @@ class Usage(TypedDict):
     scope: str
     totalTokens: Union[int, None]
 
+class WorkingContext(TypedDict):
+    bindingId: str
+    directory: DirectoryResource
+    environmentId: str
+    id: str
+    revision: int
+    sessionId: str
+    source: ContextSource
+
 AccountQuotaResult = Union[dict[str, Any], dict[str, Any], dict[str, Any]]
+CapabilityAvailability = Literal['available', 'unavailable', 'unsupported', 'unknown']
+CapabilityEvidence = Literal['declared', 'negotiated']
+CapabilitySource = Literal['harness', 'runtime', 'extension']
+ContextSource = Union[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]
+DeliveryKnowledge = Literal['not_sent', 'in_flight', 'accepted', 'rejected', 'unknown']
+DirectoryOwnership = Literal['user', 'external_owner']
 EventKind = Union[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]
+ExecutionProfile = Literal['ask', 'review', 'full', 'native_custom']
 InputMcpTransport = Union[dict[str, Any], dict[str, Any], dict[str, Any]]
 InputPromptContent = Union[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]
 InputQuestionAnswer = Union[str, list[str]]
 InputRollbackScope = Literal['conversation_only', 'conversation_and_files']
 InputToolPolicy = Literal['enabled', 'disabled']
 McpTransport = Union[dict[str, Any], dict[str, Any], dict[str, Any]]
+PolicyEvidence = Literal['native_receipt', 'native_acknowledgement']
+PolicyMapping = Literal['equivalent', 'partial', 'unsupported', 'unknown']
+PolicyStatus = Literal['staged', 'acknowledged', 'effective', 'rejected', 'partial', 'unknown']
 PromptContent = Union[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]
 SessionState = Literal['idle', 'running', 'needs_input', 'cancelling', 'closed', 'failed']
+SettingApplication = Literal['creation_only', 'next_turn', 'current_turn']
+SettingType = Literal['select', 'boolean', 'string', 'number']
 ToolPolicy = Literal['enabled', 'disabled']
-METHODS = ('agent/commands', 'agent/configuration', 'agent/configure', 'agent/kill', 'agent/models', 'agent/quotas', 'agent/spawn', 'extension/invoke', 'extension/list', 'permission/respond', 'runtime/discover', 'runtime/generate', 'runtime/history', 'runtime/history/read', 'runtime/initialize', 'runtime/probe', 'runtime/quotas', 'runtime/quotas/all', 'runtime/schema', 'session/cancel', 'session/close', 'session/compact', 'session/create', 'session/events', 'session/fork', 'session/get', 'session/import', 'session/list', 'session/metadata', 'session/prompt', 'session/queue', 'session/queue/list', 'session/queue/pause', 'session/queue/remove', 'session/queue/update', 'session/resume', 'session/rollback', 'session/steer', 'session/transcript', 'session/tree')
+TurnOutcome = Literal['completed', 'cancelled', 'interrupted', 'failed', 'limited', 'refused', 'handled', 'unknown']
+METHODS = ('agent/commands', 'agent/configuration', 'agent/configure', 'agent/kill', 'agent/models', 'agent/quotas', 'agent/spawn', 'directory/get', 'directory/register', 'extension/invoke', 'extension/list', 'permission/respond', 'project/create', 'project/get', 'project/list', 'project/update', 'runtime/configuration', 'runtime/discover', 'runtime/generate', 'runtime/history', 'runtime/history/read', 'runtime/initialize', 'runtime/probe', 'runtime/quotas', 'runtime/quotas/all', 'runtime/schema', 'runtime/shutdown', 'session/cancel', 'session/close', 'session/compact', 'session/context', 'session/create', 'session/events', 'session/fork', 'session/get', 'session/import', 'session/list', 'session/metadata', 'session/prompt', 'session/queue', 'session/queue/list', 'session/queue/pause', 'session/queue/remove', 'session/queue/update', 'session/resume', 'session/rollback', 'session/steer', 'session/submission', 'session/submission/reconcile', 'session/transcript', 'session/tree', 'settings/directory', 'settings/setDirectory')

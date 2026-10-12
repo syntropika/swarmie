@@ -1,6 +1,12 @@
 use super::*;
 use async_trait::async_trait;
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 use tokio::sync::{Mutex, RwLock, oneshot};
 
 pub struct CodexHarness;
@@ -204,24 +210,17 @@ fn tier_choices(model: &Value) -> Value {
     }
     json!(choices)
 }
-fn sandbox_name(value: &Value) -> &str {
-    match value
-        .as_str()
-        .or_else(|| value["type"].as_str())
-        .unwrap_or("read-only")
-    {
-        "dangerFullAccess" | "danger-full-access" => "danger-full-access",
-        "workspaceWrite" | "workspace-write" => "workspace-write",
-        _ => "read-only",
+fn sandbox_policy(value: &Value, cwd: &std::path::Path) -> Result<Value> {
+    if value.is_object() {
+        return Ok(value.clone());
     }
-}
-fn sandbox_policy(mode: &str, cwd: &std::path::Path) -> Value {
-    match mode {
-        "danger-full-access" => json!({"type":"dangerFullAccess"}),
-        "workspace-write" => {
-            json!({"type":"workspaceWrite","writableRoots":[cwd],"networkAccess":false})
+    match value.as_str() {
+        Some("danger-full-access") => Ok(json!({"type":"dangerFullAccess"})),
+        Some("workspace-write") => {
+            Ok(json!({"type":"workspaceWrite","writableRoots":[cwd],"networkAccess":false}))
         }
-        _ => json!({"type":"readOnly","networkAccess":false}),
+        Some("read-only") => Ok(json!({"type":"readOnly","networkAccess":false})),
+        _ => Err(Error::Invalid("unknown native sandbox policy".into())),
     }
 }
 fn configuration_for(models: &Value, current: &Value) -> Value {
@@ -283,34 +282,38 @@ fn configuration_for(models: &Value, current: &Value) -> Value {
             a.iter()
                 .any(|tier| tier["id"] == "priority" || tier["id"] == "fast")
         }) {
-            fields.push(json!({"id":"fast","label":"Fast mode","type":"boolean","live":true,"value":current["serviceTier"] == "priority" || current["serviceTier"] == "fast"}));
+            fields.push(json!({"id":"fast","label":"Fast mode","type":"boolean","application":"next_turn","value":current["serviceTier"] == "priority" || current["serviceTier"] == "fast"}));
         }
     }
     json!(fields)
 }
 fn capabilities() -> Capabilities {
     Capabilities {
-        resume: true,
-        fork: true,
-        steering: true,
-        cancel: true,
-        permissions: true,
-        reasoning: true,
-        usage: true,
-        models: true,
-        configure: true,
-        rollback: true,
-        compact: true,
-        images: true,
+        commands: true.into(),
+        quotas: true.into(),
+        ephemeral: true.into(),
+        output_schema: true.into(),
+        tools_disabled: false.into(),
+        fork_at_message: true.into(),
+        native_skill_inputs: true.into(),
+        submission_reconciliation: true.into(),
+
+        resume: true.into(),
+        fork: true.into(),
+        steering: true.into(),
+        cancel: true.into(),
+        permissions: true.into(),
+        operation_approvals: true.into(),
+        reasoning: true.into(),
+        usage: true.into(),
+        models: true.into(),
+        configure: true.into(),
+        rollback: true.into(),
+        compact: true.into(),
+        images: true.into(),
         metadata: BTreeMap::from([
             ("mcpTransports".into(), json!(["stdio", "http"])),
-            ("outputSchema".into(), json!(true)),
-            ("ephemeral".into(), json!(true)),
-            ("toolsDisabled".into(), json!(false)),
-            ("forkAtMessage".into(), json!(true)),
-            ("commands".into(), json!(true)),
-            ("nativeSkillInputs".into(), json!(true)),
-            ("quotas".into(), json!(true)),
+            ("rollbackScopes".into(), json!(["conversation_only"])),
         ]),
         ..Default::default()
     }
@@ -319,6 +322,13 @@ fn capabilities() -> Capabilities {
 impl Harness for CodexHarness {
     fn id(&self) -> &str {
         "codex"
+    }
+    fn compile_execution_profile(
+        &self,
+        _options: &SpawnOptions,
+        profile: ExecutionProfile,
+    ) -> Result<ExecutionPolicyPlan> {
+        super::policy::codex_plan(profile)
     }
     async fn detect(&self) -> Result<Detection> {
         Ok(detection("codex", "codex", capabilities()))
@@ -398,7 +408,7 @@ impl Harness for CodexHarness {
         let mut env = execution_env(options, Some("CODEX_HOME"))?;
         configure_mcp(&options.execution.mcp_servers, &mut args, &mut env)?;
         let (wire, mut frames) = spawn_json(options, &exe, &args, WireStyle::JsonRpc, env).await?;
-        wire.request("initialize",json!({"clientInfo":{"name":"mpai","version":"0.1.0"},"capabilities":{"experimentalApi":true}})).await?;
+        let initialized = wire.request("initialize",json!({"clientInfo":{"name":"mpai","version":"0.1.0"},"capabilities":{"experimentalApi":true}})).await?;
         wire.notify("initialized", json!({})).await?;
         let mut params = json!({"cwd":options.cwd,"model":options.model});
         if options.execution.ephemeral {
@@ -414,6 +424,9 @@ impl Harness for CodexHarness {
             "developerInstructions",
         ] {
             if let Some(v) = options.config.get(key) {
+                if key == "sandbox" && v.is_object() {
+                    continue;
+                }
                 params[key] = v.clone();
             }
         }
@@ -436,12 +449,20 @@ impl Harness for CodexHarness {
             .as_str()
             .ok_or_else(|| Error::Provider("missing Codex thread id".into()))?
             .to_string();
+        if !fork && saved.is_some_and(|saved| saved.id != thread) {
+            let _ = wire.kill().await;
+            return Err(Error::Provider(
+                "native resume returned a different thread identity".into(),
+            ));
+        }
         let turn: Arc<RwLock<Option<String>>> = Arc::default();
         let requests: Arc<RwLock<BTreeMap<String, Value>>> = Arc::default();
         let compact_receipt: Arc<Mutex<Option<oneshot::Sender<Result<()>>>>> = Arc::default();
         let (tx, events) = mpsc::channel(512);
         let wire_task = wire.clone();
         let turn_task = turn.clone();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let cancelled_task = cancelled.clone();
         let req_task = requests.clone();
         let thread_task = thread.clone();
         let compact_task = compact_receipt.clone();
@@ -613,7 +634,11 @@ impl Harness for CodexHarness {
                             *turn_task.write().await = None;
                             wire_task.set_active(false);
                             BackendEvent::TurnFinished {
-                                reason: p["turn"]["status"].as_str().unwrap_or("completed").into(),
+                                outcome: outcome::codex(
+                                    &p["turn"],
+                                    cancelled_task.swap(false, Ordering::SeqCst),
+                                ),
+                                native_reason: p["turn"]["status"].as_str().map(String::from),
                                 raw: Some(frame.clone()),
                             }
                         }
@@ -773,21 +798,39 @@ impl Harness for CodexHarness {
         });
         let mut capabilities = capabilities();
         if options.execution.ephemeral {
-            capabilities.resume = false;
-            capabilities.fork = false;
+            capabilities.submission_reconciliation =
+                Capability::unavailable("Ephemeral sessions do not retain native history");
+            capabilities.rollback =
+                Capability::unavailable("Ephemeral sessions do not retain native history");
             capabilities
                 .metadata
-                .insert("forkAtMessage".into(), json!(false));
+                .insert("rollbackScopes".into(), json!([]));
+            capabilities.resume =
+                Capability::unavailable("Ephemeral sessions do not retain native history");
+            capabilities.fork =
+                Capability::unavailable("Ephemeral sessions do not retain native history");
+            capabilities.fork_at_message =
+                Capability::unavailable("Ephemeral sessions do not retain native history");
         }
         let backend = CodexBackend {
             wire,
             thread,
             turn,
+            cancelled,
+            ephemeral: options.execution.ephemeral,
             requests,
             compact_receipt,
             config: RwLock::new(
-                json!({"model":result["model"].as_str().or(options.model.as_deref()),"effort":options.config.get("effort").unwrap_or(&result["reasoningEffort"]),"approvalPolicy":result["approvalPolicy"],"approvalsReviewer":options.config.get("approvalsReviewer").unwrap_or(&result["approvalsReviewer"]),"serviceTier":options.config.get("serviceTier").unwrap_or(&result["serviceTier"]),"sandbox":options.config.get("sandbox").cloned().unwrap_or_else(||json!(sandbox_name(&result["sandbox"])))}),
+                json!({"model":result["model"].as_str().or(options.model.as_deref()),"effort":options.config.get("effort").unwrap_or(&result["reasoningEffort"]),"approvalPolicy":result["approvalPolicy"],"approvalsReviewer":options.config.get("approvalsReviewer").unwrap_or(&result["approvalsReviewer"]),"serviceTier":options.config.get("serviceTier").unwrap_or(&result["serviceTier"]),"sandbox":options.config.get("sandbox").cloned().unwrap_or_else(||result["sandbox"].clone())}),
             ),
+            policy_observation: RwLock::new(Some(super::policy::codex_observation(
+                super::policy::codex_values(&result),
+                PolicyEvidence::NativeReceipt,
+                initialized["serverInfo"]["version"]
+                    .as_str()
+                    .map(String::from),
+                &options.cwd,
+            ))),
             output_schema: options.execution.output_schema.clone(),
             cwd: options.cwd.clone(),
         };
@@ -818,48 +861,98 @@ struct CodexBackend {
     wire: JsonProcess,
     thread: String,
     turn: Arc<RwLock<Option<String>>>,
+    cancelled: Arc<AtomicBool>,
+    ephemeral: bool,
     requests: Arc<RwLock<BTreeMap<String, Value>>>,
     compact_receipt: Arc<Mutex<Option<oneshot::Sender<Result<()>>>>>,
     config: RwLock<Value>,
     output_schema: Option<Value>,
+    policy_observation: RwLock<Option<PolicyObservation>>,
     cwd: PathBuf,
 }
 #[async_trait]
 impl AgentBackend for CodexBackend {
     async fn prompt(&self, p: &Prompt) -> Result<()> {
-        // Reserve the native turn before sending. Notifications can precede the RPC receipt.
-        let mut active = self.turn.write().await;
-        if active.is_some() || self.compact_receipt.lock().await.is_some() {
-            return Err(Error::Busy);
+        self.submit_native(None, p).await
+    }
+    async fn submit(&self, submission_id: &str, p: &Prompt) -> Result<()> {
+        self.submit_native(Some(submission_id), p).await
+    }
+    async fn reconcile_submission(
+        &self,
+        submission_id: &str,
+    ) -> Result<Option<NativeSubmissionEvidence>> {
+        if self.ephemeral {
+            return Err(Error::Unsupported(
+                "ephemeral native submission history".into(),
+            ));
         }
-        let mut params = json!({"threadId":self.thread,"input":input(p)?});
-        if let Some(schema) = &self.output_schema {
-            params["outputSchema"] = schema.clone();
-        }
-        if let Some(settings) = self.config.read().await.as_object() {
-            for (key, value) in settings {
-                if key == "sandbox" {
-                    if let Some(mode) = value.as_str() {
-                        params["sandboxPolicy"] = sandbox_policy(mode, &self.cwd);
-                    }
-                } else if key != "fast" && !value.is_null() {
-                    params[key] = value.clone();
+        let mut cursor = Value::Null;
+        let mut cursors = std::collections::BTreeSet::new();
+        let mut turn_ids = std::collections::BTreeSet::new();
+        let mut found = None;
+        for _ in 0..100 {
+            let page = self
+                .wire
+                .request(
+                    "thread/turns/list",
+                    json!({"threadId":self.thread,
+                "sortDirection":"desc","itemsView":"full","limit":100,"cursor":cursor}),
+                )
+                .await?;
+            let turns = page["data"]
+                .as_array()
+                .ok_or_else(|| Error::Provider("native turn page omitted its data".into()))?;
+            for turn in turns {
+                let id = turn["id"]
+                    .as_str()
+                    .filter(|id| !id.is_empty())
+                    .ok_or_else(|| Error::Provider("native turn omitted its identity".into()))?;
+                if !turn_ids.insert(id.to_string()) {
+                    return Err(Error::Provider(
+                        "native turn pagination repeated a turn".into(),
+                    ));
+                }
+                let items = turn["items"]
+                    .as_array()
+                    .ok_or_else(|| Error::Provider("native turn omitted full items".into()))?;
+                let matches = items
+                    .iter()
+                    .filter(|item| {
+                        item["type"] == "userMessage" && item["clientId"] == submission_id
+                    })
+                    .count();
+                if matches > 1 || matches == 1 && found.is_some() {
+                    return Err(Error::Provider(
+                        "ambiguous native submission identity".into(),
+                    ));
+                }
+                if matches == 1 {
+                    found = Some(turn.clone());
                 }
             }
-        }
-        self.wire.set_active(true);
-        let r = match self.wire.request("turn/start", params).await {
-            Ok(value) => value,
-            Err(error) => {
-                self.wire.set_active(false);
-                return Err(error);
+            let next = page.get("nextCursor").ok_or_else(|| {
+                Error::Provider("native turn page omitted its next cursor".into())
+            })?;
+            if next.is_null() {
+                return found
+                    .map(|turn| submission_evidence(submission_id, turn))
+                    .transpose();
             }
-        };
-        let id = r["turn"]["id"]
-            .as_str()
-            .ok_or_else(|| Error::Provider("missing turn id".into()))?;
-        *active = Some(id.into());
-        Ok(())
+            let next = next
+                .as_str()
+                .filter(|next| !next.is_empty())
+                .ok_or_else(|| Error::Provider("invalid native turn cursor".into()))?;
+            if !cursors.insert(next.to_string()) {
+                return Err(Error::Provider(
+                    "native turn pagination did not advance".into(),
+                ));
+            }
+            cursor = json!(next);
+        }
+        Err(Error::Provider(
+            "native submission lookup exceeds 10,000 turns".into(),
+        ))
     }
     async fn steer(&self, p: &Prompt) -> Result<()> {
         let id = self
@@ -878,12 +971,18 @@ impl AgentBackend for CodexBackend {
     }
     async fn cancel(&self) -> Result<()> {
         if let Some(id) = self.turn.read().await.clone() {
-            self.wire
+            self.cancelled.store(true, Ordering::SeqCst);
+            if let Err(error) = self
+                .wire
                 .request(
                     "turn/interrupt",
                     json!({"threadId":self.thread,"turnId":id}),
                 )
-                .await?;
+                .await
+            {
+                self.cancelled.store(false, Ordering::SeqCst);
+                return Err(error);
+            }
         }
         Ok(())
     }
@@ -942,8 +1041,8 @@ impl AgentBackend for CodexBackend {
         requests.remove(&r.id);
         Ok(())
     }
-    async fn models(&self) -> Result<Value> {
-        Ok(settings::model_choices(
+    async fn models(&self) -> Result<Vec<ModelDescriptor>> {
+        settings::model_descriptors(settings::model_choices(
             &self.wire.request("model/list", json!({})).await?,
         ))
     }
@@ -1002,9 +1101,23 @@ impl AgentBackend for CodexBackend {
         *current = candidate;
         Ok(current.clone())
     }
-    async fn configuration(&self) -> Result<Value> {
+    async fn execution_policy(&self) -> Result<ExecutionPolicyReport> {
+        Ok(super::policy::codex_report(
+            &*self.config.read().await,
+            self.policy_observation.read().await.clone(),
+            &self.cwd,
+        ))
+    }
+    async fn compile_execution_profile(
+        &self,
+        profile: ExecutionProfile,
+    ) -> Result<ExecutionPolicyPlan> {
+        self.execution_policy().await?.require(profile)?;
+        super::policy::codex_plan(profile)
+    }
+    async fn configuration(&self) -> Result<Vec<SettingDescriptor>> {
         let models = self.wire.request("model/list", json!({})).await?;
-        Ok(configuration_for(&models, &*self.config.read().await))
+        settings::descriptors(configuration_for(&models, &*self.config.read().await))
     }
     async fn commands(&self) -> Result<Value> {
         let response = self
@@ -1033,14 +1146,78 @@ impl AgentBackend for CodexBackend {
         }
         Ok(normalized)
     }
-    async fn rollback(&self, n: u64) -> Result<()> {
-        self.wire
-            .request(
-                "thread/rollback",
-                json!({"threadId":self.thread,"numTurns":n}),
-            )
-            .await?;
-        Ok(())
+    async fn rollback(&self, turns: u64) -> Result<()> {
+        if self.ephemeral {
+            return Err(Error::Unsupported(
+                "rollback of an ephemeral Codex session".into(),
+            ));
+        }
+        if turns == 0 || turns > 10_000 {
+            return Err(Error::Invalid(
+                "rollback count must be between 1 and 10,000 turns".into(),
+            ));
+        }
+        if self.turn.read().await.is_some() {
+            return Err(Error::Busy);
+        }
+        let mut remaining = turns;
+        let mut cursor = Value::Null;
+        let mut cursors = std::collections::BTreeSet::new();
+        let mut ids = std::collections::BTreeSet::new();
+        for _ in 0..100 {
+            let page = self.wire.request(
+                "thread/turns/list",
+                json!({"threadId":self.thread,"sortDirection":"desc", "itemsView":"notLoaded","limit":100,"cursor":cursor}),
+            ).await?;
+            let records = page["data"]
+                .as_array()
+                .ok_or_else(|| Error::Provider("Codex turn list omitted its data array".into()))?;
+            for turn in records {
+                match turn["status"].as_str() {
+                    Some("inProgress") => return Err(Error::Busy),
+                    Some("completed" | "failed" | "interrupted") => (),
+                    _ => return Err(Error::Provider("Codex turn has an unknown status".into())),
+                }
+                let id = turn["id"]
+                    .as_str()
+                    .filter(|id| !id.is_empty())
+                    .ok_or_else(|| {
+                        Error::Provider("Codex rollback anchor has no native turn ID".into())
+                    })?;
+                if !ids.insert(id.to_owned()) {
+                    return Err(Error::Provider("Codex turn list repeated a turn".into()));
+                }
+                remaining -= 1;
+                if remaining == 0 {
+                    self.wire
+                        .request(
+                            "thread/revert",
+                            json!({"threadId":self.thread,"beforeTurnId":id}),
+                        )
+                        .await?;
+                    return Ok(());
+                }
+            }
+            let next = page["nextCursor"].clone();
+            match next.as_str() {
+                Some(next) if !next.is_empty() && cursors.insert(next.to_owned()) => {
+                    cursor = json!(next)
+                }
+                None if next.is_null() => {
+                    return Err(Error::Invalid(
+                        "rollback exceeds available native turns".into(),
+                    ));
+                }
+                _ => {
+                    return Err(Error::Provider(
+                        "Codex turn pagination did not advance".into(),
+                    ));
+                }
+            }
+        }
+        Err(Error::Invalid(
+            "native rollback lookup exceeds 100 pages".into(),
+        ))
     }
     async fn compact(&self) -> Result<()> {
         if self.turn.read().await.is_some() {
@@ -1083,4 +1260,91 @@ impl AgentBackend for CodexBackend {
     async fn kill(&self) -> Result<()> {
         self.wire.kill().await
     }
+}
+
+impl CodexBackend {
+    async fn submit_native(&self, submission_id: Option<&str>, p: &Prompt) -> Result<()> {
+        // Reserve the native turn before sending. Notifications can precede the RPC receipt.
+        let mut active = self.turn.write().await;
+        if active.is_some() || self.compact_receipt.lock().await.is_some() {
+            return Err(Error::Busy);
+        }
+        let mut params = json!({"threadId":self.thread,"input":input(p)?});
+        if let Some(id) = submission_id {
+            params["clientUserMessageId"] = json!(id);
+        }
+        if let Some(schema) = &self.output_schema {
+            params["outputSchema"] = schema.clone();
+        }
+        if let Some(settings) = self.config.read().await.as_object() {
+            for (key, value) in settings {
+                if key == "sandbox" && value.is_null() {
+                    continue;
+                }
+                if key == "sandbox" {
+                    params["sandboxPolicy"] = sandbox_policy(value, &self.cwd)?;
+                } else if key != "fast" && !value.is_null() {
+                    params[key] = value.clone();
+                }
+            }
+        }
+        self.cancelled.store(false, Ordering::SeqCst);
+        self.wire.set_active(true);
+        let r = match self.wire.request("turn/start", params).await {
+            Ok(value) => value,
+            Err(error) => {
+                self.wire.set_active(false);
+                return Err(error);
+            }
+        };
+        let id = r["turn"]["id"]
+            .as_str()
+            .ok_or_else(|| Error::Provider("missing turn id".into()))?;
+        *active = Some(id.into());
+        let mut observation = self.policy_observation.write().await;
+        let version = observation
+            .as_ref()
+            .and_then(|observation| observation.native_version.clone());
+        *observation = Some(super::policy::codex_observation(
+            super::policy::codex_values(&*self.config.read().await),
+            PolicyEvidence::NativeAcknowledgement,
+            version,
+            &self.cwd,
+        ));
+        Ok(())
+    }
+}
+
+fn submission_evidence(submission_id: &str, turn: Value) -> Result<NativeSubmissionEvidence> {
+    // History views can synthesize Interrupted for an abandoned InProgress turn.
+    // Without a native completion timestamp that is acceptance evidence only.
+    let terminal = matches!(turn["status"].as_str(), Some("completed" | "failed"))
+        || turn["status"] == "interrupted"
+            && turn["completedAt"].as_i64().is_some_and(|time| time > 0);
+    let messages = if terminal {
+        turn["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|item| item["type"] == "agentMessage")
+            .map(|item| {
+                if item["id"].as_str().is_none_or(|id| id.is_empty()) {
+                    return Err(Error::Provider(
+                        "recovered native message omitted its identity".into(),
+                    ));
+                }
+                Ok(item.clone())
+            })
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        vec![]
+    };
+    Ok(NativeSubmissionEvidence {
+        submission_id: submission_id.into(),
+        native_turn_id: turn["id"].as_str().unwrap().into(),
+        outcome: terminal.then(|| outcome::codex(&turn, false)),
+        native_reason: turn["status"].as_str().map(String::from),
+        messages,
+        raw: turn,
+    })
 }

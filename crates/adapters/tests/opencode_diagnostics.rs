@@ -159,7 +159,7 @@ async fn native_http_and_sse_are_redacted_and_resume_never_overwrites() {
         1
     );
     assert!(
-        matches!(events.last(),Some(BackendEvent::TurnFinished{reason,..}) if reason=="completed")
+        matches!(events.last(),Some(BackendEvent::TurnFinished { outcome, .. }) if outcome.as_str() == "completed")
     );
     assert!(
         !idle_events(&mut connection)

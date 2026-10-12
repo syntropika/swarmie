@@ -64,9 +64,9 @@ async fn pi_applies_native_execution_flags_environment_and_authoritative_context
     options.execution.tools = ToolPolicy::Disabled;
     options.execution.ephemeral = true;
     let mut connection = PiHarness.connect(&options, None, false).await.unwrap();
-    assert!(!connection.capabilities.resume);
-    assert!(!connection.capabilities.fork);
-    assert_eq!(connection.capabilities.metadata["toolsDisabled"], true);
+    assert!(!connection.capabilities.resume.is_available());
+    assert!(!connection.capabilities.fork.is_available());
+    assert!(connection.capabilities.tools_disabled.is_available());
     connection
         .backend
         .prompt(&Prompt::from("receipt"))
@@ -109,7 +109,7 @@ async fn pi_clone_and_message_fork_return_new_native_references() {
         .await
         .unwrap();
     assert_eq!(fork.native.id, "fork:entry-7");
-    assert_eq!(fork.capabilities.metadata["forkAtMessage"], false);
+    assert!(!fork.capabilities.fork_at_message.is_available());
     assert!(matches!(
         PiHarness.fork_at(&options, &saved, "entry-7").await,
         Err(Error::Unsupported(_))
@@ -427,15 +427,15 @@ async fn opencode_native_variants_follow_selected_models_and_reset_incompatible_
         .connect(&options, None, false)
         .await
         .unwrap();
-    let models = connection.backend.models().await.unwrap();
+    let models = json!(connection.backend.models().await.unwrap());
     let model = models
         .as_array()
         .unwrap()
         .iter()
         .find(|model| model["id"] == "fixture/model")
         .unwrap();
-    assert_eq!(model["variants"], json!(["high", "low"]));
-    let descriptors = connection.backend.configuration().await.unwrap();
+    assert_eq!(model["metadata"]["variants"], json!(["high", "low"]));
+    let descriptors = json!(connection.backend.configuration().await.unwrap());
     assert_eq!(descriptors[1]["id"], "effort");
     assert_eq!(descriptors[1]["value"], "high");
     connection
@@ -480,7 +480,7 @@ async fn opencode_native_variants_follow_selected_models_and_reset_incompatible_
     assert_eq!(receipt["request"]["model"]["modelID"], "other");
     assert_eq!(receipt["request"]["variant"], "max");
     assert_eq!(
-        connection.backend.configuration().await.unwrap()[0]["value"],
+        json!(connection.backend.configuration().await.unwrap())[0]["value"],
         "fixture/other"
     );
     let reset = connection
@@ -502,17 +502,7 @@ async fn opencode_native_variants_follow_selected_models_and_reset_incompatible_
         .configure(json!({"model":"fixture/plain"}))
         .await
         .unwrap();
-    assert_eq!(
-        connection
-            .backend
-            .configuration()
-            .await
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .len(),
-        1
-    );
+    assert_eq!(connection.backend.configuration().await.unwrap().len(), 1);
     let saved = connection.native.clone();
     connection.backend.close().await.unwrap();
     options.model = reset["model"].as_str().map(String::from);
@@ -522,7 +512,7 @@ async fn opencode_native_variants_follow_selected_models_and_reset_incompatible_
         .await
         .unwrap();
     assert_eq!(
-        resumed.backend.configuration().await.unwrap()[0]["value"],
+        json!(resumed.backend.configuration().await.unwrap())[0]["value"],
         "fixture/plain"
     );
     resumed.backend.close().await.unwrap();
@@ -623,8 +613,11 @@ async fn opencode_permission_rejection_preserves_message_and_cancel_is_native_re
                             text.push_str(&delta);
                         }
                     }
-                    BackendEvent::TurnFinished { reason, .. } => {
-                        break (serde_json::from_str::<Value>(&text).unwrap(), reason);
+                    BackendEvent::TurnFinished { outcome, .. } => {
+                        break (
+                            serde_json::from_str::<Value>(&text).unwrap(),
+                            outcome.to_string(),
+                        );
                     }
                     _ => (),
                 }

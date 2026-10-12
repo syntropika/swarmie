@@ -26,6 +26,7 @@ struct HttpState {
     service: RuntimeService,
     token: Option<String>,
     desktop_origin: Option<String>,
+    nodes: Option<crate::node_gateway::NodeGateway>,
 }
 
 pub async fn http(
@@ -34,6 +35,7 @@ pub async fn http(
     token: Option<String>,
     desktop_assets: Option<std::path::PathBuf>,
     public_origin: Option<String>,
+    registration_root: Option<std::path::PathBuf>,
 ) -> Result<()> {
     if desktop_assets.is_some() && !addr.ip().is_loopback() {
         return Err(Error::Invalid(
@@ -52,10 +54,69 @@ pub async fn http(
         return Err(Error::Invalid("non-loopback HTTP requires --token".into()));
     }
     let listener = tokio::net::TcpListener::bind(addr).await?;
+    let nodes = match (&registration_root, &desktop_assets) {
+        (Some(root), Some(_)) => {
+            Some(crate::node_gateway::NodeGateway::new(root, service.clone()).await?)
+        }
+        _ => None,
+    };
+    let _registration = if let Some(root) = registration_root.filter(|_| addr.ip().is_loopback()) {
+        Some(
+            crate::runtime_host::register(
+                &root,
+                &service,
+                listener.local_addr()?,
+                desktop_assets.as_deref(),
+                token.is_some(),
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
     eprintln!("HTTP listening on http://{}/rpc", listener.local_addr()?);
+    let local = listener.local_addr()?;
+    let tool_address = if local.ip().is_unspecified() {
+        std::net::SocketAddr::new(
+            if local.is_ipv4() {
+                std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+            } else {
+                std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST)
+            },
+            local.port(),
+        )
+    } else {
+        local
+    };
+    service
+        .runtime()
+        .install_host_tool_transport(mpai::McpServer {
+            name: "mpai_host".into(),
+            transport: mpai::McpTransport::Stdio {
+                command: std::env::current_exe()?,
+                args: vec!["tools".into(), format!("http://{tool_address}/tools/rpc")],
+                env: Default::default(),
+            },
+        })?;
     let origin = format!("http://{}", listener.local_addr()?);
+    let service_for_shutdown = service.clone();
     let mut routes = axum::Router::new()
         .route("/rpc", axum::routing::post(http_rpc))
+        .route("/ws", axum::routing::get(http_websocket))
+        .route("/client/rpc", axum::routing::post(http_node_control))
+        .route(
+            "/nodes/{environment}/rpc",
+            axum::routing::post(http_node_rpc),
+        )
+        .route(
+            "/nodes/{environment}/preview/{id}/",
+            axum::routing::get(http_node_preview_root),
+        )
+        .route(
+            "/nodes/{environment}/preview/{id}/{*path}",
+            axum::routing::get(http_node_preview_file),
+        )
+        .route("/tools/rpc", axum::routing::post(http_tools_rpc))
         .route("/preview/{id}/", axum::routing::get(http_preview_root))
         .route(
             "/preview/{id}/{*path}",
@@ -65,6 +126,7 @@ pub async fn http(
         .with_state(HttpState {
             service,
             token,
+            nodes,
             desktop_origin: desktop_assets
                 .as_ref()
                 .map(|_| public_origin.unwrap_or(origin)),
@@ -73,8 +135,8 @@ pub async fn http(
         routes = routes.fallback_service(tower_http::services::ServeDir::new(path));
     }
     axum::serve(listener, routes)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
+        .with_graceful_shutdown(async move {
+            tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = service_for_shutdown.wait_for_shutdown() => {} }
         })
         .await?;
     Ok(())
@@ -118,7 +180,7 @@ async fn http_preview_root(
     axum::extract::Path(id): axum::extract::Path<String>,
     headers: axum::http::HeaderMap,
 ) -> axum::response::Response {
-    http_preview(state.0, headers, id, String::new()).await
+    http_preview(state.0, headers, id, String::new(), None).await
 }
 async fn http_preview_file(
     state: axum::extract::State<HttpState>,
@@ -132,16 +194,16 @@ async fn http_preview_file(
         .strip_prefix(&format!("/preview/{id}/"))
         .unwrap_or(&path)
         .to_owned();
-    http_preview(state.0, headers, id, raw).await
+    http_preview(state.0, headers, id, raw, None).await
 }
 async fn http_preview(
     state: HttpState,
     headers: axum::http::HeaderMap,
     id: String,
     path: String,
+    environment: Option<String>,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
-    use base64::{Engine, engine::general_purpose::STANDARD};
     if uuid::Uuid::parse_str(&id).is_err() {
         return (StatusCode::NOT_FOUND, "Unknown preview").into_response();
     }
@@ -175,21 +237,45 @@ async fn http_preview(
         return StatusCode::FORBIDDEN.into_response();
     }
     let origin = parsed.origin().ascii_serialization();
-    let prefix = format!("/preview/{id}/");
-    let value = match tokio::time::timeout(
-        std::time::Duration::from_secs(3),
-        state.service.runtime().invoke_extension(
-            "workspace",
-            "preview.read",
-            json!({"previewId":id,"path":path}),
-        ),
-    )
+    let value = match tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        match environment.as_deref() {
+            Some(node) => match &state.nodes {
+                Some(gateway) => gateway.preview(node, &id, &path).await,
+                None => Err(Error::Invalid("node gateway is unavailable".into())),
+            },
+            None => {
+                state
+                    .service
+                    .runtime()
+                    .invoke_extension(
+                        "workspace",
+                        "preview.read",
+                        json!({"previewId":id,"path":path}),
+                    )
+                    .await
+            }
+        }
+    })
     .await
     {
         Ok(Ok(value)) => value,
         Ok(Err(_)) => return (StatusCode::NOT_FOUND, "Unknown preview or file").into_response(),
         Err(_) => return StatusCode::GATEWAY_TIMEOUT.into_response(),
     };
+    preview_response(&origin, &id, environment.as_deref(), value)
+}
+pub(crate) fn preview_response(
+    origin: &str,
+    id: &str,
+    environment: Option<&str>,
+    value: Value,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    let prefix = environment.map_or_else(
+        || format!("/preview/{id}/"),
+        |node| format!("/nodes/{node}/preview/{id}/"),
+    );
     let status = value["status"]
         .as_u64()
         .and_then(|status| u16::try_from(status).ok())
@@ -200,10 +286,27 @@ async fn http_preview(
     if encoded.len() > 12 * 1024 * 1024 {
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     }
-    let body = match STANDARD.decode(encoded) {
+    let mut body = match STANDARD.decode(encoded) {
         Ok(body) if body.len() <= 8 * 1024 * 1024 => body,
         _ => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
+    // Remote relays already scope root URLs; carry that scope through the local gateway.
+    if environment.is_some()
+        && matches!(
+            mime,
+            "text/html" | "text/css" | "text/javascript" | "application/javascript"
+        )
+    {
+        let Ok(text) = std::str::from_utf8(&body) else {
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        };
+        body = text
+            .replace(&format!("/preview/{id}/"), &prefix)
+            .into_bytes();
+        if body.len() > 8 * 1024 * 1024 {
+            return StatusCode::PAYLOAD_TOO_LARGE.into_response();
+        }
+    }
     let scope = format!("{origin}{prefix}");
     let policy = format!(
         "default-src 'none'; script-src 'unsafe-inline' {scope}; style-src 'unsafe-inline' {scope}; img-src data: blob: {scope}; media-src blob: {scope}; font-src data: {scope}; connect-src {scope}; form-action {scope}; base-uri {scope}; frame-ancestors {origin}; object-src 'none'; frame-src 'none'; sandbox allow-scripts allow-forms"
@@ -218,27 +321,83 @@ async fn http_preview(
         .header("access-control-allow-origin", "null")
         .header("access-control-allow-methods", "GET, HEAD");
     if let Some(location) = value["location"].as_str() {
-        if !location.starts_with(&prefix) || location.contains(['\r', '\n']) {
+        let source_prefix = format!("/preview/{id}/");
+        if !location.starts_with(&source_prefix) || location.contains(['\r', '\n']) {
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
-        response = response.header("location", location);
+        response = response.header(
+            "location",
+            format!("{prefix}{}", &location[source_prefix.len()..]),
+        );
     }
     response
         .body(axum::body::Body::from(body))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
-async fn http_rpc(
+async fn http_tools_rpc(
     axum::extract::State(state): axum::extract::State<HttpState>,
     headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
+    if headers.contains_key("origin") {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let Some(channel) = headers
+        .get("authorization")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "))
+    else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    if !state.service.runtime().host_tool_channel(channel) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let request: Value = match serde_json::from_slice(&body) {
+        Ok(request) => request,
+        Err(_) => return axum::Json(rpc_error(Value::Null, -32700, "parse error")).into_response(),
+    };
+    let id = request.get("id").cloned().unwrap_or(Value::Null);
+    if request["jsonrpc"] != "2.0"
+        || !request["method"].is_string()
+        || !(id.is_string() || id.is_number())
+    {
+        return axum::Json(rpc_error(Value::Null, -32600, "invalid request")).into_response();
+    }
+    let response = match state
+        .service
+        .runtime()
+        .invoke_host_tool_channel(
+            channel,
+            request["method"].as_str().unwrap(),
+            request.get("params").cloned().unwrap_or_else(|| json!({})),
+        )
+        .await
+    {
+        Ok(result) => json!({"jsonrpc":"2.0","id":id,"result":result}),
+        Err(error) => rpc_error(
+            id,
+            if matches!(error, Error::Cancelled(_)) {
+                -32800
+            } else {
+                -32001
+            },
+            &error.to_string(),
+        ),
+    };
+    axum::Json(response).into_response()
+}
+
+fn authorize_http(
+    state: &HttpState,
+    headers: &axum::http::HeaderMap,
+) -> std::result::Result<(), (StatusCode, &'static str)> {
     // Desktop web content is allowed only from the explicitly enabled local frontend.
     if let Some(origin) = headers.get("origin")
         && origin.to_str().ok() != state.desktop_origin.as_deref()
     {
-        return (StatusCode::FORBIDDEN, "Origin is not allowed").into_response();
+        return Err((StatusCode::FORBIDDEN, "Origin is not allowed"));
     }
     if let Some(origin) = &state.desktop_origin
         && headers.get("host").and_then(|h| h.to_str().ok())
@@ -246,13 +405,140 @@ async fn http_rpc(
                 .strip_prefix("http://")
                 .or_else(|| origin.strip_prefix("https://"))
     {
-        return (StatusCode::FORBIDDEN, "Host is not allowed").into_response();
+        return Err((StatusCode::FORBIDDEN, "Host is not allowed"));
     }
     if let Some(token) = &state.token
         && headers.get("authorization").and_then(|h| h.to_str().ok())
             != Some(format!("Bearer {token}").as_str())
     {
-        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+        return Err((StatusCode::UNAUTHORIZED, "Unauthorized"));
+    }
+    Ok(())
+}
+async fn http_websocket(
+    axum::extract::State(state): axum::extract::State<HttpState>,
+    headers: axum::http::HeaderMap,
+    upgrade: axum::extract::ws::WebSocketUpgrade,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if let Err(response) = authorize_http(&state, &headers) {
+        return response.into_response();
+    }
+    upgrade
+        .max_message_size(16 * 1024 * 1024)
+        .on_upgrade(move |socket| http_socket(socket, state.service))
+        .into_response()
+}
+async fn http_socket(socket: axum::extract::ws::WebSocket, service: RuntimeService) {
+    use axum::extract::ws::Message;
+    let (mut sink, mut stream) = socket.split();
+    let (tx, mut rx) = mpsc::channel(256);
+    let writer = tokio::spawn(async move {
+        while let Some(message) = rx.recv().await {
+            if sink.send(message).await.is_err() {
+                break;
+            }
+        }
+    });
+    let mut events = service.runtime().events();
+    let mut requests = tokio::task::JoinSet::new();
+    loop {
+        tokio::select! {
+            _ = service.wait_for_shutdown() => break,
+            frame = stream.next() => match frame {
+                Some(Ok(Message::Text(text))) => {
+                    if requests.len() >= 128 { break; }
+                    let service = service.clone(); let tx = tx.clone();
+                    requests.spawn(async move { let response = match parse(&text) { Ok(request) => service.handle(request).await, Err(error) => Some(error) }; if let Some(value) = response { let _ = tx.send(Message::Text(value.to_string().into())).await; } });
+                }
+                Some(Ok(Message::Ping(data))) => { if tx.try_send(Message::Pong(data)).is_err() { break; } }
+                Some(Ok(Message::Pong(_))) => (),
+                _ => break,
+            },
+            event = events.recv() => {
+                let value = match event { Ok(event) => notification(event), Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => json!({"jsonrpc":"2.0","method":"runtime/lagged","params":{"missed":n,"recovery":"session/events"}}), Err(_) => break };
+                if tx.try_send(Message::Text(value.to_string().into())).is_err() { break; }
+            },
+            Some(_) = requests.join_next(), if !requests.is_empty() => (),
+        }
+    }
+    // Drain accepted native effects even when their controlling client has departed.
+    writer.abort();
+    while requests.join_next().await.is_some() {}
+}
+
+async fn node_request(
+    state: HttpState,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+    environment: Option<String>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if let Err(response) = authorize_http(&state, &headers) {
+        return response.into_response();
+    }
+    let Some(nodes) = state.nodes else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let request: Value = match serde_json::from_slice(&body) {
+        Ok(request) => request,
+        Err(_) => return axum::Json(rpc_error(Value::Null, -32700, "parse error")).into_response(),
+    };
+    if request["jsonrpc"] != "2.0"
+        || !request["method"].is_string()
+        || !(request["id"].is_number() || request["id"].is_string())
+    {
+        return axum::Json(rpc_error(Value::Null, -32600, "invalid request")).into_response();
+    }
+    let result = match environment {
+        Some(id) => nodes.forward(&id, request).await,
+        None => nodes.control(request).await,
+    };
+    axum::Json(result).into_response()
+}
+async fn http_node_control(
+    axum::extract::State(state): axum::extract::State<HttpState>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    node_request(state, headers, body, None).await
+}
+async fn http_node_rpc(
+    axum::extract::State(state): axum::extract::State<HttpState>,
+    axum::extract::Path(environment): axum::extract::Path<String>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    node_request(state, headers, body, Some(environment)).await
+}
+async fn http_node_preview_root(
+    axum::extract::State(state): axum::extract::State<HttpState>,
+    axum::extract::Path((environment, id)): axum::extract::Path<(String, String)>,
+    headers: axum::http::HeaderMap,
+) -> axum::response::Response {
+    http_preview(state, headers, id, String::new(), Some(environment)).await
+}
+async fn http_node_preview_file(
+    axum::extract::State(state): axum::extract::State<HttpState>,
+    axum::extract::Path((environment, id, path)): axum::extract::Path<(String, String, String)>,
+    headers: axum::http::HeaderMap,
+    uri: axum::http::Uri,
+) -> axum::response::Response {
+    let raw = uri
+        .path()
+        .strip_prefix(&format!("/nodes/{environment}/preview/{id}/"))
+        .unwrap_or(&path)
+        .to_owned();
+    http_preview(state, headers, id, raw, Some(environment)).await
+}
+async fn http_rpc(
+    axum::extract::State(state): axum::extract::State<HttpState>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if let Err(response) = authorize_http(&state, &headers) {
+        return response.into_response();
     }
     let response = match serde_json::from_slice(&body) {
         Ok(request) => state.service.handle(request).await,
@@ -304,6 +590,7 @@ pub async fn stdio(service: RuntimeService) -> Result<()> {
                 tasks.spawn(async move { let result = match parse(&line) { Ok(r) => service.handle(r).await,Err(e) => Some(e) }; if let Some(r) = result { let _ = tx.send(r).await; } });
             }
             _ = &mut shutdown => break,
+            _ = service.wait_for_shutdown() => break,
             Some(_) = tasks.join_next(), if !tasks.is_empty() => (),
         }
     }
@@ -330,14 +617,18 @@ pub async fn websocket(
     let mut tasks = tokio::task::JoinSet::new();
     let shutdown = tokio::signal::ctrl_c();
     tokio::pin!(shutdown);
-    loop {
+    let graceful = loop {
         tokio::select! {
             socket = listener.accept() => { let (socket,_) = socket?; let service = service.clone(); let token = token.clone(); tasks.spawn(async move { if let Err(e) = connection(socket,service,token).await { tracing::debug!("WebSocket client closed: {e}"); } }); }
-            _ = &mut shutdown => break,
+            _ = &mut shutdown => break false,
+            _ = service.wait_for_shutdown() => break true,
             Some(_) = tasks.join_next(), if !tasks.is_empty() => (),
         }
+    };
+    drop(listener);
+    if !graceful {
+        tasks.abort_all();
     }
-    tasks.abort_all();
     while tasks.join_next().await.is_some() {}
     service.shutdown().await
 }
@@ -382,8 +673,10 @@ async fn connection(
         }
     });
     let mut requests = tokio::task::JoinSet::new();
+    let mut stopping = false;
     loop {
         tokio::select! {
+            _ = service.wait_for_shutdown() => { stopping = true; break; },
             msg = stream.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
@@ -406,7 +699,11 @@ async fn connection(
     // Accepted RPC mutations survive client disconnect; they must not be canceled halfway through spawn.
     while requests.join_next().await.is_some() {}
     drop(tx);
-    writer.abort();
+    if stopping {
+        let _ = writer.await;
+    } else {
+        writer.abort();
+    }
     Ok(())
 }
 pub async fn call(url: &str, method: String, params: Value, token: Option<String>) -> Result<()> {

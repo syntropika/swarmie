@@ -1,3 +1,5 @@
+#[path = "local_runtime.rs"]
+mod local_runtime;
 use crate::session::{AgentInner, Engine};
 use crate::*;
 use futures_util::{StreamExt, stream};
@@ -39,12 +41,14 @@ impl RuntimeBuilder {
     pub fn build(self) -> Runtime {
         let (events, _) = broadcast::channel(4096);
         let runtime = Runtime(Arc::new(RuntimeInner {
+            incarnation_id: uuid::Uuid::new_v4().to_string(),
             harnesses: self.harnesses,
             store: self.store,
             extensions: self.extensions,
             agents: RwLock::new(BTreeMap::new()),
             open_lock: Mutex::new(()),
             events,
+            host_tools: Default::default(),
         }));
         for extension in &runtime.0.extensions {
             extension.initialize(runtime.downgrade());
@@ -53,6 +57,8 @@ impl RuntimeBuilder {
     }
 }
 struct RuntimeInner {
+    incarnation_id: String,
+    host_tools: crate::tools::HostTools,
     harnesses: BTreeMap<String, Arc<dyn Harness>>,
     store: SharedStore,
     extensions: Vec<Arc<dyn RuntimeExtension>>,
@@ -76,6 +82,43 @@ impl Default for Runtime {
     }
 }
 impl Runtime {
+    fn validate_permission_authority(&self) -> Result<()> {
+        if self
+            .0
+            .extensions
+            .iter()
+            .filter(|extension| extension.permission_authority())
+            .count()
+            > 1
+        {
+            return Err(Error::Invalid(
+                "register only one permission authority".into(),
+            ));
+        }
+        Ok(())
+    }
+    /// Install node-local delivery configuration; never exposed as model authority.
+    pub fn install_host_tool_transport(&self, server: McpServer) -> Result<()> {
+        self.0.host_tools.transport(server)
+    }
+    pub fn host_tool_channel(&self, token: &str) -> bool {
+        self.0.host_tools.channel(token)
+    }
+    pub async fn invoke_host_tool_channel(
+        &self,
+        token: &str,
+        method: &str,
+        params: Value,
+    ) -> Result<Value> {
+        self.0.host_tools.dispatch(token, method, params).await
+    }
+    /// Clones share an incarnation; a new execution owner receives a new one.
+    pub async fn identity(&self) -> Result<RuntimeIdentity> {
+        Ok(RuntimeIdentity {
+            identity: self.local_catalog().await?.identity,
+            incarnation_id: self.0.incarnation_id.clone(),
+        })
+    }
     pub fn downgrade(&self) -> WeakRuntime {
         WeakRuntime(Arc::downgrade(&self.0))
     }
@@ -116,6 +159,14 @@ impl Runtime {
                 "extension command {id}/{command}"
             )));
         }
+        let context = if let Some(session_id) = params.get("sessionId").and_then(Value::as_str) {
+            Some(self.session_context(session_id).await?)
+        } else {
+            None
+        };
+        extension
+            .before_invoke(command, &params, context.as_ref())
+            .await?;
         extension.invoke(command, params).await
     }
     pub async fn discover(&self) -> Result<Vec<Detection>> {
@@ -134,40 +185,56 @@ impl Runtime {
             .await
     }
     /// Read native settings through a temporary connection without saving a chat or sending a prompt.
-    pub async fn preview_configuration(&self, mut options: SpawnOptions) -> Result<Value> {
-        for extension in &self.0.extensions {
-            extension.before_spawn(&mut options).await?;
-        }
-        options.cwd = tokio::fs::canonicalize(&options.cwd).await?;
-        if !options.cwd.is_dir() {
-            return Err(Error::Invalid("cwd must be a directory".into()));
-        }
+    pub async fn preview_configuration(
+        &self,
+        mut options: SpawnOptions,
+    ) -> Result<ConfigurationPreview> {
+        self.validate_permission_authority()?;
+        options = self.resolve_launch_options(options).await?;
         let harness =
             self.0.harnesses.get(&options.harness).ok_or_else(|| {
                 Error::Invalid(format!("unregistered harness: {}", options.harness))
             })?;
         let detection = harness.detect().await?;
-        if detection.capabilities.metadata.get("ephemeral") != Some(&serde_json::json!(true)) {
+        if !detection.capabilities.ephemeral.is_available() {
             return Err(Error::Unsupported(
                 "This harness requires a session to discover its model settings".into(),
             ));
         }
         options.execution.ephemeral = true;
-        let connection = harness.connect(&options, None, false).await?;
+        compile_launch_profile(harness.as_ref(), &mut options)?;
+        let connection = harness
+            .connect(&native_launch_options(&options), None, false)
+            .await?;
+        let execution_policy =
+            match launch_policy(connection.backend.as_ref(), &options, None).await {
+                Ok(policy) => policy,
+                Err(error) => {
+                    let _ = connection.backend.kill().await;
+                    return Err(error);
+                }
+            };
         let mut events = connection.events;
         let drain = tokio::spawn(async move { while events.recv().await.is_some() {} });
         let result = async {
-            let configuration = if connection.capabilities.configure {
+            let mut configuration = if connection.capabilities.configure.is_available() {
                 connection.backend.configuration().await?
             } else {
-                serde_json::json!([])
+                vec![]
             };
-            let models = if connection.capabilities.models {
-                connection.backend.models().await?
+            configuration.push(execution_policy.descriptor());
+            let configuration = Some(configuration);
+            let models = if connection.capabilities.models.is_available() {
+                Some(connection.backend.models().await?)
             } else {
-                serde_json::json!([])
+                None
             };
-            Ok(serde_json::json!({"configuration":configuration,"models":models}))
+            Ok(ConfigurationPreview {
+                capabilities: connection.capabilities.clone(),
+                execution_policy,
+                configuration,
+                models,
+            })
         }
         .await;
         let closed = connection.backend.close().await;
@@ -218,7 +285,7 @@ impl Runtime {
                 return Ok(saved);
             }
         }
-        if !document.capabilities.resume {
+        if !document.capabilities.resume.is_available() {
             return Err(Error::Unsupported("imported native session resume".into()));
         }
         let now = timestamp_ms();
@@ -227,8 +294,25 @@ impl Runtime {
             options.config = serde_json::json!({});
         }
         options.config["nativeHistory"] = serde_json::to_value(&document.session)?;
+        let id = uuid::Uuid::new_v4().to_string();
+        let directory = self.register_observed_directory(&options.cwd, true).await?;
+        options.cwd = directory.path.clone();
+        let context = self
+            .0
+            .store
+            .prepare_context(
+                &id,
+                &uuid::Uuid::new_v4().to_string(),
+                ContextSelection::Directory {
+                    directory: directory.reference(),
+                    native_existing: true,
+                },
+            )
+            .await?;
         let mut snapshot = SessionSnapshot {
-            id: uuid::Uuid::new_v4().to_string(),
+            id,
+            working_context: Some(context),
+            execution_policy: ExecutionPolicy::default(),
             native: document.session.native,
             options,
             capabilities: document.capabilities,
@@ -244,25 +328,30 @@ impl Runtime {
             },
             queue: Default::default(),
         };
+        let mut events = Vec::new();
         for record in document.records {
             snapshot.sequence += 1;
             if matches!(record.kind, EventKind::TurnEnded { .. }) {
                 snapshot.turns_completed += 1;
             }
-            self.0
-                .store
-                .append_event(&RuntimeEvent {
-                    session_id: snapshot.id.clone(),
-                    sequence: snapshot.sequence,
-                    turn_id: record.turn_id,
-                    source: snapshot.options.harness.clone(),
-                    timestamp_ms: document.session.updated_at_ms,
-                    kind: record.kind,
-                    raw: record.raw,
-                })
-                .await?;
+            events.push(RuntimeEvent {
+                session_id: snapshot.id.clone(),
+                sequence: snapshot.sequence,
+                turn_id: record.turn_id,
+                source: snapshot.options.harness.clone(),
+                timestamp_ms: document.session.updated_at_ms,
+                kind: record.kind,
+                raw: record.raw,
+            });
         }
-        self.0.store.save(&snapshot).await?;
+        self.0
+            .store
+            .commit(SessionWrite {
+                snapshot: Some(&snapshot),
+                events: &events,
+                ..Default::default()
+            })
+            .await?;
         Ok(snapshot)
     }
     pub async fn account_quotas(&self, query: AccountQuery) -> Result<Value> {
@@ -305,6 +394,55 @@ impl Runtime {
             .buffered(4)
             .collect()
             .await)
+    }
+    /// Read a retained receipt without creating or resuming provider work.
+    pub async fn submission(&self, id: &str, key: &str) -> Result<Option<SubmissionReceipt>> {
+        crate::submission::validate_submission_key(key)?;
+        if let Some(agent) = self.agent(id).await {
+            return agent.submission(key).await;
+        }
+        Ok(self
+            .0
+            .store
+            .submissions(id)
+            .await?
+            .into_iter()
+            .find(|r| r.receipt.idempotency_key == key)
+            .map(|mut record| {
+                record.recover();
+                record.receipt
+            }))
+    }
+    /// Inspect an existing native connection. This never resumes a closed session.
+    pub async fn reconcile_submission(
+        &self,
+        id: &str,
+        key: &str,
+    ) -> Result<Option<SubmissionReceipt>> {
+        crate::submission::validate_submission_key(key)?;
+        self.agent(id)
+            .await
+            .ok_or(Error::Closed)?
+            .reconcile_submission(key)
+            .await
+    }
+    pub async fn submit(&self, id: &str, key: &str, prompt: Prompt) -> Result<SubmissionReceipt> {
+        crate::submission::validate_client_submission_key(key)?;
+        if let Some(agent) = self.agent(id).await {
+            return agent.submit(key, prompt).await;
+        }
+        if let Some(mut record) = self
+            .0
+            .store
+            .submissions(id)
+            .await?
+            .into_iter()
+            .find(|r| r.receipt.idempotency_key == key)
+        {
+            record.recover();
+            return record.duplicate(&prompt);
+        }
+        Err(Error::Closed)
     }
     pub async fn snapshot(&self, id: &str) -> Result<SessionSnapshot> {
         if let Some(agent) = self.agent(id).await {
@@ -366,11 +504,16 @@ impl Runtime {
         if timeout.is_zero() {
             return Err(Error::Invalid("generate timeout must be positive".into()));
         }
+        options = self.resolve_launch_options(options).await?;
+        options.project_id = None;
+        options.project_revision = None;
         options.execution.tools = ToolPolicy::Disabled;
         options.execution.ephemeral = true;
         let schema = options.execution.output_schema.is_some();
         let (events, _) = broadcast::channel(4096);
         let isolated = Runtime(Arc::new(RuntimeInner {
+            incarnation_id: uuid::Uuid::new_v4().to_string(),
+            host_tools: Default::default(),
             harnesses: self.0.harnesses.clone(),
             store: Arc::new(MemoryStore::default()),
             extensions: vec![],
@@ -399,13 +542,17 @@ impl Runtime {
         }
     }
     pub async fn resume(&self, id: &str) -> Result<Agent> {
+        // Attaching another client to a live binding does not require native restart support.
+        if let Some(agent) = self.agent(id).await {
+            return Ok(agent);
+        }
         let s = self
             .0
             .store
             .load(id)
             .await?
             .ok_or_else(|| Error::Invalid("unknown saved session".into()))?;
-        if !s.capabilities.resume {
+        if !s.capabilities.resume.is_available() {
             return Err(Error::Unsupported("resume".into()));
         }
         self.open(s.options.clone(), Some(s), false, None, false, false)
@@ -414,7 +561,7 @@ impl Runtime {
     /// Execution overrides replace the saved declaration; credentials must be supplied anew.
     pub async fn resume_with(&self, id: &str, execution: SessionExecutionOptions) -> Result<Agent> {
         let mut saved = self.snapshot(id).await?;
-        if !saved.capabilities.resume {
+        if !saved.capabilities.resume.is_available() {
             return Err(Error::Unsupported("resume".into()));
         }
         saved.options.execution = execution;
@@ -516,18 +663,13 @@ impl Runtime {
             return Err(Error::Busy);
         }
         let supported = if message_id.is_some() {
-            snapshot
-                .capabilities
-                .metadata
-                .get(if before_user {
-                    "forkBeforeUser"
-                } else {
-                    "forkAtMessage"
-                })
-                .and_then(Value::as_bool)
-                == Some(true)
+            if before_user {
+                snapshot.capabilities.fork_before_user.is_available()
+            } else {
+                snapshot.capabilities.fork_at_message.is_available()
+            }
         } else {
-            snapshot.capabilities.fork
+            snapshot.capabilities.fork.is_available()
         };
         if !supported {
             return Err(Error::Unsupported(
@@ -565,6 +707,7 @@ impl Runtime {
         execution_override: bool,
         before_user: bool,
     ) -> Result<Agent> {
+        self.validate_permission_authority()?;
         let _lock = self.0.open_lock.lock().await;
         if before_user && self.transcript_durability().is_none() {
             return Err(Error::Unsupported(
@@ -582,18 +725,59 @@ impl Runtime {
             }
             return Ok(a);
         }
+        let session_id = saved
+            .as_ref()
+            .filter(|_| !fork)
+            .map(|s| s.id.clone())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let context = if let Some(snapshot) = &saved {
+            let retained = self.retained_context(snapshot).await?;
+            verify_context(&retained).await?;
+            options.cwd = retained.directory.path.clone();
+            if fork {
+                self.0
+                    .store
+                    .prepare_context(
+                        &session_id,
+                        &uuid::Uuid::new_v4().to_string(),
+                        ContextSelection::Inherited {
+                            context_id: retained.id,
+                        },
+                    )
+                    .await?
+            } else {
+                retained
+            }
+        } else {
+            let selection = self.resolve_new_selection(&mut options).await?;
+            let context = self
+                .0
+                .store
+                .prepare_context(&session_id, &uuid::Uuid::new_v4().to_string(), selection)
+                .await?;
+            options.cwd = context.directory.path.clone();
+            context
+        };
+        let selected_project = options.project_id.clone();
+        let selected_revision = options.project_revision;
         for ext in &self.0.extensions {
             ext.before_spawn(&mut options).await?;
         }
-        options.cwd = tokio::fs::canonicalize(&options.cwd).await?;
-        if !options.cwd.is_dir() {
-            return Err(Error::Invalid("cwd must be a directory".into()));
+        if options.cwd != context.directory.path
+            || options.project_id != selected_project
+            || options.project_revision != selected_revision
+        {
+            return Err(Error::Invalid(
+                "extension changed a retained working selection".into(),
+            ));
         }
+        verify_context(&context).await?;
         let h =
             self.0.harnesses.get(&options.harness).ok_or_else(|| {
                 Error::Invalid(format!("unregistered harness: {}", options.harness))
             })?;
         let mut retained = std::collections::VecDeque::new();
+        let mut submission_history = crate::submission::SubmissionHistory::default();
         let mut last_sequence = saved.as_ref().map_or(0, |s| s.sequence);
         let mut turns_completed = saved.as_ref().map_or(0, |s| s.turns_completed);
         let mut recovered_turn = saved
@@ -610,6 +794,7 @@ impl Runtime {
                     break;
                 }
                 for event in page {
+                    submission_history.observe(&event);
                     after = event.sequence;
                     last_sequence = last_sequence.max(after);
                     if matches!(&event.kind, EventKind::TurnEnded { .. })
@@ -689,7 +874,8 @@ impl Runtime {
             None
         };
         // Providers that rewrite IDs on native fork can retain canonical journal anchors.
-        let mut connect_options = options.clone();
+        compile_launch_profile(h.as_ref(), &mut options)?;
+        let mut connect_options = native_launch_options(&options);
         if let Some(config) = connect_options.config.as_object_mut() {
             config.remove("_runtimeMessageIdAliases");
         }
@@ -703,6 +889,20 @@ impl Runtime {
             }
             connect_options.config["_runtimeMessageIdAliases"] = aliases.clone();
         }
+        let mut submissions = BTreeMap::new();
+        if let Some(saved) = &saved
+            && !fork
+        {
+            for mut record in self.0.store.submissions(&saved.id).await? {
+                record.recover();
+                self.0.store.save_submission(&record).await?;
+                submissions.insert(record.receipt.idempotency_key.clone(), record);
+            }
+        }
+        let host_tools =
+            self.0
+                .host_tools
+                .launch(&mut connect_options, &context, &self.0.extensions)?;
         let connection = if let Some(message_id) = &message_id {
             let native_message_id = aliases
                 .and_then(|map| map.get(message_id))
@@ -727,9 +927,105 @@ impl Runtime {
             h.connect(&connect_options, saved.as_ref().map(|s| &s.native), fork)
                 .await?
         };
-        if let Err(error) = validate_execution(&options.execution, &connection.capabilities) {
+        let mut execution_policy = match launch_policy(
+            connection.backend.as_ref(),
+            &options,
+            saved.as_ref().map(|saved| &saved.execution_policy),
+        )
+        .await
+        {
+            Ok(policy) => policy,
+            Err(error) => {
+                let _ = connection.backend.kill().await;
+                return Err(error);
+            }
+        };
+        execution_policy.binding_id = Some(context.binding_id.clone());
+        execution_policy.native_session = Some(connection.native.clone());
+        if let Err(error) = validate_execution(&connect_options.execution, &connection.capabilities)
+        {
             let _ = connection.backend.kill().await;
             return Err(error);
+        }
+        if !fork {
+            for record in submissions
+                .values_mut()
+                .filter(|r| r.receipt.recovery_required)
+            {
+                if record.resolve_not_sent() {
+                    if let Err(error) = self.0.store.save_submission(record).await {
+                        let _ = connection.backend.kill().await;
+                        return Err(error);
+                    }
+                    continue;
+                }
+                let result = tokio::time::timeout(
+                    std::time::Duration::from_secs(10),
+                    connection.backend.reconcile_submission(&record.receipt.id),
+                )
+                .await;
+                if let Ok(Ok(Some(evidence))) = result {
+                    if let Err(error) = record.reconcile(evidence) {
+                        let _ = connection.backend.kill().await;
+                        return Err(error);
+                    }
+                    // Retain native facts before repairing any journal or snapshot.
+                    record.terminal_sequence =
+                        record.receipt.outcome.as_ref().map(|_| {
+                            last_sequence + submission_history.missing(record).len() as u64
+                        });
+                    if let Err(error) = self.0.store.save_submission(record).await {
+                        let _ = connection.backend.kill().await;
+                        return Err(error);
+                    }
+                }
+            }
+        }
+        if self.transcript_durability().is_some() && !fork {
+            for record in submissions.values() {
+                if submission_history.open_turn(record) {
+                    recovered_turn = Some(record.receipt.turn_id.clone());
+                }
+                for (kind, raw) in submission_history.missing(record) {
+                    last_sequence += 1;
+                    let terminal = matches!(kind, EventKind::TurnEnded { .. });
+                    let event = RuntimeEvent {
+                        session_id: record.receipt.session_id.clone(),
+                        sequence: last_sequence,
+                        turn_id: Some(record.receipt.turn_id.clone()),
+                        source: options.harness.clone(),
+                        timestamp_ms: timestamp_ms(),
+                        kind,
+                        raw,
+                    };
+                    if let Err(error) = self.0.store.append_event(&event).await {
+                        let _ = connection.backend.kill().await;
+                        return Err(error);
+                    }
+                    if terminal {
+                        if record.terminal_sequence.is_some_and(|sequence| {
+                            saved.as_ref().is_some_and(|s| s.sequence < sequence)
+                        }) {
+                            turns_completed += 1;
+                        }
+                        if recovered_turn.as_ref() == Some(&record.receipt.turn_id) {
+                            recovered_turn = None;
+                        }
+                    } else if record.receipt.outcome.is_none() {
+                        recovered_turn = Some(record.receipt.turn_id.clone());
+                    }
+                    if retained.len() == 4096 {
+                        retained.pop_front();
+                    }
+                    retained.push_back(event);
+                }
+            }
+        }
+        if submissions.values().any(|record| {
+            record.receipt.outcome.is_none()
+                && recovered_turn.as_ref() == Some(&record.receipt.turn_id)
+        }) {
+            recovered_turn = None;
         }
         let now = timestamp_ms();
         let mut metadata = saved
@@ -753,11 +1049,9 @@ impl Runtime {
         }
         let execution = Arc::new(std::sync::Mutex::new(Some(options.execution.clone())));
         let mut snapshot = SessionSnapshot {
-            id: saved
-                .as_ref()
-                .filter(|_| !fork)
-                .map(|s| s.id.clone())
-                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+            id: session_id,
+            working_context: Some(context),
+            execution_policy,
             native: connection.native,
             options: sanitized_options(options),
             capabilities: connection.capabilities,
@@ -768,6 +1062,10 @@ impl Runtime {
             metadata,
             queue,
         };
+        if let Some(tools) = &host_tools {
+            tools.observe(&snapshot);
+        }
+        let mut initial_events = Vec::new();
         if before_user {
             let query = NativeHistoryQuery {
                 harness: snapshot.options.harness.clone(),
@@ -797,10 +1095,7 @@ impl Runtime {
                     kind: record.kind,
                     raw: record.raw,
                 };
-                if let Err(error) = self.0.store.append_event(&event).await {
-                    let _ = connection.backend.kill().await;
-                    return Err(error);
-                }
+                initial_events.push(event.clone());
                 if retained.len() == 4096 {
                     retained.pop_front();
                 }
@@ -825,10 +1120,7 @@ impl Runtime {
                     if let EventKind::SessionStarted(started) = &mut event.kind {
                         started.id = snapshot.id.clone();
                     }
-                    if let Err(error) = self.0.store.append_event(&event).await {
-                        let _ = connection.backend.kill().await;
-                        return Err(error);
-                    }
+                    initial_events.push(event.clone());
                     if retained.len() == 4096 {
                         retained.pop_front();
                     }
@@ -839,7 +1131,20 @@ impl Runtime {
                 event.session_id = snapshot.id.clone();
             }
         }
-        if let Err(error) = self.0.store.save(&snapshot).await {
+        if submissions.values().any(SubmissionRecord::blocks_dispatch) {
+            snapshot.queue.paused = true;
+            snapshot.state = SessionState::NeedsInput;
+        }
+        if let Err(error) = self
+            .0
+            .store
+            .commit(SessionWrite {
+                snapshot: Some(&snapshot),
+                events: &initial_events,
+                ..Default::default()
+            })
+            .await
+        {
             let _ = connection.backend.kill().await;
             return Err(error);
         }
@@ -865,6 +1170,8 @@ impl Runtime {
             ext.after_spawn(&snapshot).await;
         }
         let engine = Engine {
+            host_tools,
+            submissions,
             execution,
             backend: Arc::from(connection.backend),
             input: connection.events,
@@ -1065,15 +1372,13 @@ fn validate_execution(
     execution: &SessionExecutionOptions,
     capabilities: &Capabilities,
 ) -> Result<()> {
-    let supported =
-        |key: &str| capabilities.metadata.get(key).and_then(Value::as_bool) == Some(true);
-    if execution.tools == ToolPolicy::Disabled && !supported("toolsDisabled") {
+    if execution.tools == ToolPolicy::Disabled && !capabilities.tools_disabled.is_available() {
         return Err(Error::Unsupported("launch-time tool disabling".into()));
     }
-    if execution.output_schema.is_some() && !supported("outputSchema") {
+    if execution.output_schema.is_some() && !capabilities.output_schema.is_available() {
         return Err(Error::Unsupported("output schema".into()));
     }
-    if execution.ephemeral && !supported("ephemeral") {
+    if execution.ephemeral && !capabilities.ephemeral.is_available() {
         return Err(Error::Unsupported("ephemeral native session".into()));
     }
     let mut names = std::collections::BTreeSet::new();
@@ -1162,4 +1467,71 @@ pub(crate) fn apply_metadata(
     }
     snapshot.metadata.updated_at_ms = timestamp_ms();
     Ok(())
+}
+
+fn compile_launch_profile(harness: &dyn Harness, options: &mut SpawnOptions) -> Result<()> {
+    if let Some(profile) = requested_execution_profile(&options.config)? {
+        let plan = harness.compile_execution_profile(options, profile)?;
+        let native = plan
+            .native
+            .as_object()
+            .ok_or_else(|| Error::Provider("execution policy plan must be an object".into()))?;
+        let config = options
+            .config
+            .as_object_mut()
+            .ok_or_else(|| Error::Invalid("configuration must be an object".into()))?;
+        config.extend(native.clone());
+    }
+    Ok(())
+}
+fn native_launch_options(options: &SpawnOptions) -> SpawnOptions {
+    let mut options = options.clone();
+    if let Some(config) = options.config.as_object_mut() {
+        config.remove(EXECUTION_PROFILE_SETTING);
+    }
+    options
+}
+async fn launch_policy(
+    backend: &dyn AgentBackend,
+    options: &SpawnOptions,
+    saved: Option<&ExecutionPolicy>,
+) -> Result<ExecutionPolicy> {
+    let requested = requested_execution_profile(&options.config)?;
+    let mut policy = ExecutionPolicy {
+        requested,
+        revision: saved.map_or(u64::from(requested.is_some()), |saved| saved.revision),
+        ..Default::default()
+    };
+    if let Some(profile) = requested {
+        let plan = backend.compile_execution_profile(profile).await?;
+        backend.configure(plan.native).await?;
+    }
+    let report = backend.execution_policy().await?;
+    if saved.is_some_and(|saved| saved.dispatch_blocked) {
+        let reconciled = report.observed.as_ref().is_some_and(|observed| {
+            observed.evidence == PolicyEvidence::NativeReceipt
+                && report.status == PolicyStatus::Effective
+                && requested.is_some()
+                && observed.profile == requested
+        });
+        if !reconciled {
+            policy.dispatch_blocked = true;
+            policy.status = PolicyStatus::Unknown;
+            policy.reason =
+                Some("Retained policy uncertainty requires an explicit supported selection".into());
+        }
+    }
+    policy.observe(report);
+    if requested.is_some()
+        && matches!(
+            policy.status,
+            PolicyStatus::Unknown | PolicyStatus::Partial | PolicyStatus::Rejected
+        )
+    {
+        policy.dispatch_blocked = true;
+        policy
+            .reason
+            .get_or_insert_with(|| "Native policy application has not been confirmed".into());
+    }
+    Ok(policy)
 }

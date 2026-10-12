@@ -34,11 +34,11 @@ async fn finish(connection: &mut BackendConnection) -> (Value, Vec<EventKind>, S
                     }
                     events.push(*kind);
                 }
-                BackendEvent::TurnFinished { reason, .. } => {
+                BackendEvent::TurnFinished { outcome, .. } => {
                     return (
                         serde_json::from_str(&text).unwrap_or(Value::Null),
                         events,
-                        reason,
+                        outcome.to_string(),
                     );
                 }
                 BackendEvent::Exited { message } => panic!("peer exited unexpectedly: {message}"),
@@ -68,8 +68,8 @@ async fn native_stream_applies_flags_schema_and_normalizes_sparse_tools_and_sess
         .await
         .unwrap();
     assert_eq!(connection.native.id, "native-conversation");
-    assert!(!connection.capabilities.permissions);
-    assert!(!connection.capabilities.fork);
+    assert!(!connection.capabilities.permissions.is_available());
+    assert!(!connection.capabilities.fork.is_available());
     assert_eq!(
         connection.capabilities.metadata["wire"],
         "native_stream_json"
@@ -113,7 +113,7 @@ async fn native_stream_applies_flags_schema_and_normalizes_sparse_tools_and_sess
             .any(|e| matches!(e, EventKind::StructuredOutput(output) if output["ok"] == true))
     );
     assert_eq!(
-        connection.backend.models().await.unwrap()[0]["id"],
+        json!(connection.backend.models().await.unwrap())[0]["id"],
         "fixture-model"
     );
     connection

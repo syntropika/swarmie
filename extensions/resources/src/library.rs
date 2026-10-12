@@ -1,4 +1,3 @@
-use crate::settings::cwd;
 use crate::*;
 use std::fs;
 
@@ -61,13 +60,13 @@ impl ResourcesExtension {
                 }
                 capacity(state.templates.contains_key(id), state.templates.len())?;
                 state.templates.insert(id.into(), template.clone());
-                self.persist(&state)?;
+                self.persist(&state).await?;
                 Ok(serde_json::to_value(template)?)
             }
             "templates.remove" => {
                 let mut state = self.0.state.lock().await;
                 state.templates.remove(text(p, "id")?);
-                self.persist(&state)?;
+                self.persist(&state).await?;
                 Ok(json!({"removed":true}))
             }
             "templates.render" => {
@@ -115,7 +114,7 @@ impl ResourcesExtension {
             }
             "resources.list" => self.discover(p).await,
             "resources.read" => {
-                let cwd = cwd(p)?;
+                let cwd = self.resource_cwd(p).await?;
                 let path = fs::canonicalize(text(p, "path")?)?;
                 let allowed = self
                     .0
@@ -143,7 +142,7 @@ impl ResourcesExtension {
             "history.list" => {
                 self.backfill().await?;
                 let path = if p.get("cwd").is_some() {
-                    Some(cwd(p)?)
+                    Some(self.resource_cwd(p).await?)
                 } else {
                     None
                 };
@@ -161,7 +160,7 @@ impl ResourcesExtension {
         }
     }
     async fn discover(&self, p: &Value) -> Result<Value> {
-        let project = cwd(p)?;
+        let project = self.resource_cwd(p).await?;
         let mut roots = vec![
             (project.join(".agents/skills"), "skill", "project"),
             (project.join(".pi/skills"), "skill", "project"),

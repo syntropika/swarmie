@@ -131,8 +131,8 @@ export function ResourceLibrary({
         "resources.list",
         {
           cwd: thread.worktreeId,
-          harness: thread.harness,
           sessionId: thread.sessionId,
+          harness: thread.harness,
         },
       ),
     ]);
@@ -205,6 +205,7 @@ export function ResourceLibrary({
                 setRead(
                   await store.invokeExtension("resources", "resources.read", {
                     cwd: thread.worktreeId,
+                    sessionId: thread.sessionId,
                     path: r.path,
                   }),
                 ),
@@ -404,6 +405,7 @@ export function ResourceLibrary({
                 items: typeof history;
               }>("resources", "history.list", {
                 cwd: thread.worktreeId,
+                sessionId: thread.sessionId,
                 query,
                 limit: 40,
               });
@@ -566,10 +568,7 @@ export function SlashCommands({
               if (
                 command.source === "skill" &&
                 command.path &&
-                (
-                  thread.capabilities?.metadata as
-                    Record<string, unknown> | undefined
-                )?.nativeSkillInputs === true
+                thread.capabilities?.nativeSkillInputs?.availability === "available"
               ) {
                 const skill = {
                   name: command.name.replace(/^[/$]/, ""),

@@ -50,6 +50,7 @@ describe("template command parameters and aliases", () => {
 describe("project default controls and workspace selection", () => {
   const project: Project = {
     id: "project",
+    revision: 3,
     path: "/repo",
     name: "Repo",
     worktrees: [
@@ -90,19 +91,21 @@ describe("project default controls and workspace selection", () => {
         "claude",
       ),
     ).toEqual({
-      cwd: "/repo",
+      projectId: "project",
+      expectedRevision: 3,
       model: "small",
       config: { permissionMode: "plan", maxTokens: 512 },
-      workspace: "/trees/feature",
+      directoryPath: "/trees/feature",
       harness: "claude",
     });
   });
   it("clears defaults explicitly and refuses missing or unrelated workspace paths", () => {
     expect(projectDefaultsPayload(project, "", "null", "")).toEqual({
-      cwd: "/repo",
+      projectId: "project",
+      expectedRevision: 3,
       model: null,
       config: null,
-      workspace: null,
+      directoryPath: "/repo",
     });
     expect(() =>
       projectDefaultsPayload(project, "", "{}", "/trees/missing"),

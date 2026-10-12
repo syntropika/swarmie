@@ -9,6 +9,8 @@ fn options(provider: &str) -> SpawnOptions {
         .canonicalize()
         .unwrap();
     SpawnOptions {
+        project_id: None,
+        project_revision: None,
         execution: Default::default(),
         harness: provider.into(),
         cwd: root.clone(),
@@ -101,8 +103,8 @@ async fn questions_translate_portable_answers_to_native_responses() {
 #[tokio::test]
 async fn configuration_is_applied_to_codex_turn_and_invalid_choice_is_rejected() {
     let agent = runtime().spawn(options("codex")).await.unwrap();
-    assert!(agent.snapshot().await.capabilities.configure);
-    let configuration = agent.configuration().await.unwrap();
+    assert!(agent.snapshot().await.capabilities.configure.is_available());
+    let configuration = json!(agent.configuration().await.unwrap());
     assert!(
         configuration
             .as_array()
@@ -143,7 +145,7 @@ async fn claude_effort_and_fast_controls_use_advertised_native_settings() {
     options.model = Some("fixture-model".into());
     let runtime = runtime();
     let agent = runtime.spawn(options).await.unwrap();
-    let descriptors = agent.configuration().await.unwrap();
+    let descriptors = json!(agent.configuration().await.unwrap());
     assert!(
         descriptors
             .as_array()
@@ -167,7 +169,7 @@ async fn claude_effort_and_fast_controls_use_advertised_native_settings() {
     let id = agent.snapshot().await.id;
     agent.close().await.unwrap();
     let resumed = runtime.resume(&id).await.unwrap();
-    let descriptors = resumed.configuration().await.unwrap();
+    let descriptors = json!(resumed.configuration().await.unwrap());
     assert!(
         descriptors
             .as_array()
@@ -379,7 +381,7 @@ async fn pi_message_end_closes_each_assistant_message_without_closing_a_retried_
         1
     );
     assert!(
-        matches!(&events.last().unwrap().kind,EventKind::TurnEnded{reason} if reason=="completed")
+        matches!(&events.last().unwrap().kind,EventKind::TurnEnded { outcome, .. } if outcome.as_str() == "completed")
     );
     agent.close().await.unwrap();
 }
@@ -392,7 +394,7 @@ async fn active_turns_reject_new_prompts_and_support_cancel() {
         let mut events = a.events();
         a.prompt("hold").await.unwrap();
         assert!(matches!(a.prompt("second").await, Err(Error::Busy)));
-        if a.capabilities().await.steering {
+        if a.capabilities().await.steering.is_available() {
             a.steer("constraint").await.unwrap();
         } else {
             assert!(matches!(
@@ -418,10 +420,9 @@ async fn pi_waits_for_settled_and_handled_commands_do_not_hang() {
     );
     a.prompt("handled").await.unwrap();
     let out = finish(&mut events).await;
-    assert!(
-        out.iter()
-            .any(|e| matches!(&e.kind,EventKind::TurnEnded { reason } if reason == "handled"))
-    );
+    assert!(out.iter().any(
+        |e| matches!(&e.kind,EventKind::TurnEnded { outcome, .. } if outcome.as_str() == "handled")
+    ));
     a.close().await.unwrap();
 }
 #[tokio::test]
@@ -449,15 +450,14 @@ async fn crashes_end_active_turn_and_fail_the_session() {
     }
 }
 #[tokio::test]
-async fn native_rejection_does_not_leave_a_phantom_turn() {
+async fn unqualified_native_errors_block_followups_without_a_confirmed_turn() {
     for provider in ["codex", "pi"] {
         let r = runtime();
         let a = r.spawn(options(provider)).await.unwrap();
         assert!(a.prompt("reject").await.is_err());
         assert!(a.snapshot().await.turn.is_none());
-        let mut events = a.events();
-        a.prompt("hello").await.unwrap();
-        finish(&mut events).await;
+        assert_eq!(a.snapshot().await.state, SessionState::NeedsInput);
+        assert!(matches!(a.prompt("hello").await, Err(Error::Busy)));
         a.close().await.unwrap();
     }
 }
@@ -505,7 +505,7 @@ async fn cancellation_reason_is_preserved_and_closed_stream_finishes() {
     let out = finish(&mut events).await;
     assert!(
         out.iter()
-            .any(|e| matches!(&e.kind,EventKind::TurnEnded { reason } if reason == "cancelled"))
+            .any(|e| matches!(&e.kind,EventKind::TurnEnded { outcome, .. } if outcome.as_str() == "cancelled"))
     );
     a.close().await.unwrap();
     tokio::time::timeout(Duration::from_millis(300), async {
@@ -575,11 +575,209 @@ async fn pi_retry_success_is_terminal_success_and_user_messages_are_not_assistan
     );
     assert!(
         out.iter()
-            .any(|e| matches!(&e.kind,EventKind::TurnEnded { reason } if reason == "completed"))
+            .any(|e| matches!(&e.kind,EventKind::TurnEnded { outcome, .. } if outcome.as_str() == "completed"))
     );
     assert!(
         !out.iter()
             .any(|e| matches!(&e.kind,EventKind::AssistantMessage(v) if v["role"] == "user"))
     );
     a.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn terminal_outcomes_are_portable_and_retain_native_reasons() {
+    let cases = [
+        (
+            "codex",
+            json!({"status":"completed"}),
+            TurnOutcome::Completed,
+            Some("completed"),
+        ),
+        (
+            "codex",
+            json!({"status":"interrupted"}),
+            TurnOutcome::Interrupted,
+            Some("interrupted"),
+        ),
+        (
+            "codex",
+            json!({"status":"failed"}),
+            TurnOutcome::Failed,
+            Some("failed"),
+        ),
+        (
+            "codex",
+            json!({"status":"failed","error":{"codexErrorInfo":"contextWindowExceeded"}}),
+            TurnOutcome::Limited,
+            Some("failed"),
+        ),
+        (
+            "codex",
+            json!({"status":"future_status"}),
+            TurnOutcome::Unknown,
+            Some("future_status"),
+        ),
+        ("codex", json!({}), TurnOutcome::Unknown, None),
+        (
+            "claude",
+            json!({"subtype":"success","is_error":false}),
+            TurnOutcome::Completed,
+            Some("success"),
+        ),
+        (
+            "claude",
+            json!({"subtype":"error_during_execution","is_error":true}),
+            TurnOutcome::Failed,
+            Some("error_during_execution"),
+        ),
+        (
+            "claude",
+            json!({"subtype":"error_max_turns","is_error":true}),
+            TurnOutcome::Limited,
+            Some("error_max_turns"),
+        ),
+        (
+            "claude",
+            json!({"subtype":"error_max_budget_usd","is_error":true}),
+            TurnOutcome::Limited,
+            Some("error_max_budget_usd"),
+        ),
+        (
+            "claude",
+            json!({"subtype":"future_reason"}),
+            TurnOutcome::Unknown,
+            Some("future_reason"),
+        ),
+        (
+            "pi",
+            json!({"stopReason":"stop"}),
+            TurnOutcome::Completed,
+            Some("stop"),
+        ),
+        (
+            "pi",
+            json!({"stopReason":"length"}),
+            TurnOutcome::Limited,
+            Some("length"),
+        ),
+        (
+            "pi",
+            json!({"stopReason":"error"}),
+            TurnOutcome::Failed,
+            Some("error"),
+        ),
+        (
+            "pi",
+            json!({"stopReason":"aborted"}),
+            TurnOutcome::Cancelled,
+            Some("aborted"),
+        ),
+        (
+            "pi",
+            json!({"stopReason":"future_reason"}),
+            TurnOutcome::Unknown,
+            Some("future_reason"),
+        ),
+        (
+            "acp",
+            json!({"stopReason":"end_turn"}),
+            TurnOutcome::Completed,
+            Some("end_turn"),
+        ),
+        (
+            "acp",
+            json!({"stopReason":"cancelled"}),
+            TurnOutcome::Cancelled,
+            Some("cancelled"),
+        ),
+        (
+            "acp",
+            json!({"stopReason":"max_tokens"}),
+            TurnOutcome::Limited,
+            Some("max_tokens"),
+        ),
+        (
+            "acp",
+            json!({"stopReason":"max_turn_requests"}),
+            TurnOutcome::Limited,
+            Some("max_turn_requests"),
+        ),
+        (
+            "acp",
+            json!({"stopReason":"refusal"}),
+            TurnOutcome::Refused,
+            Some("refusal"),
+        ),
+        (
+            "acp",
+            json!({"stopReason":"future_reason"}),
+            TurnOutcome::Unknown,
+            Some("future_reason"),
+        ),
+        ("acp", json!({}), TurnOutcome::Unknown, None),
+    ];
+    for (provider, payload, expected, native) in cases {
+        let runtime = runtime();
+        let agent = runtime.spawn(options(provider)).await.unwrap();
+        let mut events = agent.events();
+        agent
+            .prompt(format!("terminal:{payload}").as_str())
+            .await
+            .unwrap();
+        let records = finish(&mut events).await;
+        let terminal = records.last().unwrap();
+        let EventKind::TurnEnded {
+            outcome,
+            native_reason,
+        } = &terminal.kind
+        else {
+            unreachable!()
+        };
+        assert_eq!(*outcome, expected, "{provider}: {payload}");
+        assert_eq!(native_reason.as_deref(), native, "{provider}: {payload}");
+        assert!(terminal.turn_id.is_some());
+        assert!(terminal.raw.is_some());
+        let serialized = serde_json::to_value(terminal).unwrap();
+        assert_eq!(serialized["data"]["outcome"], expected.as_str());
+        assert!(
+            !serialized["data"]
+                .as_object()
+                .unwrap()
+                .contains_key("reason")
+        );
+        if let Some(native) = native {
+            assert_eq!(serialized["data"]["nativeReason"], native);
+        }
+        agent.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn acp_discovery_does_not_claim_session_catalogs_are_unsupported() {
+    let runtime = runtime();
+    let detection = runtime
+        .discover()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|entry| entry.harness == "acp")
+        .unwrap();
+    assert_eq!(
+        detection.capabilities.models.availability,
+        CapabilityAvailability::Unknown
+    );
+    assert_eq!(
+        detection.capabilities.configure.availability,
+        CapabilityAvailability::Unknown
+    );
+    let agent = runtime.spawn(options("acp")).await.unwrap();
+    let capabilities = agent.capabilities().await;
+    assert_eq!(capabilities.models.evidence, CapabilityEvidence::Negotiated);
+    assert_eq!(
+        capabilities.configure.evidence,
+        CapabilityEvidence::Negotiated
+    );
+    assert!(capabilities.queue.is_available());
+    assert_eq!(capabilities.queue.source, CapabilitySource::Runtime);
+    agent.close().await.unwrap();
 }

@@ -1,7 +1,7 @@
 from __future__ import annotations
 import http.client, json, math, os, queue, select, subprocess, threading, time, uuid
 from typing import Any, Iterator, Protocol
-from .generated import InputSpawnOptions, InputPromptContent, SessionSnapshot, RuntimeEvent
+from .generated import InputSpawnOptions, InputPromptContent, SessionSnapshot, RuntimeEvent, SubmissionReceipt
 
 class RpcError(Exception):
     def __init__(self, code: int, message: str, data: Any = None):
@@ -133,7 +133,9 @@ class Client:
     def schema(self) -> dict[str,Any]: return self.call("runtime/schema")
     def discover(self) -> list[dict[str,Any]]: return self.call("runtime/discover")
     def spawn(self,options: InputSpawnOptions) -> SessionSnapshot: return self.call("session/create",options)
-    def prompt(self,session_id: str,prompt: str | list[InputPromptContent]) -> dict[str,Any]: return self.call("session/prompt",{"sessionId":session_id,**({"text":prompt} if isinstance(prompt,str) else {"content":prompt})})
+    def prompt(self,session_id: str,prompt: str | list[InputPromptContent],idempotency_key: str) -> SubmissionReceipt: return self.call("session/prompt",{"sessionId":session_id,"idempotencyKey":idempotency_key,**({"text":prompt} if isinstance(prompt,str) else {"content":prompt})})
+    def submission(self,session_id: str,idempotency_key: str) -> SubmissionReceipt | None: return self.call("session/submission",{"sessionId":session_id,"idempotencyKey":idempotency_key})
+    def reconcile_submission(self,session_id: str,idempotency_key: str) -> SubmissionReceipt | None: return self.call("session/submission/reconcile",{"sessionId":session_id,"idempotencyKey":idempotency_key})
     def close(self,session_id: str): return self.call("session/close",{"sessionId":session_id})
     def events(self,session_id: str,after_sequence: int = 0,timeout: float = 600,poll_interval: float = .2,cancel: threading.Event | None = None) -> Iterator[RuntimeEvent]:
         if not math.isfinite(timeout) or not math.isfinite(poll_interval) or timeout <= 0 or poll_interval <= 0: raise ValueError("Timeout and poll interval must be positive")

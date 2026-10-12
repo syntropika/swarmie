@@ -152,6 +152,9 @@ impl RuntimeExtension for PermissionPolicyExtension {
             _ => Err(Error::Unsupported(format!("extension command {command}"))),
         }
     }
+    fn permission_authority(&self) -> bool {
+        true
+    }
     async fn on_permission(
         &self,
         _session: &SessionSnapshot,

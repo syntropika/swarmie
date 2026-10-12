@@ -1,7 +1,14 @@
+mod client_host;
+mod client_monitor;
 mod desktop;
 mod mcp_bridge;
+mod node_channel;
+mod node_connection;
+mod node_credentials;
+mod node_gateway;
 mod open;
 mod remote;
+mod runtime_host;
 mod service;
 mod transport;
 mod update;
@@ -11,13 +18,13 @@ use mpai::*;
 use protocol::RuntimeService;
 use serde_json::Value;
 use std::{collections::VecDeque, path::PathBuf, time::Duration};
-use storage::FileSessionStore;
+use storage::SqliteSessionStore;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 #[derive(Parser)]
 #[command(name = "mpai", version, about = "Headless multi-harness agent runtime")]
 struct Cli {
-    /// Snapshot directory. Defaults to $XDG_STATE_HOME/mpai/sessions or ~/.local/state/mpai/sessions.
+    /// Application data root. Defaults to ~/.swarmie on the runtime node.
     #[arg(long, global = true)]
     state_dir: Option<PathBuf>,
     #[command(subcommand)]
@@ -25,12 +32,22 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Commands {
-    /// Run a native desktop host with its own managed loopback daemon.
+    /// Inspect the client-owned node registry; retained observations do not imply live connectivity.
+    Node {
+        #[command(subcommand)]
+        command: NodeCommand,
+    },
+    /// Attach a desktop client to its persistent Environment runtime, starting it if needed.
     Desktop {
         #[arg(long)]
         assets: PathBuf,
         #[arg(long)]
         host: PathBuf,
+    },
+    /// Inspect or explicitly stop this Environment's HTTP runtime.
+    Runtime {
+        #[command(subcommand)]
+        command: runtime_host::RuntimeCommand,
     },
     /// Check a configured HTTPS release manifest or stage a verified update archive.
     Update {
@@ -82,6 +99,8 @@ enum Commands {
         extension: String,
         #[arg(long, env = "MPAI_TOKEN")]
         token: Option<String>,
+        #[arg(long, env = "MPAI_TOOL_CHANNEL")]
+        host_channel: Option<String>,
     },
     /// List harness installations without launching them.
     Discover,
@@ -129,7 +148,7 @@ enum Commands {
     Serve {
         #[arg(long, conflicts_with = "http")]
         websocket: Option<std::net::SocketAddr>,
-        /// Serve JSON-RPC POST requests at /rpc for native clients.
+        /// Serve JSON-RPC POST requests at /rpc and persistent WebSocket channels at /ws.
         #[arg(long, conflicts_with = "websocket")]
         http: Option<std::net::SocketAddr>,
         /// Serve the desktop frontend and allow its own HTTP origin. Loopback only.
@@ -175,36 +194,71 @@ enum Commands {
         token: Option<String>,
     },
 }
+#[derive(Subcommand)]
+enum NodeCommand {
+    List,
+}
 #[derive(Clone, Copy, ValueEnum)]
 enum Permissions {
     Ask,
     Approve,
     Deny,
 }
-#[tokio::main]
-async fn main() -> std::process::ExitCode {
+fn main() -> std::process::ExitCode {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_writer(std::io::stderr)
         .init();
-    if let Err(e) = entry().await {
-        eprintln!("mpai: {e}");
-        return std::process::ExitCode::FAILURE;
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("mpai: {error}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    let result = runtime.block_on(entry());
+    // Entry drains accepted work and native cleanup. Tokio's stdin reader can still be
+    // blocked in an OS read after explicit shutdown; it must not require client EOF to exit.
+    runtime.shutdown_timeout(Duration::from_secs(1));
+    match result {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("mpai: {error}");
+            std::process::ExitCode::FAILURE
+        }
     }
-    std::process::ExitCode::SUCCESS
 }
 async fn entry() -> Result<()> {
     let cli = Cli::parse();
-    let root = cli.state_dir.unwrap_or_else(|| {
-        std::env::var_os("XDG_STATE_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state")
-            })
-            .join("mpai/sessions")
-    });
+    if let Commands::Tools {
+        url,
+        extension,
+        token,
+        host_channel,
+    } = cli.command
+    {
+        return mcp_bridge::serve(url, extension, token, host_channel).await;
+    }
+    let root = match cli.state_dir {
+        Some(root) => root,
+        None => storage::default_data_root()?,
+    };
     match cli.command {
+        Commands::Node {
+            command: NodeCommand::List,
+        } => {
+            let manager = node_connection::ConnectionManager::open(&root).await?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&manager.catalog().await?)?
+            );
+            return Ok(());
+        }
         Commands::Desktop { assets, host } => return desktop::run(&root, assets, host).await,
+        Commands::Runtime { command } => return runtime_host::run(&root, command).await,
         Commands::Update { command } => return update::run(&root, command).await,
         Commands::Remote { command } => return remote::run(&root, command).await,
         Commands::Service { command } => return service::run(&root, command).await,
@@ -215,11 +269,7 @@ async fn entry() -> Result<()> {
             host,
             print,
         } => return open::run(url, project, session, host, print).await,
-        Commands::Tools {
-            url,
-            extension,
-            token,
-        } => return mcp_bridge::serve(url, extension, token).await,
+        Commands::Tools { .. } => unreachable!(),
         Commands::Call {
             url,
             method,
@@ -227,7 +277,28 @@ async fn entry() -> Result<()> {
             token,
         } => return transport::call(&url, method, serde_json::from_str(&params)?, token).await,
         command => {
-            let mut builder = adapters::builtin_builder().store(FileSessionStore::new(root).await?);
+            let store = SqliteSessionStore::new(&root).await?;
+            // Native writers share one state owner; OS locks are released on process exit.
+            let _owner = if matches!(
+                &command,
+                Commands::Serve { .. }
+                    | Commands::Run { .. }
+                    | Commands::History { import: true, .. }
+            ) {
+                let mut options = std::fs::OpenOptions::new();
+                options.read(true).write(true).create(true).truncate(false);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    options.mode(0o600);
+                }
+                let file = options.open(root.join("runtime/runtime-owner.lock"))?;
+                fs2::FileExt::try_lock_exclusive(&file).map_err(|_| Error::Storage("another runtime owns this state directory; connect to that runtime or choose a separate state directory".into()))?;
+                Some(file)
+            } else {
+                None
+            };
+            let mut builder = adapters::builtin_builder().store(store);
             match &command {
                 Commands::Serve {
                     acp,
@@ -266,7 +337,10 @@ async fn entry() -> Result<()> {
                         builder = builder.extension(mpai_git::GitExtension::new(path).await?);
                     }
                     if *workbench || desktop_assets.is_some() {
-                        builder = builder.extension(mpai_workspace::WorkspaceExtension::new());
+                        builder = builder.extension(
+                            mpai_workspace::WorkspaceExtension::new()
+                                .with_storage_root(root.join("desktop")),
+                        );
                     }
                     for spec in acp {
                         let (id, exe) = spec.split_once('=').ok_or_else(|| {
@@ -359,8 +433,15 @@ async fn entry() -> Result<()> {
                     let result = if let Some(addr) = websocket {
                         transport::websocket(service.clone(), addr, token).await
                     } else if let Some(addr) = http {
-                        transport::http(service.clone(), addr, token, desktop_assets, public_origin)
-                            .await
+                        transport::http(
+                            service.clone(),
+                            addr,
+                            token,
+                            desktop_assets,
+                            public_origin,
+                            Some(root.clone()),
+                        )
+                        .await
                     } else {
                         transport::stdio(service.clone()).await
                     };
@@ -389,6 +470,8 @@ async fn entry() -> Result<()> {
                     } else {
                         runtime
                             .spawn(SpawnOptions {
+                                project_id: None,
+                                project_revision: None,
                                 execution: Default::default(),
                                 harness,
                                 cwd,
@@ -403,8 +486,10 @@ async fn entry() -> Result<()> {
                     cleanup?;
                 }
                 Commands::Call { .. }
+                | Commands::Node { .. }
                 | Commands::Desktop { .. }
                 | Commands::Update { .. }
+                | Commands::Runtime { .. }
                 | Commands::Remote { .. }
                 | Commands::Service { .. }
                 | Commands::Open { .. }
@@ -458,9 +543,9 @@ async fn run(
                     }
                     EventKind::PermissionResolved { id,.. } => pending.retain(|p| &p.id != id),
                     EventKind::Error { message } => { eprintln!("\n{message}"); }
-                    EventKind::TurnEnded { reason } => {
-                        if !json_output { println!(); eprintln!("Turn ended: {reason}"); }
-                        let failed = matches!(reason.as_str(),"failed" | "error" | "refusal");
+                    EventKind::TurnEnded { outcome, .. } => {
+                        if !json_output { println!(); eprintln!("Turn ended: {outcome}"); }
+                        let failed = !matches!(outcome, TurnOutcome::Completed | TurnOutcome::Handled);
                         if !interactive || eof { return if failed { Err(Error::Provider("turn failed".into())) } else { Ok(()) }; }
                     }
                     EventKind::StateChanged(SessionState::Failed | SessionState::Closed) => return Err(Error::Closed),

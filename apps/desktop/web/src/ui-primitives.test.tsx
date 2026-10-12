@@ -241,8 +241,8 @@ it("shows the effective model and configures only advertised models and effort l
   await store.ready();
   store.createThread();
   const thread = { ...store.active()!, worktreeId: "/Documents", configurations: [
-    { id: "model", label: "Model", type: "select", value: "native-a", choices: [{ id: "native-a", label: "Native A" }, { id: "native-b", label: "Native B" }], live: true },
-    { id: "effort", label: "Thinking", type: "select", value: "low", choices: [{ id: "low", label: "Low" }, { id: "high", label: "High" }], live: true },
+    { id: "model", label: "Model", type: "select" as const, value: "native-a", choices: [{ id: "native-a", label: "Native A" }, { id: "native-b", label: "Native B" }], application: "next_turn" as const },
+    { id: "effort", label: "Thinking", type: "select" as const, value: "low", choices: [{ id: "low", label: "Low" }, { id: "high", label: "High" }], application: "next_turn" as const },
   ] };
   const preview = vi.spyOn(store, "previewControls").mockResolvedValue();
   const configure = vi.spyOn(store, "configure").mockResolvedValue();
@@ -288,16 +288,23 @@ it("restores the effort selection without giving the lightning a minimum-effort 
   expect(screen.queryByRole("button", { name: /Use .* effort/ })).toBeNull();
 });
 
-it("uses atomic permission presets and does not label a restricted sandbox as full access", async () => {
+it("uses server permission profiles and keeps selected and observed permissions separate", async () => {
   const { SessionControls } = await import("./SessionControls");
   localStorage.clear();
   const store = new WorkspaceStore();
   await store.ready();
   store.createThread();
-  const thread = { ...store.active()!, worktreeId: "/Documents", config: { approvalPolicy: "never", sandbox: "read-only" }, configurations: [
-    { id: "approvalPolicy", label: "Permissions", type: "select", value: "never", choices: [{ id: "never", label: "Never" }, { id: "on-request", label: "On request" }], live: true },
-    { id: "sandbox", label: "Sandbox", type: "select", value: "danger-full-access", choices: [{ id: "read-only", label: "Read only" }, { id: "workspace-write", label: "Workspace" }, { id: "danger-full-access", label: "Unrestricted" }], live: true },
-    { id: "approvalsReviewer", label: "Approval reviewer", type: "select", value: "user", choices: [{ id: "user", label: "User" }, { id: "auto_review", label: "Automatic review" }], live: true },
+  const policy = {
+    revision: 1, requested: null, status: "effective" as const, planned: null, plannedProfile: null,
+    observed: { profile: null, native: { approvalPolicy: "never", sandbox: "read-only" }, evidence: "native_receipt" as const, coverage: [], limitations: [], nativeVersion: null },
+    choices: (["ask", "review", "full"] as const).map((profile) => ({
+      profile, label: ({ ask: "Ask for approval", review: "Approve for me", full: "Full access" })[profile],
+      description: "Server-provided permission coverage", capability: { availability: "available" as const, source: "harness" as const, evidence: "declared" as const },
+      mapping: "equivalent" as const, application: "next_turn" as const,
+    })), controlledSettings: [], dispatchBlocked: false, reason: null, bindingId: "binding", nativeSession: null,
+  };
+  const thread = { ...store.active()!, worktreeId: "/Documents", executionPolicy: policy, configurations: [
+    { id: "executionProfile", label: "Execution permissions", type: "select" as const, choices: [], application: "next_turn" as const },
   ] };
   vi.spyOn(store, "previewControls").mockResolvedValue();
   const configure = vi.spyOn(store, "configureMany").mockResolvedValue();
@@ -306,7 +313,21 @@ it("uses atomic permission presets and does not label a restricted sandbox as fu
   expect(screen.queryByRole("slider", { name: "Reasoning effort" })).toBeNull();
   await waitFor(() => expect((screen.getByRole("radio", { name: "Approve for me" }) as HTMLButtonElement).disabled).toBe(false));
   await userEvent.click(screen.getByRole("radio", { name: "Approve for me" }));
-  expect(configure).toHaveBeenCalledExactlyOnceWith(thread.id, { approvalPolicy: "on-request", sandbox: "workspace-write", approvalsReviewer: "auto_review" });
-  view.rerender(<SessionControls kind="settings" thread={{ ...thread, config: { approvalPolicy: "never", sandbox: "danger-full-access" } }} store={store} connected />);
+  expect(configure).toHaveBeenCalledExactlyOnceWith(thread.id, { executionProfile: "review" });
+  view.rerender(<SessionControls kind="settings" thread={{ ...thread, executionPolicy: { ...policy, requested: "full", status: "staged" } }} store={store} connected />);
   expect(screen.getByRole("button", { name: "Change permissions: Full access" })).toBeTruthy();
+  expect(screen.getByText("Current native permissions: Custom permissions")).toBeTruthy();
+  view.rerender(<SessionControls kind="settings" thread={{ ...thread, executionPolicy: {
+    ...policy, controlledSettings: ["permissionMode"], choices: policy.choices.map((choice) => choice.profile === "full" ? {
+      ...choice, mapping: "partial", capability: { ...choice.capability, availability: "unsupported", reason: "Native deny rules remain unobserved" },
+    } : choice),
+  }, configurations: [...thread.configurations, {
+    id: "permissionMode", label: "Permission mode", type: "select", value: "default", application: "next_turn",
+    choices: [{ id: "default", label: "Default" }, { id: "bypassPermissions", label: "Bypass prompts" }],
+  }] }} store={store} connected />);
+  expect((screen.getByRole("radio", { name: "Full access" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByText("Native deny rules remain unobserved")).toBeTruthy();
+  await userEvent.click(screen.getByText("Native permission settings"));
+  fireEvent.change(screen.getByRole("combobox", { name: "Native Permission mode" }), { target: { value: "bypassPermissions" } });
+  expect(configure).toHaveBeenLastCalledWith(thread.id, { permissionMode: "bypassPermissions" });
 });

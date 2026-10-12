@@ -120,6 +120,22 @@ impl WorkspaceExtension {
         }
         Ok(path)
     }
+    async fn read_file(&self, root: &Path, name: &str) -> Result<Value> {
+        let path = self.path(root, name).await?;
+        let mut file = tokio::fs::File::open(path).await?;
+        use tokio::io::AsyncReadExt;
+        let mut bytes = Vec::new();
+        (&mut file)
+            .take(1024 * 1024 + 1)
+            .read_to_end(&mut bytes)
+            .await?;
+        if bytes.len() > 1024 * 1024 {
+            return Err(Error::Invalid("file exceeds 1 MiB editor limit".into()));
+        }
+        let content = String::from_utf8(bytes)
+            .map_err(|_| Error::Invalid("file must contain UTF-8 text".into()))?;
+        Ok(json!({"path":name,"content":content}))
+    }
     async fn actions(&self, root: &Path) -> Result<Vec<Value>> {
         let mut actions = vec![];
         if root.join("Cargo.toml").is_file() {
@@ -159,6 +175,36 @@ impl WorkspaceExtension {
 impl RuntimeExtension for WorkspaceExtension {
     fn id(&self) -> &str {
         "workspace"
+    }
+    fn tools(&self) -> Vec<mpai::HostTool> {
+        vec![mpai::HostTool {
+            id: "read_file".into(),
+            description:
+                "Read a bounded UTF-8 file relative to the host-selected session directory.".into(),
+            input_schema: json!({"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":512}},"required":["path"],"additionalProperties":false}),
+            result_schema: json!({"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}),
+            mutates: false,
+            open_world: false,
+        }]
+    }
+    async fn execute_tool(
+        &self,
+        tool: &str,
+        arguments: Value,
+        context: &mpai::HostToolContext,
+    ) -> Result<Value> {
+        if tool != "read_file" {
+            return Err(Error::Unsupported(format!("workspace host tool {tool}")));
+        }
+        context.check_cancelled()?;
+        let result = self
+            .read_file(
+                &context.working_context.directory.path,
+                required(&arguments, "path")?,
+            )
+            .await?;
+        context.check_cancelled()?;
+        Ok(result)
     }
     async fn shutdown(&self) {
         self.previews.shutdown().await;
@@ -239,6 +285,58 @@ impl RuntimeExtension for WorkspaceExtension {
             mutates,
         })
         .collect()
+    }
+    async fn before_invoke(
+        &self,
+        command: &str,
+        p: &Value,
+        context: Option<&mpai::ContextStatus>,
+    ) -> Result<()> {
+        let Some(context) = context else {
+            return Ok(());
+        };
+        let uses_directory = matches!(
+            command,
+            "project.open"
+                | "files.list"
+                | "files.read"
+                | "files.write"
+                | "files.find"
+                | "terminal.start"
+                | "terminal.write"
+                | "actions.list"
+                | "actions.run"
+                | "assets.metadata"
+                | "assets.write"
+                | "assets.read"
+                | "assets.export"
+                | "preview.start"
+                | "project.publish"
+        );
+        if !uses_directory {
+            return Ok(());
+        }
+        if !context.available {
+            return Err(Error::Invalid(
+                context
+                    .reason
+                    .clone()
+                    .unwrap_or_else(|| "working directory unavailable".into()),
+            ));
+        }
+        let selected = if command == "project.open" {
+            Some(tokio::fs::canonicalize(required(p, "path")?).await?)
+        } else if p.get("projectId").is_some() {
+            Some(self.project(p).await?)
+        } else {
+            None
+        };
+        if selected.is_some_and(|path| path != context.context.directory.path) {
+            return Err(Error::Invalid(
+                "workspace differs from the retained session directory".into(),
+            ));
+        }
+        Ok(())
     }
     async fn invoke(&self, command: &str, p: Value) -> Result<Value> {
         if [
@@ -349,11 +447,7 @@ impl RuntimeExtension for WorkspaceExtension {
             }
             "files.read" => {
                 let name = required(&p, "path")?;
-                let path = self.path(&root, name).await?;
-                if tokio::fs::metadata(&path).await?.len() > 1024 * 1024 {
-                    return Err(Error::Invalid("file exceeds 1 MiB editor limit".into()));
-                }
-                Ok(json!({"path":name,"content":tokio::fs::read_to_string(path).await?}))
+                self.read_file(&root, name).await
             }
             "files.write" => {
                 let name = required(&p, "path")?;

@@ -77,7 +77,7 @@ async fn stdio_streams_notifications_and_retains_native_resume_across_restart() 
         } else {
             saved_id = id.clone();
         }
-        input.write_all(format!("{}\n",json!({"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":id,"text":"hello"}})).as_bytes()).await.unwrap();
+        input.write_all(format!("{}\n",json!({"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":id,"text":"hello","idempotencyKey":format!("hello:{resume}")}})).as_bytes()).await.unwrap();
         let mut text = String::new();
         loop {
             let line = tokio::time::timeout(Duration::from_secs(5), lines.next_line())
@@ -181,7 +181,7 @@ async fn websocket_authentication_and_sessions_survive_client_disconnect() {
         HeaderValue::from_static("Bearer fixture-secret"),
     );
     let (mut socket, _) = connect_async(request).await.unwrap();
-    socket.send(Message::Text(json!({"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":id,"text":"hello"}}).to_string().into())).await.unwrap();
+    socket.send(Message::Text(json!({"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":id,"text":"hello","idempotencyKey":"hello"}}).to_string().into())).await.unwrap();
     let mut text = String::new();
     loop {
         let m = tokio::time::timeout(Duration::from_secs(5), socket.next())
@@ -217,8 +217,36 @@ async fn websocket_authentication_and_sessions_survive_client_disconnect() {
             }
         }
     }
-    socket.close(None).await.unwrap();
-    stop(&mut child).await;
+    socket
+        .send(Message::Text(
+            json!({"jsonrpc":"2.0","id":4,"method":"runtime/shutdown","params":{}})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    loop {
+        if let Message::Text(text) = tokio::time::timeout(Duration::from_secs(5), socket.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+        {
+            let response: Value = serde_json::from_str(&text).unwrap();
+            if response["id"] == 4 {
+                assert!(response.get("error").is_none(), "{response}");
+                assert!(response["result"].is_null());
+                break;
+            }
+        }
+    }
+    assert!(
+        tokio::time::timeout(Duration::from_secs(5), child.wait())
+            .await
+            .unwrap()
+            .unwrap()
+            .success()
+    );
 }
 
 #[tokio::test]
@@ -295,7 +323,11 @@ async fn http_uses_the_shared_dispatcher_authentication_and_paged_session_replay
     assert_eq!(call("extension/list", json!({})).await[0]["id"], "git");
     let snapshot = call("session/create", spawn_params()).await;
     let id = snapshot["id"].clone();
-    call("session/prompt", json!({"sessionId":id,"text":"hello"})).await;
+    call(
+        "session/prompt",
+        json!({"sessionId":id,"text":"hello","idempotencyKey":"hello"}),
+    )
+    .await;
     let mut after = 0;
     let mut finished = false;
     let mut text = String::new();
@@ -446,4 +478,309 @@ async fn desktop_assets_allow_only_their_explicit_origin_and_host() {
         404
     );
     stop(&mut child).await;
+}
+
+#[tokio::test]
+async fn state_directory_has_one_native_writer_and_process_exit_releases_ownership() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut owner = Command::new(env!("CARGO_BIN_EXE_mpai"))
+        .args(["--state-dir", directory.path().to_str().unwrap(), "serve"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    owner
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(
+            b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"runtime/initialize\",\"params\":{}}\n",
+        )
+        .await
+        .unwrap();
+    let mut lines = BufReader::new(owner.stdout.take().unwrap()).lines();
+    let response = tokio::time::timeout(Duration::from_secs(5), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&response).unwrap()["id"], 1);
+    let denied = Command::new(env!("CARGO_BIN_EXE_mpai"))
+        .args(["--state-dir", directory.path().to_str().unwrap(), "serve"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .await
+        .unwrap();
+    assert!(!denied.status.success());
+    assert!(
+        String::from_utf8_lossy(&denied.stderr)
+            .contains("another runtime owns this state directory")
+    );
+    owner.kill().await.unwrap();
+    owner.wait().await.unwrap();
+    let reopened = Command::new(env!("CARGO_BIN_EXE_mpai"))
+        .args(["--state-dir", directory.path().to_str().unwrap(), "serve"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        reopened.status.success(),
+        "{}",
+        String::from_utf8_lossy(&reopened.stderr)
+    );
+}
+
+#[tokio::test]
+async fn process_crash_after_native_dispatch_keeps_unknown_receipt_without_restarting_native_work()
+{
+    for native_completed in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("acceptance-peer.py");
+        let marker = directory.path().join("native-dispatches.txt");
+        std::fs::write(&script, r#"import json, os, sys
+for line in sys.stdin:
+    request = json.loads(line)
+    if 'id' not in request: continue
+    method = request.get('method')
+    if method == 'turn/start':
+        if sys.argv[2] == 'completed':
+            turn = {'id': 'native-turn', 'status': 'completed', 'items': [
+                {'id': 'user', 'type': 'userMessage', 'clientId': request['params']['clientUserMessageId'], 'content': []},
+                {'id': 'answer', 'type': 'agentMessage', 'text': 'Recovered after process crash'}]}
+            with open(sys.argv[1] + '.history', 'w') as history:
+                json.dump(turn, history)
+                history.flush()
+                os.fsync(history.fileno())
+        with open(sys.argv[1], 'a') as marker:
+            marker.write('native-dispatch\n')
+            marker.flush()
+            os.fsync(marker.fileno())
+        continue
+    result = {'thread': {'id': 'native-crash-test'}, 'model': 'fixture-model'} if method in ('thread/start', 'thread/resume') else {}
+    if method == 'thread/turns/list':
+        try:
+            with open(sys.argv[1] + '.history') as history: turns = [json.load(history)]
+        except FileNotFoundError: turns = []
+        result = {'data': turns, 'nextCursor': None}
+    print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], 'result': result}), flush=True)
+"#).unwrap();
+        let state = directory.path().join("state");
+        async fn reply(
+            lines: &mut tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
+            id: u64,
+        ) -> Value {
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let line = lines.next_line().await.unwrap().unwrap();
+                    let response: Value = serde_json::from_str(&line).unwrap();
+                    if response["id"] == id {
+                        return response;
+                    }
+                }
+            })
+            .await
+            .unwrap()
+        }
+        let mut daemon = Command::new(env!("CARGO_BIN_EXE_mpai"))
+            .args(["--state-dir", state.to_str().unwrap(), "serve"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let mut input = daemon.stdin.take().unwrap();
+        let mut lines = BufReader::new(daemon.stdout.take().unwrap()).lines();
+        let create = json!({"jsonrpc":"2.0","id":1,"method":"session/create","params":{
+            "harness":"codex","cwd":directory.path(),"config":{"executable":"python3","args":[script,marker,if native_completed {"completed"} else {"unknown"}]}
+        }});
+        input
+            .write_all(format!("{create}\n").as_bytes())
+            .await
+            .unwrap();
+        let created = reply(&mut lines, 1).await;
+        assert!(created.get("error").is_none(), "{created}");
+        let id = created["result"]["id"].as_str().unwrap().to_string();
+        let params =
+            json!({"sessionId":id,"text":"original message","idempotencyKey":"original-key"});
+        input
+            .write_all(
+                format!(
+                    "{}\n",
+                    json!({"jsonrpc":"2.0","id":2,"method":"session/prompt","params":params})
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+        while !marker.is_file() {
+            tokio::select! {
+                line = lines.next_line() => {
+                    let frame: Value = serde_json::from_str(&line.unwrap().unwrap()).unwrap();
+                    assert_ne!(frame["id"], 2, "native dispatch failed before the crash marker: {frame}");
+                }
+                _ = tokio::time::sleep(Duration::from_millis(10)) => {},
+            }
+        }
+    }).await.unwrap();
+        daemon.kill().await.unwrap();
+        daemon.wait().await.unwrap();
+        drop(input);
+        let mut restarted = Command::new(env!("CARGO_BIN_EXE_mpai"))
+            .args(["--state-dir", state.to_str().unwrap(), "serve"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let mut input = restarted.stdin.take().unwrap();
+        let mut lines = BufReader::new(restarted.stdout.take().unwrap()).lines();
+        input.write_all(format!("{}\n", json!({"jsonrpc":"2.0","id":3,"method":"session/submission","params":{"sessionId":id,"idempotencyKey":"original-key"}})).as_bytes()).await.unwrap();
+        let recovered = reply(&mut lines, 3).await;
+        assert_eq!(recovered["result"]["delivery"], "unknown");
+        assert_eq!(recovered["result"]["recoveryRequired"], true);
+        input
+            .write_all(
+                format!(
+                    "{}\n",
+                    json!({"jsonrpc":"2.0","id":4,"method":"session/prompt","params":params})
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        let duplicate = reply(&mut lines, 4).await;
+        assert_eq!(duplicate["result"]["id"], recovered["result"]["id"]);
+        assert_eq!(duplicate["result"]["delivery"], "unknown");
+        assert_eq!(
+            std::fs::read_to_string(&marker).unwrap(),
+            "native-dispatch\n"
+        );
+        input.write_all(format!("{}\n", json!({"jsonrpc":"2.0","id":5,"method":"session/resume","params":{"sessionId":id}})).as_bytes()).await.unwrap();
+        let resumed = reply(&mut lines, 5).await;
+        assert!(resumed.get("error").is_none(), "{resumed}");
+        input.write_all(format!("{}\n", json!({"jsonrpc":"2.0","id":6,"method":"session/submission","params":{"sessionId":id,"idempotencyKey":"original-key"}})).as_bytes()).await.unwrap();
+        let reconciled = reply(&mut lines, 6).await;
+        assert_eq!(
+            reconciled["result"]["delivery"],
+            if native_completed {
+                "accepted"
+            } else {
+                "unknown"
+            }
+        );
+        assert_eq!(reconciled["result"]["recoveryRequired"], !native_completed);
+        if native_completed {
+            assert_eq!(reconciled["result"]["outcome"], "completed");
+            input.write_all(format!("{}\n", json!({"jsonrpc":"2.0","id":7,"method":"session/transcript","params":{"sessionId":id,"limit":4096}})).as_bytes()).await.unwrap();
+            let transcript = reply(&mut lines, 7).await;
+            let events = transcript["result"].as_array().unwrap();
+            assert_eq!(
+                events.iter().filter(|e| e["type"] == "turn.ended").count(),
+                1
+            );
+            assert!(events.iter().any(|e| e["type"] == "message.assistant"
+                && e["data"]["text"] == "Recovered after process crash"));
+        }
+        assert_eq!(
+            std::fs::read_to_string(&marker).unwrap(),
+            "native-dispatch\n"
+        );
+        drop(input);
+        assert!(
+            tokio::time::timeout(Duration::from_secs(5), restarted.wait())
+                .await
+                .unwrap()
+                .unwrap()
+                .success()
+        );
+    }
+}
+
+#[tokio::test]
+async fn default_data_root_is_separate_from_execution_and_missing_store_is_an_error() {
+    let home = tempfile::tempdir().unwrap();
+    let working = tempfile::tempdir().unwrap();
+    std::fs::write(working.path().join("owned.txt"), "user content").unwrap();
+    let first = Command::new(env!("CARGO_BIN_EXE_mpai"))
+        .arg("sessions")
+        .env("HOME", home.path())
+        .env("USERPROFILE", home.path())
+        .env("XDG_STATE_HOME", home.path().join("old-state"))
+        .current_dir(working.path())
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&first.stdout).unwrap(),
+        json!([])
+    );
+    let root = home.path().join(".swarmie");
+    assert!(root.join("settings.json").is_file());
+    assert!(root.join("state/host.sqlite").is_file());
+    assert!(!working.path().join(".swarmie").exists());
+    assert!(!home.path().join("old-state/mpai").exists());
+    std::fs::rename(root.join("state/host.sqlite"), root.join("retained.sqlite")).unwrap();
+    let second = Command::new(env!("CARGO_BIN_EXE_mpai"))
+        .arg("sessions")
+        .env("HOME", home.path())
+        .env("USERPROFILE", home.path())
+        .current_dir(working.path())
+        .output()
+        .await
+        .unwrap();
+    assert!(!second.status.success());
+    assert!(
+        String::from_utf8_lossy(&second.stderr).contains("configured host database is missing")
+    );
+    assert!(!root.join("state/host.sqlite").exists());
+    assert_eq!(
+        std::fs::read_to_string(working.path().join("owned.txt")).unwrap(),
+        "user content"
+    );
+}
+
+#[tokio::test]
+async fn stdio_explicit_shutdown_acknowledges_without_waiting_for_client_eof() {
+    let root = tempfile::tempdir().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mpai"))
+        .args(["--state-dir", root.path().to_str().unwrap(), "serve"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    input
+        .write_all(
+            b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"runtime/shutdown\",\"params\":{}}\n",
+        )
+        .await
+        .unwrap();
+    let line = tokio::time::timeout(Duration::from_secs(5), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let response: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(response["id"], 1);
+    assert!(response.get("error").is_none());
+    assert!(
+        tokio::time::timeout(Duration::from_secs(5), child.wait())
+            .await
+            .unwrap()
+            .unwrap()
+            .success()
+    );
 }

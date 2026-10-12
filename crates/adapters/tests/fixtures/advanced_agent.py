@@ -19,7 +19,7 @@ if mode == 'serve':
     history_file = pathlib.Path.cwd() / 'opencode-sessions.json'
     initial_history = [
         {'info':{'id':'user-1','role':'user','model':{'providerID':'fixture','modelID':'model'}}},
-        {'info':{'id':'message-9','role':'assistant','time':{'completed':123}}},
+        {'info':{'id':'message-9','role':'assistant','finish':'stop','time':{'completed':123}}},
         {'info':{'id':'user-2','role':'user','model':{'providerID':'fixture','modelID':'model'}}},
         {'info':{'id':'message-10','role':'assistant','time':{'completed':124}}},
     ]
@@ -88,7 +88,7 @@ if mode == 'serve':
                 emit('message.part.updated',part={'sessionID':session,'messageID':'assistant','id':'task-part','type':'tool','tool':'task','state':{'status':'completed','title':'Inspect project','input':{'description':'Inspect project'},'output':'done','metadata':{'sessionId':'child-7','parentSessionId':session,'model':'fixture/model'}}})
                 emit('message.part.delta',messageID='assistant',partID='text',field='text',delta=json.dumps(result))
                 emit('message.updated',info={'sessionID':session,'id':'assistant','role':'assistant','providerID':'fixture','modelID':'model',
-                     'time':{'completed':123},'tokens':{'input':100,'output':20,'cache':{'read':30,'write':10}},'structured':{'ok':True}})
+                     'finish':'stop','time':{'completed':123},'tokens':{'input':100,'output':20,'cache':{'read':30,'write':10}},'structured':{'ok':True}})
                 emit('session.idle')
             elif path == '/permission/per-test/reply':
                 self.reply(True)

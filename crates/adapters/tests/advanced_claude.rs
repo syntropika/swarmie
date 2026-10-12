@@ -17,6 +17,8 @@ impl Workspace {
     }
     fn options(&self) -> SpawnOptions {
         SpawnOptions {
+            project_id: None,
+            project_revision: None,
             harness: "claude".into(),
             cwd: self.0.clone(),
             model: Some("fixture-model".into()),
@@ -74,7 +76,9 @@ async fn conversation_rollback_uses_main_assistant_uuid_replaces_native_connecti
     let (_, cut) = turn(&agent, &mut events, "second").await;
     turn(&agent, &mut events, "third").await;
     let before = agent.snapshot().await;
-    assert!(before.capabilities.rollback && before.capabilities.compact);
+    assert!(
+        before.capabilities.rollback.is_available() && before.capabilities.compact.is_available()
+    );
     agent.rollback(1).await.unwrap();
     let after = agent.snapshot().await;
     assert_ne!(after.native.id, before.native.id);
@@ -263,7 +267,11 @@ async fn ephemeral_sessions_and_unadvertised_advanced_model_controls_are_truthfu
     options.execution.ephemeral = true;
     let agent = runtime.spawn(options).await.unwrap();
     let capabilities = agent.snapshot().await.capabilities;
-    assert!(!capabilities.rollback && !capabilities.resume && !capabilities.fork);
+    assert!(
+        !capabilities.rollback.is_available()
+            && !capabilities.resume.is_available()
+            && !capabilities.fork.is_available()
+    );
     assert_eq!(capabilities.metadata["rollbackScopes"], json!([]));
     assert!(matches!(
         agent.rollback(1).await,
@@ -292,8 +300,8 @@ async fn native_queued_cancel_receipt_ends_turn_without_waiting_for_absent_resul
     let start = Instant::now();
     agent.cancel().await.unwrap();
     loop {
-        if let EventKind::TurnEnded { reason } = next(&mut events).await.kind {
-            assert_eq!(reason, "cancelled");
+        if let EventKind::TurnEnded { outcome, .. } = next(&mut events).await.kind {
+            assert_eq!(outcome, TurnOutcome::Cancelled);
             break;
         }
     }
@@ -394,8 +402,8 @@ async fn question_cancel_waits_for_native_terminal_and_deny_reason_survives() {
         "wire delivery is not a native terminal receipt"
     );
     loop {
-        if let EventKind::TurnEnded { reason } = next(&mut events).await.kind {
-            assert_eq!(reason, "cancelled");
+        if let EventKind::TurnEnded { outcome, .. } = next(&mut events).await.kind {
+            assert_eq!(outcome, TurnOutcome::Cancelled);
             break;
         }
     }
@@ -526,4 +534,31 @@ async fn imported_native_history_keeps_its_rollback_guard_when_reconnected() {
         false
     );
     resumed.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn active_interrupt_correlates_an_early_error_terminal_without_overriding_success() {
+    for (prompt, expected) in [
+        ("active-native-cancel", TurnOutcome::Cancelled),
+        ("successful-cancel-race", TurnOutcome::Completed),
+    ] {
+        let workspace = Workspace::new();
+        let agent = builtin_builder()
+            .build()
+            .spawn(workspace.options())
+            .await
+            .unwrap();
+        let mut events = agent.events();
+        agent.prompt(prompt).await.unwrap();
+        agent.cancel().await.unwrap();
+        loop {
+            let event = next(&mut events).await;
+            assert!(!matches!(event.kind, EventKind::Error { .. }));
+            if let EventKind::TurnEnded { outcome, .. } = event.kind {
+                assert_eq!(outcome, expected);
+                break;
+            }
+        }
+        agent.close().await.unwrap();
+    }
 }

@@ -1,9 +1,17 @@
+import { clientRequest, nativeClient } from "./clientTransport";
+import type { Project } from "./protocol";
 import type { Thread } from "./protocol";
-export type CachedWorkspace = { threads: Thread[]; revision: number };
+import type { LocalStoreIdentity } from "../../../../packages/clients/typescript/src/generated";
+import { nodeKey, retainNode, sameNode, validNodeIdentity } from "./nodeScope";
+export type CachedWorkspace = { threads: Thread[]; revision: number; metadata?: { projects: Project[]; activeId: string; customChatDirectory?: string } };
 export class WorkspaceCache {
   private database?: Promise<IDBDatabase>;
+  private readonly node: LocalStoreIdentity;
+  constructor(node: LocalStoreIdentity) {
+    this.node = retainNode(node);
+  }
   available() {
-    return typeof indexedDB !== "undefined";
+    return nativeClient() || typeof indexedDB !== "undefined";
   }
   private open(): Promise<IDBDatabase> {
     if (!this.available())
@@ -28,20 +36,34 @@ export class WorkspaceCache {
   }
   async load(): Promise<CachedWorkspace | undefined> {
     if (!this.available()) return undefined;
+    if (nativeClient()) {
+      const saved = await this.native<CachedWorkspace & { node?: LocalStoreIdentity }>("client/cacheLoad", {});
+      return saved && validNodeIdentity(saved.node) && sameNode(saved.node, this.node) && Array.isArray(saved.threads) ? saved : undefined;
+    }
     const database = await this.open();
     return new Promise((resolve, reject) => {
       const transaction = database.transaction("workspace", "readonly");
-      const request = transaction.objectStore("workspace").get("current");
-      request.onsuccess = () =>
-        resolve(request.result as CachedWorkspace | undefined);
+      const request = transaction.objectStore("workspace").get(nodeKey(this.node));
+      request.onsuccess = () => {
+        const saved = request.result as (CachedWorkspace & { node?: LocalStoreIdentity }) | undefined;
+        resolve(saved && validNodeIdentity(saved.node) && sameNode(saved.node, this.node) && Array.isArray(saved.threads)
+          ? saved : undefined);
+      };
       request.onerror = () => reject(request.error);
     });
   }
+  private async native<T>(method: string, params: unknown): Promise<T> {
+    const response = await clientRequest("/client/cache", { jsonrpc: "2.0", id: crypto.randomUUID(), method, params: { node: this.node, ...(params as object) } }, "", 30_000);
+    const value = await response.json();
+    if (value.error) throw new Error(value.error.message);
+    return value.result as T;
+  }
   async save(value: CachedWorkspace): Promise<void> {
+    if (nativeClient()) { await this.native("client/cacheSave", { value: { ...value, node: this.node } }); return; }
     const database = await this.open();
     await new Promise<void>((resolve, reject) => {
       const transaction = database.transaction("workspace", "readwrite");
-      transaction.objectStore("workspace").put(value, "current");
+      transaction.objectStore("workspace").put({ ...value, node: this.node }, nodeKey(this.node));
       transaction.oncomplete = () => resolve();
       transaction.onerror = () =>
         reject(

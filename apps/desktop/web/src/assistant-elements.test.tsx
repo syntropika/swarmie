@@ -60,7 +60,7 @@ it("places the saved user time and copy outside the bubble without an edit actio
   const date = new Date("2026-10-04T19:02:00Z");
   const write = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: write } });
-  const thread = { ...store.active()!, capabilities: { rollback: true }, messages: [{ id: "user-original", role: "user" as const, createdAt: date, content: [{ type: "text" as const, text: "Original message" }] }] };
+  const thread = { ...store.active()!, capabilities: { rollback: { availability: "available" as const, source: "harness" as const, evidence: "declared" as const } }, messages: [{ id: "user-original", role: "user" as const, createdAt: date, content: [{ type: "text" as const, text: "Original message" }] }] };
   const view = render(<Conversation thread={thread} store={store} controls={null} ready />);
   const bubble = screen.getByText("Original message").closest('[data-slot="user-message-bubble"]')!;
   const copy = screen.getByRole("button", { name: "Copy" });

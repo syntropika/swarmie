@@ -46,7 +46,10 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { Conversation, PatchCopy } from "./Conversation";
-import { workspaceStore as store } from "./workspaceInstance";
+import { nodeClient } from "./workspaceInstance";
+import type { NodeClient, NodesState } from "./nodes";
+import type { WorkspaceStore } from "./workspace";
+import { nodeKey } from "./nodeScope";
 import { hasConversation, type Thread, type Permission } from "./protocol";
 
 import { RequestCard } from "./RequestCard";
@@ -122,6 +125,12 @@ function IconButton({
 }
 
 export function App() {
+  const nodes = useSyncExternalStore(nodeClient.subscribe, nodeClient.getSnapshot);
+  useEffect(() => { void nodeClient.start(); return () => nodeClient.dispose(); }, []);
+  const node = nodes.store.getSnapshot().node;
+  return <NodeWorkspace key={node ? nodeKey(node) : "local-startup"} store={nodes.store} nodes={nodes} client={nodeClient} />;
+}
+function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes: NodesState; client: NodeClient }) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [sidebar, setSidebar] = useState(() => window.innerWidth >= 760);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -227,9 +236,9 @@ export function App() {
     }
   }, [organization]);
   const navigationApplied = useRef(false);
-  const connectAndOpen = async (credential?: string) => {
-    await store.connect(credential);
+  const applyNavigation = async () => {
     if (store.getSnapshot().connected && !navigationApplied.current) {
+        navigationApplied.current = true;
         const query = new URLSearchParams(window.location.search);
         const project = query.get("project");
         const session = query.get("session");
@@ -242,10 +251,10 @@ export function App() {
     }
   };
   useEffect(() => {
-    void connectAndOpen().catch((e) => store.setError(e));
-    const timer = setInterval(() => void store.poll(), 250);
-    return () => clearInterval(timer);
-  }, []);
+    if (state.connected && !navigationApplied.current && nodes.nodes.find((node) => node.identity.environmentId === state.node?.environmentId)?.local) {
+      void applyNavigation().catch((error) => store.setError(error));
+    }
+  }, [state.connected, state.node, nodes.nodes]);
   useEffect(() => {
     const compact = window.matchMedia("(max-width: 760px)");
     const adapt = () => {
@@ -261,12 +270,9 @@ export function App() {
   }, []);
   useEffect(() => {
     const saved = active.layout?.panel;
-    if (
-      saved === null ||
-      ["project", "settings", "review", "extensions"].includes(saved ?? "")
-    )
-      setPanel(saved as Panel);
-    else setPanel(null);
+    setPanel((current) => current === "settings" ? current
+      : saved === null || ["project", "settings", "review", "extensions"].includes(saved ?? "")
+        ? saved as Panel : null);
   }, [active.id]);
   useEffect(() => {
     if (active !== blank && active.layout?.panel !== panel)
@@ -440,7 +446,7 @@ export function App() {
       <HarnessSelect label="Harness" appearance="menu" className="composer-harness" status={{ state: active.state, connected: state.connected }} disabled={!!active.sessionId || !state.connected}
         value={active.harness} onChange={(harness) => store.updateThread(active.id, { harness, model: "", config: {}, configurations: undefined, models: undefined, actualModel: undefined })} harnesses={state.harnesses} />
       <div className="composer-spacer" />
-      <Button variant="ghost" size="sm" className="composer-host rounded-full hover:bg-[#4a4a4a] active:bg-[#4a4a4a]" title="Chat directory settings" onClick={() => setPanel(panel === "settings" ? null : "settings")}><Monitor size={14} />This computer</Button>
+      <Select label="View node" className="composer-host max-w-[50%] h-7 rounded-full border-0 bg-transparent px-2.5 text-xs hover:bg-[#4a4a4a]" value={state.node?.environmentId ?? ""} icon={<Monitor size={14} />} options={nodes.nodes.filter((node) => node.registered || node.identity.environmentId === state.node?.environmentId).map((node) => ({ id: node.identity.environmentId, label: node.displayName, disabled: !node.registered }))} onChange={(id) => void client.select(id).catch((error) => store.setError(error))} />
     </>
   );
   const composerControls = <><ContextUsage context={active.context} /><SessionControls thread={active} store={store} connected={state.connected} /></>;
@@ -697,7 +703,7 @@ export function App() {
         <div className="sidebar-footer">
           <div className="workspace-status" role="status">
             <span className={`connection-dot ${state.connected ? "connected" : ""}`} />
-            <span>{state.cacheSaving ? "Saving draft…" : state.connected ? "Local workspace" : state.busy ? "Connecting…" : "Disconnected"}</span>
+            <span>{state.cacheSaving ? "Saving draft…" : state.connected ? (nodes.nodes.find((node) => node.identity.environmentId === state.node?.environmentId)?.displayName ?? "Connected") : state.busy ? "Connecting…" : "Disconnected"}</span>
           </div>
         </div>
       </aside>
@@ -767,7 +773,7 @@ export function App() {
       )}
       {finder && <FileFinder store={store} onClose={() => setFinder(false)} />}
       {projectDialog && <ProjectDialog store={store} onClose={() => setProjectDialog(false)} />}
-      {panel === "settings" && <SettingsPage store={store} state={state} shortcuts={shortcuts} setShortcuts={setShortcuts} reconnect={connectAndOpen} onClose={() => setPanel(null)} />}
+      {panel === "settings" && <SettingsPage client={client} nodes={nodes} store={store} state={state} shortcuts={shortcuts} setShortcuts={setShortcuts} onClose={() => setPanel(null)} />}
       {panel && panel !== "settings" && (
         <aside
           className="detail-panel"

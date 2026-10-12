@@ -1,3 +1,2 @@
-import { WorkspaceStore } from "./workspace";
-
-export const workspaceStore = new WorkspaceStore();
+import { NodeClient } from "./nodes";
+export const nodeClient = new NodeClient();

@@ -35,98 +35,147 @@ impl ResourcesExtension {
                 })
             }
             "project.get" | "project.set" => {
-                let cwd = cwd(p)?;
-                let key = cwd.to_string_lossy().into_owned();
-                let mut state = self.0.state.lock().await;
-                if command == "project.set" {
-                    if p.as_object().unwrap().keys().any(|key| {
+                let runtime = self.runtime()?;
+                let project = runtime.project(text(p, "projectId")?).await?;
+                let project = if command == "project.set" {
+                    if p.as_object().unwrap().keys().any(|k| {
                         !matches!(
-                            key.as_str(),
-                            "cwd" | "harness" | "model" | "config" | "workspace"
+                            k.as_str(),
+                            "projectId"
+                                | "expectedRevision"
+                                | "harness"
+                                | "model"
+                                | "config"
+                                | "directoryPath"
                         )
                     }) {
                         return Err(Error::Invalid("unknown project default field".into()));
                     }
-                    let mut merged = state
-                        .projects
-                        .get(&key)
-                        .map(serde_json::to_value)
-                        .transpose()?
-                        .unwrap_or_else(|| json!({}));
-                    for (key, value) in p.as_object().unwrap() {
-                        let fields = merged.as_object_mut().unwrap();
-                        if key == "config" && value.is_object() {
-                            merge_config(fields.entry(key).or_insert(Value::Null), value);
-                        } else {
-                            fields.insert(key.clone(), value.clone());
+                    let expected_revision = p["expectedRevision"]
+                        .as_u64()
+                        .ok_or_else(|| Error::Invalid("expectedRevision is required".into()))?;
+                    let mut merged = serde_json::to_value(&project.launch)?;
+                    for key in ["harness", "model", "config"] {
+                        if let Some(value) = p.get(key) {
+                            if key == "config" && value.is_object() {
+                                merge_config(&mut merged[key], value);
+                            } else {
+                                merged[key] = value.clone();
+                            }
                         }
                     }
-                    let mut defaults: ProjectDefaults = serde_json::from_value(merged)?;
-                    defaults.cwd = cwd.clone();
-                    validate_config(&defaults.config)?;
-                    if !defaults.config.is_null() && !defaults.config.is_object() {
-                        return Err(Error::Invalid("project config must be an object".into()));
-                    }
-                    if let Some(workspace) = &defaults.workspace {
-                        let path = fs::canonicalize(workspace)?;
-                        if !path.is_dir() {
-                            return Err(Error::Invalid(
-                                "workspace must be an existing directory".into(),
-                            ));
-                        }
-                        defaults.workspace = Some(path);
-                    }
-                    capacity(state.projects.contains_key(&key), state.projects.len())?;
-                    state.projects.insert(key.clone(), defaults);
-                    self.persist(&state)?;
-                }
-                Ok(serde_json::to_value(
-                    state
-                        .projects
-                        .get(&key)
-                        .cloned()
-                        .unwrap_or(ProjectDefaults {
-                            cwd,
-                            ..Default::default()
-                        }),
-                )?)
+                    let launch: ProjectLaunchDefaults = serde_json::from_value(merged)?;
+                    validate_config(&launch.config)?;
+                    let directory = if let Some(path) = p["directoryPath"].as_str() {
+                        Some(
+                            runtime
+                                .register_directory(std::path::Path::new(path))
+                                .await?
+                                .reference(),
+                        )
+                    } else {
+                        None
+                    };
+                    runtime
+                        .update_project(ProjectUpdate {
+                            project_id: project.id,
+                            expected_revision,
+                            name: None,
+                            archived: None,
+                            directory,
+                            unlink_directory: false,
+                            launch: Some(launch),
+                        })
+                        .await?
+                } else {
+                    project
+                };
+                let catalog = runtime.local_catalog().await?;
+                let cwd = project
+                    .directory
+                    .as_ref()
+                    .map(|d| catalog.directory(d).map(|r| r.path.clone()))
+                    .transpose()?;
+                let mut value = serde_json::to_value(&project.launch)?;
+                value["projectId"] = json!(project.id);
+                value["revision"] = json!(project.revision);
+                value["cwd"] = json!(cwd);
+                Ok(value)
             }
             _ => Err(Error::Unsupported(command.into())),
         }
     }
     pub(crate) async fn launch_options(&self, p: &Value) -> Result<SpawnOptions> {
-        let cwd = cwd(p)?;
-        let state = self.0.state.lock().await;
-        let defaults = state.projects.get(&cwd.to_string_lossy().into_owned());
-        let harness = p["harness"]
-            .as_str()
-            .or(defaults.and_then(|d| d.harness.as_deref()))
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| Error::Invalid("harness is required".into()))?
-            .to_owned();
-        let model = p["model"]
-            .as_str()
-            .map(str::to_owned)
-            .or_else(|| defaults.and_then(|d| d.model.clone()));
-        let mut config = defaults.map(|d| d.config.clone()).unwrap_or(Value::Null);
-        validate_config(&config)?;
-        if let Some(patch) = p.get("config").filter(|value| !value.is_null()) {
-            if !patch.is_object() {
-                return Err(Error::Invalid("config override must be an object".into()));
+        let runtime = self.runtime()?;
+        if let Some(session_id) = p["sessionId"].as_str() {
+            if p["projectId"].is_string() || p["projectRevision"].is_number() {
+                return Err(Error::Invalid(
+                    "select a retained session or a current project, not both".into(),
+                ));
             }
-            validate_config(patch)?;
-            merge_config(&mut config, patch);
+            let directory = self.resource_cwd(p).await?;
+            let saved = runtime.snapshot(session_id).await?;
+            let mut options = SpawnOptions::new(
+                p["harness"].as_str().unwrap_or(&saved.options.harness),
+                directory,
+            );
+            options.model = p["model"]
+                .as_str()
+                .map(str::to_owned)
+                .or(saved.options.model);
+            options.config = saved.options.config;
+            if let Some(patch) = p.get("config") {
+                merge_config(&mut options.config, patch);
+            }
+            validate_config(&options.config)?;
+            return Ok(options);
         }
-        Ok(SpawnOptions {
-            harness,
-            cwd,
-            model,
-            config,
-            execution: SessionExecutionOptions::default(),
-        })
+        let project = if let Some(id) = p["projectId"].as_str() {
+            Some(runtime.project(id).await?)
+        } else {
+            None
+        };
+        let mut options = SpawnOptions::new(
+            p["harness"]
+                .as_str()
+                .or(project.as_ref().and_then(|p| p.launch.harness.as_deref()))
+                .filter(|h| !h.is_empty())
+                .ok_or_else(|| Error::Invalid("harness is required".into()))?,
+            p["cwd"].as_str().unwrap_or_default(),
+        );
+        options.project_id = project.as_ref().map(|p| p.id.clone());
+        options.project_revision = p["projectRevision"]
+            .as_u64()
+            .or(project.as_ref().map(|p| p.revision));
+        options.model = p["model"].as_str().map(str::to_owned);
+        options.config = p.get("config").cloned().unwrap_or(Value::Null);
+        validate_config(&options.config)?;
+        Ok(options)
+    }
+    pub(crate) async fn resource_cwd(&self, p: &Value) -> Result<PathBuf> {
+        if let Some(session_id) = p["sessionId"].as_str() {
+            let status = self.runtime()?.session_context(session_id).await?;
+            if !status.available {
+                return Err(Error::Invalid(
+                    status
+                        .reason
+                        .unwrap_or_else(|| "working directory unavailable".into()),
+                ));
+            }
+            if p.get("cwd").is_some() && cwd(p)? != status.context.directory.path {
+                return Err(Error::Invalid(
+                    "cwd conflicts with the retained session context".into(),
+                ));
+            }
+            Ok(status.context.directory.path)
+        } else {
+            cwd(p)
+        }
     }
     pub(crate) async fn account_options(&self, p: &Value) -> Result<SpawnOptions> {
-        self.launch_options(p).await
+        self.runtime()?
+            .resolve_launch_options(self.launch_options(p).await?)
+            .await
     }
 }
 
@@ -148,52 +197,6 @@ fn merge_config(base: &mut Value, patch: &Value) {
     }
 }
 
-fn sensitive_key(key: &str) -> bool {
-    let key = key.to_ascii_lowercase();
-    key == "env"
-        || key == "headers"
-        || key.contains("token")
-        || key.contains("secret")
-        || key.contains("password")
-        || key.contains("apikey")
-        || key.contains("api_key")
-        || key.contains("api-key")
-        || key == "authorization"
-}
-fn sensitive_value(key: &str, value: &Value) -> bool {
-    if value.is_null() {
-        return false;
-    }
-    let key_lower = key.to_ascii_lowercase();
-    if key_lower.contains("token")
-        && (value.is_number() || value.is_boolean())
-        && ![
-            "auth", "access", "refresh", "bearer", "secret", "password", "apikey", "api_key",
-            "api-key",
-        ]
-        .iter()
-        .any(|marker| key_lower.contains(marker))
-    {
-        return false;
-    }
-    sensitive_key(key)
-}
 pub(crate) fn validate_config(value: &Value) -> Result<()> {
-    match value {
-        Value::Object(fields) => {
-            for (key, value) in fields {
-                if sensitive_value(key, value) {
-                    return Err(Error::Invalid("native configuration contains a sensitive field; use native harness credentials and clear saved native config with config:null before launching".into()));
-                }
-                validate_config(value)?;
-            }
-        }
-        Value::Array(values) => {
-            for value in values {
-                validate_config(value)?;
-            }
-        }
-        _ => {}
-    }
-    Ok(())
+    validate_project_config(value)
 }

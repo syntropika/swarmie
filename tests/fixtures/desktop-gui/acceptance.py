@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Disposable native WebView QA; all UI input and capture use the X11 OS surface."""
+import uuid
 import argparse
 import hashlib
 import json
@@ -95,15 +96,15 @@ class Desktop:
         script = self.artifacts / "mock.json"
         steps = [{"type": "text", "itemId": "fixture-message", "text": "Native desktop acceptance fixture.\n\nOpen [hello.txt lines 2–3](hello.txt:2-3) or [second.txt](second.txt:1).\n\n```sh\nprintf 'terminal context fixture'\n```"}]
         steps += [{"type": "emit", "kind": {"type": "file.changed", "data": {"path": str(path)}}} for path in self.outputs]
-        steps.append({"type": "end", "reason": "completed"})
-        script.write_text(json.dumps({"turns": [{"steps": steps}, {"steps": [{"type": "text", "itemId": "fixture-context-ack", "text": "Fixture context received."}, {"type": "end", "reason": "completed"}]}]}), encoding="utf-8")
+        steps.append({"type": "end", "outcome": "completed"})
+        script.write_text(json.dumps({"turns": [{"steps": steps}, {"steps": [{"type": "text", "itemId": "fixture-context-ack", "text": "Fixture context received."}, {"type": "end", "outcome": "completed"}]}]}), encoding="utf-8")
         daemon = self.child([str(self.root / "target/debug/mpai"), "--state-dir", str(self.artifacts / "sessions"), "serve", "--http", "127.0.0.1:0", "--desktop-assets", str(assets), "--workbench", "--git-worktrees", str(self.artifacts / "worktrees"), "--resources-root", str(self.artifacts / "resources"), "--mock-script", str(script)], pipe=True)
         self.url = self.ready(daemon, "HTTP listening on ").removesuffix("/rpc")
         created = self.rpc("session/create", {"harness": "mock", "cwd": str(self.project), "config": {}})
         self.session = created["id"]
         self.rpc("session/metadata", {"sessionId": self.session, "title": "Native acceptance fixture"})
         self.rpc("extension/invoke", {"extensionId": "resources", "command": "templates.put", "arguments": {"id": "fixture-review", "name": "Fixture review", "text": "Review {{file}} carefully.", "aliases": ["inspect-fixture"]}})
-        self.rpc("session/prompt", {"sessionId": self.session, "text": "Show the fixture file links."})
+        self.rpc("session/prompt", {"sessionId": self.session, "text": "Show the fixture file links.", "idempotencyKey": str(uuid.uuid4())})
         deadline = time.monotonic() + 10
         while self.rpc("session/get", {"sessionId": self.session})["state"] != "idle":
             if time.monotonic() > deadline:
