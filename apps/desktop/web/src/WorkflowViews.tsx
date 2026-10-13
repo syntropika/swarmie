@@ -188,16 +188,9 @@ export function Schedules({
         disabled={busy || !text.trim() || !at}
         onClick={() =>
           void run(async () => {
-            const session = editing
-              ? undefined
-              : await store.ensureSession(thread.id);
-            await store.invokeExtension("resources", "schedules.put", {
-              id: editing?.id,
-              sessionId: editing?.sessionId ?? session?.sessionId,
-              text,
-              nextRunAtMs: new Date(at).getTime(),
-              intervalSeconds: interval ? Number(interval) * 60 : undefined,
-              enabled: true,
+            await store.saveSchedule(thread.id, {
+              id: editing?.id, sessionId: editing?.sessionId, text,
+              nextRunAtMs: new Date(at).getTime(), intervalSeconds: interval ? Number(interval) * 60 : undefined, enabled: true,
             });
             setEditing(undefined);
             setText("");
@@ -480,20 +473,7 @@ export function Peers({
         }
         onClick={() =>
           void run(async () => {
-            if (targets.length < 2 || targets.length > 8)
-              throw new Error("Choose between two and eight targets.");
-            const launches = [];
-            for (const target of targets) {
-              const tree = isolated ? await store.extension<{ path: string }>("worktree.create", {
-                projectId: thread.projectId, branch: `comparison-${crypto.randomUUID().slice(0, 8)}`, setup: true,
-              }) : undefined;
-              launches.push({ harness: target.harness, model: target.model.trim() || undefined, ...(tree ? { cwd: tree.path } : {}) });
-            }
-            const result = await store.invokeExtension<Comparison>(
-              "resources",
-              "fanout.start",
-              { cwd: thread.worktreeId, text, targets: launches },
-            );
+            const result = await store.rpc<Comparison>("client/comparison", { launch: await store.sessionIntent(thread.id), text, isolated, targets: targets.map(target => ({ harness: target.harness, model: target.model.trim() || undefined })) });
             setComparison(result);
             store.updateThread(thread.id, { comparisonId: result.id });
             await load();

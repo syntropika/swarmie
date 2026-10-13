@@ -46,15 +46,15 @@ it("keeps a failed project open with an actionable inline error", async () => {
 
 it("retains cloning through the source menu and opens the returned path", async () => {
   const { store, open } = await setup();
-  const invoke = vi.spyOn(store, "invokeExtension").mockResolvedValue({ path: "/parent/project" });
+  const create = vi.spyOn(store, "createProject").mockResolvedValue({ id: "created", name: "project", path: "/parent/project", worktrees: [] });
   await userEvent.type(screen.getByRole("textbox", { name: "Project name" }), "project");
   await userEvent.click(screen.getByRole("button", { name: "Add a folder on this computer" }));
   await userEvent.click(screen.getByRole("menuitem", { name: "Clone a repository" }));
   await userEvent.type(screen.getByRole("textbox", { name: "Parent folder" }), "/parent");
   await userEvent.type(screen.getByRole("textbox", { name: "Repository URL" }), "https://example.com/project.git");
   await userEvent.click(screen.getByRole("button", { name: "Create project" }));
-  await waitFor(() => expect(open).toHaveBeenCalledWith("/parent/project", "project"));
-  expect(invoke).toHaveBeenCalledWith("workspace", "project.clone", { parent: "/parent", name: "project", url: "https://example.com/project.git", initializeGit: true });
+  await waitFor(() => expect(create).toHaveBeenCalledWith("clone", { parent: "/parent", name: "project", url: "https://example.com/project.git", initializeGit: true }, "project"));
+  expect(open).not.toHaveBeenCalled();
 });
 
 it("lets Cancel dismiss without opening or creating anything", async () => {

@@ -143,7 +143,7 @@ export interface Methods {
   "session/queue/remove": { params: ({ "sessionId": string } & { "id": string }); result: null };
   "session/queue/update": { params: ({ "sessionId": string } & ({ "text": JsonValue } | { "content": JsonValue }) & { "content"?: Array<InputPromptContent>; "text"?: string } & { "id": string }); result: null };
   "session/resume": { params: ({ "sessionId": string } & { "execution"?: InputSessionExecutionOptions }); result: SessionSnapshot };
-  "session/rollback": { params: ({ "sessionId": string } & { "scope"?: InputRollbackScope; "turns": number }); result: null };
+  "session/rollback": { params: ({ "sessionId": string } & { "expectedSequence"?: number; "scope"?: InputRollbackScope; "turns": number }); result: null };
   "session/steer": { params: ({ "sessionId": string } & ({ "text": JsonValue } | { "content": JsonValue }) & { "content"?: Array<InputPromptContent>; "text"?: string }); result: { "accepted": boolean } };
   "session/submission": { params: ({ "sessionId": string } & { "idempotencyKey": string }); result: (SubmissionReceipt | null) };
   "session/submission/reconcile": { params: ({ "sessionId": string } & { "idempotencyKey": string }); result: (SubmissionReceipt | null) };
@@ -152,4 +152,4 @@ export interface Methods {
   "settings/directory": { params: Record<string, JsonValue>; result: (DefaultDirectory | null) };
   "settings/setDirectory": { params: InputDefaultDirectoryUpdate; result: DefaultDirectory };
 }
-export type { NativeClientMethods, SubmissionProjection, SessionProjection, SessionLaunchIntent, SessionControls, SessionOpenProjection, ClientProject } from "./client.js";
+export type { NativeClientMethods, SubmissionProjection, SessionProjection, SessionLaunchIntent, SessionControls, SessionOpenProjection, ClientProject, InputAttachment, InputContext, PreparedInput, RecoveredDraft } from "./client.js";

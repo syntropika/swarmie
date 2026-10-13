@@ -419,9 +419,8 @@ pub async fn run(root: &Path, command: RuntimeCommand) -> Result<()> {
         .await?
         .ok_or(Error::Closed)?;
     tokio::time::timeout(Duration::from_secs(10), async {
-        while verified(&endpoint, token.as_deref()).await? {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
+        // The shutdown acknowledgment is authoritative. The owner lock confirms
+        // process teardown without probing listeners that are already closing.
         let path = root.join("runtime/runtime-owner.lock");
         regular(&path)?;
         let file = std::fs::File::open(path)?;

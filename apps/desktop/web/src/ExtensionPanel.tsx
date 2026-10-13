@@ -152,20 +152,7 @@ function Files({ store, thread, extensionId, view }: Host) {
       savedContent = content;
     try {
       const baseline = currentThread().fileDrafts?.[savedPath]?.original;
-      const latest = await store.invokeExtension<{ content: string }>(
-        extensionId,
-        "files.read",
-        { ...args, path: savedPath },
-      );
-      if (latest.content !== baseline)
-        throw new Error(
-          "This file changed on disk. Copy your draft or reload the file before saving.",
-        );
-      await store.invokeExtension(extensionId, "files.write", {
-        ...args,
-        path: savedPath,
-        content: savedContent,
-      });
+      await store.rpc("client/fileSave", { extensionId, baseline, arguments: { ...args, path: savedPath, content: savedContent } });
       const current = currentThread();
       const remaining =
         current.fileDrafts?.[savedPath]?.content ?? savedContent;
@@ -966,7 +953,6 @@ export function ExtensionPanel({
   const [opened, setOpened] = useState<string[]>(
     thread.layout?.openViews ?? (selected ? [selected] : []),
   );
-  const [registered, setRegistered] = useState(false);
   useEffect(() => {
     const id = thread.layout?.selectedView;
     if (id !== undefined) {
@@ -975,23 +961,6 @@ export function ExtensionPanel({
         setOpened((ids) => (ids.includes(id) ? ids : [...ids, id].slice(-8)));
     }
   }, [thread.layout?.selectedView]);
-  useEffect(() => {
-    let disposed = false;
-    setRegistered(false);
-    if (thread.worktreeId && extensions.some((e) => e.id === "workspace"))
-      void store
-        .openWorkspace(thread)
-        .then(() => {
-          if (!disposed) setRegistered(true);
-        })
-        .catch((error) => {
-          if (!disposed) store.setError(error);
-        });
-    else setRegistered(true);
-    return () => {
-      disposed = true;
-    };
-  }, [thread.worktreeId, extensions.some((e) => e.id === "workspace")]);
   const choose = (id: string) => {
     if (!opened.includes(id) && opened.length >= 8) {
       store.setError(
@@ -1105,8 +1074,6 @@ export function ExtensionPanel({
       )}
       {!thread.worktreeId ? (
         <p className="panel-note">Open a project to use workspace tools.</p>
-      ) : !registered ? (
-        <p className="panel-note">Opening workspace…</p>
       ) : (
         <>
           {views

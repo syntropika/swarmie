@@ -121,18 +121,7 @@ export function NativeHistory({ store }: { store: WorkspaceStore }) {
             disabled={busy}
             onClick={() =>
               void run(async () => {
-                const imported = await store.rpc<{ id: string }>(
-                  "session/import",
-                  { ...query, nativeId: selected.native.id },
-                );
-                await store.restoreSessions();
-                const thread = store
-                  .getSnapshot()
-                  .threads.find((t) => t.sessionId === imported.id);
-                if (thread) {
-                  await store.restoreThread(thread.id);
-                  store.select(thread.id);
-                }
+                await store.importSession({ ...query, nativeId: selected.native.id });
               })
             }
           >

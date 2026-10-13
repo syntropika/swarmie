@@ -32,7 +32,7 @@ pub(crate) enum Command {
     SlashCommands(Reply<Value>),
     Quotas(Reply<Value>),
     Models(Reply<Vec<ModelDescriptor>>),
-    Rollback(u64, RollbackScope, Reply<()>),
+    Rollback(u64, RollbackScope, Option<u64>, Reply<()>),
     Compact(Reply<()>),
     Close(bool, Reply<()>),
 }
@@ -195,7 +195,16 @@ impl Agent {
             .await
     }
     pub async fn rollback_with(&self, turns: u64, scope: RollbackScope) -> Result<()> {
-        self.request(|reply| Command::Rollback(turns, scope, reply))
+        self.rollback_at(turns, scope, None).await
+    }
+    /// Apply a rollback only to the history used to prepare it.
+    pub async fn rollback_at(
+        &self,
+        turns: u64,
+        scope: RollbackScope,
+        sequence: Option<u64>,
+    ) -> Result<()> {
+        self.request(|reply| Command::Rollback(turns, scope, sequence, reply))
             .await
     }
     pub async fn compact(&self) -> Result<()> {
@@ -864,7 +873,7 @@ impl Engine {
                     }
                     Some(Command::Submission(key,reply)) => { let _ = reply.send(Ok(self.submissions.get(&key).map(|r| r.receipt.clone()))); }
                     Some(Command::ReconcileSubmission(_,r)) => { let _ = r.send(Err(Error::Busy)); }
-                    Some(Command::Steer(_,r) | Command::Rollback(_,_,r) | Command::Compact(r)) => { let _ = r.send(Err(Error::Busy)); }
+                    Some(Command::Steer(_,r) | Command::Rollback(_,_,_,r) | Command::Compact(r)) => { let _ = r.send(Err(Error::Busy)); }
                     Some(Command::Permission(_,r)) => { let _ = r.send(Err(Error::Busy)); }
                     Some(Command::Models(r)) => { let _ = r.send(Err(Error::Busy)); }
                     Some(Command::Configuration(r)) => { let _ = r.send(Err(Error::Busy)); }
@@ -983,8 +992,9 @@ impl Engine {
                             let _ = reply.send(result);
                         }
                         command @ (Command::QueueAdd(..) | Command::QueueUpdate(..) | Command::QueueRemove(..) | Command::QueuePause(..) | Command::Metadata(..)) => self.queue_command(command).await,
-                        Command::Rollback(n, scope, reply) => {
+                        Command::Rollback(n, scope, sequence, reply) => {
                             let result = async {
+                                if sequence.is_some_and(|seq| seq != self.snapshot.sequence) { return Err(Error::Invalid("history changed before rollback".into())); }
                                 if self.dispatch_blocked() || self.snapshot.turn.is_some() || !self.permissions.is_empty() { return Err(Error::Busy); }
                                 if n == 0 { return Err(Error::Invalid("turns must be positive".into())); }
                                 if scope == RollbackScope::ConversationAndFiles {

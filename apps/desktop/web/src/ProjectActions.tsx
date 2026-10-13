@@ -41,12 +41,7 @@ export function ProjectActions({
         disabled={busy}
         onClick={() =>
           void run(async () => {
-            const scratch = await store.invokeExtension<{ path: string }>(
-              "workspace",
-              "project.scratch",
-              {},
-            );
-            await store.openProject(scratch.path);
+            await store.createProject("scratch");
           })
         }
       >
@@ -74,7 +69,6 @@ export function ProjectActions({
               disabled={busy}
               onClick={() =>
                 void run(async () => {
-                  await store.openWorkspace(thread);
                   const published = await store.invokeExtension<{
                     url: string;
                   }>("workspace", "project.publish", {

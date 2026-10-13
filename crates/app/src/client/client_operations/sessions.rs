@@ -15,7 +15,7 @@ struct Launch {
     #[serde(default)]
     directory_path: Option<String>,
 }
-async fn options(call: &mut Calls<'_>, params: &Value) -> Outcome {
+pub(super) async fn options(call: &mut Calls<'_>, params: &Value) -> Outcome {
     let intent: Launch =
         serde_json::from_value(params.clone()).map_err(|e| invalid(&e.to_string()))?;
     if intent.harness.trim().is_empty() || (!intent.config.is_null() && !intent.config.is_object())
@@ -217,4 +217,42 @@ pub(super) async fn open(
     }
     projection["activation"] = activation;
     Ok(projection)
+}
+
+pub(super) async fn recover(
+    call: &mut Calls<'_>,
+    submissions: &ClientSubmissions,
+    request: &Value,
+) -> Outcome {
+    let mut query = request.clone();
+    query["params"]["reconcile"] = true.into();
+    let mut projection =
+        crate::client_projection::restore(call.nodes, submissions, call.node, query.clone())
+            .await
+            .map_err(|e| failure(&e.to_string()))?["result"]
+            .clone();
+    if projection["unresolved"] == true {
+        projection["activation"] = json!({"status":"blocked"});
+        return Ok(projection);
+    }
+    query["params"]["reconcile"] = false.into();
+    query["params"]["resume"] = "active".into();
+    open(call, submissions, &query).await
+}
+
+pub(super) async fn directory(call: &mut Calls<'_>, intent: &Value) -> Outcome {
+    let launch = options(call, intent).await?;
+    if let Some(cwd) = launch.get("cwd") {
+        return Ok(cwd.clone());
+    }
+    if let Some(project) = launch.get("projectId") {
+        let record = call
+            .call("project/get", json!({"projectId":project}), false)
+            .await?;
+        return Ok(call
+            .call("directory/get", record["directory"].clone(), false)
+            .await?["path"]
+            .clone());
+    }
+    Ok(super::projects::chat_directory(call, &json!({})).await?["path"].clone())
 }

@@ -43,14 +43,9 @@ export function ProjectDialog({ store, onClose }: { store: WorkspaceStore; onClo
     setBusy(true);
     setError("");
     try {
-      let path = folder;
-      if (source !== "existing") {
-        const created = await store.invokeExtension<{ path: string }>("workspace", `project.${source}`, {
-          parent: draftPath.trim(), name: name.trim(), url: url.trim(), initializeGit: git,
-        });
-        path = created.path;
-      }
-      const project = await store.openProject(path, name.trim());
+      const project = source === "existing"
+        ? await store.openProject(folder, name.trim())
+        : await store.createProject(source, { parent: draftPath.trim(), name: name.trim(), url: url.trim(), initializeGit: git }, name.trim());
       if (project) onClose();
       else setError(store.getSnapshot().error || "The folder could not be opened. Check its path and try again.");
     } catch (error) {

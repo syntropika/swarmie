@@ -1,7 +1,7 @@
 use crate::{METHODS, PROTOCOL_VERSION};
-use swarmie::*;
 use schemars::{JsonSchema, SchemaGenerator, generate::SchemaSettings};
 use serde_json::{Map, Value, json};
+use swarmie::*;
 
 /// Generated public type definitions with the canonical named-parameter RPC catalog.
 pub fn protocol_schema() -> Value {
@@ -202,7 +202,7 @@ pub fn protocol_schema() -> Value {
             "agent/configuration" => (session(), configuration.clone()),
             "agent/commands" | "agent/quotas" => (session(), json!(true)),
             "session/rollback" => (
-                json!({"allOf":[session(),object(&["turns"],[("turns",json!({"type":"integer","minimum":1})),("scope",rollback_scope.clone())])]}),
+                json!({"allOf":[session(),object(&["turns"],[("turns",json!({"type":"integer","minimum":1})),("scope",rollback_scope.clone()),("expectedSequence",json!({"type":"integer","minimum":0}))])]}),
                 unit.clone(),
             ),
             "session/compact" | "session/close" | "agent/kill" => (session(), unit),

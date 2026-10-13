@@ -82,7 +82,6 @@ export function BrowserPreview({ store, thread }: Host) {
         active.current = "";
         setPreview(undefined);
       }
-      await store.openWorkspace(thread);
       if (request !== generation.current) return;
       const result = await store.invokeExtension<{
         previewId: string;

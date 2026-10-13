@@ -4,9 +4,10 @@ import type { RuntimeEvent, SessionSnapshot, SubmissionReceipt, SettingDescripto
 
 /** Native application projection; receipt ownership does not depend on view caches. */
 export type SubmissionProjection = {
-  entries: { key: string; sessionId: string; receipt: SubmissionReceipt }[];
+  entries: { key: string; sessionId: string; receipt: SubmissionReceipt; input?: PreparedInput | null }[];
   unresolved: boolean;
   snapshot: SessionSnapshot;
+  inputs?: PreparedInput[];
 };
 export type SessionProjection = SubmissionProjection & { events: RuntimeEvent[] };
 export interface NativeClientMethods {
@@ -51,4 +52,28 @@ export interface NativeClientMethods {
   "client/chatDirectory": { params: { set?: boolean; path?: string }; result: DirectoryResource };
   "client/extensionInvoke": { params: { extensionId: string; command: string; arguments: JsonValue }; result: JsonValue };
   "client/worktree": { params: { projectId: string; action: "create" | "remove"; branch?: string; worktreeId?: string; sessionId?: string }; result: { tree: ClientProject["worktrees"][number] & { setup?: { completed: boolean; message?: string } } | null; worktrees: ClientProject["worktrees"] } };
+}
+
+/** Authored inputs are interpreted and retained by the application on the selected node. */
+export type InputAttachment = { id: string; name: string; mime: string; data: string; image: boolean; binary?: boolean; path?: string; assetId?: string };
+export type InputContext = { id: string; kind: "file" | "message" | "terminal" | "review" | "resource"; label: string; text: string; path?: string; startLine?: number; endLine?: number; sourceId?: string; skill?: { name: string; path: string } };
+export type PreparedInput = { id?: string; queueId?: string; text: string; attachments: InputAttachment[]; contextItems: InputContext[]; content: import("./index.js").PromptContent[]; afterSequence: number };
+export type RecoveredDraft = { draft: string; attachments: InputAttachment[]; contextItems: InputContext[] };
+export interface NativeClientMethods {
+  "client/sessionRecover": { params: { sessionId: string }; result: SessionOpenProjection };
+  "client/sessionInput": { params: { sessionId: string; text: string; attachments?: InputAttachment[]; contextItems?: InputContext[]; delivery?: "prompt" | "steer" | "queue"; idempotencyKey?: string }; result: { input?: PreparedInput; receipt?: SubmissionReceipt; result?: JsonValue; title?: string; metadataError?: JsonValue; queue?: PromptQueue } };
+  "client/sessionQueue": { params: { sessionId: string; action: "list" | "update" | "remove" | "pause"; id?: string; text?: string; paused?: boolean }; result: PromptQueue & { input?: PreparedInput } };
+  "client/sessionHistory": { params: { sessionId: string; action: "fork" | "branch" | "edit" | "rollback"; messageId?: string; position?: "before_user" | "after_assistant"; turns?: number; scope?: "conversation_only" | "conversation_and_files" }; result: { projection: SessionOpenProjection; draft?: RecoveredDraft | null } };
+}
+
+export interface NativeClientMethods {
+  "client/projectCreate": { params: { source: "create" | "clone" | "scratch"; arguments?: JsonValue; name?: string }; result: ClientProject };
+  "client/gitText": { params: { kind: "commit" | "pr"; arguments: JsonValue; launch: SessionLaunchIntent }; result: { draft: { message?: string; title?: string; body?: string }; truncated: boolean } };
+  "client/prProjection": { params: { projectId: string; worktreeId?: string; number?: number }; result: JsonValue };
+  "client/fileSave": { params: { extensionId: string; arguments: JsonValue; baseline: string }; result: JsonValue };
+  "client/comparison": { params: { launch: SessionLaunchIntent; text: string; isolated?: boolean; targets: { harness: string; model?: string }[] }; result: JsonValue };
+  "client/sessionImport": { params: { harness: string; nativeId: string; cwd?: string; configHome?: string; limit?: number }; result: SessionOpenProjection };
+}
+export interface NativeClientMethods {
+  "client/schedulePut": { params: { schedule: { id?: string; sessionId?: string; text: string; nextRunAtMs: number; intervalSeconds?: number; enabled?: boolean }; launch?: SessionLaunchIntent }; result: { created: boolean; session: SessionSnapshot; result: JsonValue } };
 }

@@ -1,6 +1,9 @@
 //! Native application workflows. Views provide intent; runtime calls retain one exact target.
+mod history;
+pub(crate) mod inputs;
 mod projects;
 mod sessions;
+mod workflows;
 use crate::{client_submissions::ClientSubmissions, node_gateway::NodeGateway};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -22,10 +25,48 @@ impl ClientOperations {
             projects: Default::default(),
         }
     }
+    /// The same application operations serve the WebView IPC and browser HTTP adapters.
+    pub async fn dispatch(&self, node: &str, request: Value) -> Value {
+        let method = request["method"].as_str().unwrap_or("");
+        if Self::handles(method) {
+            return self.handle(node, request).await;
+        }
+        let id = request["id"].clone();
+        let result = match method {
+            "session/prompt"
+                if request["params"]["sessionId"].is_string()
+                    && request["params"]["idempotencyKey"].is_string()
+                    && serde_json::from_value::<RuntimeIdentity>(
+                        request["expectedRuntime"].clone(),
+                    )
+                    .is_ok() =>
+            {
+                self.submissions.prompt(node, request).await
+            }
+            "client/submissions" => self.submissions.recover(node, request).await,
+            "client/sessionProjection" => {
+                crate::client_projection::restore(&self.nodes, &self.submissions, node, request)
+                    .await
+            }
+            _ => return self.nodes.forward(node, request).await,
+        };
+        result.unwrap_or_else(|error| json!({"jsonrpc":"2.0","id":id,"error":{"code":-32001,"message":error.to_string(),"data":{"effectKnowledge":if matches!(error,swarmie::Error::Invalid(_)) { "none" } else { "unknown" }}}}))
+    }
     pub fn handles(method: &str) -> bool {
         matches!(
             method,
-            "client/sessionCreate"
+            "client/schedulePut"
+                | "client/projectCreate"
+                | "client/gitText"
+                | "client/prProjection"
+                | "client/fileSave"
+                | "client/comparison"
+                | "client/sessionImport"
+                | "client/sessionRecover"
+                | "client/sessionHistory"
+                | "client/sessionQueue"
+                | "client/sessionInput"
+                | "client/sessionCreate"
                 | "client/sessionOpen"
                 | "client/sessionPrepare"
                 | "client/sessionControls"
@@ -75,6 +116,21 @@ impl ClientOperations {
                 )
                 .await
             }
+            "client/schedulePut" => workflows::schedule(&mut call, params).await,
+            "client/projectCreate" => workflows::create_project(&mut call, params).await,
+            "client/gitText" => workflows::git_text(&mut call, params).await,
+            "client/prProjection" => workflows::pr_projection(&mut call, params).await,
+            "client/fileSave" => workflows::file_save(&mut call, params).await,
+            "client/comparison" => workflows::comparison(&mut call, params).await,
+            "client/sessionImport" => {
+                workflows::import(&mut call, &self.submissions, request).await
+            }
+            "client/sessionRecover" => {
+                sessions::recover(&mut call, &self.submissions, request).await
+            }
+            "client/sessionHistory" => history::change(&mut call, &self.submissions, request).await,
+            "client/sessionQueue" => history::queue(&mut call, &self.submissions, params).await,
+            "client/sessionInput" => inputs::deliver(&mut call, &self.submissions, request).await,
             "client/sessionOpen" => sessions::open(&mut call, &self.submissions, request).await,
             "client/sessionControls" => {
                 sessions::controls(&mut call, text(params, "sessionId")?).await

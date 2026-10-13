@@ -27,6 +27,7 @@ beforeEach(() => {
     requests.push(request);
     const result = request.method === "runtime/initialize"
       ? { name: "swarmie", protocolVersion: "1", runtimeIdentity: target }
+      : request.method === "client/sessionOpen" ? { snapshot: { id: "session", state: "running", sequence: 0, options: { harness: "mock", cwd: "/work" }, capabilities: {} }, events: [], entries: [], unresolved: false, activation: { status: "attached" } }
       : request.method === "session/queue/list" ? { items: [], paused: false }
       : request.method === "session/get" || request.method === "session/resume"
         ? { id: "session", state: "running", options: { harness: "mock", cwd: "/work" }, capabilities: {} }
@@ -41,7 +42,7 @@ it("pins commands to the verified owner and accepts a restarted owner of the sam
   store.getSnapshot().chatDirectory = "/work";
   await Promise.all([store.connect(), store.connect()]);
   expect(requests.filter(r => r.method === "runtime/initialize")).toHaveLength(1);
-  expect(requests.find(r => r.method === "project/list")?.expectedRuntime).toEqual(identity);
+  expect(requests.find(r => r.method === "client/projectCatalog")?.expectedRuntime).toEqual(identity);
   store.updateThread(store.active()!.id, { draft: "Keep this draft" });
   target = { ...identity, incarnationId: "restarted-owner" };
   await store.connect();
@@ -82,6 +83,6 @@ it("preserves a running session on transport failure and reconnects without rese
   await store.poll();
   expect(store.getSnapshot().connected).toBe(true);
   expect(store.active()).toMatchObject({ state: "running", draft: "Next instruction", sessionId: "session" });
-  expect(requests.some(r => r.method === "session/get")).toBe(true);
+  expect(requests.some(r => r.method === "client/sessionOpen")).toBe(true);
   expect(requests.some(r => r.method === "session/prompt")).toBe(false);
 });

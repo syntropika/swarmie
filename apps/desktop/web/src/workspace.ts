@@ -1,5 +1,5 @@
 import { clientRequest, nativeClient } from "./clientTransport";
-import type { DirectoryResource, DefaultDirectory, ProjectRecord, RuntimeIdentity, LocalStoreIdentity, SubmissionProjection, SessionOpenProjection, SessionControls } from "@swarmie/contracts";
+import type { DirectoryResource, ProjectRecord, RuntimeIdentity, LocalStoreIdentity, SubmissionProjection, SessionOpenProjection, SessionControls } from "@swarmie/contracts";
 import {
   NotificationService,
   readNotificationPreferences,
@@ -334,7 +334,6 @@ export class WorkspaceStore {
   async findFiles(query: string) {
     const thread = this.active();
     if (!thread?.worktreeId) return [];
-    await this.openWorkspace(thread);
     const result = await this.invokeExtension<{ paths: string[] }>(
       "workspace",
       "files.find",
@@ -382,7 +381,6 @@ export class WorkspaceStore {
   async addFileContext(id: string, location: FileLocation) {
     const thread = this.snapshot.threads.find((t) => t.id === id);
     if (!thread) return;
-    await this.openWorkspace(thread);
     const result = await this.invokeExtension<{ content: string }>(
       "workspace",
       "files.read",
@@ -578,16 +576,7 @@ export class WorkspaceStore {
           this.setError(error);
         }
       }
-      const catalog = nativeClient() ? [] : await this.rpc<ProjectRecord[]>("project/list");
-      const projects: Project[] = [];
-      for (const record of catalog) {
-        if (record.archived) continue;
-        const directory = record.directory ? await this.rpc<DirectoryResource>("directory/get", record.directory) : undefined;
-        const path = directory?.path ?? "";
-        try { projects.push(await this.openProjectRecord(path, record)); }
-        catch { projects.push({ id: record.id, revision: record.revision, name: record.name, path, git: false, worktrees: [] }); }
-      }
-      this.publish({ projects: nativeClient() ? await this.rpc<Project[]>("client/projectCatalog") : projects });
+      this.publish({ projects: await this.rpc<Project[]>("client/projectCatalog") });
       await this.restoreSessions();
       if (!this.snapshot.threads.length) this.createThread();
       for (const thread of this.snapshot.threads.filter((t) => t.sessionId)) {
@@ -615,29 +604,7 @@ export class WorkspaceStore {
     } finally { if (epoch === this.connectionEpoch) this.connecting = false; }
   }
   async openProjectRecord(path: string, retained?: ProjectRecord): Promise<Project> {
-    if (nativeClient()) return this.rpc<Project>(retained ? "client/projectGet" : "client/projectOpen", retained ? { projectId: retained.id } : { path });
-    let host = retained;
-    if (!host) {
-      const directory = await this.rpc<DirectoryResource>("directory/register", { path });
-      const projects = await this.rpc<ProjectRecord[]>("project/list");
-      host = projects.find(p => !p.archived && p.directory?.id === directory.id)
-        ?? await this.rpc<ProjectRecord>("project/create", {
-          name: directory.path.split("/").filter(Boolean).at(-1) ?? directory.path,
-          directory: { id: directory.id, revision: directory.revision },
-        });
-      path = directory.path;
-    }
-    if (this.snapshot.git) {
-      try {
-        const git = await this.extension<Project>("project.open", { path });
-        return { ...git, id: host.id, revision: host.revision, gitId: git.id, name: host.name, git: true };
-      } catch (error) {
-        if (!this.snapshot.extensions.some(e => e.id === "workspace")) throw error;
-      }
-    }
-    const folder = await this.invokeExtension<{ id: string; path: string }>("workspace", "project.open", { path });
-    return { id: host.id, revision: host.revision, path: folder.path, name: host.name, git: false,
-      worktrees: [{ id: folder.path, path: folder.path, branch: null, isMain: true, locked: false, prunable: false }] };
+    return this.rpc<Project>(retained ? "client/projectGet" : "client/projectOpen", retained ? { projectId: retained.id } : { path });
   }
   async openWorkspace(thread: Thread) {
     const project = this.snapshot.projects.find(
@@ -656,11 +623,7 @@ export class WorkspaceStore {
   async openProject(path: string, name?: string) {
     this.publish({ busy: true, error: "" });
     try {
-      const opened = nativeClient() ? await this.rpc<Project>("client/projectOpen", { path, ...(name?.trim() ? { name: name.trim() } : {}) }) : await this.openProjectRecord(path);
-      if (!nativeClient() && name?.trim() && name.trim() !== opened.name) {
-        const renamed = await this.rpc<ProjectRecord>("project/update", { projectId: opened.id, expectedRevision: opened.revision, name: name.trim() });
-        opened.name = renamed.name; opened.revision = renamed.revision;
-      }
+      const opened = await this.rpc<Project>("client/projectOpen", { path, ...(name?.trim() ? { name: name.trim() } : {}) });
       const project = {
         ...opened,
         name:
@@ -684,35 +647,52 @@ export class WorkspaceStore {
       return undefined;
     }
   }
+  async createProject(source: "create" | "clone" | "scratch", args: Record<string, unknown> = {}, name?: string) {
+    const project = await this.rpc<Project>("client/projectCreate", { source, arguments: args, ...(name ? { name } : {}) });
+    this.publish({ projects: [...this.snapshot.projects.filter(p => p.id !== project.id), project] });
+    this.createThread(project.id);
+    return project;
+  }
+  async sessionIntent(id: string) {
+    const pending = this.defaultsPending.get(id);
+    if (pending) await pending;
+    return this.launchIntent(this.snapshot.threads.find(t => t.id === id)!);
+  }
+  async saveSchedule(id: string, schedule: Record<string, unknown>) {
+    const thread = this.snapshot.threads.find(t => t.id === id)!;
+    const applyCreated = (session: SessionSnapshot) => {
+      this.updateThread(id, { sessionId: session.id, worktreeId: session.options.cwd, state: session.state, capabilities: session.capabilities, executionPolicy: session.executionPolicy });
+    };
+    try {
+      const result = await this.rpc<{ created: boolean; session: SessionSnapshot }>("client/schedulePut", { schedule: { ...schedule, sessionId: schedule.sessionId ?? thread.sessionId }, launch: await this.sessionIntent(id) });
+      if (result.created) applyCreated(result.session);
+      return result;
+    } catch (error) {
+      const created = error instanceof RpcError ? (error.data as { createdSession?: SessionSnapshot } | undefined)?.createdSession : undefined;
+      if (created) applyCreated(created);
+      throw error;
+    }
+  }
+  async importSession(query: unknown) {
+    const result = await this.rpc<SessionOpenProjection>("client/sessionImport", query);
+    let thread = this.snapshot.threads.find(t => t.sessionId === result.snapshot.id);
+    if (!thread) {
+      const snapshot = result.snapshot;
+      const source = snapshot.workingContext?.source;
+      thread = { ...newThread(source?.kind === "project_folder" ? source.projectId : "", snapshot.options.cwd, snapshot.options.harness), sessionId: snapshot.id, title: snapshot.metadata?.title ?? "Recovered chat", model: snapshot.options.model ?? "", config: (snapshot.options.config ?? {}) as Record<string,unknown> };
+      this.publish({ threads: [thread, ...this.snapshot.threads] });
+    }
+    await this.applyProjection(thread.id,result);
+    this.select(thread.id);
+    return thread.id;
+  }
   private async resolveChatDirectory() {
-    if (nativeClient()) {
-      const directory = await this.rpc<DirectoryResource>("client/chatDirectory");
-      this.publish({ chatDirectory: directory.path });
-      return directory.path;
-    }
-    const selected = await this.rpc<DefaultDirectory | null>("settings/directory");
-    if (selected) {
-      const directory = await this.rpc<DirectoryResource>("directory/get", selected.directory);
-      this.publish({ chatDirectory: directory.path });
-      return directory.path;
-    }
-    const initial = await this.invokeExtension<{ path: string }>("workspace", "conversation.directory", {});
-    const directory = await this.rpc<DirectoryResource>("directory/register", { path: initial.path });
-    await this.rpc("settings/setDirectory", { expectedRevision: 0, directory: { id: directory.id, revision: directory.revision } });
+    const directory = await this.rpc<DirectoryResource>("client/chatDirectory");
     this.publish({ chatDirectory: directory.path });
     return directory.path;
   }
   async setChatDirectory(path?: string) {
-    if (nativeClient()) {
-      const directory = await this.rpc<DirectoryResource>("client/chatDirectory", { set: true, ...(path?.trim() ? { path: path.trim() } : {}) });
-      this.publish({ chatDirectory: directory.path, customChatDirectory: path?.trim() ? directory.path : undefined });
-      this.persist();
-      return;
-    }
-    const chosen = await this.invokeExtension<{ path: string }>("workspace", "conversation.directory", path?.trim() ? { path: path.trim() } : {});
-    const directory = await this.rpc<DirectoryResource>("directory/register", { path: chosen.path });
-    const selected = await this.rpc<DefaultDirectory | null>("settings/directory");
-    await this.rpc("settings/setDirectory", { expectedRevision: selected?.revision ?? 0, directory: { id: directory.id, revision: directory.revision } });
+    const directory = await this.rpc<DirectoryResource>("client/chatDirectory", { set: true, ...(path?.trim() ? { path: path.trim() } : {}) });
     this.publish({ chatDirectory: directory.path, customChatDirectory: path?.trim() ? directory.path : undefined });
     this.persist();
   }
@@ -748,10 +728,7 @@ export class WorkspaceStore {
       thread.worktreeId &&
       (this.snapshot.connected || this.snapshot.extensions.some((e) => e.id === "resources"))
     ) {
-      const pending = (nativeClient() ? this.rpc<ProjectRecord["launch"] & { cwd?: string; revision: number }>("client/projectDefaults", { projectId: project.id }) : this.rpc<ProjectRecord>("project/get", { projectId: project.id }).then(async (record) => {
-        const directory = record.directory ? await this.rpc<DirectoryResource>("directory/get", record.directory) : undefined;
-        return { ...record.launch, cwd: directory?.path, revision: record.revision };
-      })).then(async (defaults) => {
+      const pending = this.rpc<ProjectRecord["launch"] & { cwd?: string; revision: number }>("client/projectDefaults", { projectId: project.id }).then(async (defaults) => {
         const edited = this.configurationEdited.has(thread.id);
         if (
           defaults.cwd &&
@@ -825,27 +802,10 @@ export class WorkspaceStore {
     if (pending) return pending;
     const operation = (async () => {
       const times = new Map<string, Date>();
-      let afterSequence = 0;
-      for (;;) {
-        const events = await this.rpc<Event[]>("session/transcript", {
-          sessionId,
-          afterSequence,
-          limit: 256,
-        });
-        if (!events.length) break;
-        for (const event of events) {
-          if (
-            event.type === "message.user" &&
-            typeof event.timestampMs === "number" &&
-            Number.isFinite(event.timestampMs) &&
-            event.timestampMs > 0 &&
-            event.timestampMs <= 8640000000000000
-          )
-            times.set(`user-${event.sequence}`, new Date(event.timestampMs));
-        }
-        const nextSequence = Math.max(...events.map((event) => event.sequence));
-        if (events.length < 256 || nextSequence <= afterSequence) break;
-        afterSequence = nextSequence;
+      const projection = await this.rpc<SessionOpenProjection>("client/sessionProjection", { sessionId });
+      for (const event of projection.events) {
+        if (event.type === "message.user" && typeof event.timestampMs === "number" && Number.isFinite(event.timestampMs) && event.timestampMs > 0 && event.timestampMs <= 8640000000000000)
+          times.set(`user-${event.sequence}`, new Date(event.timestampMs));
       }
       const latest = this.snapshot.threads.find((item) => item.id === id);
       if (!latest || latest.sessionId !== sessionId) return;
@@ -870,10 +830,14 @@ export class WorkspaceStore {
   async restoreThread(id: string) {
     const thread = this.snapshot.threads.find((t) => t.id === id);
     if (!thread?.sessionId) return;
-    const projection = nativeClient() ? await this.rpc<SessionOpenProjection>("client/sessionOpen", { sessionId: thread.sessionId }) : undefined;
-    const snapshot = projection?.snapshot ?? await this.rpc<SessionSnapshot>("session/get", {
-      sessionId: thread.sessionId,
-    });
+    const projection = await this.rpc<SessionOpenProjection>("client/sessionOpen", { sessionId: thread.sessionId });
+    await this.applyProjection(id, projection);
+  }
+  private async applyProjection(id: string, projection: SessionOpenProjection) {
+    const thread = this.snapshot.threads.find(t => t.id === id);
+    if (!thread || thread.sessionId !== projection.snapshot.id) return;
+    await this.recoverSubmissions(id, false, projection);
+    const snapshot = projection.snapshot;
     let replay = {
       ...thread,
       messages: [],
@@ -894,24 +858,8 @@ export class WorkspaceStore {
       itemId: undefined,
       messageAnchors: {},
     } as Thread;
-    if (projection) {
-      replay = reduceEvents(await this.bindPromptRecords(replay, projection.events as Event[]), projection.events as Event[]);
-    } else {
-      for (;;) {
-        const events = await this.rpc<Event[]>("session/transcript", {
-          sessionId: thread.sessionId,
-          afterSequence: replay.sequence,
-          limit: 256,
-        });
-        if (!events.length) break;
-        replay = reduceEvents(
-          await this.bindPromptRecords(replay, events),
-          events,
-        );
-        if (events.length < 256) break;
-      }
-    }
-    await this.recoverSubmissions(id, false, projection);
+    replay.promptRecords = this.snapshot.threads.find(t => t.id === id)?.promptRecords;
+    replay = reduceEvents(await this.bindPromptRecords(replay, projection.events as Event[]), projection.events as Event[]);
     const unresolved = this.snapshot.threads
       .find((item) => item.id === id)
       ?.submissionKeys?.some(
@@ -920,25 +868,9 @@ export class WorkspaceStore {
           entry.receipt.recoveryRequired ||
           !["accepted", "rejected"].includes(entry.receipt.delivery),
       );
-    let current = snapshot;
-    let state = unresolved ? "needs_input" : projection?.activation.status === "unavailable" ? "closed" : snapshot.state;
+    const current = snapshot;
+    const state = projection.unresolved ? "needs_input" : projection.activation?.status === "unavailable" ? "closed" : snapshot.state;
     const archived = snapshot.metadata?.archived ?? thread.archived;
-    if (
-      !projection &&
-      !unresolved &&
-      !archived &&
-      !["closed", "failed"].includes(snapshot.state)
-    ) {
-      try {
-        const resumed = await this.resumeSession(thread);
-        current = resumed;
-        state = resumed.state;
-      } catch (error) {
-        if (error instanceof RpcError && error.code === -32001)
-          state = "closed";
-        else throw error;
-      }
-    }
     const latest = this.snapshot.threads.find((item) => item.id === id)!;
     const eventFields: (keyof Thread)[] = [
       "messages",
@@ -990,7 +922,7 @@ export class WorkspaceStore {
       false,
     );
     if (projection?.queue) this.updateThread(id, { queue: projection.queue.items as Queued[], queuePaused: projection.queue.paused }, false);
-    else if (!projection && !["closed", "failed"].includes(state) && !archived) await this.refreshQueue(id);
+
   }
   ensureSession(id: string): Promise<Thread> {
     const existing = this.launching.get(id);
@@ -1017,22 +949,7 @@ export class WorkspaceStore {
       thread = this.snapshot.threads.find((t) => t.id === id)!;
     }
     if (!thread.sessionId) {
-      const options = {
-        harness: thread.harness,
-        ...(thread.projectId && thread.projectDirectory === thread.worktreeId
-          ? { projectId: thread.projectId, projectRevision: thread.projectRevision }
-          : thread.projectId ? { cwd: thread.worktreeId } : {}),
-        model:
-          thread.model ||
-          thread.configurations?.find((option) => option.id === "model")
-            ?.value ||
-          null,
-        config: thread.config ?? {},
-      };
-      const session = await this.rpc<SessionSnapshot>(
-        nativeClient() ? "client/sessionCreate" : "session/create",
-        nativeClient() ? this.launchIntent(thread) : options,
-      );
+      const session = await this.rpc<SessionSnapshot>("client/sessionCreate", this.launchIntent(thread));
       this.updateThread(id, {
         worktreeId: session.options.cwd,
         sessionId: session.id,
@@ -1041,10 +958,6 @@ export class WorkspaceStore {
         state: session.state ?? "idle",
       });
     } else if (["closed", "failed"].includes(thread.state)) {
-      if (thread.capabilities?.resume?.availability !== "available")
-        throw new Error(
-          "This harness cannot resume its saved session. Start a new chat to preserve this history.",
-        );
       const session = await this.resumeSession(thread);
       this.updateThread(id, {
         state: session.state,
@@ -1061,15 +974,7 @@ export class WorkspaceStore {
       config: thread.config ?? {}, ...(thread.projectId ? { projectId: thread.projectId, projectRevision: thread.projectRevision, directoryPath: thread.worktreeId } : {}) };
   }
   private resumeSession(thread: Thread) {
-    if (nativeClient()) return this.rpc<SessionOpenProjection>("client/sessionOpen", { sessionId: thread.sessionId, resume: "explicit" }).then(result => result.snapshot);
-    const params = { sessionId: thread.sessionId };
-    return this.snapshot.extensions.some((e) => e.id === "resources")
-      ? this.invokeExtension<SessionSnapshot>(
-          "resources",
-          "session.resume",
-          params,
-        )
-      : this.rpc<SessionSnapshot>("session/resume", params);
+    return this.rpc<SessionOpenProjection>("client/sessionOpen", { sessionId: thread.sessionId, resume: "explicit" }).then(result => result.snapshot);
   }
   private async bindPromptRecords(thread: Thread, events: Event[]) {
     const records = (thread.promptRecords ?? []).map((record) => ({
@@ -1098,143 +1003,20 @@ export class WorkspaceStore {
       if (!records.some((item) => item.id === record.id)) records.push(record);
     return { ...thread, promptRecords: records };
   }
-  async send(
-    id: string,
-    text: string,
-    attachments: Attachment[] = [],
-    delivery: "prompt" | "steer" | "queue" = "prompt",
-  ) {
+  async send(id: string, text: string, attachments: Attachment[] = [], delivery: "prompt" | "steer" | "queue" = "prompt") {
     if (!text.trim() && !attachments.length) return;
     const thread = await this.ensureSession(id);
-    const selectedContext = thread.contextItems ?? [];
-    const textualContext = selectedContext.filter((item) => !item.skill);
-    const skills = selectedContext.flatMap((item) =>
-      item.skill ? [item.skill] : [],
-    );
-    if (
-      skills.length &&
-      thread.capabilities?.nativeSkillInputs?.availability !== "available"
-    )
-      throw new Error(
-        "This harness does not accept selected native skill paths. Remove the native skill or choose a supported harness.",
-      );
-    const promptText = textualContext.length
-      ? `${text}\n\n${contextText(textualContext)}`
-      : text;
-    const content: PromptPart[] = [{ type: "text", data: promptText }];
-    const retainedAttachments: Attachment[] = [];
-    if (attachments.some((attachment) => attachment.binary)) {
-      if (!this.snapshot.extensions.some((e) => e.id === "workspace"))
-        throw new Error(
-          "Enable the workspace extension to attach media or binary files.",
-        );
-    }
-    if (
-      attachments.some(
-        (attachment) =>
-          attachment.binary && !(attachment.path && attachment.assetId),
-      )
-    )
-      await this.openWorkspace(thread);
-    for (const attachment of attachments) {
-      let retained = { ...attachment, data: "" };
-      if (attachment.image) {
-        if (thread.capabilities?.images?.availability !== "available")
-          throw new Error(
-            "This harness does not accept images. Remove the image or choose an image-capable harness.",
-          );
-        content.push({
-          type: "image",
-          data: { data: attachment.data, mime_type: attachment.mime },
-        });
-      } else if (attachment.binary) {
-        const asset =
-          attachment.path && attachment.assetId
-            ? { path: attachment.path, assetId: attachment.assetId }
-            : await this.invokeExtension<{ path: string; assetId: string }>(
-                "workspace",
-                "assets.write",
-                {
-                  projectId: thread.worktreeId,
-                  sessionId: thread.sessionId,
-                  name: attachment.name,
-                  data: attachment.data,
-                },
-              );
-        content.push({
-          type: "text",
-          data: `Attached file available on disk: ${asset.path}\nName: ${attachment.name}. Use the harness's native file tools if they support this format.`,
-        });
-        retained = { ...retained, ...asset };
-        this.updateThread(id, {
-          attachments: this.snapshot.threads
-            .find((t) => t.id === id)
-            ?.attachments?.map((a) =>
-              a.id === attachment.id
-                ? { ...a, path: asset.path, assetId: asset.assetId }
-                : a,
-            ),
-        });
-      } else {
-        content.push({
-          type: "text",
-          data: `Attached file: ${attachment.name}\n${attachment.data}`,
-        });
-      }
-      retainedAttachments.push(retained);
-    }
-    content.push(
-      ...skills.map((skill) => ({ type: "skill" as const, data: skill })),
-    );
-    if (
-      delivery === "steer" &&
-      thread.capabilities?.steering?.availability !== "available"
-    )
-      throw new Error(
-        "This harness does not support steering. Queue a follow-up instead.",
-      );
-    if (delivery === "prompt" && !["idle"].includes(thread.state))
-      throw new Error(
-        "Choose Queue follow-up or Steer while the agent is working.",
-      );
-    let requestKey: string | undefined;
+    const contextItems = thread.contextItems ?? [];
+    const record = { id: crypto.randomUUID(), key: "", afterSequence: thread.sequence, text, attachments: attachments.map(a => ({ ...a, data: "" })), contextItems };
+    const requestKey = delivery === "prompt" ? crypto.randomUUID() : undefined;
+    const before = this.snapshot.threads.find(t => t.id === id)!;
+    this.updateThread(id, {
+      promptRecords: [...(before.promptRecords ?? []), record],
+      ...(requestKey ? { state: "running", error: undefined, turnId: undefined, submissionKeys: [...(before.submissionKeys ?? []), { key: requestKey, recordId: record.id }] } : {}),
+    });
     let attempted = false;
     try {
-      const params =
-        attachments.length || skills.length
-          ? { sessionId: thread.sessionId, content }
-          : { sessionId: thread.sessionId, text: promptText };
-      if (
-        new TextEncoder().encode(JSON.stringify(params)).length >
-        12 * 1024 * 1024
-      )
-        throw new Error(
-          "Keep the complete message, including encoded images, under 12 MB.",
-        );
-      const record = {
-        id: crypto.randomUUID(),
-        key: await promptKey(content),
-        afterSequence: thread.sequence,
-        text,
-        attachments: retainedAttachments,
-        contextItems: selectedContext,
-      };
-      const beforeSend = this.snapshot.threads.find((item) => item.id === id)!;
-      requestKey = delivery === "prompt" ? crypto.randomUUID() : undefined;
-      this.updateThread(id, {
-        promptRecords: [...(beforeSend.promptRecords ?? []), record],
-        ...(requestKey
-          ? {
-              state: "running",
-              error: undefined,
-              turnId: undefined,
-              submissionKeys: [
-                ...(beforeSend.submissionKeys ?? []),
-                { key: requestKey, recordId: record.id },
-              ],
-            }
-          : {}),
-      });
+      // Retain the view's draft mapping before submitting; execution intent has its own native journal.
       if (requestKey) {
         this.persist(true);
         if (nativeClient()) {
@@ -1243,77 +1025,36 @@ export class WorkspaceStore {
         }
       }
       attempted = true;
-      const result = await this.rpc<SubmissionReceipt>(
-        `session/${delivery === "prompt" ? "prompt" : delivery}`,
-        { ...params, ...(requestKey ? { idempotencyKey: requestKey } : {}) },
-      );
-      if (requestKey) {
-        this.recordSubmissionReceipt(id, requestKey, result);
-        if (result.delivery === "rejected")
-          throw new RpcError(
-            result.error || "The harness rejected this input without effects.",
-            -32005,
-          );
-        if (result.delivery !== "accepted" || result.recoveryRequired)
-          throw new Error(
-            result.error ||
-              "Delivery confirmation is missing. Check this session before starting more work.",
-          );
-      }
-      const current = this.snapshot.threads.find((t) => t.id === id)!;
-      const sentIds = new Set(attachments.map((a) => a.id));
-      const contextIds = new Set(selectedContext.map((item) => item.id));
-      this.updateThread(id, {
-        submitted: true,
-        draft: current.draft === text ? "" : current.draft,
-        attachments: (current.attachments ?? []).filter(
-          (a) => !sentIds.has(a.id),
-        ),
-        contextItems: current.contextItems?.filter(
-          (item) => !contextIds.has(item.id),
-        ),
+      const result = await this.rpc<{ input?: { id?: string; content: PromptPart[]; attachments: Attachment[] }; receipt?: SubmissionReceipt; title?: string; metadataError?: unknown; queue?: { items: Queued[]; paused: boolean } }>("client/sessionInput", {
+        sessionId: thread.sessionId, text, attachments, contextItems, delivery, ...(requestKey ? { idempotencyKey: requestKey } : {}),
       });
-      if (thread.title === "New chat") {
-        const title =
-          text.replace(/\s+/g, " ").slice(0, 64) || "Attached files";
-        this.updateThread(id, { title });
-        void this.rpc("session/metadata", {
-          sessionId: thread.sessionId,
-          title,
-        }).catch((e) => this.setError(e));
+      if (result.input) {
+        const key = await promptKey(result.input.content);
+        const current = this.snapshot.threads.find(t => t.id === id)!;
+        this.updateThread(id, { promptRecords: current.promptRecords?.map(item => item.id === record.id ? { ...item, id: result.input!.id ?? item.id, key, attachments: result.input!.attachments } : item) });
       }
-      if (delivery === "queue") await this.refreshQueue(id);
+      if (requestKey && result.receipt) {
+        this.recordSubmissionReceipt(id, requestKey, result.receipt);
+        if (result.receipt.delivery === "rejected") throw new RpcError(result.receipt.error || "The harness rejected this input without effects.", -32001, { effectKnowledge: "none" });
+        if (result.receipt.delivery !== "accepted" || result.receipt.recoveryRequired) throw new Error(result.receipt.error || "Delivery confirmation is missing. Check this session before starting more work.");
+      } else if (requestKey) throw new Error("Delivery confirmation is missing.");
+      const current = this.snapshot.threads.find(t => t.id === id)!;
+      this.updateThread(id, {
+        submitted: true, draft: current.draft === text ? "" : current.draft,
+        attachments: current.attachments?.filter(a => !attachments.some(sent => sent.id === a.id)),
+        contextItems: current.contextItems?.filter(item => !contextItems.some(sent => sent.id === item.id)),
+        ...(result.queue ? { queue: result.queue.items, queuePaused: result.queue.paused } : {}),
+      });
+      if (result.title && current.title === thread.title) this.updateThread(id, { title: result.title });
+      if (result.metadataError) this.setError("The input was accepted, but its chat title could not be saved.");
     } catch (error) {
       if (error instanceof StaleConnectionResponse) throw error;
-      if (delivery === "prompt") {
-        if (!attempted) {
-          const latest = this.snapshot.threads.find((item) => item.id === id)!;
-          this.updateThread(id, {
-            state: thread.state,
-            submissionKeys: latest.submissionKeys?.filter(
-              (entry) => entry.key !== requestKey,
-            ),
-          });
-        } else if (
-          error instanceof RpcError &&
-          [-32602, -32001, -32002, -32003, -32005].includes(error.code)
-        ) {
-          const latest = this.snapshot.threads.find((item) => item.id === id)!;
-          this.updateThread(id, {
-            state: thread.state,
-            submissionKeys:
-              error.code === -32005
-                ? latest.submissionKeys
-                : latest.submissionKeys?.filter(
-                    (entry) => entry.key !== requestKey,
-                  ),
-          });
+      if (requestKey) {
+        if (!attempted || (error instanceof RpcError && (error.data as { effectKnowledge?: string } | undefined)?.effectKnowledge === "none")) {
+          const latest = this.snapshot.threads.find(item => item.id === id)!;
+          this.updateThread(id, { state: thread.state, submissionKeys: latest.submissionKeys?.filter(entry => entry.key !== requestKey) });
         } else {
-          this.updateThread(id, {
-            state: "needs_input",
-            error:
-              "Delivery confirmation is missing. Reconnect to check the original submission.",
-          });
+          this.updateThread(id, { state: "needs_input", error: "Delivery confirmation is missing. Reconnect to check the original submission." });
           await this.recoverSubmissions(id).catch(() => {});
         }
       }
@@ -1340,13 +1081,31 @@ export class WorkspaceStore {
   async recoverSubmissions(id: string, reconcile = false, retainedProjection?: SubmissionProjection) {
     const thread = this.snapshot.threads.find((item) => item.id === id);
     if (!thread?.sessionId) return;
-    if (nativeClient()) {
+    {
       const projection = retainedProjection ?? await this.rpc<SubmissionProjection>("client/submissions", { sessionId: thread.sessionId, reconcile });
       const latest = this.snapshot.threads.find((item) => item.id === id);
       if (!latest || latest.sessionId !== thread.sessionId) return;
+      const records = [...(latest.promptRecords ?? [])];
+      for (const entry of projection.entries) {
+        if (!entry.input) continue;
+        const existing = latest.submissionKeys?.find(item => item.key === entry.key)?.recordId ?? entry.key;
+        if (!records.some(item => item.id === existing)) records.push({ id: existing, key: await promptKey(entry.input.content as PromptPart[]), afterSequence: entry.input.afterSequence, text: entry.input.text, attachments: entry.input.attachments, contextItems: entry.input.contextItems });
+        else {
+          const record = records.find(item => item.id === existing)!;
+          record.key = await promptKey(entry.input.content as PromptPart[]);
+          record.attachments = entry.input.attachments;
+        }
+      }
+      for (const input of projection.inputs ?? []) {
+        if (!input.id) continue;
+        const record = { id: input.id, key: await promptKey(input.content as PromptPart[]), afterSequence: input.afterSequence, text: input.text, attachments: input.attachments, contextItems: input.contextItems };
+        const index = records.findIndex(item => item.id === input.id);
+        if (index < 0) records.push(record); else records[index] = { ...records[index], ...record };
+      }
+      this.updateThread(id, { promptRecords: records }, false);
       const entries = projection.entries.map((entry) => ({
         key: entry.key,
-        recordId: latest.submissionKeys?.find((item) => item.key === entry.key)?.recordId ?? "",
+        recordId: latest.submissionKeys?.find((item) => item.key === entry.key)?.recordId ?? entry.key,
         receipt: entry.receipt,
       }));
       this.updateThread(id, {
@@ -1374,153 +1133,38 @@ export class WorkspaceStore {
       this.persist();
       return;
     }
-    for (const entry of thread.submissionKeys ?? []) {
-      if (
-        entry.receipt &&
-        ["accepted", "rejected"].includes(entry.receipt.delivery) &&
-        !entry.receipt.recoveryRequired
-      )
-        continue;
-      const receipt = await this.rpc<SubmissionReceipt | null>(
-        reconcile ? "session/submission/reconcile" : "session/submission",
-        {
-          sessionId: thread.sessionId,
-          idempotencyKey: entry.key,
-        },
-      );
-      // Absence after a transport failure cannot prove the original request will not arrive.
-      if (!receipt) continue;
-      const current = this.snapshot.threads.find((item) => item.id === id)!;
-      if (current.sessionId !== thread.sessionId) return;
-      this.recordSubmissionReceipt(id, entry.key, receipt);
-      if (receipt.delivery === "accepted" && !receipt.recoveryRequired) {
-        const record = current.promptRecords?.find(
-          (record) => record.id === entry.recordId,
-        );
-        const snapshot = await this.rpc<SessionSnapshot>("session/get", {
-          sessionId: thread.sessionId,
-        });
-        const latest = this.snapshot.threads.find((item) => item.id === id)!;
-        if (latest.sessionId !== thread.sessionId) return;
-        this.updateThread(id, {
-          state:
-            latest.sequence > snapshot.sequence ? latest.state : snapshot.state,
-          turnId:
-            latest.sequence > snapshot.sequence
-              ? latest.turnId
-              : (snapshot.turn ?? undefined),
-          submitted: true,
-          error: undefined,
-          ...(record
-            ? {
-                draft: latest.draft === record.text ? "" : latest.draft,
-                attachments: latest.attachments?.filter(
-                  (item) =>
-                    !record.attachments.some((sent) => sent.id === item.id),
-                ),
-                contextItems: latest.contextItems?.filter(
-                  (item) =>
-                    !record.contextItems.some((sent) => sent.id === item.id),
-                ),
-              }
-            : {}),
-        });
-      }
-    }
   }
   async checkSubmissionRecovery(id: string) {
     const thread = this.snapshot.threads.find((item) => item.id === id);
     if (!thread?.sessionId) return;
-    await this.resumeSession(thread);
     try {
-      await this.recoverSubmissions(id, true);
+      const result = await this.rpc<SessionOpenProjection>("client/sessionRecover", { sessionId: thread.sessionId });
+      await this.applyProjection(id, result);
     } catch (error) {
-      if (error instanceof RpcError && error.code === -32001) {
-        this.updateThread(id, {
-          state: "needs_input",
-          error: "This harness cannot confirm the original submission. The request may have changed files. Pending work remains paused.",
-        });
-        return;
-      }
+      this.updateThread(id, { state: "needs_input", error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
-    await this.restoreThread(id);
-    const latest = this.snapshot.threads.find((item) => item.id === id);
-    const unresolved = latest?.submissionKeys?.find((entry) =>
-      !entry.receipt || entry.receipt.recoveryRequired || !["accepted", "rejected"].includes(entry.receipt.delivery));
-    if (unresolved) this.updateThread(id, {
-      state: "needs_input",
-      error: unresolved.receipt?.error ?? "We cannot confirm whether this request finished. Check again before sending more work.",
-    });
+  }
+  private async applyQueue(id: string, queue: { items: Queued[]; paused: boolean; input?: import("@swarmie/contracts").PreparedInput }) {
+    this.updateThread(id, { queue: queue.items, queuePaused: queue.paused }, false);
+    if (queue.input?.id) {
+      const input = queue.input;
+      const current = this.snapshot.threads.find(t => t.id === id)!;
+      const key = await promptKey(input.content as PromptPart[]);
+      this.updateThread(id, { promptRecords: current.promptRecords?.map(record => record.id === input.id ? { ...record, text: input.text, key, attachments: input.attachments, contextItems: input.contextItems } : record) });
+    }
   }
   async refreshQueue(id: string) {
-    const thread = this.snapshot.threads.find((t) => t.id === id)!;
-    const queue = await this.rpc<{ items: Queued[]; paused: boolean }>(
-      "session/queue/list",
-      { sessionId: thread.sessionId },
-    );
-    this.updateThread(
-      id,
-      { queue: queue.items, queuePaused: queue.paused },
-      false,
-    );
+    const thread = this.snapshot.threads.find(t => t.id === id)!;
+    await this.applyQueue(id, await this.rpc("client/sessionQueue", { sessionId: thread.sessionId, action: "list" }));
   }
   async editQueue(id: string, itemId: string, text?: string) {
-    const thread = this.snapshot.threads.find((t) => t.id === id)!;
-    const item = thread.queue?.find((q) => q.id === itemId);
-    const preserved = item?.prompt.content.slice(1) ?? [];
-    await this.rpc(
-      text === undefined ? "session/queue/remove" : "session/queue/update",
-      {
-        sessionId: thread.sessionId,
-        id: itemId,
-        ...(text === undefined
-          ? {}
-          : preserved.length
-            ? { content: [{ type: "text", data: text }, ...preserved] }
-            : { text }),
-      },
-    );
-    if (item) {
-      const key = await promptKey(item.prompt.content);
-      const current = this.snapshot.threads.find((t) => t.id === id)!;
-      const record = current.promptRecords?.find(
-        (entry) => entry.nativeSequence === undefined && entry.key === key,
-      );
-      if (record) {
-        const nextKey =
-          text === undefined
-            ? undefined
-            : await promptKey([{ type: "text", data: text }, ...preserved]);
-        this.updateThread(id, {
-          promptRecords: current.promptRecords?.flatMap((entry) =>
-            entry.id !== record.id
-              ? [entry]
-              : nextKey
-                ? [
-                    {
-                      ...entry,
-                      text: text!,
-                      key: nextKey,
-                      contextItems: entry.contextItems.filter(
-                        (item) => item.skill,
-                      ),
-                    },
-                  ]
-                : [],
-          ),
-        });
-      }
-    }
-    await this.refreshQueue(id);
+    const thread = this.snapshot.threads.find(t => t.id === id)!;
+    await this.applyQueue(id, await this.rpc("client/sessionQueue", { sessionId: thread.sessionId, id: itemId, action: text === undefined ? "remove" : "update", ...(text !== undefined ? { text } : {}) }));
   }
   async pauseQueue(id: string, paused: boolean) {
-    const thread = this.snapshot.threads.find((t) => t.id === id)!;
-    await this.rpc("session/queue/pause", {
-      sessionId: thread.sessionId,
-      paused,
-    });
-    await this.refreshQueue(id);
+    const thread = this.snapshot.threads.find(t => t.id === id)!;
+    await this.applyQueue(id, await this.rpc("client/sessionQueue", { sessionId: thread.sessionId, action: "pause", paused }));
   }
   async rename(id: string, title: string) {
     const thread = this.snapshot.threads.find((t) => t.id === id)!;
@@ -1543,38 +1187,7 @@ export class WorkspaceStore {
   }
   async loadControls(id: string) {
     const thread = await this.ensureSession(id);
-    if (nativeClient()) {
-      this.applyControls(id, await this.rpc<SessionControls>("client/sessionControls", { sessionId: thread.sessionId }));
-      return;
-    }
-    const configuration = await this.rpc<Configuration[]>(
-      "agent/configuration",
-      { sessionId: thread.sessionId },
-    );
-    const models =
-      thread.capabilities?.models?.availability === "available"
-        ? await this.rpc<Model[]>("agent/models", {
-            sessionId: thread.sessionId,
-          })
-        : [];
-    const values = Object.fromEntries(
-      configuration
-        .filter((descriptor) => descriptor.id !== "executionProfile" && "value" in descriptor)
-        .map((descriptor) => [descriptor.id, descriptor.value]),
-    );
-    this.updateThread(
-      id,
-      {
-        configurations: configuration,
-        executionPolicy: configuration.find((descriptor) => descriptor.id === "executionProfile")?.metadata?.policy as Thread["executionPolicy"],
-        models,
-        config: { ...thread.config, ...values },
-        ...("model" in values
-          ? { model: typeof values.model === "string" ? values.model : "" }
-          : {}),
-      },
-      false,
-    );
+    this.applyControls(id, await this.rpc<SessionControls>("client/sessionControls", { sessionId: thread.sessionId }));
   }
   async previewControls(id: string) {
     const defaults = this.defaultsPending.get(id);
@@ -1595,8 +1208,7 @@ export class WorkspaceStore {
     if (existing) return existing;
     const pending = (async () => {
       const result = await this.rpc<ConfigurationPreview>(
-        nativeClient() ? "client/sessionPrepare" : "runtime/configuration",
-        nativeClient() ? this.launchIntent(thread) : options,
+        "client/sessionPrepare", this.launchIntent(thread),
       );
       const current = this.snapshot.threads.find((item) => item.id === id);
       if (
@@ -1637,7 +1249,7 @@ export class WorkspaceStore {
       return;
     }
     try {
-      const receipt = await this.rpc<ConfigurationReceipt>(nativeClient() ? "client/sessionConfigure" : "agent/configure", {
+      const receipt = await this.rpc<ConfigurationReceipt>("client/sessionConfigure", {
         sessionId: thread.sessionId,
         config,
       });
@@ -1658,12 +1270,8 @@ export class WorkspaceStore {
       });
     } catch (error) {
       // Reconcile observed state after a partially applied native update.
-      if (nativeClient()) {
-        const controls = error instanceof RpcError ? (error.data as { controls?: SessionControls } | undefined)?.controls : undefined;
-        if (controls) this.applyControls(id, controls);
-      } else {
-        try { await this.loadControls(id); } catch { /* Keep the original update failure. */ }
-      }
+      const controls = error instanceof RpcError ? (error.data as { controls?: SessionControls } | undefined)?.controls : undefined;
+      if (controls) this.applyControls(id, controls);
       throw error;
     }
   }
@@ -1680,270 +1288,42 @@ export class WorkspaceStore {
     const thread = await this.ensureSession(id);
     await this.rpc("session/compact", { sessionId: thread.sessionId });
   }
-  async fork(
-    id: string,
-    messageId?: string,
-    position?: "before_user" | "after_assistant",
-  ) {
-    const thread = this.snapshot.threads.find((t) => t.id === id)!;
-    const snapshot = await this.rpc<SessionSnapshot>("session/fork", {
-      sessionId: thread.sessionId,
-      ...(messageId ? { messageId, position } : {}),
-    });
-    const fork = {
-      ...newThread(thread.projectId, thread.worktreeId, thread.harness),
-      sessionId: snapshot.id,
-      capabilities: snapshot.capabilities,
-      executionPolicy: snapshot.executionPolicy,
-      title: `${thread.title} · fork`,
-      state: snapshot.state,
-      model: thread.model,
-      config: thread.config,
-      promptRecords:
-        position === "before_user"
-          ? []
-          : thread.promptRecords?.filter(
-              (record) =>
-                record.nativeSequence !== undefined &&
-                record.nativeSequence <= snapshot.sequence,
-            ),
-    };
-    this.publish({
-      threads: [fork, ...this.snapshot.threads],
-      activeId: fork.id,
-    });
-    await this.restoreThread(fork.id);
-    return fork.id;
+  private async changeHistory(id: string, intent: Record<string, unknown>) {
+    const thread = this.snapshot.threads.find(t => t.id === id)!;
+    return this.rpc<{ projection: SessionOpenProjection; draft?: { draft: string; attachments: Attachment[]; contextItems: ContextItem[] } }>("client/sessionHistory", { sessionId: thread.sessionId, ...intent });
   }
-  private async recoveredPrompt(
-    input: Thread["messages"][number]["content"],
-    record?: NonNullable<Thread["promptRecords"]>[number],
-  ) {
-    const content =
-      typeof input === "string"
-        ? [{ type: "text" as const, text: input }]
-        : input;
-    const draft =
-      record?.text ??
-      content
-        .filter((p) => p.type === "text")
-        .map((p) => p.text)
-        .join("\n");
-    const attachments: Attachment[] = record
-      ? await Promise.all(
-          record.attachments.map(async (attachment, index) => {
-            if (attachment.binary) {
-              if (!attachment.assetId)
-                throw new Error(
-                  `The saved attachment ${attachment.name} has no retained asset. Reattach it before rewinding.`,
-                );
-              const asset = await this.invokeExtension<{ data: string }>(
-                "workspace",
-                "assets.read",
-                { assetId: attachment.assetId },
-              );
-              return { ...attachment, data: asset.data };
-            }
-            const part = content[index + 1];
-            if (attachment.image) {
-              if (!part || part.type !== "image")
-                throw new Error(
-                  `The native image for ${attachment.name} is unavailable.`,
-                );
-              const match = /^data:([^;]+);base64,(.*)$/.exec(part.image);
-              if (!match)
-                throw new Error(
-                  `The native image for ${attachment.name} is unavailable.`,
-                );
-              return { ...attachment, data: match[2] };
-            }
-            const prefix = `Attached file: ${attachment.name}\n`;
-            if (!part || part.type !== "text" || !part.text.startsWith(prefix))
-              throw new Error(
-                `The native text for ${attachment.name} is unavailable.`,
-              );
-            return { ...attachment, data: part.text.slice(prefix.length) };
-          }),
-        )
-      : content
-          .filter((p) => p.type === "image")
-          .flatMap((p) => {
-            const match = /^data:([^;]+);base64,(.*)$/.exec(p.image);
-            return match
-              ? [
-                  {
-                    id: crypto.randomUUID(),
-                    name: "Restored image",
-                    mime: match[1],
-                    data: match[2],
-                    image: true,
-                  },
-                ]
-              : [];
-          });
-    return { draft, attachments, contextItems: record?.contextItems ?? [] };
+  private async showBranch(id: string, result: Awaited<ReturnType<WorkspaceStore["changeHistory"]>>) {
+    const thread = this.snapshot.threads.find(t => t.id === id)!;
+    const snapshot = result.projection.snapshot;
+    const child = { ...newThread(thread.projectId, snapshot.options.cwd, snapshot.options.harness), sessionId: snapshot.id, title: `${thread.title} · fork`, model: snapshot.options.model ?? "", config: (snapshot.options.config ?? {}) as Record<string, unknown> };
+    this.publish({ threads: [child, ...this.snapshot.threads], activeId: child.id });
+    await this.applyProjection(child.id, result.projection);
+    if (result.draft) this.updateThread(child.id, result.draft);
+    return child.id;
   }
-  async editInBranch(
-    id: string,
-    node: {
-      id: string;
-      text: string;
-      metadata?: { prompt?: { content: PromptPart[] } };
-    },
-  ) {
-    const thread = this.snapshot.threads.find((item) => item.id === id)!;
-    const parts = node.metadata?.prompt?.content ?? [
-      { type: "text" as const, data: node.text },
-    ];
-    if (
-      !Array.isArray(parts) ||
-      parts.some((part) => !["text", "image", "skill"].includes(part.type))
-    )
-      throw new Error(
-        "This native message contains an unavailable resource. Reattach it before creating an edit branch.",
-      );
-    const nativeText = parts
-      .filter((part) => part.type === "text")
-      .map((part) => part.data)
-      .join("\n");
-    const synthetic = reduceEvents(
-      { ...newThread("", "", thread.harness), sessionId: "draft" },
-      [
-        {
-          sessionId: "draft",
-          sequence: 1,
-          type: "message.user",
-          data: { content: parts },
-        },
-      ],
-    ).messages[0];
-    const key = await promptKey(parts);
-    const anchored = thread.promptRecords?.find(
-      (item) => `user-${item.nativeSequence}` === node.id,
-    );
-    const candidates = (thread.promptRecords ?? []).filter((item) => {
-      if (item.key === key) return true;
-      const message = thread.messages.find(
-        (entry) => entry.id === `user-${item.nativeSequence}`,
-      );
-      const content =
-        message &&
-        (typeof message.content === "string"
-          ? [{ type: "text" as const, text: message.content }]
-          : message.content);
-      return (
-        content
-          ?.filter((part) => part.type === "text")
-          .map((part) => part.text)
-          .join("\n") === nativeText &&
-        JSON.stringify(content?.filter((part) => part.type === "image")) ===
-          JSON.stringify(
-            (Array.isArray(synthetic.content) ? synthetic.content : []).filter(
-              (part) => part.type === "image",
-            ),
-          )
-      );
-    });
-    const original = (record: NonNullable<Thread["promptRecords"]>[number]) =>
-      JSON.stringify({
-        text: record.text,
-        attachments: record.attachments,
-        contextItems: record.contextItems,
-      });
-    if (!anchored && new Set(candidates.map(original)).size > 1)
-      throw new Error(
-        "Several original prompts match this native entry. Edit the recorded chat message to recover its exact attachments and context.",
-      );
-    const record = anchored ?? candidates[0];
-    const sourceMessage =
-      record &&
-      thread.messages.find(
-        (item) => item.id === `user-${record.nativeSequence}`,
-      );
-    const recovered = await this.recoveredPrompt(
-      sourceMessage?.content ?? synthetic.content,
-      record,
-    );
-    if (!record) {
-      recovered.draft = nativeText;
-      recovered.contextItems = parts
-        .filter((part) => part.type === "skill")
-        .map((part) => ({
-          id: crypto.randomUUID(),
-          kind: "resource",
-          label: `Skill: ${part.data.name}`,
-          text: `Native skill selected from ${part.data.path}`,
-          skill: part.data,
-        }));
-    }
-    const child = await this.fork(id, node.id, "before_user");
-    this.updateThread(child, recovered);
-    window.dispatchEvent(
-      new CustomEvent("swarmie:composer-text", { detail: { threadId: child } }),
-    );
+  async fork(id: string, messageId?: string, position?: "before_user" | "after_assistant") {
+    return this.showBranch(id, await this.changeHistory(id, { action: "fork", ...(messageId ? { messageId, position } : {}) }));
+  }
+  async editInBranch(id: string, node: { id: string; text: string; metadata?: { prompt?: { content: PromptPart[] } } }) {
+    const child = await this.showBranch(id, await this.changeHistory(id, { action: "branch", messageId: node.id }));
+    window.dispatchEvent(new CustomEvent("swarmie:composer-text", { detail: { threadId: child } }));
     return child;
   }
-  async editFrom(
-    id: string,
-    messageId: string,
-    scope: "conversation_only" | "conversation_and_files" = "conversation_only",
-  ) {
-    const thread = this.snapshot.threads.find((t) => t.id === id)!;
-    const index =
-      thread.turnGroups?.findIndex((g) => g.messageIds.includes(messageId)) ??
-      -1;
-    const message = thread.messages.find((m) => m.id === messageId);
-    if (index < 0 || !message || message.role !== "user")
-      throw new Error("Choose a recorded user message to edit.");
-    const content =
-      typeof message.content === "string"
-        ? [{ type: "text" as const, text: message.content }]
-        : message.content;
-    const record = thread.promptRecords?.find(
-      (item) => `user-${item.nativeSequence}` === messageId,
-    );
-    const recovered = await this.recoveredPrompt(content, record);
-    await this.ensureSession(id);
-    await this.rpc("session/rollback", {
-      sessionId: thread.sessionId,
-      turns: thread.turnGroups!.length - index,
-      scope,
-    });
-    await this.restoreThread(id);
-    this.updateThread(id, recovered);
-    window.dispatchEvent(
-      new CustomEvent("swarmie:composer-text", { detail: { threadId: id } }),
-    );
+  async editFrom(id: string, messageId: string, scope: "conversation_only" | "conversation_and_files" = "conversation_only") {
+    const result = await this.changeHistory(id, { action: "edit", messageId, scope });
+    await this.applyProjection(id, result.projection);
+    if (result.draft) this.updateThread(id, result.draft);
+    window.dispatchEvent(new CustomEvent("swarmie:composer-text", { detail: { threadId: id } }));
   }
-  async rollback(
-    id: string,
-    turns: number,
-    scope: "conversation_only" | "conversation_and_files" = "conversation_only",
-  ) {
-    const thread = this.snapshot.threads.find((t) => t.id === id)!;
-    await this.rpc("session/rollback", {
-      sessionId: thread.sessionId,
-      turns,
-      scope,
-    });
-    await this.restoreThread(id);
+  async rollback(id: string, turns: number, scope: "conversation_only" | "conversation_and_files" = "conversation_only") {
+    const result = await this.changeHistory(id, { action: "rollback", turns, scope });
+    await this.applyProjection(id, result.projection);
   }
   invokeExtension<T>(extensionId: string, command: string, args: unknown) {
-    if (nativeClient()) return this.rpc<T>("client/extensionInvoke", { extensionId, command, arguments: args });
-    if (extensionId === "git" && args && typeof args === "object" && "projectId" in args) {
-      const project = this.snapshot.projects.find(p => p.id === (args as { projectId: string }).projectId);
-      if (project) args = { ...args, projectId: project.gitId ?? project.path };
-    }
-    return this.rpc<T>("extension/invoke", {
-      extensionId,
-      command,
-      arguments: args,
-    });
+    return this.rpc<T>("client/extensionInvoke", { extensionId, command, arguments: args });
   }
   async refreshExtensions() {
-    this.publish({
-      extensions: await this.rpc<ExtensionInfo[]>("extension/list"),
-    });
+    this.publish({ extensions: await this.rpc<ExtensionInfo[]>("extension/list") });
   }
   async cancel(id: string) {
     const thread = this.snapshot.threads.find((t) => t.id === id);
@@ -1994,74 +1374,30 @@ export class WorkspaceStore {
     if (!thread?.projectId) throw new Error("Open a project first.");
     if (thread.sessionId)
       throw new Error("Start a new chat before changing its worktree.");
-    if (nativeClient()) {
+    {
       const result = await this.rpc<{ tree: Project["worktrees"][number] & { setup?: { completed: boolean; message?: string } }; worktrees: Project["worktrees"] }>("client/worktree", { projectId: thread.projectId, action: "create", branch });
       this.publish({ projects: this.snapshot.projects.map(p => p.id === thread.projectId ? { ...p, worktrees: result.worktrees } : p), review: undefined });
       this.updateThread(thread.id, { worktreeId: result.tree.id });
       if (result.tree.setup?.completed === false) this.setError(`Worktree created, but setup failed: ${result.tree.setup.message ?? "Open Worktree setup to retry."}`);
       return;
     }
-    const tree = await this.extension<
-      Project["worktrees"][number] & {
-        setup?: { completed: boolean; message?: string };
-      }
-    >("worktree.create", { projectId: thread.projectId, branch, setup: true });
-    const worktrees = await this.extension<Project["worktrees"]>(
-      "worktree.list",
-      { projectId: thread.projectId },
-    );
-    this.publish({
-      projects: this.snapshot.projects.map((p) =>
-        p.id === thread.projectId ? { ...p, worktrees } : p,
-      ),
-      review: undefined,
-    });
-    this.updateThread(thread.id, { worktreeId: tree.id });
-    if (tree.setup?.completed === false)
-      this.setError(
-        `Worktree created, but setup failed: ${tree.setup.message ?? "Open Worktree setup to retry."}`,
-      );
   }
   async refreshProject(id: string) {
     const project = this.snapshot.projects.find((p) => p.id === id);
     if (!project) return;
-    if (nativeClient()) {
-      const opened = await this.rpc<Project>("client/projectGet", { projectId: id });
-      this.publish({ projects: this.snapshot.projects.map(p => p.id === id ? opened : p) });
-      return;
-    }
-    const record = await this.rpc<ProjectRecord>("project/get", { projectId: id });
-    const directory = record.directory ? await this.rpc<DirectoryResource>("directory/get", record.directory) : undefined;
-    let opened: Project;
-    try { opened = await this.openProjectRecord(directory?.path ?? "", record); }
-    catch { opened = { id: record.id, revision: record.revision, name: record.name, path: directory?.path ?? "", git: false, worktrees: [] }; }
-    this.publish({ projects: this.snapshot.projects.map((p) => p.id === id ? opened : p) });
+    const opened = await this.rpc<Project>("client/projectGet", { projectId: id });
+    this.publish({ projects: this.snapshot.projects.map(p => p.id === id ? opened : p) });
   }
   async removeWorktree() {
     const thread = this.active();
     if (!thread || thread.sessionId)
       throw new Error("Start a new chat before removing its worktree.");
-    if (nativeClient()) {
+    {
       const result = await this.rpc<{ worktrees: Project["worktrees"] }>("client/worktree", { projectId: thread.projectId, action: "remove", worktreeId: thread.worktreeId });
       this.publish({ projects: this.snapshot.projects.map(p => p.id === thread.projectId ? { ...p, worktrees: result.worktrees } : p), review: undefined });
       this.updateThread(thread.id, { worktreeId: result.worktrees[0]?.id ?? "" });
       return;
     }
-    await this.extension("worktree.remove", {
-      projectId: thread.projectId,
-      worktreeId: thread.worktreeId,
-    });
-    const worktrees = await this.extension<Project["worktrees"]>(
-      "worktree.list",
-      { projectId: thread.projectId },
-    );
-    this.publish({
-      projects: this.snapshot.projects.map((p) =>
-        p.id === thread.projectId ? { ...p, worktrees } : p,
-      ),
-      review: undefined,
-    });
-    this.updateThread(thread.id, { worktreeId: worktrees[0]?.id ?? "" });
   }
   async poll() {
     if (this.polling || this.connection) return;

@@ -1,6 +1,6 @@
-use swarmie::*;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc};
+use swarmie::*;
 use tokio::sync::RwLock;
 mod schema;
 pub use schema::protocol_schema;
@@ -401,7 +401,18 @@ impl RuntimeService {
                     })
                     .transpose()?
                     .unwrap_or_default();
-                self.agent(&p).await?.rollback_with(n, scope).await?;
+                let expected = p
+                    .get("expectedSequence")
+                    .map(|value| {
+                        value.as_u64().ok_or_else(|| {
+                            Error::Invalid("expectedSequence must be an unsigned integer".into())
+                        })
+                    })
+                    .transpose()?;
+                self.agent(&p)
+                    .await?
+                    .rollback_at(n, scope, expected)
+                    .await?;
                 Ok(Value::Null)
             }
             "session/compact" => {

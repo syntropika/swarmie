@@ -64,7 +64,10 @@ impl ClientHost {
             transfers: Default::default(),
             watched: Default::default(),
             cache,
-            operations: crate::client_operations::ClientOperations::new(nodes.clone(), submissions.clone()),
+            operations: crate::client_operations::ClientOperations::new(
+                nodes.clone(),
+                submissions.clone(),
+            ),
             submissions,
         };
         let router = axum::Router::new()
@@ -168,24 +171,7 @@ async fn dispatch(host: &Host, path: &str, request: Value) -> Result<Value> {
     }
 }
 async fn node_request(host: &Host, node: &str, request: Value) -> Result<Value> {
-    let id = request["id"].clone();
-    if crate::client_operations::ClientOperations::handles(request["method"].as_str().unwrap_or("")) {
-        return Ok(host.operations.handle(node, request).await);
-    }
-    let result = match request["method"].as_str() {
-        Some("session/prompt") => host.submissions.prompt(node, request).await,
-        Some("client/submissions") => host.submissions.recover(node, request).await,
-        Some("client/sessionProjection") => {
-            crate::client_projection::restore(&host.nodes, &host.submissions, node, request).await
-        }
-        _ => return Ok(host.nodes.forward(node, request).await),
-    };
-    Ok(match result {
-        Ok(value) => value,
-        Err(error) => {
-            json!({"jsonrpc":"2.0","id":id,"error":{"code":-32001,"message":error.to_string(),"data":{"effectKnowledge":if matches!(error, Error::Invalid(_)) { "none" } else { "unknown" }}}})
-        }
-    })
+    Ok(host.operations.dispatch(node, request).await)
 }
 async fn cache_request(host: &Host, request: Value) -> Result<Value> {
     use sha2::{Digest, Sha256};
@@ -596,10 +582,27 @@ mod tests {
             initialized["response"]["result"]["runtimeIdentity"],
             serde_json::to_value(&endpoint.runtime_identity).unwrap()
         );
-        let catalog = rpc(&host, "/rpc", "client/projectCatalog", json!({}), Some(&initialized["response"]["result"]["runtimeIdentity"])).await;
+        let catalog = rpc(
+            &host,
+            "/rpc",
+            "client/projectCatalog",
+            json!({}),
+            Some(&initialized["response"]["result"]["runtimeIdentity"]),
+        )
+        .await;
         assert_eq!(catalog["response"]["result"], json!([]));
-        let invalid_project = rpc(&host, "/rpc", "client/projectOpen", json!({"path":root.path(),"name":""}), Some(&initialized["response"]["result"]["runtimeIdentity"])).await;
-        assert_eq!(invalid_project["response"]["error"]["data"]["effectKnowledge"], "none");
+        let invalid_project = rpc(
+            &host,
+            "/rpc",
+            "client/projectOpen",
+            json!({"path":root.path(),"name":""}),
+            Some(&initialized["response"]["result"]["runtimeIdentity"]),
+        )
+        .await;
+        assert_eq!(
+            invalid_project["response"]["error"]["data"]["effectKnowledge"],
+            "none"
+        );
         let rejected = rpc(
             &host,
             "/rpc",

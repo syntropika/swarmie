@@ -18,11 +18,15 @@ use tokio_tungstenite::{
 };
 
 async fn termination() -> std::io::Result<()> {
-    #[cfg(unix)] {
+    #[cfg(unix)]
+    {
         let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
         tokio::select! { result = tokio::signal::ctrl_c() => result, _ = term.recv() => Ok(()) }
     }
-    #[cfg(not(unix))] { tokio::signal::ctrl_c().await }
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await
+    }
 }
 
 fn parse(text: &str) -> std::result::Result<Value, Value> {
@@ -35,6 +39,7 @@ struct HttpState {
     token: Option<String>,
     desktop_origin: Option<String>,
     nodes: Option<crate::node_gateway::NodeGateway>,
+    application: Option<crate::client_operations::ClientOperations>,
 }
 
 pub async fn http(
@@ -67,6 +72,16 @@ pub async fn http(
             Some(crate::node_gateway::NodeGateway::new(root, service.clone()).await?)
         }
         _ => None,
+    };
+    let application = if let (Some(nodes), Some(root)) = (&nodes, &registration_root) {
+        let cache = storage::SqliteSessionStore::new(root.join("client")).await?;
+        let submissions = crate::client_submissions::ClientSubmissions::new(nodes.clone(), cache);
+        Some(crate::client_operations::ClientOperations::new(
+            nodes.clone(),
+            submissions,
+        ))
+    } else {
+        None
     };
     #[cfg(unix)]
     let mut local_socket_owner = if let Some(root) = registration_root.as_ref() {
@@ -149,6 +164,7 @@ pub async fn http(
             service,
             token,
             nodes,
+            application,
             desktop_origin: desktop_assets
                 .as_ref()
                 .map(|_| public_origin.unwrap_or(origin)),
@@ -163,9 +179,13 @@ pub async fn http(
         .await;
     // A process signal must also notify socket listeners. Drain accepted socket
     // requests before closing the shared execution owner.
-    execution_owner.invoke("runtime/shutdown", json!({})).await?;
+    execution_owner
+        .invoke("runtime/shutdown", json!({}))
+        .await?;
     #[cfg(unix)]
-    if let Some(socket) = local_socket_owner.as_mut() { socket.finish().await?; }
+    if let Some(socket) = local_socket_owner.as_mut() {
+        socket.finish().await?;
+    }
     execution_owner.shutdown().await?;
     result?;
     Ok(())
@@ -520,7 +540,13 @@ async fn node_request(
         return axum::Json(rpc_error(Value::Null, -32600, "invalid request")).into_response();
     }
     let result = match environment {
-        Some(id) => nodes.forward(&id, request).await,
+        Some(id) => {
+            if let Some(application) = state.application {
+                application.dispatch(&id, request).await
+            } else {
+                nodes.forward(&id, request).await
+            }
+        }
         None => nodes.control(request).await,
     };
     axum::Json(result).into_response()
@@ -569,8 +595,27 @@ async fn http_rpc(
     if let Err(response) = authorize_http(&state, &headers) {
         return response.into_response();
     }
-    let response = match serde_json::from_slice(&body) {
-        Ok(request) => state.service.handle(request).await,
+    let response = match serde_json::from_slice::<Value>(&body) {
+        Ok(request) => {
+            // Application intents are correlated named-parameter requests.
+            // Keep raw runtime batches, notifications and malformed envelopes
+            // on the canonical JSON-RPC dispatcher.
+            let application_intent = request["jsonrpc"] == "2.0"
+                && request.get("id").is_some_and(|id| id.is_null() || id.is_string() || id.is_number())
+                && request.get("params").is_none_or(Value::is_object)
+                && request["method"].as_str().is_some_and(|method| {
+                    crate::client_operations::ClientOperations::handles(method)
+                        || matches!(method, "client/submissions" | "client/sessionProjection")
+                        || (method == "session/prompt" && serde_json::from_value::<swarmie::RuntimeIdentity>(request["expectedRuntime"].clone()).is_ok())
+                });
+            if application_intent
+                && let (Some(application), Some(nodes)) = (&state.application, &state.nodes)
+            {
+                return axum::Json(application.dispatch(nodes.local_id(), request).await)
+                    .into_response();
+            }
+            state.service.handle(request).await
+        }
         Err(_) => Some(rpc_error(Value::Null, -32700, "parse error")),
     };
     match response {
@@ -669,14 +714,18 @@ pub(crate) struct LocalSocket {
 #[cfg(unix)]
 impl LocalSocket {
     async fn finish(&mut self) -> Result<()> {
-        if let Some(task) = self.task.take() { task.await.map_err(|e| Error::Provider(e.to_string()))?; }
+        if let Some(task) = self.task.take() {
+            task.await.map_err(|e| Error::Provider(e.to_string()))?;
+        }
         Ok(())
     }
 }
 #[cfg(unix)]
 impl Drop for LocalSocket {
     fn drop(&mut self) {
-        if let Some(task) = self.task.take() { task.abort(); }
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
     }
 }
 #[cfg(unix)]
@@ -843,7 +892,12 @@ where
     drop(tx);
     if stopping {
         let mut writer = writer;
-        if tokio::time::timeout(std::time::Duration::from_secs(1), &mut writer).await.is_err() { writer.abort(); }
+        if tokio::time::timeout(std::time::Duration::from_secs(1), &mut writer)
+            .await
+            .is_err()
+        {
+            writer.abort();
+        }
     } else {
         writer.abort();
     }

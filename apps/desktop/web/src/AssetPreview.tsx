@@ -85,10 +85,7 @@ export function MediaPreview({
             setSaving(true);
             setError("");
             setSaved("");
-            void store
-              .openWorkspace(thread)
-              .then(() =>
-                store.invokeExtension<{ path: string }>(
+            void store.invokeExtension<{ path: string }>(
                   "workspace",
                   "assets.export",
                   {
@@ -97,8 +94,7 @@ export function MediaPreview({
                     path: destination,
                     data: asset.data,
                   },
-                ),
-              )
+                )
               .then((result) => setSaved(result.path))
               .catch((error) => setError(String(error)))
               .finally(() => setSaving(false));
@@ -151,15 +147,11 @@ export function OutputAssets({
                 ? path.slice(thread.worktreeId.length + 1)
                 : path;
               setBusy(path);
-              void store
-                .openWorkspace(thread)
-                .then(() =>
-                  store.invokeExtension<Asset>("workspace", "assets.read", {
+              void store.invokeExtension<Asset>("workspace", "assets.read", {
                     projectId: thread.worktreeId,
         ...(thread.sessionId ? { sessionId: thread.sessionId } : {}),
                     path: relative,
-                  }),
-                )
+                  })
                 .then(setSelected)
                 .catch((e) => store.setError(e))
                 .finally(() => setBusy(""));

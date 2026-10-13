@@ -5260,6 +5260,10 @@
           },
           {
             "properties": {
+              "expectedSequence": {
+                "minimum": 0,
+                "type": "integer"
+              },
               "scope": {
                 "$ref": "#/$defs/InputRollbackScope"
               },

@@ -61,54 +61,22 @@ export function GitWorkflow({
     }
   };
   const generate = async (kind: "commit" | "pr") => {
-    const prepared = await store.extension<{
-      prompt: string;
-      truncated: boolean;
-    }>("text.prompt", { ...args, kind, base });
-    const text = await store.rpc<string>("runtime/generate", {
-      harness: thread.harness,
-      cwd: thread.worktreeId,
-      model: thread.model || null,
-      config: thread.config ?? {},
-      text: prepared.prompt,
-    });
-    if (kind === "commit") setMessage(text.trim());
-    else {
-      const parsed = JSON.parse(
-        text.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, ""),
-      );
-      if (typeof parsed.title !== "string" || typeof parsed.body !== "string")
-        throw new Error(
-          "The harness did not return a PR title and description. Enter them below.",
-        );
-      setTitle(parsed.title);
-      setBody(parsed.body);
-    }
+    const result = await store.rpc<{ draft: { message?: string; title?: string; body?: string }; truncated: boolean }>("client/gitText", { kind, arguments: { ...args, base }, launch: await store.sessionIntent(thread.id) });
+    if (kind === "commit") setMessage(result.draft.message ?? "");
+    else { setTitle(result.draft.title ?? ""); setBody(result.draft.body ?? ""); }
     setReceipt(
-      prepared.truncated
+      result.truncated
         ? "Generated from a truncated diff. Review the text before publishing."
         : "Generated text is ready to review.",
     );
   };
   const load = async (selectedNumber?: number) => {
-    const pr = await store.extension<PullRequest>(
-      "pr.status",
-      selectedNumber ? { ...args, number: selectedNumber } : lookupArgs,
-    );
-    const selector = { ...args, number: pr.number };
-    const [discussion, status, files] = await Promise.all([
-      store.extension<{ comments: Comment[]; reviews: Comment[] }>(
-        "pr.comments",
-        selector,
-      ),
-      store.extension<typeof checks>("pr.checks", selector),
-      store.extension<{ files: typeof viewed }>("pr.viewed.list", selector),
-    ]);
+    const { pr, discussion, checks: status, files } = await store.rpc<{ pr: PullRequest; discussion: { comments: Comment[]; reviews: Comment[] }; checks: typeof checks; files: typeof viewed }>("client/prProjection", selectedNumber ? { ...args, number: selectedNumber } : lookupArgs);
     setPullRequest(pr);
     setNumber(String(pr.number));
     setComments([...discussion.comments, ...discussion.reviews]);
     setChecks(status);
-    setViewed(files.files);
+    setViewed(files);
     store.updateThread(thread.id, {
       linkedPr: { number: pr.number, url: pr.url },
     });

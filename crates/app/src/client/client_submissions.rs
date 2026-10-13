@@ -24,6 +24,8 @@ struct Entry {
     session_id: String,
     fingerprint: String,
     receipt: SubmissionReceipt,
+    #[serde(default)]
+    input: Option<Value>,
 }
 impl ClientSubmissions {
     pub fn new(nodes: NodeGateway, store: storage::SqliteSessionStore) -> Self {
@@ -159,6 +161,12 @@ impl ClientSubmissions {
         Ok(())
     }
     pub async fn prompt(&self, node: &str, request: Value) -> Result<Value> {
+        self.submit(node, request, false).await
+    }
+    pub async fn input(&self, node: &str, request: Value) -> Result<Value> {
+        self.submit(node, request, true).await
+    }
+    async fn submit(&self, node: &str, request: Value, authored: bool) -> Result<Value> {
         let target = Self::target(&request)?;
         if target.identity.environment_id != node {
             return Err(Error::Invalid("submission node target mismatch".into()));
@@ -191,7 +199,9 @@ impl ClientSubmissions {
                 ));
             }
             // A duplicate never redispatches an uncertain input, even after a client restart.
-            return Ok(json!({"jsonrpc":"2.0","id":request["id"],"result":entry.receipt}));
+            return Ok(
+                json!({"jsonrpc":"2.0","id":request["id"],"result":if authored { json!({"receipt":entry.receipt,"input":entry.input}) } else { json!(entry.receipt) }}),
+            );
         }
         if entries
             .iter()
@@ -202,7 +212,7 @@ impl ClientSubmissions {
             ));
         }
         let mut entry = Entry {
-            key: key.clone(), session_id: session.clone(), fingerprint,
+            key: key.clone(), session_id: session.clone(), fingerprint, input: None,
             receipt: SubmissionReceipt {
                 id: uuid::Uuid::new_v4().to_string(), session_id: session.clone(), idempotency_key: key,
                 turn_id: String::new(), delivery: DeliveryKnowledge::Unknown, recovery_required: true,
@@ -211,7 +221,33 @@ impl ClientSubmissions {
         };
         // Intent is durable before the request can reach the runtime. Crashes preserve uncertainty.
         self.save_entry(&target.identity, entry.clone()).await?;
-        let response = self.nodes.forward(node, request.clone()).await;
+        let mut dispatch = request.clone();
+        if authored {
+            match crate::client_operations::inputs::prepare(
+                &self.nodes,
+                node,
+                target.clone(),
+                &request["params"],
+            )
+            .await
+            {
+                Ok(input) => {
+                    dispatch["method"] = "session/prompt".into();
+                    dispatch["params"] = json!({"sessionId":session,"idempotencyKey":entry.key,"content":input["content"]});
+                    entry.input = Some(input);
+                    self.save_entry(&target.identity, entry.clone()).await?;
+                }
+                Err(error) => {
+                    // Asset preparation can have effects, but no prompt has reached the runtime.
+                    entry.receipt.delivery = DeliveryKnowledge::Rejected;
+                    entry.receipt.recovery_required = false;
+                    entry.receipt.error = error["message"].as_str().map(str::to_owned);
+                    self.save_entry(&target.identity, entry.clone()).await?;
+                    return Ok(json!({"jsonrpc":"2.0","id":request["id"],"error":error}));
+                }
+            }
+        }
+        let response = self.nodes.forward(node, dispatch).await;
         if let Some(receipt) = matching_receipt(&response["result"], &entry) {
             entry.receipt = receipt;
         } else if response["error"]["data"]["effectKnowledge"] == "none" {
@@ -220,7 +256,42 @@ impl ClientSubmissions {
             entry.receipt.error = response["error"]["message"].as_str().map(str::to_owned);
         }
         self.save_entry(&target.identity, entry.clone()).await?;
-        Ok(json!({"jsonrpc":"2.0", "id":request["id"], "result":entry.receipt}))
+        Ok(
+            json!({"jsonrpc":"2.0", "id":request["id"], "result":if authored { json!({"receipt":entry.receipt,"input":entry.input}) } else { json!(entry.receipt) }}),
+        )
+    }
+    fn input_key(target: &RuntimeIdentity, session: &str) -> Result<String> {
+        Ok(format!(
+            "client-inputs:{:x}",
+            Sha256::digest(serde_json::to_vec(&(target.identity.clone(), session))?)
+        ))
+    }
+    pub async fn retain_input(
+        &self,
+        target: &RuntimeIdentity,
+        session: &str,
+        input: Value,
+    ) -> Result<()> {
+        let _writing = self.writing.lock().await;
+        let _file = self
+            .file_lock("journal", true)
+            .await?
+            .expect("blocking journal lock");
+        let key = Self::input_key(target, session)?;
+        let mut inputs = self
+            .store
+            .extension_state(&key)
+            .await?
+            .unwrap_or_else(|| json!([]));
+        let records = inputs
+            .as_array_mut()
+            .ok_or_else(|| Error::Storage("invalid authored input journal".into()))?;
+        if let Some(old) = records.iter_mut().find(|old| old["id"] == input["id"]) {
+            *old = input;
+        } else {
+            records.push(input);
+        }
+        self.store.save_extension_state(&key, inputs).await
     }
     pub async fn recover(&self, node: &str, request: Value) -> Result<Value> {
         let target = Self::target(&request)?;
@@ -248,8 +319,14 @@ impl ClientSubmissions {
                     .into(),
             ));
         }
+        let inputs = self
+            .store
+            .extension_state(&Self::input_key(&target, &session)?)
+            .await?
+            .unwrap_or_else(|| json!([]));
         Ok(json!({"jsonrpc":"2.0", "id":request["id"], "result":{
-            "entries":entries.iter().map(|entry| json!({"key":entry.key,"sessionId":entry.session_id,"receipt":entry.receipt})).collect::<Vec<_>>(), "unresolved":entries.iter().any(|entry| unresolved(&entry.receipt)), "snapshot":snapshot["result"]
+            "inputs":inputs,
+            "entries":entries.iter().map(|entry| json!({"key":entry.key,"sessionId":entry.session_id,"receipt":entry.receipt,"input":entry.input})).collect::<Vec<_>>(), "unresolved":entries.iter().any(|entry| unresolved(&entry.receipt)), "snapshot":snapshot["result"]
         }}))
     }
     async fn refresh(
@@ -358,6 +435,7 @@ mod tests {
     }
     fn intent(request: &Value) -> Entry {
         Entry {
+            input: None,
             key: request["params"]["idempotencyKey"].as_str().unwrap().into(),
             session_id: request["params"]["sessionId"].as_str().unwrap().into(),
             fingerprint: format!(
@@ -547,7 +625,10 @@ mod tests {
             }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
-        assert!(agent.snapshot().await.sequence > 600, "scripted turn did not finish");
+        assert!(
+            agent.snapshot().await.sequence > 600,
+            "scripted turn did not finish"
+        );
         let projection = crate::client_projection::restore(&nodes, &client, &target.identity.environment_id,
             json!({"jsonrpc":"2.0","id":2,"method":"client/sessionProjection","expectedRuntime":target,"params":{"sessionId":session}})).await.unwrap();
         assert_eq!(projection["result"]["unresolved"], false);
@@ -572,21 +653,42 @@ mod tests {
         let harness = MockHarness::new(MockScript::default());
         let runtime = swarmie::RuntimeBuilder::default()
             .store(storage::SqliteSessionStore::new(root.path()).await.unwrap())
-            .harness(harness.clone()).build();
-        let agent = runtime.spawn(serde_json::from_value(json!({"harness":"mock","cwd":root.path(),"config":{}})).unwrap()).await.unwrap();
+            .harness(harness.clone())
+            .build();
+        let agent = runtime
+            .spawn(
+                serde_json::from_value(json!({"harness":"mock","cwd":root.path(),"config":{}}))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         let target = runtime.identity().await.unwrap();
-        let nodes = NodeGateway::new(root.path(), protocol::RuntimeService::new(runtime)).await.unwrap();
-        let client = ClientSubmissions::new(nodes.clone(), storage::SqliteSessionStore::new(root.path().join("client")).await.unwrap());
+        let nodes = NodeGateway::new(root.path(), protocol::RuntimeService::new(runtime))
+            .await
+            .unwrap();
+        let client = ClientSubmissions::new(
+            nodes.clone(),
+            storage::SqliteSessionStore::new(root.path().join("client"))
+                .await
+                .unwrap(),
+        );
         let session = agent.snapshot().await.id;
         let original = request(&target, &session, "unconfirmed");
-        client.save_entry(&target.identity, intent(&original)).await.unwrap();
+        client
+            .save_entry(&target.identity, intent(&original))
+            .await
+            .unwrap();
         let operations = crate::client_operations::ClientOperations::new(nodes, client);
         let open = json!({"id":2,"method":"client/sessionOpen","expectedRuntime":target,"params":{"sessionId":session}});
-        let response = operations.handle(&target.identity.environment_id, open.clone()).await;
+        let response = operations
+            .handle(&target.identity.environment_id, open.clone())
+            .await;
         assert_eq!(response["result"]["activation"]["status"], "blocked");
         let mut explicit = open.clone();
         explicit["params"]["resume"] = "explicit".into();
-        let response = operations.handle(&target.identity.environment_id, explicit).await;
+        let response = operations
+            .handle(&target.identity.environment_id, explicit)
+            .await;
         assert_eq!(response["error"]["data"]["effectKnowledge"], "none");
         assert!(harness.prompts().await.is_empty());
         assert_eq!(harness.launches().await.len(), 1);

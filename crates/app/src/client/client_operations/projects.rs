@@ -181,13 +181,33 @@ pub(super) async fn git_arguments(call: &mut Calls<'_>, mut args: Value) -> Outc
 pub(super) async fn invoke(call: &mut Calls<'_>, params: &Value) -> Outcome {
     let extension = text(params, "extensionId")?;
     let command = text(params, "command")?;
-    let args = params.get("arguments").cloned().unwrap_or(json!({}));
+    let mut args = params.get("arguments").cloned().unwrap_or(json!({}));
+    if extension == "workspace" && command != "project.open" && args["projectId"].is_string() {
+        let opened = call
+            .extension(
+                "workspace",
+                "project.open",
+                json!({"path":args["projectId"],"sessionId":args["sessionId"]}),
+                false,
+            )
+            .await?;
+        args["projectId"] = opened["id"].clone();
+    }
     let args = if extension == "git" {
         git_arguments(call, args).await?
     } else {
         args
     };
-    call.extension(extension, command, args, true).await
+    let mutation = call
+        .extensions()
+        .await?
+        .iter()
+        .find(|entry| entry["id"] == extension)
+        .and_then(|entry| entry["commands"].as_array())
+        .and_then(|commands| commands.iter().find(|entry| entry["name"] == command))
+        .and_then(|entry| entry["mutates"].as_bool())
+        .unwrap_or(true);
+    call.extension(extension, command, args, mutation).await
 }
 pub(super) async fn worktree(call: &mut Calls<'_>, params: &Value) -> Outcome {
     if params.get("sessionId").is_some_and(|s| !s.is_null()) {

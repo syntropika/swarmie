@@ -176,7 +176,7 @@ it("keeps a pending prompt and its acceptance receipt on the original node when 
   let prompt: { expectedRuntime: RuntimeIdentity; params: { idempotencyKey: string } } | undefined;
   vi.mocked(fetch).mockImplementation((path, options) => {
     const request = JSON.parse(options!.body as string);
-    if (request.method !== "session/prompt") return previous(path, options);
+    if (request.method !== "client/sessionInput") return previous(path, options);
     expect(path).toBe("/nodes/a/rpc");
     prompt = request;
     return new Promise<Response>((resolve) => { finish = resolve; });
@@ -185,7 +185,7 @@ it("keeps a pending prompt and its acceptance receipt on the original node when 
   const pending = first.send(first.active()!.id, "Next instruction");
   await vi.waitFor(() => expect(prompt).toBeDefined());
   viewed = second;
-  finish(new Response(JSON.stringify({ result: { delivery: "accepted", recoveryRequired: false } })));
+  finish(new Response(JSON.stringify({ result: { receipt: { delivery: "accepted", recoveryRequired: false } } })));
   await pending;
   expect(prompt!.expectedRuntime).toEqual(targets["/nodes/a/rpc"]);
   expect(first.active()).toMatchObject({ draft: "", submitted: true });
