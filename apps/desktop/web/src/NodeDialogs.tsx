@@ -21,8 +21,20 @@ function Frame({ title, busy, onClose, children }: { title: string; busy: boolea
 }
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
-export function AddNodeDialog({ client, onClose }: { client: NodeClient; onClose: () => void }) {
-  const [method, setMethod] = useState<"direct" | "ssh">("direct");
+function sshReadinessText(readiness: SshReadiness): string {
+  switch (readiness.status) {
+    case "ready": return `Runtime ready${readiness.version ? ` · ${readiness.version}` : ""}`;
+    case "not-installed": return "Install Swarmie runtime on the remote computer, then check again.";
+    case "ssh-client-unavailable": return "Install OpenSSH on this computer, then check again.";
+    case "ssh-unavailable": return "Check the SSH host, network, host trust and configured authentication, then check again.";
+    case "invalid-installation": return "Check the remote Swarmie installation and shell startup output, then check again.";
+    case "incompatible-runtime": return "The remote runtime could not be verified. Update its Swarmie installation, then check again.";
+    case "runtime-unavailable": return "Check that the runtime service is running on the remote computer and the socket path is correct, then check again.";
+  }
+}
+
+export function AddNodeDialog({ client, onClose, initialMethod = "direct" }: { client: NodeClient; onClose: () => void; initialMethod?: "direct" | "ssh" }) {
+  const [method, setMethod] = useState<"direct" | "ssh">(initialMethod);
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [host, setHost] = useState("");
@@ -42,7 +54,7 @@ export function AddNodeDialog({ client, onClose }: { client: NodeClient; onClose
     <p className="mb-5 text-sm leading-relaxed text-muted">Connect a computer with a running runtime.</p>
     <form className="grid gap-4" aria-busy={busy} onSubmit={(event) => {
       event.preventDefault();
-      if (busy || (ssh && !readiness?.runtimeIdentity)) return;
+      if (busy || (ssh && (!readiness?.ready || !readiness.runtimeIdentity))) return;
       setBusy(true); setError("");
       const pair = ssh ? client.pairSsh(name.trim(), host.trim(), socket.trim(), readiness!.runtimeIdentity!) : client.pair(name.trim(), address.trim(), token);
       void pair.then(onClose).catch((error) => { setError(errorText(error)); if (ssh) setReadiness(undefined); }).finally(() => setBusy(false));
@@ -52,16 +64,16 @@ export function AddNodeDialog({ client, onClose }: { client: NodeClient; onClose
       {ssh ? <>
         <label className="grid gap-1.5 text-xs font-medium">SSH host<Input placeholder="user@server or SSH alias" required disabled={busy} value={host} onChange={(event) => { setHost(event.target.value); setReadiness(undefined); }} /></label>
         <details className="text-xs"><summary className="cursor-pointer text-muted">Advanced</summary><label className="mt-3 grid gap-1.5 text-xs font-medium">Runtime socket path <span className="font-normal text-muted">Optional override</span><Input aria-label="Runtime socket path" placeholder="Use the default runtime" disabled={busy} value={socket} onChange={(event) => { setSocket(event.target.value); setReadiness(undefined); }} /></label></details>
-        <p className="text-xs leading-relaxed text-muted">Use configured SSH access to connect to the default runtime. Checking does not install, start, or restart the runtime.</p>
+        <p className="text-xs leading-relaxed text-muted">Use the SSH access configured on this computer. No account is required. Checking leaves the remote runtime unchanged.</p>
         <Button type="button" variant="outline" disabled={busy || !host.trim()} onClick={() => void check()}>{busy ? "Checking…" : "Check connection"}</Button>
-        {readiness && <p className="text-sm text-muted" role="status">{readiness.ready ? `Runtime ready${readiness.version ? ` · ${readiness.version}` : ""}` : !readiness.installed ? "Install the runtime on this computer, then check again." : "Check that the runtime service is running and the socket path is correct, then check again."}</p>}
+        {readiness && <p className="text-sm text-muted" role="status">{sshReadinessText(readiness)}</p>}
       </> : <>
         <label className="grid gap-1.5 text-xs font-medium">Address<Input placeholder="http://localhost:7490" required disabled={busy} value={address} onChange={(event) => setAddress(event.target.value)} /></label>
         <label className="grid gap-1.5 text-xs font-medium">Access token <span className="font-normal text-muted">Optional</span><Input type="password" aria-label="Access token" autoComplete="off" disabled={busy} value={token} onChange={(event) => setToken(event.target.value)} /></label>
       </>}
       {error && <p className="text-sm text-danger" role="alert">{error}</p>}
       <p className="text-xs leading-relaxed text-muted">The connection is verified before it is saved. Credentials stay on this computer.</p>
-      <footer className="mt-2 flex justify-end gap-2"><Button variant="ghost" disabled={busy} onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy || !name.trim() || (ssh ? !readiness?.ready : !address.trim())}>{busy ? "Connecting…" : "Add node"}</Button></footer>
+      <footer className="mt-2 flex justify-end gap-2"><Button variant="ghost" disabled={busy} onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy || !name.trim() || (ssh ? !readiness?.ready || !readiness.runtimeIdentity : !address.trim())}>{busy ? "Connecting…" : "Add node"}</Button></footer>
     </form>
   </Frame>;
 }

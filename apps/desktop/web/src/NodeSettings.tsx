@@ -10,6 +10,7 @@ import type { NodeClient, NodesState } from "./nodes";
 const views = [
   { id: "computer", label: "Control this computer" },
   { id: "devices", label: "Control other devices" },
+  { id: "ssh", label: "SSH" },
 ] as const;
 type View = typeof views[number]["id"] | "ssh";
 
@@ -25,8 +26,7 @@ export function NodeSettings({ client, nodes }: { client: NodeClient; nodes: Nod
   };
   const local = client.localSnapshot();
   const detail = dialog?.kind === "details" ? nodes.nodes.find((node) => node.identity.environmentId === dialog.id) : undefined;
-  const tabs = nodes.nodes.some((node) => !node.local && node.connections.some((route) => route.transport.kind === "ssh"))
-    ? [...views, { id: "ssh" as const, label: "SSH" }] : [...views];
+  const tabs = views;
   const activeView = tabs.some((tab) => tab.id === view) ? view : "devices";
   const visible = nodes.nodes.filter((node) => activeView === "computer" ? node.local
     : !node.local && (activeView !== "ssh" || node.connections.some((route) => route.transport.kind === "ssh")));
@@ -76,7 +76,7 @@ export function NodeSettings({ client, nodes }: { client: NodeClient; nodes: Nod
       {activeView === "computer" && <p className="mt-4 text-xs leading-relaxed text-muted">The app connects to this computer automatically and retries after a temporary connection loss. Remote access from other devices is not configured here yet.</p>}
       {remoteView && <p className="mt-4 text-xs leading-relaxed text-muted">Add a running runtime by address or through configured SSH access. Existing chats keep their original node.</p>}
     </section>
-    {dialog?.kind === "add" && <AddNodeDialog client={client} onClose={() => setDialog(undefined)} />}
+    {dialog?.kind === "add" && <AddNodeDialog client={client} initialMethod={activeView === "ssh" ? "ssh" : "direct"} onClose={() => setDialog(undefined)} />}
     {dialog?.kind === "access" && <LocalAccessDialog client={client} onClose={() => setDialog(undefined)} />}
     {detail && <NodeDetailsDialog node={detail} client={client} onClose={() => setDialog(undefined)} onAccess={() => setDialog({ kind: "access" })} />}
   </div>;

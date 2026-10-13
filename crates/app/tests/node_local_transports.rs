@@ -219,3 +219,50 @@ async fn long_state_directory_and_killed_owner_allow_guarded_native_reattach_wit
     let stopped = cli(&state, &["runtime", "stop"]).await; assert!(stopped.status.success(), "{}", String::from_utf8_lossy(&stopped.stderr));
     assert!(!socket_path.exists());
 }
+
+#[tokio::test]
+async fn ssh_readiness_distinguishes_unavailable_access_invalid_installation_and_stopped_runtime() {
+    for (exit, version, expected) in [
+        ("255", "swarmie 0.1.0", "ssh-unavailable"),
+        ("2", "swarmie 0.1.0", "invalid-installation"),
+        ("0", "unexpected shell banner", "invalid-installation"),
+        ("0", &"x".repeat(300), "invalid-installation"),
+        ("0", "swarmie 0.1.0", "runtime-unavailable"),
+        ("0", "swarmie 0.1.0", "incompatible-runtime"),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let (path, ledger) = ssh_fixture(temp.path());
+        let remote = temp.path().join("untouched-remote");
+        let output = Command::new(env!("CARGO_BIN_EXE_swarmie"))
+            .args(["--state-dir", temp.path().join("client").to_str().unwrap(), "remote", "inspect-ssh", "fixture-host", "--socket", remote.join("node.sock").to_str().unwrap()])
+            .env("PATH", path).env("SWARMIE_SSH_FIXTURE_LOG", &ledger)
+            .env("SWARMIE_SSH_FIXTURE_EXIT", exit).env("SWARMIE_SSH_FIXTURE_VERSION", version)
+            .env("SWARMIE_SSH_FIXTURE_BAD_PROTOCOL", if expected == "incompatible-runtime" { "1" } else { "0" })
+            .output().await.unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let status: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(status["status"], expected, "{status}");
+        assert_eq!(status["ready"], false);
+        assert!(status["runtimeIdentity"].is_null());
+        assert_eq!(status["installed"], if matches!(expected, "runtime-unavailable" | "incompatible-runtime") { json!(true) } else { Value::Null });
+        assert!(!remote.exists());
+        if !matches!(expected, "runtime-unavailable" | "incompatible-runtime") {
+            assert_eq!(std::fs::read_to_string(&ledger).unwrap().lines().count(), 1);
+            assert!(status["version"].is_null());
+        }
+    }
+}
+
+#[tokio::test]
+async fn ssh_readiness_reports_a_missing_client_without_claiming_the_remote_runtime_is_absent() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_swarmie"))
+        .args(["--state-dir", temp.path().join("client").to_str().unwrap(), "remote", "inspect-ssh", "remote-host"])
+        .env("PATH", temp.path()).output().await.unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let status: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(status["status"], "ssh-client-unavailable");
+    assert_eq!(status["installed"], Value::Null);
+    assert_eq!(status["ready"], false);
+    assert!(status["runtimeIdentity"].is_null());
+}

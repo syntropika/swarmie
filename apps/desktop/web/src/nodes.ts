@@ -1,5 +1,5 @@
 import { clientRequest, nativeClient, observeClient } from "./clientTransport";
-import type { LocalStoreIdentity, RuntimeIdentity } from "@swarmie/contracts";
+import type { LocalStoreIdentity, RuntimeIdentity, SshReadiness } from "@swarmie/contracts";
 import { nodeKey, sameNode, validNodeIdentity } from "./nodeScope";
 import { WorkspaceStore, type Workspace } from "./workspace";
 
@@ -17,13 +17,7 @@ export type ClientNode = {
   lastVerifiedAtMs: number;
   connections: NodeRoute[];
 };
-export type SshReadiness = {
-  installed: boolean;
-  ready: boolean;
-  version?: string;
-  nextAction?: string;
-  runtimeIdentity?: RuntimeIdentity;
-};
+export type { SshReadiness } from "@swarmie/contracts";
 type Catalog = { nodes: ClientNode[]; selectedNodeId?: string };
 export type NodesState = Catalog & { store: WorkspaceStore; error: string; loading: boolean };
 

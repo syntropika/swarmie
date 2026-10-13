@@ -20,7 +20,7 @@ let pairError: string | undefined;
 let client: NodeClient;
 beforeEach(() => {
   requests = [];
-  readiness = { installed: true, ready: true, version: "swarmie 0.1.0", runtimeIdentity: remote };
+  readiness = { status: "ready", nextAction: "connect", installed: true, ready: true, version: "swarmie 0.1.0", runtimeIdentity: remote };
   currentLocal = structuredClone(local);
   pairError = undefined;
   localStorage.clear();
@@ -55,11 +55,11 @@ it("sends the inspected remote identity to native enrollment through the verifie
 });
 
 it("preserves unavailable runtime guidance without enrolling or changing the catalog", async () => {
-  readiness = { installed: false, ready: false, nextAction: "install_runtime" };
+  readiness = { status: "not-installed", installed: false, ready: false, nextAction: "install_runtime" };
   expect(await client.inspectSsh("ssh-alias", "/runtime/node.sock")).toEqual(readiness);
   expect(requests.map((request) => request.method)).toEqual(["runtime/initialize", "nodes/inspectSsh"]);
   expect(client.getSnapshot().nodes).toEqual([]);
-  readiness = { installed: true, ready: false, version: "swarmie 0.1.0", nextAction: "start_runtime_or_check_socket" };
+  readiness = { status: "runtime-unavailable", installed: true, ready: false, version: "swarmie 0.1.0", nextAction: "start_runtime_or_check_socket" };
   expect(await client.inspectSsh("ssh-alias", "/runtime/node.sock")).toEqual(readiness);
   expect(requests.some((request) => request.method === "nodes/pairSsh")).toBe(false);
 });

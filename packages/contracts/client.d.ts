@@ -77,3 +77,13 @@ export interface NativeClientMethods {
 export interface NativeClientMethods {
   "client/schedulePut": { params: { schedule: { id?: string; sessionId?: string; text: string; nextRunAtMs: number; intervalSeconds?: number; enabled?: boolean }; launch?: SessionLaunchIntent }; result: { created: boolean; session: SessionSnapshot; result: JsonValue } };
 }
+
+/** Account-free SSH preparation result; unknown installation is distinct from missing. */
+export type SshReadiness = {
+  status: "ready" | "ssh-client-unavailable" | "ssh-unavailable" | "not-installed" | "invalid-installation" | "runtime-unavailable" | "incompatible-runtime";
+  installed: boolean | null;
+  ready: boolean;
+  version?: string;
+  nextAction: string;
+  runtimeIdentity?: import("./index.js").RuntimeIdentity;
+};

@@ -12,7 +12,7 @@ function setup(fail = false) {
     { identity: { environmentId: "local" }, displayName: "This computer", local: true, registered: true, connections: [], lastVerifiedAtMs: 0 },
     { identity: { environmentId: "remote" }, displayName: "Remote", local: false, registered: true, lastVerifiedAtMs: 0, connections: [{ name: "main", revision: 7, transport: { kind: "http", url: "http://remote.invalid" } }] },
   ], error: "", store: { getSnapshot: () => snapshot } } as unknown as NodesState;
-  const client = { pair, inspectSsh: vi.fn().mockResolvedValue({ installed: true, ready: true, version: "swarmie 0.1.0", runtimeIdentity: { identity: { environmentId: "remote", storeId: "store", ownerScopeId: "owner" }, incarnationId: "live" } }), pairSsh: vi.fn().mockResolvedValue(undefined), removeRoute: vi.fn().mockResolvedValue(undefined), refresh: vi.fn().mockResolvedValue(undefined), localSnapshot: () => snapshot, nodeSnapshot: () => snapshot, probe: vi.fn(), status: () => "Connected", error: () => "", select: vi.fn(), connect: vi.fn(), disconnect: vi.fn(), reconnect: vi.fn().mockResolvedValue(undefined) };
+  const client = { pair, inspectSsh: vi.fn().mockResolvedValue({ status: "ready", nextAction: "connect", installed: true, ready: true, version: "swarmie 0.1.0", runtimeIdentity: { identity: { environmentId: "remote", storeId: "store", ownerScopeId: "owner" }, incarnationId: "live" } }), pairSsh: vi.fn().mockResolvedValue(undefined), removeRoute: vi.fn().mockResolvedValue(undefined), refresh: vi.fn().mockResolvedValue(undefined), localSnapshot: () => snapshot, nodeSnapshot: () => snapshot, probe: vi.fn(), status: () => "Connected", error: () => "", select: vi.fn(), connect: vi.fn(), disconnect: vi.fn(), reconnect: vi.fn().mockResolvedValue(undefined) };
   render(<NodeSettings client={client as unknown as NodeClient} nodes={nodes} />);
   return { ...client, snapshot };
 }
@@ -98,12 +98,41 @@ it("checks SSH readiness before pairing and clears a prepared target when connec
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 });
 it("keeps SSH enrollment unavailable when installation or runtime readiness is missing", async () => {
-  const { inspectSsh, pairSsh } = setup(); inspectSsh.mockResolvedValue({ installed: false, ready: false } as never);
+  const { inspectSsh, pairSsh } = setup(); inspectSsh.mockResolvedValue({ status: "not-installed", nextAction: "install-runtime", installed: false, ready: false } as never);
   const user = userEvent.setup(); await openAdd(user);
   await user.type(screen.getByLabelText("Connection name"), "Remote"); await user.selectOptions(screen.getByLabelText("Connection method"), "ssh");
   await user.type(screen.getByLabelText("SSH host"), "remote-host"); await user.click(screen.getByText("Advanced")); await user.type(screen.getByLabelText("Runtime socket path"), "/runtime/node.sock");
   await user.click(screen.getByRole("button", { name: "Check connection" }));
-  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Install the runtime"));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Install Swarmie runtime on the remote computer"));
+  expect((screen.getByRole("button", { name: "Add node" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(pairSsh).not.toHaveBeenCalled();
+});
+
+it("offers SSH before any node is enrolled and opens its account-free flow directly", async () => {
+  setup(); const user = userEvent.setup();
+  await user.click(screen.getByRole("tab", { name: "SSH" }));
+  expect(screen.getByText("No devices added yet")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Add" }));
+  expect((screen.getByLabelText("Connection method") as HTMLSelectElement).value).toBe("ssh");
+  expect(screen.getByLabelText("SSH host")).toBeTruthy();
+  expect(screen.getByText(/No account is required/)).toBeTruthy();
+  expect(screen.queryByLabelText("Access token")).toBeNull();
+});
+it.each([
+  ["ssh-client-unavailable", "Install OpenSSH on this computer"],
+  ["ssh-unavailable", "Check the SSH host, network"],
+  ["invalid-installation", "Check the remote Swarmie installation"],
+  ["runtime-unavailable", "runtime service is running on the remote computer"],
+  ["incompatible-runtime", "remote runtime could not be verified"],
+])("shows actionable %s guidance without offering to enroll an unverified node", async (status, message) => {
+  const { inspectSsh, pairSsh } = setup();
+  inspectSsh.mockResolvedValue({ status, installed: null, ready: false } as never);
+  const user = userEvent.setup(); await user.click(screen.getByRole("tab", { name: "SSH" }));
+  await user.click(screen.getByRole("button", { name: "Add" }));
+  await user.type(screen.getByLabelText("Connection name"), "Remote");
+  await user.type(screen.getByLabelText("SSH host"), "server");
+  await user.click(screen.getByRole("button", { name: "Check connection" }));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain(message));
   expect((screen.getByRole("button", { name: "Add node" }) as HTMLButtonElement).disabled).toBe(true);
   expect(pairSsh).not.toHaveBeenCalled();
 });
