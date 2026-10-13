@@ -38,16 +38,17 @@ fn local_package(platform: &str) -> Option<PathBuf> {
         .map(|p| p.join(format!("{platform}.tar.gz")))
         .filter(|p| p.is_file())
 }
-async fn execute(
+pub(super) async fn execute(
     host: &str,
     remote: String,
     archive: Option<&Path>,
+    prelude: Option<&[u8]>,
     timeout: Duration,
 ) -> Result<Value> {
     let mut command = crate::node_channel::ssh_command(host)?;
     command
         .arg(remote)
-        .stdin(if archive.is_some() {
+        .stdin(if archive.is_some() || prelude.is_some() {
             Stdio::piped()
         } else {
             Stdio::null()
@@ -59,12 +60,12 @@ async fn execute(
     let input = child.stdin.take();
     let operation = async {
         let writer = async {
-            if let Some(path) = archive {
-                let mut file = tokio::fs::File::open(path).await?;
-                let mut stdin = input.ok_or(Error::Closed)?;
-                let count = tokio::io::copy(&mut (&mut file).take(LIMIT + 1), &mut stdin).await?;
-                if count > LIMIT {
-                    return Err(Error::Invalid("runtime package exceeds 512 MiB".into()));
+            if let Some(mut stdin) = input {
+                if let Some(prelude) = prelude { stdin.write_all(prelude).await?; }
+                if let Some(path) = archive {
+                    let mut file = tokio::fs::File::open(path).await?;
+                    let count = tokio::io::copy(&mut (&mut file).take(LIMIT + 1), &mut stdin).await?;
+                    if count > LIMIT { return Err(Error::Invalid("runtime package exceeds 512 MiB".into())); }
                 }
                 stdin.shutdown().await?;
             }
@@ -107,13 +108,6 @@ async fn execute(
     tokio::time::timeout(timeout, operation).await.map_err(|_| Error::Timeout(
         "SSH preparation; check the connection before trying again, remote changes may have completed".into()))?
 }
-fn python(mode: &str) -> String {
-    format!(
-        "python3 -c {} {}",
-        crate::node_channel::shell_quote(SCRIPT),
-        mode
-    )
-}
 
 pub(crate) async fn preparation(host: &str, socket: &str, install: bool) -> Value {
     if !socket.is_empty() {
@@ -122,13 +116,18 @@ pub(crate) async fn preparation(host: &str, socket: &str, install: bool) -> Valu
     if !install {
         return json!({"available":true,"action":"start"});
     }
-    match execute(host, python("probe"), None, Duration::from_secs(8)).await {
+    let shell = match super::ssh_shell::discover(host).await {
+        Ok(shell) => shell,
+        Err(_) => return json!({"available":false,"reason":"Check remote SSH access and shell support."}),
+    };
+    let (command, prelude) = shell.python(SCRIPT, &["probe".into()]);
+    match execute(host, command, None, prelude.as_deref(), Duration::from_secs(12)).await {
         Ok(probe) => {
             let platform = probe["platform"].as_str();
             let supported = platform.is_some_and(|p| {
                 matches!(
                     p,
-                    "linux-x86_64" | "linux-aarch64" | "macos-x86_64" | "macos-aarch64"
+                    "linux-x86_64" | "linux-aarch64" | "macos-x86_64" | "macos-aarch64" | "windows-x86_64" | "windows-aarch64"
                 )
             });
             let ready = supported && probe["pythonReady"] == true;
@@ -214,31 +213,21 @@ async fn prepare_inner(host: &str, socket: &str, action: &str) -> Result<Value> 
         } else {
             crate::update::stage_runtime(&manifest(), platform, staging.path()).await?
         };
-        let arguments = format!(
-            "install {} {} {}",
-            crate::node_channel::shell_quote(&checksum),
-            crate::node_channel::shell_quote(platform),
-            crate::node_channel::shell_quote(&version)
-        );
+        let shell = super::ssh_shell::discover(host).await?;
+        let arguments = vec!["install".into(), checksum, platform.into(), version];
+        let (command, prelude) = shell.python(SCRIPT, &arguments);
         execute(
             host,
-            python(&arguments),
+            command,
             Some(&path),
+            prelude.as_deref(),
             Duration::from_secs(180),
         )
         .await?;
     }
     // Start/attach uses the owner's serialized bootstrap and never restarts an existing owner.
-    execute(
-        host,
-        format!(
-            "{}\"$SWARMIE\" runtime start >/dev/null && printf '{{\"started\":true}}'",
-            crate::node_channel::SSH_RUNTIME
-        ),
-        None,
-        Duration::from_secs(40),
-    )
-    .await?;
+    let shell = super::ssh_shell::discover(host).await?;
+    execute(host, shell.runtime(&["runtime".into(), "start".into()]), None, None, Duration::from_secs(40)).await?;
     let verified = crate::remote::inspect_ssh(host, socket, None).await?;
     if verified["ready"] != true {
         return Err(Error::Provider("runtime preparation completed but verification failed; check the connection before trying again".into()));

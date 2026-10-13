@@ -14,7 +14,10 @@ fn native_url(url: &reqwest::Url) -> bool {
 fn packaged_host(executable: &Path) -> Option<PathBuf> {
     let directory = executable.parent()?;
     let name = executable.file_name()?.to_str()?;
-    let host = directory.join(name.strip_suffix("_services").unwrap_or("swarmie-desktop"));
+    let windows = cfg!(windows) || name.ends_with(".exe");
+    let name = name.strip_suffix(".exe").unwrap_or(name);
+    let name = name.strip_suffix("_services").unwrap_or("swarmie-desktop");
+    let host = directory.join(format!("{name}{}", if windows { ".exe" } else { "" }));
     host.is_file().then_some(host)
 }
 
@@ -83,15 +86,16 @@ pub async fn run(
                 .spawn()?;
             return Ok(());
         }
-        let executable = if cfg!(target_os = "macos") {
-            "open"
+        let mut command = if cfg!(windows) {
+            let mut command = tokio::process::Command::new("powershell.exe");
+            command.args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "Start-Process -FilePath $env:SWARMIE_OPEN_URL -ErrorAction Stop"]).env("SWARMIE_OPEN_URL", parsed.as_str());
+            command
         } else {
-            "xdg-open"
+            let mut command = tokio::process::Command::new(if cfg!(target_os = "macos") { "open" } else { "xdg-open" });
+            command.arg(parsed.as_str());
+            command
         };
-        let status = tokio::process::Command::new(executable)
-            .arg(parsed.as_str())
-            .status()
-            .await?;
+        let status = command.status().await?;
         if !status.success() {
             return Err(Error::Provider(format!(
                 "application opener exited: {status}"
@@ -124,7 +128,7 @@ mod tests {
     #[test]
     fn packaged_services_resolve_the_sibling_native_host() {
         let directory = tempfile::tempdir().unwrap();
-        let host = directory.path().join("swarmie-desktop");
+        let host = directory.path().join(if cfg!(windows) { "swarmie-desktop.exe" } else { "swarmie-desktop" });
         std::fs::write(&host, []).unwrap();
         assert_eq!(
             packaged_host(&directory.path().join("swarmie-desktop_services")),

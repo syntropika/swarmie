@@ -1,5 +1,8 @@
+mod startup;
+mod windows;
 use clap::Subcommand;
 use serde_json::json;
+pub(crate) use startup::{configure_startup, inspect_startup};
 use std::path::{Path, PathBuf};
 use swarmie::{Error, Result};
 #[derive(Subcommand)]
@@ -17,6 +20,11 @@ pub enum ServiceCommand {
         #[arg(long)]
         resources_root: Option<PathBuf>,
     },
+    /// Inspect or configure automatic runtime startup without restarting active work.
+    Startup {
+        #[command(subcommand)]
+        command: startup::StartupCommand,
+    },
     Start,
     Stop,
     /// Enable startup on user login without starting the service now.
@@ -30,16 +38,26 @@ pub enum ServiceCommand {
 }
 fn home() -> Result<PathBuf> {
     std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
         .ok_or_else(|| Error::Invalid("HOME is unavailable".into()))
 }
 fn config_dir() -> Result<PathBuf> {
+    if cfg!(windows) {
+        return Ok(std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .unwrap_or(home()?.join("AppData/Local"))
+            .join("swarmie"));
+    }
     Ok(std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .unwrap_or(home()?.join(".config"))
         .join("swarmie"))
 }
 fn unit_path() -> Result<PathBuf> {
+    if cfg!(windows) {
+        return Ok(config_dir()?.join("runtime-task.xml"));
+    }
     if cfg!(target_os = "macos") {
         Ok(home()?.join("Library/LaunchAgents/com.swarmie.daemon.plist"))
     } else {
@@ -77,6 +95,9 @@ fn render_unit(
     token_path: &Path,
     macos: bool,
 ) -> Result<String> {
+    if cfg!(windows) {
+        return windows::render(executable, arguments, token_path);
+    }
     if macos {
         let args = std::iter::once(executable.to_string_lossy().into_owned())
             .chain(arguments.iter().cloned())
@@ -107,7 +128,10 @@ async fn private_write(path: &Path, bytes: &[u8]) -> Result<()> {
             .ok_or_else(|| Error::Invalid("service path has no parent".into()))?,
     )
     .await?;
+    startup::regular(path)?;
     let mut options = tokio::fs::OpenOptions::new();
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
     options.mode(0o600);
@@ -124,11 +148,12 @@ async fn private_write(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 async fn manager(action: &str) -> Result<()> {
+    if cfg!(windows) {
+        windows::operation(action, &unit_path()?).await?;
+        return Ok(());
+    }
     let status = if cfg!(target_os = "macos") {
-        let uid = tokio::process::Command::new("id")
-            .arg("-u")
-            .output()
-            .await?;
+        let uid = startup::command("id", &["-u"]).await?;
         if !uid.status.success() {
             return Err(Error::Provider("could not determine launchd user".into()));
         }
@@ -146,15 +171,26 @@ async fn manager(action: &str) -> Result<()> {
             "disable" => vec!["disable".into(), target],
             _ => return Err(Error::Invalid("unknown service operation".into())),
         };
-        tokio::process::Command::new("launchctl")
-            .args(args)
-            .status()
-            .await?
+        {
+            let output = startup::command(
+                "launchctl",
+                &args.iter().map(String::as_str).collect::<Vec<_>>(),
+            )
+            .await?;
+            if action == "status" {
+                print!("{}", String::from_utf8_lossy(&output.stdout));
+            }
+            output.status
+        }
     } else {
-        tokio::process::Command::new("systemctl")
-            .args(["--user", action, "swarmie.service"])
-            .status()
-            .await?
+        {
+            let output =
+                startup::command("systemctl", &["--user", action, "swarmie.service"]).await?;
+            if action == "status" {
+                print!("{}", String::from_utf8_lossy(&output.stdout));
+            }
+            output.status
+        }
     };
     if !status.success() {
         return Err(Error::Provider(format!(
@@ -166,11 +202,11 @@ async fn manager(action: &str) -> Result<()> {
 // A missing service is different from a manager failure: never remove its unit when
 // the manager cannot establish that execution has stopped.
 async fn service_loaded() -> Result<bool> {
+    if cfg!(windows) {
+        return Ok(windows::operation("inspect", &unit_path()?).await?["running"] == true);
+    }
     let output = if cfg!(target_os = "macos") {
-        let uid = tokio::process::Command::new("id")
-            .arg("-u")
-            .output()
-            .await?;
+        let uid = startup::command("id", &["-u"]).await?;
         if !uid.status.success() {
             return Err(Error::Provider("could not determine launchd user".into()));
         }
@@ -178,15 +214,9 @@ async fn service_loaded() -> Result<bool> {
             "gui/{}/com.swarmie.daemon",
             String::from_utf8_lossy(&uid.stdout).trim()
         );
-        tokio::process::Command::new("launchctl")
-            .args(["print", &target])
-            .output()
-            .await?
+        startup::command("launchctl", &["print", &target]).await?
     } else {
-        tokio::process::Command::new("systemctl")
-            .args(["--user", "is-active", "swarmie.service"])
-            .output()
-            .await?
+        startup::command("systemctl", &["--user", "is-active", "swarmie.service"]).await?
     };
     if output.status.success() {
         return Ok(true);
@@ -208,6 +238,99 @@ async fn service_loaded() -> Result<bool> {
         ))
     }
 }
+async fn install(
+    root: &Path,
+    port: u16,
+    desktop_assets: Option<PathBuf>,
+    public_origin: Option<String>,
+    workbench: bool,
+    resources_root: Option<PathBuf>,
+) -> Result<serde_json::Value> {
+    let token_path = config_dir()?.join("service.token");
+    tokio::fs::create_dir_all(root).await?;
+    let root = tokio::fs::canonicalize(root).await?;
+    let executable = std::env::current_exe()?;
+    startup::check_owned(&root)?;
+    let mut args = vec![
+        "--state-dir".into(),
+        root.to_string_lossy().into(),
+        "serve".into(),
+        "--http".into(),
+        format!("127.0.0.1:{port}"),
+    ];
+    if let Some(assets) = desktop_assets {
+        let assets = tokio::fs::canonicalize(assets).await?;
+        if !assets.join("index.html").is_file() {
+            return Err(Error::Invalid(
+                "desktop assets must contain index.html".into(),
+            ));
+        }
+        args.extend(["--desktop-assets".into(), assets.to_string_lossy().into()]);
+    }
+    if let Some(origin) = public_origin {
+        let parsed = reqwest::Url::parse(&origin)
+            .map_err(|_| Error::Invalid("invalid public origin".into()))?;
+        if parsed.scheme() != "https"
+            || parsed.path() != "/"
+            || parsed.query().is_some()
+            || parsed.fragment().is_some()
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
+        {
+            return Err(Error::Invalid(
+                "public origin must be an HTTPS origin without a path or credentials".into(),
+            ));
+        }
+        args.extend([
+            "--public-origin".into(),
+            origin.trim_end_matches('/').into(),
+        ]);
+    }
+    if workbench {
+        args.push("--workbench".into());
+    }
+    if port == 0 {
+        args.extend([
+            "--git-worktrees".into(),
+            root.join("worktrees").to_string_lossy().into(),
+        ]);
+    }
+    if let Some(resources) = resources_root {
+        tokio::fs::create_dir_all(&resources).await?;
+        let resources = tokio::fs::canonicalize(resources).await?;
+        args.extend([
+            "--resources-root".into(),
+            resources.to_string_lossy().into(),
+        ]);
+    }
+    if !token_path.exists() {
+        let token = format!(
+            "{}{}",
+            uuid::Uuid::new_v4().simple(),
+            uuid::Uuid::new_v4().simple()
+        );
+        private_write(&token_path, token.as_bytes()).await?;
+    }
+    let unit = unit_path()?;
+    private_write(
+        &unit,
+        render_unit(&executable, &args, &token_path, cfg!(target_os = "macos"))?.as_bytes(),
+    )
+    .await?;
+    startup::remember(&root, &unit).await?;
+    if cfg!(target_os = "linux") {
+        let status = startup::command("systemctl", &["--user", "daemon-reload"])
+            .await?
+            .status;
+        if !status.success() {
+            return Err(Error::Provider("systemd user daemon reload failed".into()));
+        }
+    }
+    Ok(
+        json!({"installed":true,"unit":unit,"url":format!("http://127.0.0.1:{port}/rpc"),"tokenFile":token_path,"started":false}),
+    )
+}
+
 pub async fn run(root: &Path, command: ServiceCommand) -> Result<()> {
     let token_path = config_dir()?.join("service.token");
     match command {
@@ -221,107 +344,91 @@ pub async fn run(root: &Path, command: ServiceCommand) -> Result<()> {
             if port == 0 {
                 return Err(Error::Invalid("service port must be nonzero".into()));
             }
-            tokio::fs::create_dir_all(root).await?;
-            let root = tokio::fs::canonicalize(root).await?;
-            let executable = std::env::current_exe()?;
-            let mut args = vec![
-                "--state-dir".into(),
-                root.to_string_lossy().into(),
-                "serve".into(),
-                "--http".into(),
-                format!("127.0.0.1:{port}"),
-            ];
-            if let Some(assets) = desktop_assets {
-                let assets = tokio::fs::canonicalize(assets).await?;
-                if !assets.join("index.html").is_file() {
-                    return Err(Error::Invalid(
-                        "desktop assets must contain index.html".into(),
-                    ));
-                }
-                args.extend(["--desktop-assets".into(), assets.to_string_lossy().into()]);
-            }
-            if let Some(origin) = public_origin {
-                let parsed = reqwest::Url::parse(&origin)
-                    .map_err(|_| Error::Invalid("invalid public origin".into()))?;
-                if parsed.scheme() != "https"
-                    || parsed.path() != "/"
-                    || parsed.query().is_some()
-                    || parsed.fragment().is_some()
-                    || !parsed.username().is_empty()
-                    || parsed.password().is_some()
-                {
-                    return Err(Error::Invalid(
-                        "public origin must be an HTTPS origin without a path or credentials"
-                            .into(),
-                    ));
-                }
-                args.extend([
-                    "--public-origin".into(),
-                    origin.trim_end_matches('/').into(),
-                ]);
-            }
-            if workbench {
-                args.push("--workbench".into());
-            }
-            if let Some(resources) = resources_root {
-                tokio::fs::create_dir_all(&resources).await?;
-                let resources = tokio::fs::canonicalize(resources).await?;
-                args.extend([
-                    "--resources-root".into(),
-                    resources.to_string_lossy().into(),
-                ]);
-            }
-            if !token_path.exists() {
-                let token = format!(
-                    "{}{}",
-                    uuid::Uuid::new_v4().simple(),
-                    uuid::Uuid::new_v4().simple()
-                );
-                private_write(&token_path, token.as_bytes()).await?;
-            }
-            let unit = unit_path()?;
-            private_write(
-                &unit,
-                render_unit(&executable, &args, &token_path, cfg!(target_os = "macos"))?.as_bytes(),
-            )
-            .await?;
-            if !cfg!(target_os = "macos") {
-                let status = tokio::process::Command::new("systemctl")
-                    .args(["--user", "daemon-reload"])
-                    .status()
-                    .await?;
-                if !status.success() {
-                    return Err(Error::Provider("systemd user daemon reload failed".into()));
-                }
-            }
             println!(
                 "{}",
-                json!({"installed":true,"unit":unit,"url":format!("http://127.0.0.1:{port}/rpc"),"tokenFile":token_path,"started":false})
+                install(
+                    root,
+                    port,
+                    desktop_assets,
+                    public_origin,
+                    workbench,
+                    resources_root
+                )
+                .await?
             );
         }
-        ServiceCommand::Start => manager("start").await?,
-        ServiceCommand::Stop => manager("stop").await?,
-        ServiceCommand::Enable => manager("enable").await?,
-        ServiceCommand::Disable => manager("disable").await?,
-        ServiceCommand::Status => manager("status").await?,
+        ServiceCommand::Startup { command } => startup::run(root, command).await?,
+        ServiceCommand::Start => {
+            startup::check_owned(root)?;
+            manager("start").await?;
+        }
+        ServiceCommand::Stop => {
+            startup::check_owned(root)?;
+            if cfg!(windows) {
+                let task = windows::operation("inspect", &unit_path()?).await?;
+                if task["available"] != true {
+                    return Err(Error::Invalid(
+                        "the scheduled task is not owned by this configuration".into(),
+                    ));
+                }
+                if task["running"] == true {
+                    let endpoint = crate::runtime_host::read(root)?.ok_or_else(|| {
+                        Error::Invalid(
+                            "the service runtime is not ready; check it again before stopping"
+                                .into(),
+                        )
+                    })?;
+                    if !crate::runtime_host::verified(&endpoint, None).await? {
+                        return Err(Error::Invalid("the service runtime cannot be verified; preserve the scheduled task and check execution".into()));
+                    }
+                    crate::runtime_host::run(
+                        root,
+                        crate::runtime_host::RuntimeCommand::Stop { token: None },
+                    )
+                    .await?;
+                }
+            } else {
+                manager("stop").await?;
+            }
+        }
+        ServiceCommand::Enable => {
+            startup::check_owned(root)?;
+            manager("enable").await?;
+        }
+        ServiceCommand::Disable => {
+            startup::check_owned(root)?;
+            manager("disable").await?;
+        }
+        ServiceCommand::Status => {
+            if cfg!(windows) {
+                println!("{}", windows::operation("inspect", &unit_path()?).await?);
+            } else {
+                manager("status").await?;
+            }
+        }
         ServiceCommand::Token => {
             let token = tokio::fs::read_to_string(token_path).await?;
             println!("{}", token.trim());
         }
         ServiceCommand::Uninstall => {
+            startup::check_owned(root)?;
             if unit_path()?.exists() {
                 if service_loaded().await? {
                     return Err(Error::Invalid("service is running or loaded; use service stop explicitly before uninstalling".into()));
                 }
                 // Disable future startup without touching runtime data or the retained token.
-                manager("disable").await?;
+                manager(if cfg!(windows) {
+                    "uninstall"
+                } else {
+                    "disable"
+                })
+                .await?;
                 tokio::fs::remove_file(unit_path()?).await?;
             }
-            if !cfg!(target_os = "macos") {
-                let status = tokio::process::Command::new("systemctl")
-                    .args(["--user", "daemon-reload"])
-                    .status()
-                    .await?;
+            if cfg!(target_os = "linux") {
+                let status = startup::command("systemctl", &["--user", "daemon-reload"])
+                    .await?
+                    .status;
                 if !status.success() {
                     return Err(Error::Provider("systemd user daemon reload failed".into()));
                 }
@@ -361,6 +468,7 @@ mod tests {
         }
     }
     #[test]
+    #[cfg(not(windows))]
     fn service_units_quote_arguments_and_reference_private_tokens() {
         let args = vec!["serve".into(), "--http".into(), "127.0.0.1:7480".into()];
         let linux = render_unit(

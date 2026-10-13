@@ -12,18 +12,19 @@ import tarfile
 import tempfile
 
 LIMIT = 512 * 1024 * 1024
-FILES = {'bin/swarmie', 'LICENSE', 'NOTICE', 'runtime-package.json', 'install.py'}
+EXECUTABLE = 'swarmie.exe' if platform.system() == 'Windows' else 'swarmie'
+FILES = {'bin/' + EXECUTABLE, 'LICENSE', 'NOTICE', 'runtime-package.json', 'install.py'}
 
 
 def destination():
-    system = {'Linux': 'linux', 'Darwin': 'macos'}.get(platform.system())
-    arch = {'x86_64': 'x86_64', 'amd64': 'x86_64', 'aarch64': 'aarch64', 'arm64': 'aarch64'}.get(platform.machine())
+    system = {'Linux': 'linux', 'Darwin': 'macos', 'Windows': 'windows'}.get(platform.system())
+    arch = {'x86_64': 'x86_64', 'amd64': 'x86_64', 'aarch64': 'aarch64', 'arm64': 'aarch64'}.get(platform.machine().lower())
     return f'{system}-{arch}' if system and arch else None
 
 
 def executable():
-    found = shutil.which('swarmie')
-    managed = Path.home() / '.local/bin/swarmie'
+    found = shutil.which(EXECUTABLE)
+    managed = Path.home() / ('.local/share/swarmie/runtime/bin/swarmie.exe' if platform.system() == 'Windows' else '.local/bin/swarmie')
     return found or (str(managed) if managed.is_file() and os.access(managed, os.X_OK) else None)
 
 
@@ -51,14 +52,14 @@ def extract(archive, directory):
             if not member.isfile() or relative not in FILES or relative in found:
                 raise ValueError('invalid-package')
             expanded += member.size
-            if member.size < 0 or expanded > LIMIT or (relative != 'bin/swarmie' and member.size > 1024 * 1024):
+            if member.size < 0 or expanded > LIMIT or (relative != 'bin/' + EXECUTABLE and member.size > 1024 * 1024):
                 raise ValueError('invalid-package')
             found.add(relative)
             target = directory / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             with bundle.extractfile(member) as source, target.open('xb') as output:
                 shutil.copyfileobj(source, output)
-            target.chmod(0o700 if relative in ('bin/swarmie', 'install.py') else 0o600)
+            target.chmod(0o700 if relative in ('bin/' + EXECUTABLE, 'install.py') else 0o600)
         if found != FILES:
             raise ValueError('invalid-package')
 

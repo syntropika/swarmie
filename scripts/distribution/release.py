@@ -9,7 +9,8 @@ import shutil
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
-PLATFORMS = ('linux-x86_64', 'linux-aarch64', 'macos-x86_64', 'macos-aarch64')
+PLATFORMS = ('linux-x86_64', 'linux-aarch64', 'macos-x86_64', 'macos-aarch64', 'windows-x86_64', 'windows-aarch64')
+RUNTIME_PLATFORMS = PLATFORMS
 
 
 def validate_tag(tag):
@@ -29,16 +30,20 @@ def digest(path):
     return hasher.hexdigest()
 
 
-def assemble(artifacts, output, repository, tag, required):
+def assemble(artifacts, output, repository, tag, required, runtime_required=None):
     version = validate_tag(tag)
     if not required or len(set(required)) != len(required) or not set(required) <= set(PLATFORMS):
         raise ValueError('Select a nonempty set of unique supported platforms.')
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
         raise ValueError('A repository owner/name is required.')
+    runtime_required = required if runtime_required is None else runtime_required
+    if not runtime_required or len(set(runtime_required)) != len(runtime_required) or not set(runtime_required) <= set(RUNTIME_PLATFORMS):
+        raise ValueError('Select a nonempty set of unique supported runtime platforms.')
     base = f'https://github.com/{repository}/releases/download/{tag}/'
     manifests = {}
     files = {}
     for kind, manifest_name in [('desktop', 'manifest.json'), ('runtime', 'runtime-manifest.json')]:
+        platforms = runtime_required if kind == "runtime" else required
         merged = {}
         for source in sorted(artifacts.rglob(manifest_name)):
             if source.is_symlink() or not source.is_file() or source.stat().st_size > 64 * 1024:
@@ -47,7 +52,7 @@ def assemble(artifacts, output, repository, tag, required):
             if not isinstance(manifest, dict) or set(manifest) != {'version', 'artifacts'} or manifest['version'] != version or not isinstance(manifest['artifacts'], dict):
                 raise ValueError('Invalid or mixed-version release manifest.')
             for platform, artifact in manifest['artifacts'].items():
-                if platform not in required or platform in merged:
+                if platform not in platforms or platform in merged:
                     raise ValueError('Unexpected or duplicate release platform.')
                 extension = '.tar.gz' if kind == 'runtime' or platform.startswith('linux-') else '.zip'
                 name = f'swarmie{"-runtime" if kind == "runtime" else ""}-{version}-{platform}{extension}'
@@ -65,7 +70,7 @@ def assemble(artifacts, output, repository, tag, required):
                 files[name] = archive
                 files[name + '.sha256'] = sidecar
                 merged[platform] = artifact
-        if set(merged) != set(required):
+        if set(merged) != set(platforms):
             raise ValueError(f'{kind} release is missing required platforms.')
         manifests[manifest_name] = {'version': version, 'artifacts': merged}
     # Validate every input before producing any publishable output. Never overwrite an existing set.
@@ -76,7 +81,7 @@ def assemble(artifacts, output, repository, tag, required):
         (output / name).write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n')
     checksums = ''.join(f'{digest(path)}  {path.name}\n' for path in sorted(output.iterdir()))
     (output / 'SHA256SUMS').write_text(checksums)
-    return {'version': version, 'tag': tag, 'platforms': list(required), 'assets': len(files) + 3}
+    return {'version': version, 'tag': tag, 'platforms': list(required), 'runtimePlatforms': list(runtime_required), 'assets': len(files) + 3}
 
 
 def main():
@@ -90,12 +95,13 @@ def main():
     build.add_argument('--artifacts', type=Path, required=True)
     build.add_argument('--output', type=Path, required=True)
     build.add_argument('--platform', action='append', choices=PLATFORMS)
+    build.add_argument('--runtime-platform', action='append', choices=RUNTIME_PLATFORMS)
     args = parser.parse_args()
     try:
         if args.command == 'validate-tag':
             result = {'version': validate_tag(args.tag), 'tag': args.tag}
         else:
-            result = assemble(args.artifacts, args.output, args.repository, args.tag, tuple(args.platform or PLATFORMS))
+            result = assemble(args.artifacts, args.output, args.repository, args.tag, tuple(args.platform or PLATFORMS), tuple(args.runtime_platform or args.platform or RUNTIME_PLATFORMS))
     except (ValueError, OSError, KeyError, TypeError, IndexError) as error:
         parser.exit(1, f'{error}\n')
     print(json.dumps(result))

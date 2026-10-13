@@ -120,6 +120,22 @@ pub(crate) fn socket_path(url: &str) -> Result<String> {
         .map_err(|_| Error::Invalid("socket path must be absolute".into()))?;
     Ok(path.to_string_lossy().into_owned())
 }
+#[cfg(any(windows, test))]
+pub(crate) fn pipe_path(url: &str) -> Result<String> {
+    let parsed = reqwest::Url::parse(url).map_err(|_| Error::Invalid("invalid named-pipe URL".into()))?;
+    let values: Vec<_> = parsed.query_pairs().collect();
+    if parsed.scheme() != "pipe" || parsed.host_str() != Some("localhost") || parsed.path() != "/"
+        || parsed.port().is_some() || !parsed.username().is_empty() || parsed.password().is_some()
+        || parsed.fragment().is_some() || values.len() != 1 || values[0].0 != "path" {
+        return Err(Error::Invalid("named-pipe URL requires one local runtime path".into()));
+    }
+    let path = values[0].1.to_string();
+    if !path.starts_with(r"\\.\pipe\swarmie-") || path.len() > 256 || path.chars().any(char::is_control)
+        || path[r"\\.\pipe\".len()..].contains(['\\', '/']) {
+        return Err(Error::Invalid("named-pipe path must identify a local Swarmie runtime".into()));
+    }
+    Ok(path)
+}
 pub(crate) fn ssh_route(url: &str) -> Result<(String, String)> {
     let parsed =
         reqwest::Url::parse(url).map_err(|_| Error::Invalid("invalid SSH route".into()))?;
@@ -138,7 +154,7 @@ pub(crate) fn ssh_route(url: &str) -> Result<(String, String)> {
     }
     let (host, path) = (pairs[0].1.to_string(), pairs[1].1.to_string());
     validate_ssh_host(&host)?;
-    if (!path.is_empty() && !std::path::Path::new(&path).is_absolute())
+    if (!path.is_empty() && !path.starts_with('/') && !path.starts_with(r"\\.\pipe\swarmie-"))
         || path.chars().any(char::is_control)
         || path.len() > 8192
     {
@@ -195,7 +211,7 @@ async fn connect_socket(
         .map_err(|e| Error::Invalid(e.to_string()))?
         .scheme()
         .to_owned();
-    let local = matches!(scheme.as_str(), "unix" | "ssh");
+    let local = matches!(scheme.as_str(), "unix" | "pipe" | "ssh");
     let mut upgrade = if local {
         "ws://localhost/ws".to_owned()
     } else {
@@ -211,7 +227,7 @@ async fn connect_socket(
                 .map_err(|_| Error::Invalid("invalid bearer token".into()))?,
         );
     }
-    tokio::time::timeout(Duration::from_secs(8), async {
+    tokio::time::timeout(Duration::from_secs(25), async {
         match scheme.as_str() {
             "unix" => {
                 #[cfg(unix)] {
@@ -221,10 +237,21 @@ async fn connect_socket(
                 }
                 #[cfg(not(unix))] { Err(Error::Unsupported("Unix sockets are unavailable on this platform".into())) }
             }
+            "pipe" => {
+                #[cfg(windows)] {
+                    let stream = crate::runtime::windows_pipe::connect(std::path::Path::new(&pipe_path(url)?)).await?;
+                    let (socket, _) = client_async(upgrade, stream).await.map_err(|e| Error::Provider(e.to_string()))?;
+                    Ok((Box::new(socket) as Box<dyn MessageSocket>, None))
+                }
+                #[cfg(not(windows))] { Err(Error::Unsupported("Windows named pipes are unavailable on this platform".into())) }
+            }
             "ssh" => {
                 let (host, path) = ssh_route(url)?;
                 let mut command = ssh_command(&host)?;
-                let remote_command = if path.is_empty() { format!("{SSH_RUNTIME}exec \"$SWARMIE\" runtime proxy") } else { format!("{SSH_RUNTIME}exec \"$SWARMIE\" runtime proxy --socket {}", shell_quote(&path)) };
+                let shell = super::ssh_shell::discover(&host).await?;
+                let mut arguments = vec!["runtime".into(), "proxy".into()];
+                if !path.is_empty() { arguments.extend(["--socket".into(), path]); }
+                let remote_command = shell.runtime(&arguments);
                 command.arg(remote_command)
                     .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null());
                 let mut child = command.spawn()?;
@@ -379,6 +406,16 @@ impl Channel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn named_pipe_routes_reject_network_paths_and_ambiguous_parameters() {
+        let path = r"\\.\pipe\swarmie-fixture";
+        let url = storage::NodeTransport::LocalSocket { path: path.into() }.endpoint();
+        assert_eq!(pipe_path(&url).unwrap(), path);
+        for url in ["pipe://server/?path=foo", "pipe://localhost/?path=one&path=two", "pipe://localhost/?path=%5C%5Cremote%5Cpipe%5Cswarmie-foreign", "pipe://localhost/?path=%5C%5C.%5Cpipe%5Cswarmie-test%5Cnested"] {
+            assert!(pipe_path(url).is_err());
+        }
+    }
+
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio_tungstenite::accept_async;
     async fn fixture(

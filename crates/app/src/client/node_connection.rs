@@ -14,14 +14,14 @@ fn endpoint(url: &str) -> Result<reqwest::Url> {
             "daemon URL must not contain credentials".into(),
         ));
     }
-    if (parsed.query().is_some() && parsed.scheme() != "ssh") || parsed.fragment().is_some() {
+    if (parsed.query().is_some() && !matches!(parsed.scheme(), "ssh" | "pipe")) || parsed.fragment().is_some() {
         return Err(Error::Invalid(
             "node endpoint must not contain a query or fragment".into(),
         ));
     }
     if !matches!(
         parsed.scheme(),
-        "http" | "https" | "ws" | "wss" | "unix" | "ssh"
+        "http" | "https" | "ws" | "wss" | "unix" | "pipe" | "ssh"
     ) {
         return Err(Error::Invalid(
             "daemon URL requires HTTP(S) or WS(S)".into(),
@@ -142,7 +142,7 @@ async fn rpc_message(url: &str, request: Value, token: Option<&str>) -> Result<V
             let _ = socket.close(None).await;
             response
         }
-        "unix" | "ssh" => {
+        "unix" | "pipe" | "ssh" => {
             let (events, _) = tokio::sync::broadcast::channel(16);
             let peer = crate::node_channel::Channel::connect(url, token, None, events).await?;
             peer.request(request).await?

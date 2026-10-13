@@ -3,6 +3,7 @@ import { KeyRound, Monitor, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { NodeStartupControls } from "./NodeStartupControls";
 import { HarnessIcon } from "./HarnessSelect";
 import type { ClientNode, NodeClient, NodeRoute, SshReadiness } from "./nodes";
 
@@ -143,6 +144,7 @@ export function NodeDetailsDialog({ node, client, onClose, onAccess }: { node: C
         <Button variant="ghost" size="icon-sm" aria-label={`Remove connection ${route.name}`} disabled={busy} onClick={() => void run(() => client.removeRoute(route.name, route.revision))}><Trash2 size={15} /></Button>
       </div>)}</div>
     </section>}
+    <NodeStartupControls key={node.identity.environmentId} node={node} client={client} busy={busy} run={run} />
     <section aria-label="Node harnesses" className="border-t border-border pt-4">
       <h3 className="mb-2 text-sm font-medium">Available harnesses</h3>
       {state.harnesses.filter((harness) => harness.available).map((harness) => <div key={harness.harness} className="flex flex-wrap items-center gap-2 py-2">

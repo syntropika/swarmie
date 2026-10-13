@@ -6,12 +6,12 @@ use serde_json::{Value, json};
 
 #[derive(Clone)]
 pub struct NodeGateway {
-    manager: ConnectionManager,
-    local: Local,
-    local_id: String,
+    pub(super) manager: ConnectionManager,
+    pub(super) local: Local,
+    pub(super) local_id: String,
 }
 #[derive(Clone)]
-enum Local {
+pub(super) enum Local {
     Runtime(RuntimeService),
     Endpoint {
         url: String,
@@ -138,6 +138,7 @@ impl NodeGateway {
                 (Some(host), Some(socket)) => crate::remote::inspect_ssh(host, socket, params["token"].as_str()).await,
                 _ => Err(Error::Invalid("SSH host and socketPath are required".into())),
             },
+            "nodes/startup" => self.startup(params).await,
             "nodes/prepareSsh" => match target.as_ref() {
                 Some(target) => self.prepare_ssh(params, target).await,
                 None => Err(Error::Invalid("verified local runtime is required".into())),
@@ -227,7 +228,7 @@ impl NodeGateway {
 }
 
 fn local_endpoint(endpoint: &crate::runtime_host::Endpoint) -> String {
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     if let Some(path) = &endpoint.local_socket {
         return storage::NodeTransport::LocalSocket { path: path.to_string_lossy().into_owned() }.endpoint();
     }

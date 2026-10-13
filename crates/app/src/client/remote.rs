@@ -90,8 +90,13 @@ pub(crate) async fn inspect_ssh(host: &str, socket: &str, token: Option<&str>) -
     use tokio::io::AsyncReadExt;
     let endpoint = ssh_endpoint(host, socket)?;
     let mut command = crate::node_channel::ssh_command(host)?;
+    let shell = match super::ssh_shell::discover(host).await {
+        Ok(shell) => shell,
+        Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => return Ok(ssh_readiness("ssh-client-unavailable", None, None, None)),
+        Err(_) => return Ok(ssh_readiness("ssh-unavailable", None, None, None)),
+    };
     command
-        .arg(format!("{}\"$SWARMIE\" --version", crate::node_channel::SSH_RUNTIME))
+        .arg(shell.runtime(&["--version".into()]))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null());

@@ -635,3 +635,21 @@ async fn gateway_preserves_native_error_data_and_uncertain_delivery_without_repe
     assert_eq!(effects.load(Ordering::SeqCst), 1);
     server.abort();
 }
+
+#[tokio::test]
+async fn startup_control_rejects_stale_or_wrong_routes_before_touching_service_managers() {
+    let dir = tempfile::tempdir().unwrap();
+    let gateway = Daemon::start(&dir.path().join("gateway"), true, false).await;
+    let remote = Daemon::start(&dir.path().join("remote"), false, false).await;
+    let local = gateway.initialize("/rpc").await;
+    let remote_identity = remote.initialize("/rpc").await;
+    let route = pair(&gateway, &local, "direct", &remote.origin).await;
+    for (method, params, expected) in [
+        ("nodes/startup", json!({"environmentId":remote_identity["identity"]["environmentId"],"name":"direct","revision":route["revision"].as_u64().unwrap()+1,"enabled":true}), "connection changed"),
+        ("nodes/startup", json!({"environmentId":remote_identity["identity"]["environmentId"],"name":"direct","revision":route["revision"],"enabled":true}), "saved SSH connection"),
+        ("nodes/startup", json!({"environmentId":"another-node","name":"direct","revision":route["revision"],"enabled":true}), "connection changed"),
+    ] {
+        let response = gateway.rpc("/client/rpc", method, params, Some(&local)).await;
+        assert!(response["error"]["message"].as_str().unwrap().contains(expected), "{response}");
+    }
+}

@@ -107,7 +107,7 @@ fn ssh_fixture(root: &Path) -> (String, PathBuf) {
 fn proxy_pids(ledger: &Path) -> Vec<i32> {
     std::fs::read_to_string(ledger).unwrap_or_default().lines().filter_map(|line| {
         let value: Value = serde_json::from_str(line).unwrap();
-        value["command"].as_str().unwrap().contains("runtime proxy").then(|| value["pid"].as_i64().unwrap() as i32)
+        value["command"].as_str().unwrap().replace('\'', "").contains("runtime proxy").then(|| value["pid"].as_i64().unwrap() as i32)
     }).collect()
 }
 
@@ -247,7 +247,7 @@ async fn ssh_readiness_distinguishes_unavailable_access_invalid_installation_and
         assert_eq!(status["installed"], if matches!(expected, "runtime-unavailable" | "incompatible-runtime") { json!(true) } else { Value::Null });
         assert!(!remote.exists());
         if !matches!(expected, "runtime-unavailable" | "incompatible-runtime") {
-            assert_eq!(std::fs::read_to_string(&ledger).unwrap().lines().count(), 1);
+            assert_eq!(std::fs::read_to_string(&ledger).unwrap().lines().count(), 2);
             assert!(status["version"].is_null());
         }
     }

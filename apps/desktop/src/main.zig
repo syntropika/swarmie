@@ -40,9 +40,11 @@ pub fn main(init: std.process.Init) !void {
 
 fn packagePaths(allocator: std.mem.Allocator, executable: []const u8) !struct { service: []const u8, assets: []const u8 } {
     const directory = std.fs.path.dirname(executable) orelse return error.InvalidPackagePath;
-    const name = std.fs.path.basename(executable);
+    const filename = std.fs.path.basename(executable);
+    const windows = builtin.os.tag == .windows;
+    const name = if (windows) std.fs.path.stem(filename) else filename;
     return .{
-        .service = try std.fmt.allocPrint(allocator, "{s}/{s}_services", .{ directory, name }),
+        .service = try std.fmt.allocPrint(allocator, "{s}{c}{s}_services{s}", .{ directory, std.fs.path.sep, name, if (windows) ".exe" else "" }),
         .assets = try std.fs.path.join(allocator, &.{ directory, "..", if (builtin.os.tag == .macos) "Resources" else "resources" }),
     };
 }
@@ -74,11 +76,11 @@ fn launchPackaged(init: std.process.Init) !bool {
 }
 
 test "packaged host resolves its own daemon and assets without a working-directory dependency" {
-    const paths = try packagePaths(std.testing.allocator, "/opt/swarmie/bin/swarmie-desktop");
+    const paths = try packagePaths(std.testing.allocator, if (builtin.os.tag == .windows) "C:\\Swarmie\\bin\\swarmie-desktop.exe" else "/opt/swarmie/bin/swarmie-desktop");
     defer std.testing.allocator.free(paths.service);
     defer std.testing.allocator.free(paths.assets);
-    try std.testing.expectEqualStrings("/opt/swarmie/bin/swarmie-desktop_services", paths.service);
-    try std.testing.expect(std.mem.endsWith(u8, paths.assets, if (builtin.os.tag == .macos) "/Resources" else "/resources"));
+    try std.testing.expectEqualStrings(if (builtin.os.tag == .windows) "C:\\Swarmie\\bin\\swarmie-desktop_services.exe" else "/opt/swarmie/bin/swarmie-desktop_services", paths.service);
+    try std.testing.expect(std.mem.endsWith(u8, paths.assets, if (builtin.os.tag == .macos) "/Resources" else if (builtin.os.tag == .windows) "\\resources" else "/resources"));
 }
 
 test "desktop navigation is restricted to a local HTTP origin" {

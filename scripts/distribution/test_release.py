@@ -32,7 +32,7 @@ class ReleaseTests(unittest.TestCase):
         self.addCleanup(self.root_patch.stop)
         self.records = {}
         for kind, manifest_name in [('desktop', 'manifest.json'), ('runtime', 'runtime-manifest.json')]:
-            for platform in RELEASE.PLATFORMS:
+            for platform in (RELEASE.RUNTIME_PLATFORMS if kind == "runtime" else RELEASE.PLATFORMS):
                 directory = self.inputs / platform / kind
                 directory.mkdir(parents=True)
                 extension = '.tar.gz' if kind == 'runtime' or platform.startswith('linux-') else '.zip'
@@ -51,7 +51,7 @@ class ReleaseTests(unittest.TestCase):
                 self.records[kind, platform] = (manifest, archive, sidecar)
 
     def assemble(self):
-        return RELEASE.assemble(self.inputs, self.output, REPOSITORY, TAG, RELEASE.PLATFORMS)
+        return RELEASE.assemble(self.inputs, self.output, REPOSITORY, TAG, RELEASE.PLATFORMS, RELEASE.RUNTIME_PLATFORMS)
 
     def reject(self):
         with self.assertRaises(ValueError):
@@ -67,17 +67,17 @@ class ReleaseTests(unittest.TestCase):
     def test_complete_multi_platform_release_preserves_only_verified_inputs(self):
         (self.inputs / 'private-notes.txt').write_text('Excluded input')
         result = self.assemble()
-        self.assertEqual(result['assets'], 19)
-        self.assertEqual(len(list(self.output.iterdir())), 19)
+        self.assertEqual(result['assets'], 27)
+        self.assertEqual(len(list(self.output.iterdir())), 27)
         for name in ('manifest.json', 'runtime-manifest.json'):
             merged = json.loads((self.output / name).read_text())
             self.assertEqual(merged['version'], VERSION)
-            self.assertEqual(set(merged['artifacts']), set(RELEASE.PLATFORMS))
+            self.assertEqual(set(merged['artifacts']), set(RELEASE.RUNTIME_PLATFORMS if name == 'runtime-manifest.json' else RELEASE.PLATFORMS))
         for _, archive, sidecar in self.records.values():
             self.assertEqual((self.output / archive.name).read_bytes(), archive.read_bytes())
             self.assertEqual((self.output / sidecar.name).read_bytes(), sidecar.read_bytes())
         checksums = (self.output / 'SHA256SUMS').read_text().splitlines()
-        self.assertEqual(len(checksums), 18)
+        self.assertEqual(len(checksums), 26)
         for line in checksums:
             checksum, name = line.split()
             self.assertEqual(checksum, hashlib.sha256((self.output / name).read_bytes()).hexdigest())
@@ -140,7 +140,7 @@ class ReleaseTests(unittest.TestCase):
         self.reject()
 
     def test_unexpected_platform_is_rejected(self):
-        self.mutate_manifest(lambda m: m['artifacts'].update({'windows-x86_64': {}}))
+        self.mutate_manifest(lambda m: m['artifacts'].update({'unsupported-x86_64': {}}))
         self.reject()
 
     def test_non_object_manifest_is_rejected(self):

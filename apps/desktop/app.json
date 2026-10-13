@@ -10,7 +10,8 @@
   ],
   "platforms": [
     "linux",
-    "macos"
+    "macos",
+    "windows"
   ],
   "permissions": [
     "clipboard",

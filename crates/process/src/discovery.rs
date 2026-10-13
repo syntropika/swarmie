@@ -11,12 +11,12 @@ use std::{
 pub fn find_executable(name: &str) -> Option<PathBuf> {
     let path = Path::new(name);
     if path.components().count() > 1 {
-        return executable(path).then(|| path.to_path_buf());
+        return resolve(path);
     }
     let mut paths: Vec<_> = std::env::var_os("PATH")
         .map(|p| std::env::split_paths(&p).collect())
         .unwrap_or_default();
-    if let Some(home) = std::env::var_os("HOME") {
+    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
         let home = PathBuf::from(home);
         paths.extend([
             home.join(".local/bin"),
@@ -25,15 +25,16 @@ pub fn find_executable(name: &str) -> Option<PathBuf> {
             home.join(".cargo/bin"),
         ]);
     }
+    #[cfg(unix)]
     paths.extend([
         PathBuf::from("/usr/local/bin"),
         PathBuf::from("/opt/homebrew/bin"),
     ]);
-    if let Some(path) = paths
-        .into_iter()
-        .map(|p| p.join(name))
-        .find(|p| executable(p))
-    {
+    #[cfg(windows)]
+    if let Some(roaming) = std::env::var_os("APPDATA") {
+        paths.push(PathBuf::from(roaming).join("npm"));
+    }
+    if let Some(path) = paths.into_iter().find_map(|p| resolve(&p.join(name))) {
         return Some(path);
     }
     let shell = std::env::var_os("SHELL")
@@ -41,9 +42,50 @@ pub fn find_executable(name: &str) -> Option<PathBuf> {
         .filter(|p| p.is_absolute())?;
     login_paths(&shell, std::env::var_os("HOME").unwrap_or_default())
         .into_iter()
-        .map(|p| p.join(name))
-        .find(|p| executable(p))
+        .find_map(|p| resolve(&p.join(name)))
 }
+fn resolve(path: &Path) -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        let extensions = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
+        windows_candidates(path, &extensions)
+            .into_iter()
+            .find(|path| executable(path))
+    }
+    #[cfg(not(windows))]
+    {
+        executable(path).then(|| path.to_path_buf())
+    }
+}
+#[cfg(any(windows, test))]
+fn windows_candidates(path: &Path, extensions: &str) -> Vec<PathBuf> {
+    if path.extension().is_some() {
+        return vec![path.to_owned()];
+    }
+    let extensions = extensions
+        .split(';')
+        .filter(|extension| {
+            matches!(
+                extension.to_ascii_uppercase().as_str(),
+                ".COM" | ".EXE" | ".BAT" | ".CMD"
+            )
+        })
+        .collect::<Vec<_>>();
+    let extensions = if extensions.is_empty() {
+        vec![".COM", ".EXE", ".BAT", ".CMD"]
+    } else {
+        extensions
+    };
+    extensions
+        .into_iter()
+        .map(|extension| {
+            let mut name = path.as_os_str().to_owned();
+            name.push(extension);
+            PathBuf::from(name)
+        })
+        .collect()
+}
+
 fn executable(path: &Path) -> bool {
     if !path.is_file() {
         return false;
@@ -170,7 +212,7 @@ fn read_login_output(mut stdout: std::process::ChildStdout) -> Option<Vec<u8>> {
         Some(bytes)
     }
 }
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     #[cfg(unix)]
@@ -227,5 +269,40 @@ mod tests {
         }
         assert!(result.is_none());
         assert!(started.elapsed() < Duration::from_secs(3));
+    }
+}
+
+#[cfg(test)]
+mod windows_discovery_tests {
+    use super::*;
+    #[test]
+    fn windows_search_prefers_launchable_extensions_over_extensionless_npm_scripts() {
+        let candidates = windows_candidates(Path::new("agent"), ".COM;.EXE;.BAT;.CMD;.PS1;.JS");
+        assert_eq!(
+            candidates,
+            ["agent.COM", "agent.EXE", "agent.BAT", "agent.CMD"].map(PathBuf::from)
+        );
+        assert_eq!(
+            windows_candidates(Path::new("agent.exe"), ".CMD;.EXE"),
+            vec![PathBuf::from("agent.exe")]
+        );
+        assert!(!windows_candidates(Path::new("agent"), "").is_empty());
+    }
+    #[cfg(windows)]
+    #[test]
+    fn native_discovery_resolves_a_windows_shim_and_ignores_the_unix_launcher() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("fixture-agent");
+        std::fs::write(&path, "Unix launcher").unwrap();
+        std::fs::write(path.with_extension("cmd"), "@echo off\r\n").unwrap();
+        assert_eq!(
+            find_executable(path.to_str().unwrap())
+                .unwrap()
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .to_ascii_lowercase(),
+            "fixture-agent.cmd"
+        );
     }
 }

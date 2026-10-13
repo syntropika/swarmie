@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Install, replace or remove runtime binaries without stopping processes or deleting data."""
 import argparse
-import fcntl
 import hashlib
 import html
 import json
@@ -9,10 +8,15 @@ import os
 from pathlib import Path
 import platform
 import shutil
+import stat
+import sys
+import subprocess
 import tempfile
 
 MARKER = '.swarmie-runtime-install.json'
-FILES = ('bin/swarmie', 'LICENSE', 'NOTICE', 'runtime-package.json')
+WINDOWS = platform.system() == 'Windows'
+EXECUTABLE = 'swarmie.exe' if WINDOWS else 'swarmie'
+FILES = ('bin/' + EXECUTABLE, 'LICENSE', 'NOTICE', 'runtime-package.json')
 
 
 def digest(path):
@@ -24,21 +28,72 @@ def digest(path):
 
 
 def require_plain_path(path):
-    if path.is_symlink():
+    if path.is_symlink() or (path.exists() and getattr(path.lstat(), "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)):
         raise SystemExit('Refusing symbolic-link installation path: ' + str(path))
 
 
 def service_units():
     home = Path.home()
     config = Path(os.environ.get('XDG_CONFIG_HOME', home / '.config'))
-    return (config / 'systemd/user/swarmie.service', home / 'Library/LaunchAgents/com.swarmie.daemon.plist')
+    local = Path(os.environ.get('LOCALAPPDATA', home / 'AppData/Local'))
+    return (config / 'systemd/user/swarmie.service', home / 'Library/LaunchAgents/com.swarmie.daemon.plist', local / 'swarmie/runtime-task.xml')
+
+
+def windows_preflight(paths):
+    if sys.platform != 'win32':
+        return
+    import ctypes
+    from ctypes import wintypes
+    api = ctypes.WinDLL('kernel32', use_last_error=True)
+    api.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    api.CreateFileW.restype = wintypes.HANDLE
+    api.CloseHandle.argtypes = [wintypes.HANDLE]
+    handles = []
+    try:
+        for path in paths:
+            if not path.exists():
+                continue
+            # DELETE access and exclusive sharing reject loaded images before any file changes.
+            handle = api.CreateFileW(str(path), 0x80010000, 0, None, 3, 0x80, None)
+            if handle == wintypes.HANDLE(-1).value:
+                raise SystemExit('An installation file is in use or protected. Explicitly stop execution before updating or removing it, then retry.')
+            handles.append(handle)
+    finally:
+        for handle in handles:
+            api.CloseHandle(handle)
+
+
+def windows_service_reference(prefix, launcher):
+    if sys.platform != 'win32':
+        return False
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$prefix = [IO.Path]::GetFullPath($env:SWARMIE_INSTALL_PREFIX).TrimEnd('\') + '\'
+$launcher = [IO.Path]::GetFullPath($env:SWARMIE_INSTALL_LAUNCHER)
+foreach ($task in @(Get-ScheduledTask -ErrorAction Stop)) {
+  foreach ($action in @($task.Actions)) {
+    if ($action.Execute) {
+      $command = [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($action.Execute.Trim('"')))
+      if ($command.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) -or $command.Equals($launcher, [StringComparison]::OrdinalIgnoreCase)) {
+        [Console]::Write('referenced'); exit 0
+      }
+    }
+  }
+}
+[Console]::Write('clear')
+"""
+    environment = dict(os.environ, SWARMIE_INSTALL_PREFIX=str(prefix), SWARMIE_INSTALL_LAUNCHER=str(launcher))
+    result = subprocess.run(['powershell.exe', '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], env=environment, capture_output=True, timeout=15)
+    if result.returncode or result.stdout not in (b'clear', b'referenced'):
+        raise SystemExit('Scheduled task references could not be verified; preserve the installation and check Task Scheduler.')
+    return result.stdout == b'referenced'
 
 
 def install(args):
     prefix = args.prefix.expanduser().absolute()
     bin_dir = args.bin_dir.expanduser().absolute()
-    launcher = bin_dir / 'swarmie'
-    target = prefix / 'bin/swarmie'
+    launcher = bin_dir / (EXECUTABLE)
+    target = prefix / 'bin' / EXECUTABLE
     for path in (prefix, prefix / 'bin', prefix / MARKER):
         require_plain_path(path)
     marker = prefix / MARKER
@@ -59,18 +114,23 @@ def install(args):
     elif prefix.exists() and any(prefix.iterdir()):
         raise SystemExit('Refusing an unmanaged installation directory.')
     if launcher.exists() or launcher.is_symlink():
-        if not launcher.is_symlink() or os.readlink(launcher) != str(target):
+        owned_launcher = (saved is not None and not launcher.is_symlink() and launcher.is_file() and digest(launcher) == saved.get('launcherSha256')) if WINDOWS else (launcher.is_symlink() and os.readlink(launcher) == str(target))
+        if not owned_launcher:
             raise SystemExit('Refusing to replace an unmanaged launcher: ' + str(launcher))
+    if WINDOWS and saved is not None:
+        windows_preflight([prefix / relative for relative in FILES] + [launcher])
     if args.uninstall:
         if saved is None:
             raise SystemExit('No managed runtime installation exists at this prefix.')
+        if WINDOWS and windows_service_reference(prefix, launcher):
+            raise SystemExit('A scheduled task still references this installation. Explicitly stop and uninstall the service first.')
         for unit in service_units():
             if unit.is_file():
                 contents = html.unescape(unit.read_text())
                 candidates = (str(prefix), str(prefix.resolve()), str(launcher), str(launcher.resolve()))
                 if any(value in contents or value.replace('\\', '\\\\').replace('\"', '\\\"').replace('%', '%%') in contents for value in candidates):
                     raise SystemExit('The service still references this installation. Explicitly stop and uninstall the service first.')
-        if launcher.is_symlink():
+        if launcher.exists() or launcher.is_symlink():
             launcher.unlink()
         for relative in FILES:
             (prefix / relative).unlink()
@@ -89,21 +149,21 @@ def install(args):
         if path.is_symlink() or not path.is_file():
             raise SystemExit('Incomplete runtime package: ' + relative)
     metadata = json.loads((package / 'runtime-package.json').read_text())
-    system = {'Linux': 'linux', 'Darwin': 'macos'}.get(platform.system())
-    arch = {'x86_64': 'x86_64', 'amd64': 'x86_64', 'aarch64': 'aarch64', 'arm64': 'aarch64'}.get(platform.machine())
+    system = {'Linux': 'linux', 'Darwin': 'macos', 'Windows': 'windows'}.get(platform.system())
+    arch = {'x86_64': 'x86_64', 'amd64': 'x86_64', 'aarch64': 'aarch64', 'arm64': 'aarch64'}.get(platform.machine().lower())
     if metadata.get('kind') != 'swarmie-runtime' or metadata.get('platform') != f'{system}-{arch}':
         raise SystemExit('Runtime package does not match this host platform.')
-    if digest(package / 'bin/swarmie') != metadata.get('executableSha256'):
+    if digest(package / 'bin' / EXECUTABLE) != metadata.get('executableSha256'):
         raise SystemExit('Runtime executable SHA-256 does not match the package metadata.')
     if 'Apache License' not in (package / 'LICENSE').read_text() or 'Copyright 2026 Syntropika' not in (package / 'NOTICE').read_text():
         raise SystemExit('The runtime package requires Apache-2.0 LICENSE and Syntropika NOTICE.')
-    if not os.access(package / 'bin/swarmie', os.X_OK):
+    if not os.access(package / 'bin' / EXECUTABLE, os.X_OK):
         raise SystemExit('Runtime executable is not executable.')
     prefix.mkdir(parents=True, exist_ok=True)
     (prefix / 'bin').mkdir(exist_ok=True)
     bin_dir.mkdir(parents=True, exist_ok=True)
     # Fully stage every file before atomically replacing the executable's stable path.
-    # A running process retains its loaded executable; only subsequent starts use the update.
+    # Unix keeps loaded executables alive. Windows refuses replacement of an in-use file.
     with tempfile.TemporaryDirectory(prefix='.swarmie-runtime-stage-', dir=prefix.parent) as temporary:
         staging = Path(temporary)
         for relative in FILES:
@@ -112,17 +172,25 @@ def install(args):
             shutil.copy2(package / relative, path)
         record = {'kind': 'swarmie-runtime-install', 'launcher': str(launcher),
                   'files': {relative: digest(staging / relative) for relative in FILES}}
+        if WINDOWS:
+            record['launcherSha256'] = digest(staging / 'bin' / EXECUTABLE)
         (staging / MARKER).write_text(json.dumps(record, indent=2) + '\n')
         for relative in FILES:
-            os.replace(staging / relative, prefix / relative)
+            try:
+                os.replace(staging / relative, prefix / relative)
+            except PermissionError:
+                raise SystemExit('The runtime executable or an installation file is in use or protected. Explicitly stop execution before updating on Windows, then retry.') from None
         os.replace(staging / MARKER, marker)
         # Stage on the launcher filesystem so replacement also works with separate mounts.
         descriptor, pending = tempfile.mkstemp(prefix='.swarmie-runtime-link-', dir=bin_dir)
         os.close(descriptor)
         pending = Path(pending)
         try:
-            pending.unlink()
-            pending.symlink_to(target)
+            if WINDOWS:
+                shutil.copy2(target, pending)
+            else:
+                pending.unlink()
+                pending.symlink_to(target)
             os.replace(pending, launcher)
         finally:
             if pending.is_symlink() or pending.exists():
@@ -144,9 +212,19 @@ def main():
     prefix = args.prefix.expanduser().absolute()
     prefix.parent.mkdir(parents=True, exist_ok=True)
     lock = prefix.parent / ('.' + prefix.name + '-install.lock')
-    descriptor = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(descriptor, 'w') as file:
-        fcntl.flock(file, fcntl.LOCK_EX)
+    require_plain_path(lock)
+    descriptor = os.open(lock, os.O_RDWR | os.O_CREAT | getattr(os, 'O_NOFOLLOW', 0), 0o600)
+    with os.fdopen(descriptor, 'r+b') as file:
+        if os.name == 'nt':
+            import msvcrt
+            if file.seek(0, os.SEEK_END) == 0:
+                file.write(b'\0')
+                file.flush()
+            file.seek(0)
+            msvcrt.locking(file.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(file, fcntl.LOCK_EX)
         install(args)
 
 

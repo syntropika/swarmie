@@ -1,5 +1,5 @@
 import { clientRequest, nativeClient, observeClient } from "./clientTransport";
-import type { LocalStoreIdentity, RuntimeIdentity, SshReadiness } from "@swarmie/contracts";
+import type { LocalStoreIdentity, RuntimeIdentity, SshReadiness, NodeStartup } from "@swarmie/contracts";
 import { nodeKey, sameNode, validNodeIdentity } from "./nodeScope";
 import { WorkspaceStore, type Workspace } from "./workspace";
 
@@ -17,7 +17,7 @@ export type ClientNode = {
   lastVerifiedAtMs: number;
   connections: NodeRoute[];
 };
-export type { SshReadiness } from "@swarmie/contracts";
+export type { SshReadiness, NodeStartup } from "@swarmie/contracts";
 type Catalog = { nodes: ClientNode[]; selectedNodeId?: string };
 export type NodesState = Catalog & { store: WorkspaceStore; error: string; loading: boolean };
 
@@ -201,12 +201,19 @@ export class NodeClient {
     await this.refresh();
   }
   async inspectSsh(host: string, socketPath: string): Promise<SshReadiness> {
-    return this.control<SshReadiness>("nodes/inspectSsh", { host, socketPath });
+    return this.control<SshReadiness>("nodes/inspectSsh", { host, socketPath }, 90_000);
   }
   async prepareSsh(name: string, host: string, socketPath: string, action: "install" | "start"): Promise<SshReadiness> {
     const result = await this.control<SshReadiness>("nodes/prepareSsh", { name, host, socketPath, action }, 660_000);
     await this.refresh();
     return result;
+  }
+  async startup(node: ClientNode, enabled?: boolean, boot = false): Promise<NodeStartup> {
+    const route = node.connections.find((route) => route.transport.kind === "ssh" && !route.transport.socketPath);
+    return this.control<NodeStartup>("nodes/startup", {
+      environmentId: node.identity.environmentId, name: route?.name, revision: route?.revision,
+      ...(enabled === undefined ? {} : { enabled }), boot,
+    }, 90_000);
   }
   async pairSsh(name: string, host: string, socketPath: string, runtimeIdentity: RuntimeIdentity) {
     await this.control("nodes/pairSsh", { name, host, socketPath, runtimeIdentity });

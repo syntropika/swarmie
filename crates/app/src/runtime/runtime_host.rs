@@ -43,6 +43,7 @@ pub struct Endpoint {
 /// Keep socket addresses within the smallest supported Unix address limit.
 pub(crate) fn local_socket_path(root: &Path) -> Result<PathBuf> {
     let root = std::fs::canonicalize(root)?;
+    #[cfg(not(windows))]
     let preferred = root.join("runtime/node.sock");
     #[cfg(unix)] {
         use std::os::unix::ffi::OsStrExt;
@@ -53,7 +54,12 @@ pub(crate) fn local_socket_path(root: &Path) -> Result<PathBuf> {
         let path = PathBuf::from("/tmp").join(format!("swarmie-{uid}")).join(format!("{}.sock", &digest[..24]));
         Ok(path)
     }
-    #[cfg(not(unix))] { Ok(preferred) }
+    #[cfg(windows)] {
+        use sha2::{Digest, Sha256};
+        let digest = format!("{:x}", Sha256::digest(root.as_os_str().to_string_lossy().as_bytes()));
+        Ok(PathBuf::from(format!(r"\\.\pipe\swarmie-{}", &digest[..32])))
+    }
+    #[cfg(not(any(unix, windows)))] { Ok(preferred) }
 }
 fn record_path(root: &Path) -> PathBuf {
     root.join("runtime/http-endpoint.json")
@@ -139,7 +145,7 @@ pub async fn register(
     let identity = service.runtime().identity().await?;
     let endpoint = Endpoint {
         url: format!("http://{address}"),
-        local_socket: if cfg!(unix) { Some(local_socket_path(root)?) } else { None },
+        local_socket: if cfg!(any(unix, windows)) { Some(local_socket_path(root)?) } else { None },
         runtime_identity: identity.clone(),
         desktop_assets: match assets {
             Some(path) => Some(tokio::fs::canonicalize(path).await?),
@@ -190,6 +196,17 @@ async fn request(
             Err(error) => Err(error),
         };
     }
+    #[cfg(windows)]
+    if let Some(path) = &endpoint.local_socket {
+        match crate::runtime::windows_pipe::connect(path).await {
+            Ok(stream) => drop(stream),
+            Err(error) if matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused) => return Ok(None),
+            Err(error) => return Err(error.into()),
+        }
+        let transport = storage::NodeTransport::LocalSocket { path: path.to_string_lossy().into_owned() };
+        return crate::node_connection::rpc_targeted(&transport.endpoint(), method, json!({}), None,
+            if target {Some(&endpoint.runtime_identity)} else {None}).await.map(Some);
+    }
     let client = reqwest::Client::builder()
         .no_proxy()
         .timeout(Duration::from_secs(3))
@@ -234,7 +251,7 @@ async fn request(
         Error::Provider("runtime returned no result".into())
     })?))
 }
-async fn verified(endpoint: &Endpoint, token: Option<&str>) -> Result<bool> {
+pub(super) async fn verified(endpoint: &Endpoint, token: Option<&str>) -> Result<bool> {
     let Some(value) = request(endpoint, "runtime/initialize", token, false).await? else {
         return Ok(false);
     };
@@ -273,7 +290,11 @@ fn detach(command: &mut Command) {
         });
     }
     #[cfg(windows)]
-    command.creation_flags(0x00000008 | 0x00000200);
+    {
+        use windows_sys::Win32::System::Threading::{CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, DETACHED_PROCESS};
+        // Leave the SSH/client job so its teardown does not terminate the execution owner.
+        command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB);
+    }
 }
 async fn wait_ready(
     root: &Path,
@@ -437,7 +458,7 @@ pub async fn run(root: &Path, command: RuntimeCommand) -> Result<()> {
                     fs2::FileExt::unlock(&file)?;
                     break;
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                Err(error) if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() => {
                     tokio::time::sleep(Duration::from_millis(50)).await;
                 }
                 Err(error) => return Err(error.into()),
@@ -456,15 +477,18 @@ pub async fn run(root: &Path, command: RuntimeCommand) -> Result<()> {
 
 /// Closing this byte proxy closes only its connection, not runtime-owned sessions.
 async fn proxy(path: PathBuf) -> Result<()> {
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     {
+        #[cfg(unix)]
         let socket = tokio::net::UnixStream::connect(&path).await.map_err(|_| {
             Error::Provider(
                 "runtime socket unavailable; start the installed runtime explicitly".into(),
             )
         })?;
+        #[cfg(windows)]
+        let socket = crate::runtime::windows_pipe::connect(&path).await?;
         use tokio::io::AsyncWriteExt;
-        let (mut reader, mut writer) = socket.into_split();
+        let (mut reader, mut writer) = tokio::io::split(socket);
         let upstream = async {
             tokio::io::copy(&mut tokio::io::stdin(), &mut writer).await?;
             // macOS can report ENOTCONN when the peer already closed after a clean EOF.
@@ -487,7 +511,7 @@ async fn proxy(path: PathBuf) -> Result<()> {
         tokio::try_join!(upstream, downstream)?;
         Ok(())
     }
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = path;
         Err(Error::Unsupported(

@@ -152,4 +152,4 @@ export interface Methods {
   "settings/directory": { params: Record<string, JsonValue>; result: (DefaultDirectory | null) };
   "settings/setDirectory": { params: InputDefaultDirectoryUpdate; result: DefaultDirectory };
 }
-export type { NativeClientMethods, SubmissionProjection, SessionProjection, SessionLaunchIntent, SessionControls, SessionOpenProjection, ClientProject, InputAttachment, InputContext, PreparedInput, RecoveredDraft, SshReadiness } from "./client.js";
+export type { NativeClientMethods, SubmissionProjection, SessionProjection, SessionLaunchIntent, SessionControls, SessionOpenProjection, ClientProject, InputAttachment, InputContext, PreparedInput, RecoveredDraft, SshReadiness, NodeStartup } from "./client.js";

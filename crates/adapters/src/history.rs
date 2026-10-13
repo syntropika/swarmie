@@ -22,7 +22,7 @@ fn root(query: &NativeHistoryQuery) -> Result<PathBuf> {
         return Ok(home.into());
     }
     let home =
-        std::env::var_os("HOME").ok_or_else(|| Error::Invalid("HOME is unavailable".into()))?;
+        std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).ok_or_else(|| Error::Invalid("HOME is unavailable".into()))?;
     Ok(PathBuf::from(home).join(match query.harness.as_str() {
         "codex" => ".codex",
         "claude" => ".claude",

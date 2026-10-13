@@ -57,6 +57,11 @@ impl NodeTransport {
         match self {
             Self::Http { url } | Self::Websocket { url } => url.clone(),
             Self::LocalSocket { path } => {
+                if path.starts_with(r"\\.\pipe\swarmie-") {
+                    let mut url = url::Url::parse("pipe://localhost/").expect("static URL");
+                    url.query_pairs_mut().append_pair("path", path);
+                    return url.to_string();
+                }
                 let mut url = url::Url::parse("unix:///").expect("static URL");
                 url.set_path(path);
                 url.to_string()
@@ -72,7 +77,7 @@ impl NodeTransport {
     }
 }
 fn validate_socket_path(path: &str) -> Result<()> {
-    if !std::path::Path::new(path).is_absolute()
+    if !(std::path::Path::new(path).is_absolute() || path.starts_with('/') || path.starts_with(r"\\.\pipe\swarmie-"))
         || path.len() > 8192
         || path.chars().any(char::is_control)
     {

@@ -6,7 +6,10 @@ import sys
 
 with open(os.environ["SWARMIE_SSH_FIXTURE_LOG"], "a", encoding="utf-8") as ledger:
     ledger.write(json.dumps({"pid": os.getpid(), "command": sys.argv[-1]}) + "\n")
-if sys.argv[-1].endswith('"$SWARMIE" --version') or sys.argv[-1].startswith("command -v swarmie"):
+if sys.argv[-1] == 'uname -s':
+    print(os.uname().sysname)
+    sys.exit(0)
+if sys.argv[-1].endswith('"$SWARMIE" --version') or sys.argv[-1].endswith("\"$SWARMIE\" '--version'") or sys.argv[-1].startswith("command -v swarmie"):
     if os.environ.get("SWARMIE_SSH_FIXTURE_INSTALLED") == "0":
         sys.exit(127)
     print(os.environ.get("SWARMIE_SSH_FIXTURE_VERSION", "swarmie 0.1.0"))

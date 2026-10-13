@@ -35,3 +35,6 @@ base64 = "0.22"
 tokio-util = { version = "0.7", features = ["rt"] }
 libc = "0.2"
 tempfile = "3"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading"] }

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Build a native host, runtime, frontend and verifiable release archive on the current platform."""
-import argparse, hashlib, json, pathlib, platform, shutil, subprocess, tarfile, tempfile, urllib.parse
+import argparse, hashlib, json, pathlib, platform, shutil, subprocess, tarfile, tempfile, urllib.parse, zipfile
 PROJECT=pathlib.Path(__file__).resolve().parents[2]
 def run(command,cwd=PROJECT):subprocess.run([str(x) for x in command],cwd=cwd,check=True)
 def package_native(command, desktop, assets, system):
@@ -29,9 +29,9 @@ def main():
     parser.add_argument('--notary-profile')
     parser.add_argument('--release-base-url',help='HTTPS directory for a generated updater manifest')
     args=parser.parse_args()
-    system={'Darwin':'macos','Linux':'linux'}.get(platform.system())
-    if system is None:raise SystemExit('Packaging supports Linux and macOS; run macOS builds on the configured SSH host.')
-    architecture={'arm64':'aarch64','aarch64':'aarch64','x86_64':'x86_64','amd64':'x86_64'}.get(platform.machine())
+    system={'Darwin':'macos','Linux':'linux','Windows':'windows'}.get(platform.system())
+    if system is None:raise SystemExit('Packaging supports Linux, macOS and Windows.')
+    architecture={'arm64':'aarch64','aarch64':'aarch64','x86_64':'x86_64','amd64':'x86_64'}.get(platform.machine().lower())
     if architecture is None:raise SystemExit('Unsupported package architecture')
     if args.signing=='identity' and not args.identity:raise SystemExit('--identity is required for identity signing')
     if args.notary_profile and args.signing!='identity':raise SystemExit('Notarization requires identity signing')
@@ -47,7 +47,8 @@ def main():
         run(['npm','ci'],desktop)
         run(['npm','run','build:web'],desktop)
         run(['npm','exec','--','native','build'],desktop)
-    daemon=PROJECT/'target/release/swarmie';host=desktop/'zig-out/bin/swarmie-desktop';assets=desktop/'dist'
+    suffix='.exe' if system=='windows' else ''
+    daemon=PROJECT/('target/release/swarmie'+suffix);host=desktop/('zig-out/bin/swarmie-desktop'+suffix);assets=desktop/'dist'
     if not all(p.is_file() for p in (daemon,host,assets/'index.html')):raise SystemExit('Build release runtime, native host and frontend first')
     if subprocess.check_output([str(daemon),'--version'],text=True).strip()!='swarmie '+version:raise SystemExit('Runtime and app manifest versions differ; rebuild matching release inputs')
     name=f'swarmie-{version}-{system}-{architecture}'
@@ -59,8 +60,12 @@ def main():
         if args.identity:command += ['--identity',args.identity]
         if args.notary_profile:command += ['--notarize','--notary-profile',args.notary_profile]
     package_native(command,desktop,assets,system)
+    if system in ('linux','windows'):
+        # Project documentation is kept separately from public distribution packages.
+        generated_readme=bundle/'README.txt'
+        if generated_readme.is_file():generated_readme.unlink()
     licenses=bundle/('Contents/Resources/licenses/swarmie' if system=='macos' else 'share/licenses/swarmie')
-    if system=='linux':
+    if system in ('linux','windows'):
         licenses.mkdir(parents=True,exist_ok=True)
         for filename in ('LICENSE','NOTICE'):shutil.copy2(PROJECT/filename,licenses/filename)
     elif not all((licenses/filename).is_file() for filename in ('LICENSE','NOTICE')):
@@ -71,6 +76,16 @@ def main():
         shutil.copy2(desktop/'assets/icon.png',icons/'icon.png')
         archive=output/(name+'.tar.gz')
         with tarfile.open(archive,'w:gz') as result:result.add(bundle,arcname=name)
+    elif system=='windows':
+        if not (bundle/'bin/WebView2Loader.dll').is_file():raise SystemExit('Windows package requires the architecture-matched WebView2 loader.')
+        loader_license=desktop/'node_modules/@native-sdk/cli/third_party/webview2/LICENSE.txt'
+        if not loader_license.is_file():raise SystemExit('Windows package requires the WebView2 loader license.')
+        loader_licenses=bundle/'share/licenses/webview2';loader_licenses.mkdir(parents=True,exist_ok=True)
+        shutil.copy2(loader_license,loader_licenses/'LICENSE.txt')
+        archive=output/(name+'.zip')
+        with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED) as result:
+            for path in sorted(bundle.rglob('*')):
+                if path.is_file():result.write(path,path.relative_to(output))
     else:
         run(['codesign','--verify','--deep','--strict','--verbose=2',bundle]) if args.signing!='none' else None
         archive=output/(name+'.zip')

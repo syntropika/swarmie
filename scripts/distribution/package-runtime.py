@@ -32,10 +32,10 @@ def main():
     parser.add_argument('--client-packages', type=Path, help='Also stage this archive and checksum in a native client runtime-package directory')
     parser.add_argument('--identity', help='macOS signing identity; omit to leave the runtime unsigned')
     args = parser.parse_args()
-    system = {'Linux': 'linux', 'Darwin': 'macos'}.get(platform.system())
-    arch = {'x86_64': 'x86_64', 'amd64': 'x86_64', 'aarch64': 'aarch64', 'arm64': 'aarch64'}.get(platform.machine())
+    system = {'Linux': 'linux', 'Darwin': 'macos', 'Windows': 'windows'}.get(platform.system())
+    arch = {'x86_64': 'x86_64', 'amd64': 'x86_64', 'aarch64': 'aarch64', 'arm64': 'aarch64'}.get(platform.machine().lower())
     if system is None or arch is None:
-        raise SystemExit('Runtime packaging supports Linux and macOS on x86_64 and aarch64.')
+        raise SystemExit('Runtime packaging supports Linux, macOS and Windows on x86_64 and aarch64.')
     if args.identity and system != 'macos':
         raise SystemExit('--identity requires a macOS host.')
     if args.release_base_url:
@@ -43,7 +43,8 @@ def main():
         if url.scheme != 'https' or not url.netloc or url.username or url.password or url.query or url.fragment:
             raise SystemExit('Release base URL must be an HTTPS directory without credentials, query or fragment.')
     version = tomllib.loads((PROJECT / 'Cargo.toml').read_text())['workspace']['package']['version']
-    binary = (args.binary or PROJECT / 'target/release/swarmie').expanduser().resolve()
+    executable = 'swarmie.exe' if system == 'windows' else 'swarmie'
+    binary = (args.binary or PROJECT / 'target/release' / executable).expanduser().resolve()
     if not args.skip_build and args.binary is None:
         subprocess.run(['cargo', 'build', '--locked', '--release', '-p', 'app', '--bin', 'swarmie'], cwd=PROJECT, check=True)
     if not binary.is_file() or subprocess.check_output([binary, '--version'], text=True).strip() != 'swarmie ' + version:
@@ -56,15 +57,15 @@ def main():
     if bundle.exists() or archive.exists():
         raise SystemExit('Output already exists; use a fresh output directory.')
     (bundle / 'bin').mkdir(parents=True)
-    shutil.copy2(binary, bundle / 'bin/swarmie')
+    shutil.copy2(binary, bundle / 'bin' / executable)
     if args.identity:
-        subprocess.run(['codesign', '--force', '--options', 'runtime', '--timestamp', '--sign', args.identity, bundle / 'bin/swarmie'], check=True)
-        subprocess.run(['codesign', '--verify', '--strict', bundle / 'bin/swarmie'], check=True)
+        subprocess.run(['codesign', '--force', '--options', 'runtime', '--timestamp', '--sign', args.identity, bundle / 'bin' / executable], check=True)
+        subprocess.run(['codesign', '--verify', '--strict', bundle / 'bin' / executable], check=True)
     for filename in ('LICENSE', 'NOTICE'):
         shutil.copy2(PROJECT / filename, bundle / filename)
     shutil.copy2(PROJECT / 'scripts/distribution/install-runtime.py', bundle / 'install.py')
     metadata = {'kind': 'swarmie-runtime', 'version': version, 'platform': system + '-' + arch,
-                'executableSha256': digest(bundle / 'bin/swarmie')}
+                'executableSha256': digest(bundle / 'bin' / executable)}
     (bundle / 'runtime-package.json').write_text(json.dumps(metadata, indent=2) + '\n')
     with tarfile.open(archive, 'w:gz') as result:
         result.add(bundle, arcname=name)

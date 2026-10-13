@@ -88,3 +88,17 @@ export type SshReadiness = {
   runtimeIdentity?: import("./index.js").RuntimeIdentity;
   preparation?: { available: boolean; action?: "install" | "start"; platform?: string | null; installPath?: string; reason?: string };
 };
+
+/** Native service observations distinguish future startup from the running execution owner. */
+export type NodeStartup = {
+  environmentId?: string; available: boolean; installed: boolean; enabled: boolean | null;
+  running: boolean | null; trigger: "login" | "boot"; bootReady: boolean; canEnableBoot: boolean;
+  reason: string; notice: string; executionChanged?: boolean; supervisionPendingRestart?: boolean;
+};
+
+export interface NativeClientMethods {
+  "nodes/startup": {
+    params: { environmentId: string; name?: string; revision?: number; enabled?: boolean; boot?: boolean };
+    result: NodeStartup;
+  };
+}

@@ -113,3 +113,15 @@ it("restores hidden local observation after transport loss without changing the 
   expect(client.getSnapshot().store).toBe(remoteStore);
   expect(requests.some((r) => r.method === "session/prompt" || r.method === "runtime/shutdown")).toBe(false);
 });
+
+it("sends startup to native control with the saved default SSH route and revision", async () => {
+  const client = await start();
+  const target: ClientNode = { ...remote, connections: [
+    ...remote.connections,
+    { name: "custom", revision: 20, authenticated: false, transport: { kind: "ssh", host: "custom", socketPath: "/custom/socket" } },
+    { name: "default", revision: 21, authenticated: false, transport: { kind: "ssh", host: "saved-alias", socketPath: "" } },
+  ] };
+  await client.startup(target, true, true);
+  expect(requests.find((r) => r.method === "nodes/startup")).toMatchObject({ path: "/client/rpc", params: { environmentId: "remote", name: "default", revision: 21, enabled: true, boot: true } });
+  expect(requests.find((r) => r.method === "nodes/startup")?.params).not.toHaveProperty("host");
+});

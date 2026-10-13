@@ -96,6 +96,10 @@ pub async fn http(
     } else {
         None
     };
+    #[cfg(windows)]
+    let mut local_socket_owner = if let Some(root) = registration_root.as_ref() {
+        Some(crate::runtime::windows_pipe::listen(service.clone(), crate::runtime_host::local_socket_path(root)?).await?)
+    } else { None };
     let _registration = if let Some(root) = registration_root.filter(|_| addr.ip().is_loopback()) {
         Some(
             crate::runtime_host::register(
@@ -182,7 +186,7 @@ pub async fn http(
     execution_owner
         .invoke("runtime/shutdown", json!({}))
         .await?;
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     if let Some(socket) = local_socket_owner.as_mut() {
         socket.finish().await?;
     }
@@ -707,11 +711,11 @@ pub async fn websocket(
     service.shutdown().await
 }
 /// A private socket listener belongs to the runtime, never to an attached client.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(crate) struct LocalSocket {
-    task: Option<tokio::task::JoinHandle<()>>,
+    pub(super) task: Option<tokio::task::JoinHandle<()>>,
 }
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 impl LocalSocket {
     async fn finish(&mut self) -> Result<()> {
         if let Some(task) = self.task.take() {
@@ -720,7 +724,7 @@ impl LocalSocket {
         Ok(())
     }
 }
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 impl Drop for LocalSocket {
     fn drop(&mut self) {
         if let Some(task) = self.task.take() {
@@ -825,7 +829,7 @@ pub(crate) async fn local_socket(
 
 // Tungstenite requires the concrete HTTP ErrorResponse in its handshake callback.
 #[allow(clippy::result_large_err)]
-async fn connection<S>(socket: S, service: RuntimeService, token: Option<String>) -> Result<()>
+pub(crate) async fn connection<S>(socket: S, service: RuntimeService, token: Option<String>) -> Result<()>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
