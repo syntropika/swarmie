@@ -343,10 +343,22 @@ print(json.dumps({'clientUrl':url,'runtimeIdentity':result['runtimeIdentity']}))
     assert_eq!(first["runtimeIdentity"], second["runtimeIdentity"]);
     let before: Value =
         serde_json::from_slice(&cli(&state, &["runtime", "status"]).await.stdout).unwrap();
-    assert_eq!(first["runtimeIdentity"], before["endpoint"]["runtimeIdentity"]);
+    assert_eq!(
+        first["runtimeIdentity"],
+        before["endpoint"]["runtimeIdentity"]
+    );
     let url = before["endpoint"]["url"].as_str().unwrap();
+    let unauthorized = reqwest::Client::new()
+        .post(format!("{}/rpc", url.trim_end_matches('/')))
+        .json(&json!({"jsonrpc":"2.0","id":1,"method":"runtime/initialize","params":{}}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let token = std::fs::read_to_string(state.join("runtime/transport.token")).unwrap();
     let initialized: Value = reqwest::Client::new()
         .post(format!("{}/rpc", url.trim_end_matches('/')))
+        .bearer_auth(token)
         .json(&json!({"jsonrpc":"2.0","id":1,"method":"runtime/initialize","params":{}}))
         .send()
         .await

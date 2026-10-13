@@ -56,6 +56,12 @@ pub(super) fn render(executable: &Path, arguments: &[String], token: &Path) -> R
 const SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
 $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+function User-Sid([string]$value) {
+  try {
+    if ($value.StartsWith('S-1-')) { return (New-Object Security.Principal.SecurityIdentifier($value)).Value }
+    return (New-Object Security.Principal.NTAccount($value)).Translate([Security.Principal.SecurityIdentifier]).Value
+  } catch { return '' }
+}
 $action = $env:SWARMIE_STARTUP_ACTION
 $path = $env:SWARMIE_STARTUP_XML
 $hash = [System.Security.Cryptography.SHA256]::Create()
@@ -70,11 +76,11 @@ if (Test-Path -LiteralPath $path) {
     $owned = @($actual.Task.Actions.ChildNodes).Count -eq 1 -and
       $actual.Task.Actions.Exec.Command -eq $wanted.Task.Actions.Exec.Command -and
       $actual.Task.Actions.Exec.Arguments -eq $wanted.Task.Actions.Exec.Arguments -and
-      $actual.Task.Principals.Principal.UserId -eq $sid -and
+      (User-Sid $actual.Task.Principals.Principal.UserId) -eq $sid -and
       $actual.Task.Principals.Principal.LogonType -eq 'InteractiveToken' -and
-      $actual.Task.Principals.Principal.RunLevel -eq 'LeastPrivilege' -and
+      ([string]$actual.Task.Principals.Principal.RunLevel -in @('', 'LeastPrivilege')) -and
       @($actual.Task.Triggers.ChildNodes).Count -eq 1 -and
-      $actual.Task.Triggers.LogonTrigger.UserId -eq $sid
+      (User-Sid $actual.Task.Triggers.LogonTrigger.UserId) -eq $sid
   }
 } elseif ($task) { $owned = $false }
 if ($action -ne 'inspect' -and -not $owned) { throw 'The scheduled task is not owned by this configuration.' }
@@ -89,6 +95,8 @@ switch ($action) {
       $triggerUser = $wanted.CreateElement('UserId', $wanted.DocumentElement.NamespaceURI)
       $triggerUser.InnerText = $sid
       [void]$wanted.Task.Triggers.LogonTrigger.AppendChild($triggerUser)
+      # The scheduler receives a UTF-16 managed string, not the UTF-8 file bytes.
+      $wanted.FirstChild.Encoding = 'UTF-16'
       Register-ScheduledTask -TaskName $name -TaskPath '\' -Xml $wanted.OuterXml -ErrorAction Stop | Out-Null
     }
     Enable-ScheduledTask -TaskName $name -TaskPath '\' -ErrorAction Stop | Out-Null

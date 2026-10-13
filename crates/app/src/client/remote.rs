@@ -86,6 +86,14 @@ fn ssh_readiness(
     value
 }
 
+fn missing_runtime(shell: super::ssh_shell::Shell, code: Option<i32>, bytes: &[u8]) -> bool {
+    // A Windows default PowerShell can normalize the nested process exit to 1.
+    code == Some(127)
+        || (shell == super::ssh_shell::Shell::Windows
+            && code.is_some_and(|code| code != 0 && code != 255)
+            && bytes == b"swarmie-runtime-not-installed")
+}
+
 pub(crate) async fn inspect_ssh(host: &str, socket: &str, token: Option<&str>) -> Result<Value> {
     use tokio::io::AsyncReadExt;
     let endpoint = ssh_endpoint(host, socket)?;
@@ -134,9 +142,10 @@ pub(crate) async fn inspect_ssh(host: &str, socket: &str, token: Option<&str>) -
     let Some(exit) = exit else {
         return Ok(ssh_readiness("invalid-installation", None, None, None));
     };
-    if exit.code() == Some(127) {
+    if missing_runtime(shell, exit.code(), &bytes) {
         let mut result = ssh_readiness("not-installed", Some(false), None, None);
-        result["preparation"] = crate::client::ssh_preparation::preparation(host, socket, true).await;
+        result["preparation"] =
+            crate::client::ssh_preparation::preparation(host, socket, true).await;
         return Ok(result);
     }
     if exit.code() == Some(255) {
@@ -184,6 +193,40 @@ pub(crate) async fn inspect_ssh(host: &str, socket: &str, token: Option<&str>) -
         result["preparation"] = crate::client::ssh_preparation::preparation(host, socket, false).await;
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{super::ssh_shell::Shell, missing_runtime};
+    #[test]
+    fn missing_runtime_requires_the_exact_windows_marker_or_posix_status() {
+        assert!(missing_runtime(
+            Shell::Windows,
+            Some(1),
+            b"swarmie-runtime-not-installed"
+        ));
+        assert!(missing_runtime(Shell::Posix, Some(127), b""));
+        assert!(!missing_runtime(
+            Shell::Posix,
+            Some(1),
+            b"swarmie-runtime-not-installed"
+        ));
+        assert!(!missing_runtime(
+            Shell::Windows,
+            Some(0),
+            b"swarmie-runtime-not-installed"
+        ));
+        assert!(!missing_runtime(
+            Shell::Windows,
+            Some(255),
+            b"swarmie-runtime-not-installed"
+        ));
+        assert!(!missing_runtime(
+            Shell::Windows,
+            Some(1),
+            b"unexpected error"
+        ));
+    }
 }
 
 pub async fn run(root: &Path, command: RemoteCommand) -> Result<()> {

@@ -22,7 +22,15 @@ pub async fn run(root: &Path, assets: PathBuf, host: PathBuf) -> Result<()> {
         "Desktop attached to runtime at {}; client at {}",
         endpoint.url, gateway.url
     );
-    let mut client = Command::new(host)
+    let mut command = Command::new(host);
+    #[cfg(windows)]
+    {
+        // WebView2's default profile beside the executable is unwritable in Program Files.
+        let profile = root.join("client/webview2");
+        tokio::fs::create_dir_all(&profile).await?;
+        command.env("WEBVIEW2_USER_DATA_FOLDER", profile);
+    }
+    let mut client = command
         .env(
             "SWARMIE_DESKTOP_URL",
             format!("{}/?client=native", gateway.url),

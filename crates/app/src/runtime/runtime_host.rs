@@ -1,15 +1,19 @@
 //! Local execution-owner discovery and attachment, independent of client lifetime.
+#[cfg(windows)]
+use crate::runtime::windows_spawn::Child;
 use clap::Subcommand;
 use protocol::RuntimeService;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+#[cfg(not(windows))]
+use std::process::Stdio;
 use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
-    process::Stdio,
     time::Duration,
 };
 use swarmie::{Error, LocalStoreIdentity, Result, RuntimeIdentity};
+#[cfg(not(windows))]
 use tokio::process::{Child, Command};
 
 #[derive(Subcommand)]
@@ -278,6 +282,7 @@ async fn startup_lock(root: PathBuf) -> Result<std::fs::File> {
     .await
     .map_err(|e| Error::Provider(e.to_string()))?
 }
+#[cfg(not(windows))]
 fn detach(command: &mut Command) {
     #[cfg(unix)]
     unsafe {
@@ -288,12 +293,6 @@ fn detach(command: &mut Command) {
             }
             Ok(())
         });
-    }
-    #[cfg(windows)]
-    {
-        use windows_sys::Win32::System::Threading::{CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, DETACHED_PROCESS};
-        // Leave the SSH/client job so its teardown does not terminate the execution owner.
-        command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB);
     }
 }
 async fn wait_ready(
@@ -336,6 +335,33 @@ impl Drop for StartingOwner {
         }
     }
 }
+fn transport_token(root: &Path) -> Result<PathBuf> {
+    use std::io::Write;
+    let path = root.join("runtime/transport.token");
+    if !regular(&path)? {
+        let token = format!(
+            "{}{}",
+            uuid::Uuid::new_v4().simple(),
+            uuid::Uuid::new_v4().simple()
+        );
+        let mut options = private_options();
+        options.create_new(true);
+        let mut file = options.open(&path)?;
+        file.write_all(token.as_bytes())?;
+        file.sync_all()?;
+    }
+    if std::fs::metadata(&path)?.len() > 1024 {
+        return Err(Error::Invalid(
+            "runtime transport token exceeds the supported size".into(),
+        ));
+    }
+    let token = std::fs::read_to_string(&path)?;
+    if token.len() < 32 || !token.bytes().all(|byte| byte.is_ascii_graphic()) {
+        return Err(Error::Invalid("runtime transport token must contain at least 32 printable ASCII characters without whitespace".into()));
+    }
+    Ok(path)
+}
+
 pub async fn attach(root: &Path) -> Result<Endpoint> {
     // Bootstrap runs before the database is opened, so simultaneous first launches serialize too.
     for directory in [root.to_owned(), root.join("runtime")] {
@@ -379,22 +405,38 @@ pub async fn attach(root: &Path) -> Result<Endpoint> {
     let mut options = private_options();
     options.append(true);
     let output = options.open(log)?;
-    let mut command = Command::new(std::env::current_exe()?);
-    command
-        .arg("--state-dir")
-        .arg(root)
-        .args(["serve", "--http", "127.0.0.1:0", "--workbench"])
-        .arg("--git-worktrees")
-        .arg(root.join("worktrees"))
-        .arg("--resources-root")
-        .arg(root.join("resources"))
-        .env_remove("SWARMIE_TOKEN")
-        .stdin(Stdio::null())
-        .stdout(output.try_clone()?)
-        .stderr(output);
-    detach(&mut command);
+    let token_file = transport_token(root)?;
+    let executable = std::env::current_exe()?;
+    let arguments: Vec<std::ffi::OsString> = vec![
+        "--state-dir".into(),
+        root.as_os_str().to_owned(),
+        "serve".into(),
+        "--http".into(),
+        "127.0.0.1:0".into(),
+        "--workbench".into(),
+        "--token-file".into(),
+        token_file.into_os_string(),
+        "--git-worktrees".into(),
+        root.join("worktrees").into_os_string(),
+        "--resources-root".into(),
+        root.join("resources").into_os_string(),
+    ];
+    #[cfg(windows)]
+    let spawned = crate::runtime::windows_spawn::owner(&executable, &arguments, &output)?;
+    #[cfg(not(windows))]
+    let spawned = {
+        let mut command = Command::new(executable);
+        command
+            .args(arguments)
+            .env_remove("SWARMIE_TOKEN")
+            .stdin(Stdio::null())
+            .stdout(output.try_clone()?)
+            .stderr(output);
+        detach(&mut command);
+        command.spawn()?
+    };
     let mut child = StartingOwner {
-        child: command.spawn()?,
+        child: spawned,
         armed: true,
     };
     let endpoint = match wait_ready(root, &identity, &mut child.child).await {

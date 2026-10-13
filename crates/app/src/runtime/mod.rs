@@ -5,3 +5,6 @@ pub(crate) mod service;
 pub(crate) mod transport;
 #[cfg(windows)]
 pub(crate) mod windows_pipe;
+
+#[cfg(windows)]
+pub(crate) mod windows_spawn;

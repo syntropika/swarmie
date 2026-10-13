@@ -3,6 +3,11 @@
 use serde_json::Value;
 use std::{path::PathBuf, time::Duration};
 use tokio::process::Command;
+fn runtime_binary() -> PathBuf {
+    std::env::var_os("SWARMIE_TEST_RUNTIME_BINARY")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_swarmie")))
+}
 struct Fixture {
     _temp: tempfile::TempDir,
     root: PathBuf,
@@ -18,7 +23,7 @@ impl Fixture {
         }
     }
     fn command(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_swarmie"));
+        let mut command = Command::new(runtime_binary());
         command
             .arg("--state-dir")
             .arg(&self.root)
@@ -34,7 +39,7 @@ impl Fixture {
             .unwrap();
         assert!(
             output.status.success(),
-            "{}",
+            "{args:?}: {}",
             String::from_utf8_lossy(&output.stderr)
         );
         serde_json::from_slice(&output.stdout).unwrap()
@@ -42,19 +47,73 @@ impl Fixture {
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
-        let _ = std::process::Command::new(env!("CARGO_BIN_EXE_swarmie"))
+        let _ = std::process::Command::new(runtime_binary())
             .arg("--state-dir")
             .arg(&self.root)
             .args(["runtime", "stop"])
             .output();
         // Each temporary configuration has a distinct scheduled task name.
-        let _ = std::process::Command::new(env!("CARGO_BIN_EXE_swarmie"))
+        let _ = std::process::Command::new(runtime_binary())
             .arg("--state-dir")
             .arg(&self.root)
             .args(["service", "uninstall"])
             .env("LOCALAPPDATA", &self.config)
             .output();
     }
+}
+#[tokio::test]
+async fn detached_owner_does_not_inherit_unrelated_controller_handles() {
+    use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
+    use windows_sys::Win32::Foundation::{HANDLE_FLAG_INHERIT, SetHandleInformation};
+    let fixture = Fixture::new();
+    let path = fixture._temp.path().join("controller-only-file");
+    let file = std::fs::OpenOptions::new()
+        .create_new(true)
+        .read(true)
+        .write(true)
+        .share_mode(3)
+        .open(&path)
+        .unwrap();
+    assert_ne!(
+        unsafe {
+            SetHandleInformation(
+                file.as_raw_handle(),
+                HANDLE_FLAG_INHERIT,
+                HANDLE_FLAG_INHERIT,
+            )
+        },
+        0
+    );
+    fixture.call(&["runtime", "start"]).await;
+    drop(file);
+    std::fs::remove_file(path).expect("the owner must not retain unrelated inherited handles");
+    assert_eq!(fixture.call(&["runtime", "status"]).await["running"], true);
+}
+#[tokio::test]
+async fn detached_start_closes_captured_stdio_and_preserves_the_live_owner() {
+    let fixture = Fixture::new();
+    let output = tokio::time::timeout(
+        Duration::from_secs(10),
+        fixture
+            .command(&["runtime", "start"])
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .expect("the launcher must close captured streams independently of its detached owner")
+    .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let started: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let observed = fixture.call(&["runtime", "status"]).await;
+    assert_eq!(observed["running"], true);
+    assert_eq!(
+        observed["endpoint"]["runtimeIdentity"],
+        started["runtimeIdentity"]
+    );
 }
 #[tokio::test]
 async fn private_pipe_attach_preserves_identity_and_requires_bearer_over_http() {

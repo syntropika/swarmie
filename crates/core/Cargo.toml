@@ -15,3 +15,9 @@ tokio-stream.workspace = true
 futures-util.workspace = true
 tokio-util = { version = "0.7", features = ["rt"] }
 jsonschema = { version = "0.33", default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem"] }
+
+[dev-dependencies]
+tempfile = "3"

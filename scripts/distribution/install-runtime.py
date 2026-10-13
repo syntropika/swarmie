@@ -53,8 +53,9 @@ def windows_preflight(paths):
         for path in paths:
             if not path.exists():
                 continue
-            # DELETE access and exclusive sharing reject loaded images before any file changes.
-            handle = api.CreateFileW(str(path), 0x80010000, 0, None, 3, 0x80, None)
+            # A loaded image can still allow read/delete opens. Write access rejects its
+            # image section before changing any managed file, including launcher copies.
+            handle = api.CreateFileW(str(path), 0xC0010000, 0, None, 3, 0x80, None)
             if handle == wintypes.HANDLE(-1).value:
                 raise SystemExit('An installation file is in use or protected. Explicitly stop execution before updating or removing it, then retry.')
             handles.append(handle)

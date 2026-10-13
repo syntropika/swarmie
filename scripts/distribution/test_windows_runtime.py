@@ -5,6 +5,10 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import sys
+import os
+import shutil
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -77,5 +81,34 @@ class WindowsInstallation(unittest.TestCase):
             PREPARE.extract(archive,destination)
             self.assertEqual((destination/'bin/swarmie.exe').read_bytes(),self.binary.read_bytes())
             self.assertFalse((destination/'bin/swarmie').exists())
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Requires a real Windows image section')
+    def test_loaded_launcher_refuses_update_before_any_managed_file_changes(self):
+        image=Path(os.environ['SystemRoot'])/'System32/ping.exe'
+        shutil.copy2(image,self.binary)
+        metadata=json.loads((self.package/'runtime-package.json').read_text())
+        metadata['executableSha256']=INSTALL.digest(self.binary)
+        (self.package/'runtime-package.json').write_text(json.dumps(metadata))
+        INSTALL.install(self.args)
+        marker=self.args.prefix/INSTALL.MARKER
+        before=marker.read_bytes()
+        saved=json.loads(before)
+        process=subprocess.Popen([self.args.bin_dir/'swarmie.exe','-t','127.0.0.1'],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        try:
+            self.assertIsNone(process.poll())
+            self.binary.write_bytes(b'Updated package fixture')
+            metadata['executableSha256']=INSTALL.digest(self.binary)
+            metadata['version']='0.1.1'
+            (self.package/'runtime-package.json').write_text(json.dumps(metadata))
+            with self.assertRaisesRegex(SystemExit,'in use or protected'):
+                INSTALL.install(self.args)
+            self.assertIsNone(process.poll())
+            self.assertEqual(marker.read_bytes(),before)
+            for relative,checksum in saved['files'].items():
+                self.assertEqual(INSTALL.digest(self.args.prefix/relative),checksum)
+            self.assertEqual(INSTALL.digest(self.args.bin_dir/'swarmie.exe'),saved['launcherSha256'])
+        finally:
+            process.terminate()
+            process.wait(timeout=10)
 
 if __name__ == '__main__':unittest.main()

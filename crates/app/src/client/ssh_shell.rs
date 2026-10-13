@@ -68,82 +68,32 @@ pub(crate) async fn discover(host: &str) -> Result<Shell> {
         "remote SSH shell must provide a Linux/macOS shell or Windows PowerShell".into(),
     ))
 }
-// Windows OpenSSH may use cmd.exe or PowerShell as its default shell. EncodedCommand
-// handles both without quoting remote user data in that shell. Process streams preserve bytes.
-fn windows_process(resolve: &str, arguments: &[String], framed: bool) -> String {
-    let arguments = if framed {
-        r#"$source = [Console]::OpenStandardInput()
-$header = New-Object System.Collections.Generic.List[byte]
-while (($byte = $source.ReadByte()) -ne 10) {
-  if ($byte -lt 0 -or $header.Count -ge 131072) { throw 'Invalid SSH bootstrap header' }
-  $header.Add([byte]$byte)
-}
-$arguments = [Text.Encoding]::UTF8.GetString($header.ToArray()) | ConvertFrom-Json
-"#
-        .to_owned()
-    } else {
-        format!(
-            "$source = [Console]::OpenStandardInput(); $arguments = {}",
-            literal(
-                &arguments
-                    .iter()
-                    .map(|v| windows_argument(v))
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            )
-        )
-    };
-    encoded(&format!(
-        r#"
-$ErrorActionPreference = 'Stop'
-{resolve}
-{arguments}
-$info = New-Object System.Diagnostics.ProcessStartInfo
-$info.FileName = $binary
-$info.Arguments = $arguments
-$info.UseShellExecute = $false
-$info.RedirectStandardInput = $true
-$info.RedirectStandardOutput = $true
-$info.RedirectStandardError = $true
-$info.CreateNoWindow = $true
-$proc = New-Object System.Diagnostics.Process
-$proc.StartInfo = $info
-[void]$proc.Start()
-$inputCopy = $source.CopyToAsync($proc.StandardInput.BaseStream)
-$outputCopy = $proc.StandardOutput.BaseStream.CopyToAsync([Console]::OpenStandardOutput())
-$errorCopy = $proc.StandardError.BaseStream.CopyToAsync([System.IO.Stream]::Null)
-while (-not $proc.WaitForExit(50)) {{
-  if ($inputCopy.IsCompleted) {{ $proc.StandardInput.Close() }}
-}}
-$outputCopy.GetAwaiter().GetResult()
-$errorCopy.GetAwaiter().GetResult()
-exit $proc.ExitCode
-"#
+// PowerShell delegates raw streams to Python. Its Windows subprocess implementation
+// restricts inherited handles, while .NET Framework Process can leak unrelated SSH pipes.
+// Bootstrap headers are read by the same buffered reader that consumes the archive.
+const PYTHON: &str = r#"
+$python = (Get-Command python.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+"#;
+const RUNTIME_RELAY: &str = "import base64,json,subprocess,sys;args=json.loads(base64.b64decode(sys.argv[1]));binary=base64.b64decode(sys.argv[2]).decode('utf-8');sys.exit(subprocess.call([binary]+args,stdin=sys.stdin.buffer,stdout=sys.stdout.buffer,stderr=subprocess.DEVNULL,close_fds=True))";
+const BOOTSTRAP: &str = "import json,sys;header=sys.stdin.buffer.readline(131073);assert len(header)<=131072 and header.endswith(b'\\n');args=json.loads(header);assert isinstance(args,list) and len(args)>=2 and args[0]=='-c' and all(isinstance(arg,str) for arg in args);sys.argv=['-c']+args[2:];exec(args[1],{'__name__':'__main__'})";
+fn python_program(source: &str) -> String {
+    literal(&format!(
+        "import base64;exec(base64.b64decode('{}'))",
+        STANDARD.encode(source)
     ))
 }
-fn windows_argument(value: &str) -> String {
-    let mut output = String::from("\"");
-    let mut slashes = 0;
-    for ch in value.chars() {
-        if ch == '\\' {
-            slashes += 1;
-            continue;
-        }
-        output.extend(std::iter::repeat_n(
-            '\\',
-            if ch == '"' { slashes * 2 + 1 } else { slashes },
-        ));
-        output.push(ch);
-        slashes = 0;
-    }
-    output.extend(std::iter::repeat_n('\\', slashes * 2));
-    output.push('"');
-    output
+fn windows_runtime(arguments: &[String]) -> String {
+    let args = STANDARD.encode(serde_json::to_vec(arguments).expect("argument serialization"));
+    encoded(&format!(
+        "$ErrorActionPreference='Stop';{RESOLVE}{PYTHON}\n& $python -c {} '{}' ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($binary)));exit $LASTEXITCODE",
+        python_program(RUNTIME_RELAY),
+        args
+    ))
 }
 const RESOLVE: &str = r#"
 $found = Get-Command swarmie.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 $binary = if ($found) { $found.Source } else { Join-Path $env:USERPROFILE '.local\share\swarmie\runtime\bin\swarmie.exe' }
-if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { exit 127 }
+if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { [Console]::Write('swarmie-runtime-not-installed'); exit 127 }
 "#;
 impl Shell {
     pub(crate) fn runtime(self, arguments: &[String]) -> String {
@@ -157,7 +107,7 @@ impl Shell {
                     .collect::<Vec<_>>()
                     .join(" ")
             ),
-            Self::Windows => windows_process(RESOLVE, arguments, false),
+            Self::Windows => windows_runtime(arguments),
         }
     }
     pub(crate) fn python(self, script: &str, arguments: &[String]) -> (String, Option<Vec<u8>>) {
@@ -177,19 +127,13 @@ impl Shell {
             Self::Windows => {
                 // Send the Python source and arguments through a length-bounded header on stdin.
                 // Keep the remote command below cmd.exe's limit and preserve the following archive bytes.
-                let arguments = args
-                    .iter()
-                    .map(|v| windows_argument(v))
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                let mut header = serde_json::to_vec(&arguments).expect("string JSON serialization");
+                let mut header = serde_json::to_vec(&args).expect("argument serialization");
                 header.push(b'\n');
                 (
-                    windows_process(
-                        "$found = Get-Command python.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1; $binary = $found.Source",
-                        &[],
-                        true,
-                    ),
+                    encoded(&format!(
+                        "$ErrorActionPreference='Stop';{PYTHON}\n& $python -c {};exit $LASTEXITCODE",
+                        python_program(BOOTSTRAP)
+                    )),
                     Some(header),
                 )
             }
@@ -203,7 +147,7 @@ mod tests {
     #[tokio::test]
     async fn native_powershell_preserves_framed_input_and_binary_output() {
         use tokio::io::AsyncWriteExt;
-        let payload: Vec<_> = (0u8..=255).cycle().take(16384).collect();
+        let payload: Vec<_> = (0u8..=255).cycle().take(1024 * 1024).collect();
         let (command, prelude) = Shell::Windows.python(
             "import sys;sys.stdout.buffer.write(sys.stdin.buffer.read())",
             &[],
@@ -228,6 +172,7 @@ mod tests {
                 input.write_all(&prelude.unwrap()).await.unwrap();
                 input.write_all(&payload).await.unwrap();
                 input.shutdown().await.unwrap();
+                drop(input);
             };
             let (_, output) = tokio::join!(write, child.wait_with_output());
             output.unwrap()
@@ -277,9 +222,8 @@ mod tests {
                 .collect::<Vec<_>>(),
         )
         .unwrap();
-        assert!(script.contains("BaseStream.CopyToAsync"));
-        assert!(script.contains("UseShellExecute = $false"));
-        assert!(script.contains("é ''quoted''"));
-        assert_eq!(windows_argument(r"C:\tail\"), "\"C:\\tail\\\\\"");
+        assert!(script.contains("Get-Command python.exe"));
+        assert!(!script.contains("ProcessStartInfo"));
+        assert!(!script.contains(value));
     }
 }

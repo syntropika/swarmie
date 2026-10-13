@@ -511,7 +511,14 @@ pub async fn observe_directory(
             )),
         ))
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        Ok((
+            canonical.clone(),
+            Some(windows::directory_identity(&canonical)?),
+        ))
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = metadata;
         Err(Error::Unsupported(
@@ -519,6 +526,8 @@ pub async fn observe_directory(
         ))
     }
 }
+#[cfg(windows)]
+mod windows;
 pub async fn verify_context(context: &WorkingContext) -> Result<()> {
     let (path, fingerprint) = observe_directory(&context.directory.path, false).await?;
     if context.environment_id != context.directory.environment_id
