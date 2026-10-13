@@ -1,0 +1,155 @@
+name: Prepare release assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag (vMAJOR.MINOR.PATCH)
+        required: true
+        type: string
+      create_draft:
+        description: Create a draft release after verification (never publish)
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ inputs.tag }}
+  RUSTUP_TOOLCHAIN: 1.94.0
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+
+jobs:
+  build:
+    name: Package ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-24.04
+          - platform: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - platform: macos-x86_64
+            runner: macos-15-intel
+          - platform: macos-aarch64
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Validate release version
+        run: python3 scripts/distribution/release.py validate-tag --tag "$RELEASE_TAG"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - name: Install Rust toolchain
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+      - name: Install Linux desktop prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
+      - name: Verify distribution tooling
+        run: |
+          python3 -m unittest discover -s scripts/distribution -p 'test_*.py'
+          python3 -m unittest discover -s tests/fixtures/runtime-distribution -p 'test_*.py'
+      - name: Verify native download and SSH preparation
+        run: |
+          cargo test --locked -p app --bin swarmie update::tests
+          cargo test --locked -p app --test ssh_preparation
+      - name: Build desktop and standalone runtime packages
+        shell: bash
+        run: |
+          release_base="https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG"
+          python3 scripts/distribution/package.py --output "$RUNNER_TEMP/packages/desktop" --release-base-url "$release_base"
+          python3 scripts/distribution/package-runtime.py --skip-build --output "$RUNNER_TEMP/packages/runtime" --release-base-url "$release_base"
+      - name: Verify frontend behavior
+        working-directory: apps/desktop
+        run: npm exec -- vitest run
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: packages-${{ matrix.platform }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/packages/desktop/*.tar.gz
+            ${{ runner.temp }}/packages/desktop/*.zip
+            ${{ runner.temp }}/packages/desktop/*.sha256
+            ${{ runner.temp }}/packages/desktop/manifest.json
+            ${{ runner.temp }}/packages/runtime/*.tar.gz
+            ${{ runner.temp }}/packages/runtime/*.sha256
+            ${{ runner.temp }}/packages/runtime/runtime-manifest.json
+
+  assemble:
+    name: Verify and assemble release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          pattern: packages-*
+          path: ${{ runner.temp }}/package-inputs
+      - name: Assemble verified assets
+        run: |
+          python3 scripts/distribution/release.py assemble --tag "$RELEASE_TAG" --repository "$GITHUB_REPOSITORY" --artifacts "$RUNNER_TEMP/package-inputs" --output "$RUNNER_TEMP/release-assets"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+
+  draft:
+    name: Create draft for review
+    if: inputs.create_draft
+    needs: assemble
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/release-assets
+      - name: Create a new draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo 'A release already exists for this tag; refusing to modify it.' >&2
+            exit 1
+          fi
+          cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
+          Desktop and standalone runtime packages for Linux and macOS, on x86_64 and aarch64.
+
+          Review draft assets before publication. macOS desktop bundles are ad-hoc signed; runtime binaries are unsigned. Production signing, notarization and operating-system qualification remain pending.
+
+          Installation and explicit runtime startup do not configure unattended server boot.
+          NOTES
+          gh release create "$RELEASE_TAG" --verify-tag --draft --title "Swarmie $RELEASE_TAG" --notes-file "$RUNNER_TEMP/release-notes.md" "$RUNNER_TEMP"/release-assets/*

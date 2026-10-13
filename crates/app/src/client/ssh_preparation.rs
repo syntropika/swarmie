@@ -12,11 +12,16 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 const SCRIPT: &str = include_str!("../../../../scripts/distribution/prepare-ssh.py");
 const LIMIT: u64 = 512 * 1024 * 1024;
 
-fn manifest() -> Option<String> {
+fn manifest() -> String {
     std::env::var("SWARMIE_RUNTIME_MANIFEST")
         .ok()
         .filter(|s| !s.is_empty())
-        .or_else(|| option_env!("SWARMIE_RUNTIME_MANIFEST").map(str::to_owned))
+        .or_else(|| {
+            option_env!("SWARMIE_RUNTIME_MANIFEST")
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(crate::update::runtime_manifest_url)
 }
 fn packages() -> Option<PathBuf> {
     std::env::var_os("SWARMIE_RUNTIME_PACKAGES")
@@ -126,15 +131,11 @@ pub(crate) async fn preparation(host: &str, socket: &str, install: bool) -> Valu
                     "linux-x86_64" | "linux-aarch64" | "macos-x86_64" | "macos-aarch64"
                 )
             });
-            let source =
-                platform.is_some_and(|p| manifest().is_some() || local_package(p).is_some());
-            let ready = supported && probe["pythonReady"] == true && source;
+            let ready = supported && probe["pythonReady"] == true;
             let reason = if !supported {
                 "This remote platform is not supported."
             } else if probe["pythonReady"] != true {
                 "Install Python 3.9 or later on the remote computer."
-            } else if !source {
-                "No runtime release source is configured for this platform."
             } else {
                 ""
             };
@@ -211,14 +212,7 @@ async fn prepare_inner(host: &str, socket: &str, action: &str) -> Result<Value> 
             let (checksum, version) = verified_local(&path).await?;
             (path, checksum, version)
         } else {
-            crate::update::stage_runtime(
-                &manifest().ok_or_else(|| {
-                    Error::Invalid("runtime release source is not configured".into())
-                })?,
-                platform,
-                staging.path(),
-            )
-            .await?
+            crate::update::stage_runtime(&manifest(), platform, staging.path()).await?
         };
         let arguments = format!(
             "install {} {} {}",

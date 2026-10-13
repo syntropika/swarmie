@@ -100,6 +100,18 @@ fn checksum_file(packages: &Path) -> PathBuf {
         .unwrap()
 }
 #[tokio::test]
+async fn default_release_source_offers_installation_without_local_packages_or_remote_changes() {
+    let remote = Remote::new().await;
+    std::fs::remove_dir_all(&remote.packages).unwrap();
+    let status = remote.inspect().await;
+    assert_eq!(status["status"], "not-installed");
+    assert_eq!(status["preparation"]["available"], true);
+    assert_eq!(status["preparation"]["action"], "install");
+    assert!(!remote.home.join(".local").exists());
+    assert!(!remote.home.join(".swarmie").exists());
+}
+
+#[tokio::test]
 async fn installs_without_remote_path_changes_verifies_connects_and_starts_without_replacing_identity()
  {
     let remote = Remote::new().await;

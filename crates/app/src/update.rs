@@ -40,6 +40,13 @@ struct Artifact {
     sha256: String,
     file_name: String,
 }
+/// First installation follows the client's release rather than an unrelated latest runtime.
+pub(crate) fn runtime_manifest_url() -> String {
+    format!(
+        "https://github.com/syntropika/swarmie/releases/download/v{}/runtime-manifest.json",
+        env!("CARGO_PKG_VERSION")
+    )
+}
 fn platform() -> String {
     format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
 }
