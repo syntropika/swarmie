@@ -12,7 +12,7 @@ function setup(fail = false) {
     { identity: { environmentId: "local" }, displayName: "This computer", local: true, registered: true, connections: [], lastVerifiedAtMs: 0 },
     { identity: { environmentId: "remote" }, displayName: "Remote", local: false, registered: true, lastVerifiedAtMs: 0, connections: [{ name: "main", revision: 7, transport: { kind: "http", url: "http://remote.invalid" } }] },
   ], error: "", store: { getSnapshot: () => snapshot } } as unknown as NodesState;
-  const client = { pair, inspectSsh: vi.fn().mockResolvedValue({ status: "ready", nextAction: "connect", installed: true, ready: true, version: "swarmie 0.1.0", runtimeIdentity: { identity: { environmentId: "remote", storeId: "store", ownerScopeId: "owner" }, incarnationId: "live" } }), pairSsh: vi.fn().mockResolvedValue(undefined), removeRoute: vi.fn().mockResolvedValue(undefined), refresh: vi.fn().mockResolvedValue(undefined), localSnapshot: () => snapshot, nodeSnapshot: () => snapshot, probe: vi.fn(), status: () => "Connected", error: () => "", select: vi.fn(), connect: vi.fn(), disconnect: vi.fn(), reconnect: vi.fn().mockResolvedValue(undefined) };
+  const client = { pair, inspectSsh: vi.fn().mockResolvedValue({ status: "ready", nextAction: "connect", installed: true, ready: true, version: "swarmie 0.1.0", runtimeIdentity: { identity: { environmentId: "remote", storeId: "store", ownerScopeId: "owner" }, incarnationId: "live" } }), prepareSsh: vi.fn(), pairSsh: vi.fn().mockResolvedValue(undefined), removeRoute: vi.fn().mockResolvedValue(undefined), refresh: vi.fn().mockResolvedValue(undefined), localSnapshot: () => snapshot, nodeSnapshot: () => snapshot, probe: vi.fn(), status: () => "Connected", error: () => "", select: vi.fn(), connect: vi.fn(), disconnect: vi.fn(), reconnect: vi.fn().mockResolvedValue(undefined) };
   render(<NodeSettings client={client as unknown as NodeClient} nodes={nodes} />);
   return { ...client, snapshot };
 }
@@ -135,4 +135,51 @@ it.each([
   await waitFor(() => expect(screen.getByRole("status").textContent).toContain(message));
   expect((screen.getByRole("button", { name: "Add node" }) as HTMLButtonElement).disabled).toBe(true);
   expect(pairSsh).not.toHaveBeenCalled();
+});
+
+it("installs and connects only after an explicit action and keeps the dialog locked during preparation", async () => {
+  const { inspectSsh, prepareSsh, pairSsh } = setup();
+  inspectSsh.mockResolvedValue({ status: "not-installed", installed: false, ready: false, preparation: { available: true, action: "install", platform: "linux-x86_64", installPath: "/home/user/.local/share/swarmie/runtime" } } as never);
+  const user = userEvent.setup(); await user.click(screen.getByRole("tab", { name: "SSH" }));
+  await user.click(screen.getByRole("button", { name: "Add" }));
+  await user.type(screen.getByLabelText("Connection name"), "Work"); await user.type(screen.getByLabelText("SSH host"), "server");
+  await user.click(screen.getByRole("button", { name: "Check connection" }));
+  expect(prepareSsh).not.toHaveBeenCalled();
+  expect(screen.getByText(/Install the runtime for your remote user/).textContent).toContain("/home/user/.local/share/swarmie/runtime");
+  let finish!: (value: unknown) => void;
+  prepareSsh.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+  await user.click(screen.getByRole("button", { name: "Install and connect" }));
+  await user.keyboard("{Escape}{Enter}");
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  expect(prepareSsh).toHaveBeenCalledExactlyOnceWith("Work", "server", "", "install");
+  expect(pairSsh).not.toHaveBeenCalled();
+  const target = { identity: { environmentId: "prepared", storeId: "store", ownerScopeId: "owner" }, incarnationId: "live" };
+  finish({ ready: true, runtimeIdentity: target });
+  expect(pairSsh).not.toHaveBeenCalled();
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});
+it("offers start separately and requires a new check after uncertain preparation failure", async () => {
+  const { inspectSsh, prepareSsh, pairSsh } = setup();
+  inspectSsh.mockResolvedValue({ status: "runtime-unavailable", installed: true, ready: false, preparation: { available: true, action: "start" } } as never);
+  prepareSsh.mockRejectedValue(new Error("Connection lost"));
+  const user = userEvent.setup(); await user.click(screen.getByRole("tab", { name: "SSH" }));
+  await user.click(screen.getByRole("button", { name: "Add" }));
+  await user.type(screen.getByLabelText("Connection name"), "Work"); await user.type(screen.getByLabelText("SSH host"), "server");
+  await user.click(screen.getByRole("button", { name: "Check connection" }));
+  await user.click(screen.getByRole("button", { name: "Start and connect" }));
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("remote preparation may have completed"));
+  expect(prepareSsh).toHaveBeenCalledExactlyOnceWith("Work", "server", "", "start");
+  expect(pairSsh).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "Start and connect" })).toBeNull();
+  expect((screen.getByRole("button", { name: "Add node" }) as HTMLButtonElement).disabled).toBe(true);
+});
+it("explains unavailable preparation without offering to modify the remote host", async () => {
+  const { inspectSsh, prepareSsh } = setup();
+  inspectSsh.mockResolvedValue({ status: "not-installed", installed: false, ready: false, preparation: { available: false, reason: "No runtime release source is configured for this platform." } } as never);
+  const user = userEvent.setup(); await user.click(screen.getByRole("tab", { name: "SSH" }));
+  await user.click(screen.getByRole("button", { name: "Add" })); await user.type(screen.getByLabelText("SSH host"), "server");
+  await user.click(screen.getByRole("button", { name: "Check connection" }));
+  expect(screen.getByText("No runtime release source is configured for this platform.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Install and connect" })).toBeNull();
+  expect(prepareSsh).not.toHaveBeenCalled();
 });

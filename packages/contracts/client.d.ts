@@ -86,4 +86,5 @@ export type SshReadiness = {
   version?: string;
   nextAction: string;
   runtimeIdentity?: import("./index.js").RuntimeIdentity;
+  preparation?: { available: boolean; action?: "install" | "start"; platform?: string | null; installPath?: string; reason?: string };
 };

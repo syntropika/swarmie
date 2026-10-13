@@ -43,6 +43,8 @@ def install(args):
         require_plain_path(path)
     marker = prefix / MARKER
     saved = None
+    if args.if_missing and marker.exists():
+        raise SystemExit('A managed runtime installation now exists; check the connection again.')
     if marker.exists():
         saved = json.loads(marker.read_text())
         if saved.get('kind') != 'swarmie-runtime-install' or set(saved.get('files', {})) != set(FILES):
@@ -135,7 +137,9 @@ def main():
     parser.add_argument('--package', type=Path, default=Path(__file__).resolve().parent)
     parser.add_argument('--prefix', type=Path, default=Path.home() / '.local/share/swarmie/runtime')
     parser.add_argument('--bin-dir', type=Path, default=Path.home() / '.local/bin')
-    parser.add_argument('--uninstall', action='store_true')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--uninstall', action='store_true')
+    mode.add_argument('--if-missing', action='store_true', help='Refuse updates under the installation lock')
     args = parser.parse_args()
     prefix = args.prefix.expanduser().absolute()
     prefix.parent.mkdir(parents=True, exist_ok=True)

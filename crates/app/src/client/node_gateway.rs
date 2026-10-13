@@ -138,6 +138,10 @@ impl NodeGateway {
                 (Some(host), Some(socket)) => crate::remote::inspect_ssh(host, socket, params["token"].as_str()).await,
                 _ => Err(Error::Invalid("SSH host and socketPath are required".into())),
             },
+            "nodes/prepareSsh" => match target.as_ref() {
+                Some(target) => self.prepare_ssh(params, target).await,
+                None => Err(Error::Invalid("verified local runtime is required".into())),
+            },
             "nodes/pairSsh" => match (params["name"].as_str(), params["host"].as_str(), Some(params["socketPath"].as_str().unwrap_or("")), serde_json::from_value::<swarmie::RuntimeIdentity>(params["runtimeIdentity"].clone())) {
                 (Some(name), Some(host), Some(socket), Ok(target)) => {
                     match crate::remote::ssh_endpoint(host, socket) {
@@ -163,6 +167,27 @@ impl NodeGateway {
             Ok(result) => json!({"jsonrpc":"2.0","id":id,"result":result}),
             Err(error) => protocol::rpc_error(id, -32001, &error.to_string()),
         }
+    }
+    async fn prepare_ssh(&self, params: &Value, local_target: &swarmie::RuntimeIdentity) -> Result<Value> {
+        let operation = async {
+            let name = params["name"].as_str().ok_or_else(|| Error::Invalid("connection name is required".into()))?;
+            crate::node_connection::validate_name(name)?;
+            if self.manager.find(name).await?.is_some() {
+                return Err(Error::Invalid("connection name is already in use".into()));
+            }
+            let host = params["host"].as_str().ok_or_else(|| Error::Invalid("SSH host is required".into()))?;
+            let action = params["action"].as_str().ok_or_else(|| Error::Invalid("preparation action is required".into()))?;
+            let socket = params["socketPath"].as_str().unwrap_or("");
+            let result = crate::client::ssh_preparation::prepare(host, socket, action).await?;
+            if self.identity().await? != *local_target {
+                return Err(Error::Invalid("local runtime changed during preparation; check the connection again".into()));
+            }
+            let target = serde_json::from_value(result["runtimeIdentity"].clone())?;
+            self.manager.pair_prepared(name.into(), crate::remote::ssh_endpoint(host, socket)?, None, &target).await?;
+            Ok(result)
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(600), operation).await
+            .map_err(|_| Error::Timeout("SSH preparation/enrollment; remote changes may have completed, check before retrying".into()))?
     }
     pub async fn forward(&self, environment_id: &str, request: Value) -> Value {
         let id = request["id"].clone();

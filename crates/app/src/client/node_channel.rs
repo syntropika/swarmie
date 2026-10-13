@@ -185,6 +185,8 @@ pub(crate) fn ssh_command(host: &str) -> Result<tokio::process::Command> {
 pub(crate) fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
+// A managed runtime remains reachable without editing remote shell startup files.
+pub(crate) const SSH_RUNTIME: &str = "if command -v swarmie >/dev/null 2>&1; then SWARMIE=$(command -v swarmie); elif [ -x \"$HOME/.local/bin/swarmie\" ]; then SWARMIE=\"$HOME/.local/bin/swarmie\"; else exit 127; fi; ";
 async fn connect_socket(
     url: &str,
     token: Option<&str>,
@@ -222,7 +224,7 @@ async fn connect_socket(
             "ssh" => {
                 let (host, path) = ssh_route(url)?;
                 let mut command = ssh_command(&host)?;
-                let remote_command = if path.is_empty() { "exec swarmie runtime proxy".to_owned() } else { format!("exec swarmie runtime proxy --socket {}", shell_quote(&path)) };
+                let remote_command = if path.is_empty() { format!("{SSH_RUNTIME}exec \"$SWARMIE\" runtime proxy") } else { format!("{SSH_RUNTIME}exec \"$SWARMIE\" runtime proxy --socket {}", shell_quote(&path)) };
                 command.arg(remote_command)
                     .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null());
                 let mut child = command.spawn()?;

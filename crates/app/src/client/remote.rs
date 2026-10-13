@@ -35,6 +35,12 @@ pub enum RemoteCommand {
         #[arg(long, env = "SWARMIE_TOKEN")]
         token: Option<String>,
     },
+    /// Explicitly install or start the default remote runtime, then verify it.
+    PrepareSsh {
+        host: String,
+        #[arg(long, value_parser = ["install", "start"])]
+        action: String,
+    },
     /// Register an existing remote runtime through an SSH stdio proxy. The native client reconnects it.
     Ssh {
         name: String,
@@ -85,7 +91,7 @@ pub(crate) async fn inspect_ssh(host: &str, socket: &str, token: Option<&str>) -
     let endpoint = ssh_endpoint(host, socket)?;
     let mut command = crate::node_channel::ssh_command(host)?;
     command
-        .arg("command -v swarmie >/dev/null 2>&1 || exit 127; swarmie --version")
+        .arg(format!("{}\"$SWARMIE\" --version", crate::node_channel::SSH_RUNTIME))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null());
@@ -124,7 +130,9 @@ pub(crate) async fn inspect_ssh(host: &str, socket: &str, token: Option<&str>) -
         return Ok(ssh_readiness("invalid-installation", None, None, None));
     };
     if exit.code() == Some(127) {
-        return Ok(ssh_readiness("not-installed", Some(false), None, None));
+        let mut result = ssh_readiness("not-installed", Some(false), None, None);
+        result["preparation"] = crate::client::ssh_preparation::preparation(host, socket, true).await;
+        return Ok(result);
     }
     if exit.code() == Some(255) {
         return Ok(ssh_readiness("ssh-unavailable", None, None, None));
@@ -141,7 +149,7 @@ pub(crate) async fn inspect_ssh(host: &str, socket: &str, token: Option<&str>) -
         return Ok(ssh_readiness("invalid-installation", None, None, None));
     }
     // Keep the complete read-only check within the client request deadline.
-    match tokio::time::timeout(Duration::from_secs(15), rpc(&endpoint, "runtime/initialize", json!({}), token)).await {
+    let result: Result<Value> = match tokio::time::timeout(Duration::from_secs(15), rpc(&endpoint, "runtime/initialize", json!({}), token)).await {
         Ok(Ok(value)) => match crate::node_connection::handshake(&value, None) {
             Ok(target) => Ok(ssh_readiness(
                 "ready",
@@ -165,7 +173,12 @@ pub(crate) async fn inspect_ssh(host: &str, socket: &str, token: Option<&str>) -
             Some(version),
             None,
         )),
+    };
+    let mut result = result?;
+    if result["status"] == "runtime-unavailable" {
+        result["preparation"] = crate::client::ssh_preparation::preparation(host, socket, false).await;
     }
+    Ok(result)
 }
 
 pub async fn run(root: &Path, command: RemoteCommand) -> Result<()> {
@@ -175,6 +188,7 @@ pub async fn run(root: &Path, command: RemoteCommand) -> Result<()> {
         RemoteCommand::Remove { name } => manager.remove(&name).await?,
         RemoteCommand::Pair { name, url, token } => println!("{}", public_connection(&manager.pair(name, url, token).await?)),
         RemoteCommand::Call { name, method, params } => println!("{}", serde_json::to_string_pretty(&manager.call(&name, &method, serde_json::from_str(&params)?).await?)?),
+        RemoteCommand::PrepareSsh { host, action } => println!("{}", crate::client::ssh_preparation::prepare(&host, "", &action).await?),
         RemoteCommand::InspectSsh { host, socket, token } => println!("{}", inspect_ssh(&host, &socket, token.as_deref()).await?),
         RemoteCommand::Ssh { name, host, socket, token } => {
             let readiness = inspect_ssh(&host, &socket, token.as_deref()).await?;

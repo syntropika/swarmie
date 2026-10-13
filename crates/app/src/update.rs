@@ -75,12 +75,15 @@ fn client() -> Result<reqwest::Client> {
         .map_err(|e| Error::Provider(e.to_string()))
 }
 fn validate_manifest(manifest: &Manifest) -> Result<(semver::Version, &Artifact)> {
+    validate_manifest_for(manifest, &platform())
+}
+fn validate_manifest_for<'a>(manifest: &'a Manifest, target: &str) -> Result<(semver::Version, &'a Artifact)> {
     let version = semver::Version::parse(&manifest.version)
         .map_err(|_| Error::Invalid("release version must use semantic versioning".into()))?;
     let artifact = manifest
         .artifacts
-        .get(&platform())
-        .ok_or_else(|| Error::Unsupported(format!("release does not include {}", platform())))?;
+        .get(target)
+        .ok_or_else(|| Error::Unsupported(format!("release does not include {target}")))?;
     https_url(&artifact.url)?;
     if artifact.sha256.len() != 64 || !artifact.sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(Error::Invalid(
@@ -182,6 +185,17 @@ async fn stage_response(
     }
     result
 }
+/// Stage a runtime package for the destination, including the current release on first install.
+pub(crate) async fn stage_runtime(url: &str, target: &str, directory: &Path) -> Result<(PathBuf, String, String)> {
+    let client = client()?;
+    let manifest = fetch_manifest(&client, url).await?;
+    let (version, artifact) = validate_manifest_for(&manifest, target)?;
+    let response = client.get(https_url(&artifact.url)?).send().await
+        .map_err(|e| Error::Provider(e.to_string()))?.error_for_status()
+        .map_err(|e| Error::Provider(e.to_string()))?;
+    let path = stage_response(response, artifact, directory).await?;
+    Ok((path, artifact.sha256.to_ascii_lowercase(), version.to_string()))
+}
 pub async fn run(root: &Path, command: UpdateCommand) -> Result<()> {
     let (url, directory) = match command {
         UpdateCommand::Check { manifest } => (manifest, None),
@@ -244,6 +258,17 @@ mod tests {
         assert!(validate_manifest(&manifest).is_err());
         manifest.artifacts.get_mut(&platform()).unwrap().file_name = "swarmie.tar.gz".into();
         assert!(validate_manifest(&manifest).is_ok());
+    }
+    #[test]
+    fn first_install_selects_the_remote_platform_even_at_the_current_release() {
+        let target = "remote-platform";
+        let manifest = Manifest { version: env!("CARGO_PKG_VERSION").into(), artifacts: BTreeMap::from([
+            (target.into(), Artifact { url: "https://example.com/runtime.tar.gz".into(), sha256: "00".repeat(32), file_name: "runtime.tar.gz".into() })
+        ]) };
+        let (version, artifact) = validate_manifest_for(&manifest, target).unwrap();
+        assert_eq!(version.to_string(), env!("CARGO_PKG_VERSION"));
+        assert_eq!(artifact.file_name, "runtime.tar.gz");
+        assert!(validate_manifest(&manifest).is_err());
     }
     #[tokio::test]
     async fn downloaded_archive_is_only_published_after_verification_and_failed_partials_are_removed()

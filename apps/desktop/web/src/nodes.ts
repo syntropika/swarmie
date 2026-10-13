@@ -40,9 +40,9 @@ export class NodeClient {
   private catalogRetryAt = 0;
   private catalogPending?: Promise<void>;
   private catalogNeedsRefresh = true;
-  private async control<T>(method: string, params: unknown = {}): Promise<T> {
+  private async control<T>(method: string, params: unknown = {}, timeout = 30_000): Promise<T> {
     const request = async (path: string, method: string, params: unknown, target?: RuntimeIdentity) => {
-      const response = await clientRequest(path, { jsonrpc: "2.0", id: ++this.requestId, method, params, ...(target ? { expectedRuntime: target } : {}) }, this.token, 30_000);
+      const response = await clientRequest(path, { jsonrpc: "2.0", id: ++this.requestId, method, params, ...(target ? { expectedRuntime: target } : {}) }, this.token, path === "/client/rpc" ? timeout : 30_000);
       if (!response.ok) throw new Error(response.status === 401 ? "Enter the local connection token, then retry." : `Node management returned HTTP ${response.status}.`);
       const value = await response.json();
       if (value.error) throw new Error(value.error.message);
@@ -202,6 +202,11 @@ export class NodeClient {
   }
   async inspectSsh(host: string, socketPath: string): Promise<SshReadiness> {
     return this.control<SshReadiness>("nodes/inspectSsh", { host, socketPath });
+  }
+  async prepareSsh(name: string, host: string, socketPath: string, action: "install" | "start"): Promise<SshReadiness> {
+    const result = await this.control<SshReadiness>("nodes/prepareSsh", { name, host, socketPath, action }, 660_000);
+    await this.refresh();
+    return result;
   }
   async pairSsh(name: string, host: string, socketPath: string, runtimeIdentity: RuntimeIdentity) {
     await this.control("nodes/pairSsh", { name, host, socketPath, runtimeIdentity });

@@ -107,7 +107,7 @@ fn ssh_fixture(root: &Path) -> (String, PathBuf) {
 fn proxy_pids(ledger: &Path) -> Vec<i32> {
     std::fs::read_to_string(ledger).unwrap_or_default().lines().filter_map(|line| {
         let value: Value = serde_json::from_str(line).unwrap();
-        value["command"].as_str().unwrap().starts_with("exec swarmie runtime proxy").then(|| value["pid"].as_i64().unwrap() as i32)
+        value["command"].as_str().unwrap().contains("runtime proxy").then(|| value["pid"].as_i64().unwrap() as i32)
     }).collect()
 }
 
@@ -265,4 +265,22 @@ async fn ssh_readiness_reports_a_missing_client_without_claiming_the_remote_runt
     assert_eq!(status["installed"], Value::Null);
     assert_eq!(status["ready"], false);
     assert!(status["runtimeIdentity"].is_null());
+}
+
+#[tokio::test]
+async fn native_ssh_preparation_rejects_occupied_names_and_custom_sockets_before_remote_changes() {
+    let temp = tempfile::tempdir().unwrap();
+    let (path, ledger) = ssh_fixture(temp.path());
+    let mut client = Daemon::start(&temp.path().join("client"), true, Some(&path), Some(&ledger)).await;
+    let local = client.target().await;
+    result(client.rpc("/client/rpc", "nodes/pair", json!({"name":"occupied","url":client.url,"token":"private-http-token"}), Some(&local)).await);
+    let rejected = client.rpc("/client/rpc", "nodes/prepareSsh", json!({"name":"occupied","host":"fixture","action":"install"}), Some(&local)).await;
+    assert!(rejected["error"]["message"].as_str().unwrap().contains("already in use"));
+    let rejected = client.rpc("/client/rpc", "nodes/prepareSsh", json!({"name":"new","host":"fixture","socketPath":"/custom/socket","action":"install"}), Some(&local)).await;
+    assert!(rejected["error"]["message"].as_str().unwrap().contains("default runtime"));
+    let rejected = client.rpc("/client/rpc", "nodes/prepareSsh", json!({"name":"new","host":"fixture","action":"erase"}), Some(&local)).await;
+    assert!(rejected["error"]["message"].as_str().unwrap().contains("explicit install or start"));
+    assert!(!ledger.exists(), "rejected preparation must not execute SSH");
+    result(client.rpc("/rpc", "runtime/shutdown", json!({}), Some(&local)).await);
+    tokio::time::timeout(Duration::from_secs(5), client.child.wait()).await.unwrap().unwrap();
 }

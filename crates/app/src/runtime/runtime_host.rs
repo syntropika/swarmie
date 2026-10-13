@@ -14,6 +14,8 @@ use tokio::process::{Child, Command};
 
 #[derive(Subcommand)]
 pub enum RuntimeCommand {
+    /// Start a detached headless owner or attach to the verified existing owner.
+    Start,
     /// Transparently attach stdio to an existing runtime's local socket; never start an owner.
     Proxy {
         #[arg(long)]
@@ -386,13 +388,18 @@ pub async fn attach(root: &Path) -> Result<Endpoint> {
     Ok(endpoint)
 }
 pub async fn run(root: &Path, command: RuntimeCommand) -> Result<()> {
+    if matches!(command, RuntimeCommand::Start) {
+        let endpoint = attach(root).await?;
+        println!("{}", json!({"running":true,"runtimeIdentity":endpoint.runtime_identity}));
+        return Ok(());
+    }
     if let RuntimeCommand::Proxy { socket } = command {
         return proxy(match socket { Some(path) => path, None => local_socket_path(root)? }).await;
     }
     let (token, stop) = match command {
         RuntimeCommand::Status { token } => (token, false),
         RuntimeCommand::Stop { token } => (token, true),
-        RuntimeCommand::Proxy { .. } => unreachable!(),
+        RuntimeCommand::Proxy { .. } | RuntimeCommand::Start => unreachable!(),
     };
     let Some(endpoint) = read(root)? else {
         println!("{}", json!({"running":false}));

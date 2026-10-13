@@ -29,6 +29,7 @@ def main():
     parser.add_argument('--skip-build', action='store_true')
     parser.add_argument('--binary', type=Path, help='Use an explicitly supplied matching native runtime executable')
     parser.add_argument('--release-base-url', help='HTTPS directory for the runtime-only updater manifest')
+    parser.add_argument('--client-packages', type=Path, help='Also stage this archive and checksum in a native client runtime-package directory')
     parser.add_argument('--identity', help='macOS signing identity; omit to leave the runtime unsigned')
     args = parser.parse_args()
     system = {'Linux': 'linux', 'Darwin': 'macos'}.get(platform.system())
@@ -69,6 +70,14 @@ def main():
         result.add(bundle, arcname=name)
     checksum = digest(archive)
     (output / (archive.name + '.sha256')).write_text(checksum + '  ' + archive.name + '\n')
+    if args.client_packages:
+        client_packages = args.client_packages.expanduser().resolve()
+        client_packages.mkdir(parents=True, exist_ok=True)
+        destination = client_packages / (metadata['platform'] + '.tar.gz')
+        if destination.exists() or destination.with_suffix('.gz.sha256').exists():
+            raise SystemExit('Client runtime package already exists; use a fresh directory.')
+        shutil.copy2(archive, destination)
+        destination.with_suffix('.gz.sha256').write_text(checksum + '\n')
     if args.release_base_url:
         manifest = {'version': version, 'artifacts': {metadata['platform']: {
             'url': args.release_base_url.rstrip('/') + '/' + urllib.parse.quote(archive.name),

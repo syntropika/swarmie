@@ -47,6 +47,14 @@ class RuntimeInstallerTests(unittest.TestCase):
         self.assertEqual(result.returncode == 0, success, result.stderr)
         return result
 
+    def test_install_if_missing_refuses_to_replace_a_concurrently_created_managed_installation(self):
+        self.run_installer('--if-missing')
+        original = (self.prefix / 'bin/swarmie').read_bytes()
+        self.write_runtime(b'#!/bin/sh\nprintf "replacement runtime\\n"\n')
+        result = self.run_installer('--if-missing', success=False)
+        self.assertIn('installation now exists', result.stderr)
+        self.assertEqual((self.prefix / 'bin/swarmie').read_bytes(), original)
+
     def test_update_and_uninstall_preserve_user_files_even_inside_prefix(self):
         self.run_installer()
         self.assertEqual((self.bin_dir / 'swarmie').resolve(), (self.prefix / 'bin/swarmie').resolve())

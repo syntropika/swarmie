@@ -42,7 +42,7 @@ enum Commands {
         #[arg(long)]
         host: PathBuf,
     },
-    /// Inspect, stop, or proxy a connection to this Environment's runtime.
+    /// Start, inspect, stop, or proxy a connection to this Environment's runtime.
     Runtime {
         #[command(subcommand)]
         command: runtime_host::RuntimeCommand,

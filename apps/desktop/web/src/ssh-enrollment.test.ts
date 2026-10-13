@@ -32,7 +32,7 @@ beforeEach(() => {
     const error = request.method === "nodes/pairSsh" && pairError ? { code: -32005, message: pairError } : undefined;
     const result = request.method === "runtime/initialize"
       ? { name: "swarmie", protocolVersion: "1", runtimeIdentity: currentLocal }
-      : request.method === "nodes/inspectSsh" ? readiness
+      : ["nodes/inspectSsh", "nodes/prepareSsh"].includes(request.method) ? readiness
       : request.method === "nodes/list" ? { nodes: [] } : null;
     return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, ...(error ? { error } : { result }) }));
   }));
@@ -78,4 +78,10 @@ it("rejects local node replacement before sending the remote enrollment command"
   currentLocal = { ...local, identity: { ...local.identity, storeId: "replacement-store" } };
   await expect(client.pairSsh("Work node", "ssh-alias", "/runtime/node.sock", inspected.runtimeIdentity!)).rejects.toThrow("different node");
   expect(requests.some((request) => request.method === "nodes/pairSsh")).toBe(false);
+});
+
+it("dispatches explicit preparation once against the verified local node", async () => {
+  expect(await client.prepareSsh("Work", "ssh-alias", "", "install")).toEqual(readiness);
+  expect(requests.map((request) => request.method)).toEqual(["runtime/initialize", "nodes/prepareSsh", "runtime/initialize", "nodes/list"]);
+  expect(requests[1]).toMatchObject({ params: { name: "Work", host: "ssh-alias", socketPath: "", action: "install" }, expectedRuntime: local });
 });

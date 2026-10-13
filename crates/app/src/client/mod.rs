@@ -11,3 +11,4 @@ pub(crate) mod node_credentials;
 pub(crate) mod node_gateway;
 pub(crate) mod open;
 pub(crate) mod remote;
+pub(crate) mod ssh_preparation;

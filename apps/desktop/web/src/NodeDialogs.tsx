@@ -42,6 +42,7 @@ export function AddNodeDialog({ client, onClose, initialMethod = "direct" }: { c
   const [token, setToken] = useState("");
   const [readiness, setReadiness] = useState<SshReadiness>();
   const [busy, setBusy] = useState(false);
+  const [preparing, setPreparing] = useState(false);
   const [error, setError] = useState("");
   const ssh = method === "ssh";
   const check = async () => {
@@ -50,8 +51,21 @@ export function AddNodeDialog({ client, onClose, initialMethod = "direct" }: { c
     catch (error) { setError(errorText(error)); }
     finally { setBusy(false); }
   };
+  const prepare = async (action: "install" | "start") => {
+    if (busy || !name.trim()) return;
+    setBusy(true); setPreparing(true); setError(""); setReadiness(undefined);
+    try {
+      const verified = await client.prepareSsh(name.trim(), host.trim(), socket.trim(), action);
+      if (!verified.ready || !verified.runtimeIdentity) throw new Error("The remote runtime could not be verified. Check the connection again.");
+      setReadiness(verified);
+      onClose();
+    } catch (error) {
+      setReadiness(undefined);
+      setError(`${errorText(error)} Check the connection before trying again; remote preparation may have completed.`);
+    } finally { setBusy(false); setPreparing(false); }
+  };
   return <Frame title="Add node" busy={busy} onClose={onClose}>
-    <p className="mb-5 text-sm leading-relaxed text-muted">Connect a computer with a running runtime.</p>
+    <p className="mb-5 text-sm leading-relaxed text-muted">Connect a computer or prepare its runtime over SSH.</p>
     <form className="grid gap-4" aria-busy={busy} onSubmit={(event) => {
       event.preventDefault();
       if (busy || (ssh && (!readiness?.ready || !readiness.runtimeIdentity))) return;
@@ -65,15 +79,24 @@ export function AddNodeDialog({ client, onClose, initialMethod = "direct" }: { c
         <label className="grid gap-1.5 text-xs font-medium">SSH host<Input placeholder="user@server or SSH alias" required disabled={busy} value={host} onChange={(event) => { setHost(event.target.value); setReadiness(undefined); }} /></label>
         <details className="text-xs"><summary className="cursor-pointer text-muted">Advanced</summary><label className="mt-3 grid gap-1.5 text-xs font-medium">Runtime socket path <span className="font-normal text-muted">Optional override</span><Input aria-label="Runtime socket path" placeholder="Use the default runtime" disabled={busy} value={socket} onChange={(event) => { setSocket(event.target.value); setReadiness(undefined); }} /></label></details>
         <p className="text-xs leading-relaxed text-muted">Use the SSH access configured on this computer. No account is required. Checking leaves the remote runtime unchanged.</p>
-        <Button type="button" variant="outline" disabled={busy || !host.trim()} onClick={() => void check()}>{busy ? "Checking…" : "Check connection"}</Button>
+        <Button type="button" variant="outline" disabled={busy || !host.trim()} onClick={() => void check()}>{busy ? preparing ? "Preparing runtime…" : "Checking…" : "Check connection"}</Button>
         {readiness && <p className="text-sm text-muted" role="status">{sshReadinessText(readiness)}</p>}
+        {readiness?.preparation && <div className="grid gap-3 rounded-md border border-border p-3">
+          {readiness.preparation.available ? <>
+            <p className="text-xs leading-relaxed text-muted">{readiness.preparation.action === "install"
+              ? `Install the runtime for your remote user${readiness.preparation.installPath ? ` in ${readiness.preparation.installPath}` : ""}, start it and connect. No administrator access is required.`
+              : "Start or attach to the default runtime and connect. Active work will not be restarted."} The runtime continues after this app closes. Startup when the computer boots is configured separately.</p>
+            <Button type="button" disabled={busy || !name.trim()} onClick={() => void prepare(readiness.preparation!.action!)}>{readiness.preparation.action === "install" ? "Install and connect" : "Start and connect"}</Button>
+          </> : <p className="text-xs text-muted">{readiness.preparation.reason}</p>}
+        </div>}
+        {preparing && <p className="text-sm text-muted" role="status">Preparing and verifying the remote runtime…</p>}
       </> : <>
         <label className="grid gap-1.5 text-xs font-medium">Address<Input placeholder="http://localhost:7490" required disabled={busy} value={address} onChange={(event) => setAddress(event.target.value)} /></label>
         <label className="grid gap-1.5 text-xs font-medium">Access token <span className="font-normal text-muted">Optional</span><Input type="password" aria-label="Access token" autoComplete="off" disabled={busy} value={token} onChange={(event) => setToken(event.target.value)} /></label>
       </>}
       {error && <p className="text-sm text-danger" role="alert">{error}</p>}
       <p className="text-xs leading-relaxed text-muted">The connection is verified before it is saved. Credentials stay on this computer.</p>
-      <footer className="mt-2 flex justify-end gap-2"><Button variant="ghost" disabled={busy} onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy || !name.trim() || (ssh ? !readiness?.ready || !readiness.runtimeIdentity : !address.trim())}>{busy ? "Connecting…" : "Add node"}</Button></footer>
+      <footer className="mt-2 flex justify-end gap-2"><Button variant="ghost" disabled={busy} onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy || !name.trim() || (ssh ? !readiness?.ready || !readiness.runtimeIdentity : !address.trim())}>{busy ? preparing ? "Preparing…" : "Connecting…" : "Add node"}</Button></footer>
     </form>
   </Frame>;
 }
