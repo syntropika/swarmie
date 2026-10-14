@@ -2,6 +2,8 @@
 
 The public Swarmie documentation site uses Fumadocs, Next.js, and MDX. Its content is in `content/docs`; final guide screenshots and schema downloads are in `public`. It builds as a static site with browser-local search and does not need a runtime, account credentials, or private source packages.
 
+Documentation assets live under this directory: captures and the downloadable client example in `public/extensions`, monochrome logos in `public/brand`, and fonts in `public/fonts`. The standalone guide in `public/extensions-guide` shares the same captures and example with Fumadocs. The desktop frontend contains the runnable contribution demo without bundling documentation assets.
+
 ## Develop and build
 
 Use Node.js 24 and npm. From the repository root:

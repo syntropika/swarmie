@@ -23,6 +23,20 @@ for (const file of pages) {
   if (/\/(?:home|Users)\/[\w.-]+\/|private-docs\/|\b(?:AGENTS|PRODUCT|DESIGN)\.md\b|\bFIXTURE_[A-Z_]*RECEIPT\b/i.test(source)) failures.push(`${file}: private operational or build context`);
   if (/[áéíóúñ¿¡]/i.test(source)) failures.push(`${file}: unexpected non-English prose`);
 }
+for (const file of publicFiles.filter((file) => file.endsWith('.html'))) {
+  const source = await readFile(file, 'utf8');
+  const publicPath = '/' + path.relative(path.join(root, 'public'), file).replaceAll(path.sep, '/');
+  const anchors = new Set([...source.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]));
+  for (const [, link] of source.matchAll(/\b(?:src|href)="([^"]+)"/g)) {
+    if (/^(?:[a-z][\w+.-]*:|\/\/)/i.test(link)) continue;
+    const target = new URL(link, `https://docs.example.com${publicPath}`);
+    if (target.pathname === publicPath && target.hash) {
+      if (!anchors.has(decodeURIComponent(target.hash.slice(1)))) failures.push(`${file}: missing anchor ${link}`);
+    } else if (target.pathname !== '/' && !routes.has(target.pathname.replace(/\/$/, '')) && !downloads.has(target.pathname)) {
+      failures.push(`${file}: broken asset or page link ${link}`);
+    }
+  }
+}
 const guide = JSON.parse(await readFile(path.join(root, 'lib/extension-guide.json'), 'utf8'));
 const ids = new Set(guide.slots.map((slot) => slot.id));
 const schema = JSON.parse(await readFile(path.join(root, 'public/contracts/protocol.json'), 'utf8'));
