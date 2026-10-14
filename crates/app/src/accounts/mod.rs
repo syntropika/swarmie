@@ -162,6 +162,33 @@ impl Owner {
             ));
         };
         match method {
+            "account/sessions/read" => {
+                let request: SessionRead = serde_json::from_value(params)?;
+                Ok(serde_json::to_value(
+                    manager
+                        .sessions(request.expected_account_id, request.after)
+                        .await
+                        .map_err(account_error)?,
+                )?)
+            }
+            "account/sessions/revoke" => {
+                let request: SessionRevoke = serde_json::from_value(params)?;
+                Ok(serde_json::to_value(
+                    manager
+                        .revoke_sessions(request.expected_account_id, Some(request.session_id))
+                        .await
+                        .map_err(account_error)?,
+                )?)
+            }
+            "account/sessions/revoke-all" => {
+                let request: AccountIntent = serde_json::from_value(params)?;
+                Ok(serde_json::to_value(
+                    manager
+                        .revoke_sessions(request.expected_account_id, None)
+                        .await
+                        .map_err(account_error)?,
+                )?)
+            }
             "account/read" | "account/profile/read" => Ok(serde_json::to_value(
                 manager.read().await.map_err(account_error)?,
             )?),
@@ -207,6 +234,23 @@ impl Owner {
             _ => Err(Error::Unsupported("account method".into())),
         }
     }
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SessionRead {
+    expected_account_id: uuid::Uuid,
+    after: Option<uuid::Uuid>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SessionRevoke {
+    expected_account_id: uuid::Uuid,
+    session_id: uuid::Uuid,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AccountIntent {
+    expected_account_id: uuid::Uuid,
 }
 async fn rpc(
     State(owner): State<Arc<Owner>>,

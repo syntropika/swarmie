@@ -59,6 +59,24 @@ pub struct Snapshot {
     pub login_id: Option<uuid::Uuid>,
     pub authorization_url: Option<String>,
 }
+/// Public metadata never includes bearer values, provider references or credential hashes.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountSession {
+    pub id: uuid::Uuid,
+    pub installation_id: uuid::Uuid,
+    pub authenticated_at: String,
+    pub created_at: String,
+    pub last_used_at: String,
+    pub expires_at: String,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionPage {
+    pub current: AccountSession,
+    pub others: Vec<AccountSession>,
+    pub next_cursor: Option<uuid::Uuid>,
+}
 struct Pending {
     id: uuid::Uuid,
     state: String,
@@ -423,6 +441,79 @@ impl AccountManager {
     pub async fn avatar(&self, body: Value) -> Result<Snapshot> {
         self.edit(Method::POST, "/api/native/profile/avatar", body)
             .await
+    }
+    fn expect_account(state: &State, expected: uuid::Uuid) -> Result<()> {
+        if state
+            .credentials
+            .as_ref()
+            .and_then(|credentials| credentials.profile.as_ref())
+            .map(|profile| profile.id)
+            != Some(expected)
+        {
+            return Err(Error::Unauthenticated);
+        }
+        Ok(())
+    }
+    /// Explicit security reads are independent of observation and execution-node state.
+    pub async fn sessions(
+        &self,
+        expected: uuid::Uuid,
+        after: Option<uuid::Uuid>,
+    ) -> Result<SessionPage> {
+        let mut state = self.state.lock().await;
+        Self::expect_account(&state, expected)?;
+        self.ensure(&mut state).await?;
+        let path = after.map_or_else(
+            || "/api/native/sessions".to_owned(),
+            |id| format!("/api/native/sessions?after={id}"),
+        );
+        let token = &state.credentials.as_ref().unwrap().access_token;
+        match self
+            .cloud
+            .request(Method::GET, &path, None, Some(token))
+            .await
+        {
+            Ok(value) => serde_json::from_value(value).map_err(|_| Error::Invalid),
+            Err(Error::Unauthenticated) => {
+                self.clear(&mut state).await?;
+                Err(Error::Unauthenticated)
+            }
+            Err(error) => Err(error),
+        }
+    }
+    /// Revoke one session or all native sessions. An uncertain response is never retried.
+    pub async fn revoke_sessions(
+        &self,
+        expected: uuid::Uuid,
+        session: Option<uuid::Uuid>,
+    ) -> Result<Snapshot> {
+        let mut state = self.state.lock().await;
+        Self::expect_account(&state, expected)?;
+        self.ensure(&mut state).await?;
+        let path = session.map_or_else(
+            || "/api/native/sessions".to_owned(),
+            |id| format!("/api/native/sessions/{id}"),
+        );
+        let token = &state.credentials.as_ref().unwrap().access_token;
+        let value = match self
+            .cloud
+            .request(Method::DELETE, &path, None, Some(token))
+            .await
+        {
+            Ok(value) => value,
+            Err(Error::Unauthenticated) => {
+                self.clear(&mut state).await?;
+                return Err(Error::Unauthenticated);
+            }
+            Err(error) => return Err(error),
+        };
+        let current = value["currentSessionRevoked"]
+            .as_bool()
+            .ok_or(Error::Invalid)?;
+        if current {
+            self.clear(&mut state).await?;
+        }
+        Ok(Self::snapshot(&state))
     }
     async fn edit(&self, method: Method, path: &str, body: Value) -> Result<Snapshot> {
         let mut state = self.state.lock().await;
