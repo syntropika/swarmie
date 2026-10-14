@@ -11,6 +11,8 @@ mod policy;
 mod readiness;
 mod settings;
 pub mod setup;
+mod skill_overlay;
+mod skills;
 pub use acp::AcpHarness;
 pub use antigravity::AntigravityHarness;
 pub use claude::ClaudeHarness;

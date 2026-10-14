@@ -351,9 +351,11 @@ impl swarmie::Harness for FailingHarness {
         connection.capabilities.fork = true.into();
         connection.capabilities.rollback = true.into();
         connection.capabilities.native_skill_inputs = true.into();
+        connection.capabilities.commands = options.config["fixtureSkills"].is_array().into();
         connection.backend = Box::new(FailingBackend {
             inner: connection.backend,
             attempts: self.attempts.clone(),
+            commands: options.config["fixtureSkills"].clone(),
         });
         Ok(connection)
     }
@@ -361,9 +363,14 @@ impl swarmie::Harness for FailingHarness {
 struct FailingBackend {
     inner: Box<dyn swarmie::AgentBackend>,
     attempts: Arc<std::sync::atomic::AtomicUsize>,
+    commands: Value,
 }
 #[async_trait::async_trait]
 impl swarmie::AgentBackend for FailingBackend {
+    async fn commands(&self) -> swarmie::Result<Value> {
+        if self.commands.is_array() { Ok(self.commands.clone()) }
+        else { Err(swarmie::Error::Unsupported("Fixture has no native skill catalog".into())) }
+    }
     async fn prompt(&self, prompt: &swarmie::Prompt) -> swarmie::Result<()> {
         self.inner.prompt(prompt).await
     }
@@ -743,4 +750,32 @@ async fn fork_retains_authored_context_and_attachments_for_later_native_editing(
         edited["result"]["draft"]["attachments"][0]["data"],
         "ZmlsZQ=="
     );
+}
+
+#[tokio::test]
+async fn selected_native_skills_are_validated_against_this_session_before_asset_writes() {
+    let root = tempfile::tempdir().unwrap();
+    let f = Fixture::build(root.path(), false, Some(Arc::new(std::sync::atomic::AtomicUsize::new(0)))).await;
+    let created = f.request("client/sessionCreate", json!({"harness":"mock","config":{"fixtureSkills":[
+        {"name":"check","path":"/node/shared/SKILL.md","source":"skill","enabled":true,"availability":"advertised"},
+        {"name":"off","path":"/node/off/SKILL.md","source":"skill","enabled":false},
+        {"name":"stale","path":"/node/stale/SKILL.md","source":"skill","availability":"requires-restart"},
+        {"name":"model","path":"/node/model/SKILL.md","source":"skill","userInvocable":false}
+    ]}})).await;
+    assert!(created.get("error").is_none(), "{created}");
+    let session = &created["result"]["id"];
+    for (index, skill) in [
+        json!({"name":"check","path":"/different-node/shared/SKILL.md"}),
+        json!({"name":"another-name","path":"/node/shared/SKILL.md"}),
+        json!({"name":"off","path":"/node/off/SKILL.md"}),
+        json!({"name":"stale","path":"/node/stale/SKILL.md"}),
+        json!({"name":"model","path":"/node/model/SKILL.md"}),
+    ].into_iter().enumerate() {
+        let response = f.request("client/sessionInput", json!({"sessionId":session,"text":"Use selected instructions","idempotencyKey":format!("skill-{index}"),
+            "attachments":[{"id":"asset","name":"file.pdf","mime":"application/pdf","image":false,"binary":true,"data":"ZmlsZQ=="}],
+            "contextItems":[{"id":"skill","skill":skill}]})).await;
+        assert_eq!(response["error"]["data"]["effectKnowledge"], "none", "{response}");
+    }
+    assert!(!root.path().join("workspace/assets").exists());
+    assert!(f.harness.prompts().await.is_empty());
 }

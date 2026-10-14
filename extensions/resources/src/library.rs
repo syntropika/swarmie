@@ -162,7 +162,6 @@ impl ResourcesExtension {
     async fn discover(&self, p: &Value) -> Result<Value> {
         let project = self.resource_cwd(p).await?;
         let mut roots = vec![
-            (project.join(".agents/skills"), "skill", "project"),
             (project.join(".pi/skills"), "skill", "project"),
             (project.join(".pi/prompts"), "template", "project"),
             (project.join(".claude/skills"), "skill", "project"),
@@ -171,6 +170,9 @@ impl ResourcesExtension {
         let mut commands = Value::Null;
         let mut limitations=vec!["Files discovered in native convention directories are not proof that a running harness loaded them".to_owned()];
         let mut config_home = None;
+        let mut home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(PathBuf::from);
         let mut harness = p["harness"].as_str().map(str::to_owned);
         if let Some(id) = p["sessionId"].as_str() {
             let runtime = self.runtime()?;
@@ -181,6 +183,7 @@ impl ResourcesExtension {
             harness = Some(snapshot.options.harness);
             config_home = snapshot.options.execution.config_home;
             if let Some(agent) = runtime.agent(id).await {
+                home = agent.execution_home().or(home);
                 match agent.slash_commands().await {
                     Ok(value) => commands = value,
                     Err(error) => limitations.push(format!("Native command catalog: {error}")),
@@ -189,8 +192,7 @@ impl ResourcesExtension {
                 limitations.push("Native command catalog requires a live session".into());
             }
         }
-        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-            roots.push((home.join(".agents/skills"), "skill", "user"));
+        if let Some(home) = home.as_ref() {
             match harness.as_deref() {
                 Some("claude") => {
                     let root = config_home.unwrap_or(home.join(".claude"));
@@ -210,27 +212,55 @@ impl ResourcesExtension {
                 _ => {}
             }
         }
+        let mut skill_roots = swarmie_skills::canonical_roots(&project, home.as_deref());
+        skill_roots.extend(roots.iter().filter(|(_, kind, _)| *kind == "skill").map(
+            |(path, _, scope)| swarmie_skills::Root {
+                path: path.clone(),
+                scope,
+            },
+        ));
+        let catalog = swarmie_skills::Catalog::discover(&skill_roots);
+        let mut capped = catalog.truncated;
+        limitations.extend(catalog.diagnostics);
         let mut entries = Vec::new();
         let mut paths = Vec::new();
-        let mut capped = false;
-        for (root, kind, source) in roots {
+        for skill in catalog.skills {
+            let advertised = commands.as_array().into_iter().flatten().find(|command| {
+                command["source"] == "skill"
+                    && command["path"].as_str().is_some_and(|path| {
+                        fs::canonicalize(path).ok().as_ref() == Some(&skill.path)
+                    })
+            });
+            let availability = if !skill.usable() {
+                "incompatible"
+            } else {
+                advertised
+                    .and_then(|command| command["availability"].as_str())
+                    .unwrap_or(if advertised.is_some() {
+                        "advertised"
+                    } else {
+                        "discovered"
+                    })
+            };
+            entries.push(json!({"id":skill.path,"name":skill.name,"description":skill.description,"kind":"skill","path":skill.path,"source":skill.scope,"origins":skill.origins,"conflicts":skill.conflicts,"diagnostics":skill.diagnostics,"native":advertised.is_some(),"availability":availability,"invocation":advertised.map(|command| &command["invocation"]),"selection":advertised.map(|command| json!({"name":command["name"],"path":command["path"]})),"userInvocable":skill.user_invocable && advertised.is_none_or(|command| command["userInvocable"] != false),"desiredModelInvocation":skill.model_invocable,"modelInvocable":advertised.map(|command| &command["modelInvocable"])}));
+            paths.push(skill.path);
+        }
+        for (root, kind, source) in roots.into_iter().filter(|(_, kind, _)| *kind != "skill") {
+            if entries.len() >= 500 {
+                capped = true;
+                break;
+            }
             let mut files = Vec::new();
             walk(&root, 0, &mut files, &mut capped)?;
             for path in files {
-                if kind == "skill" && path.file_name().is_none_or(|n| n != "SKILL.md") {
-                    continue;
-                }
                 if paths.contains(&path) {
                     continue;
                 }
-                let name = if kind == "skill" {
-                    path.parent().and_then(Path::file_name)
-                } else {
-                    path.file_stem()
-                }
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
-                entries.push(json!({"id":path.to_string_lossy(),"name":name,"kind":kind,"path":path,"source":source,"native":true}));
+                let name = path
+                    .file_stem()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                entries.push(json!({"id":path,"name":name,"kind":kind,"path":path,"source":source,"native":false,"availability":"discovered"}));
                 paths.push(path);
                 if entries.len() >= 500 {
                     capped = true;
@@ -245,7 +275,7 @@ impl ResourcesExtension {
             let file = project.join(name);
             if file.is_file() && !fs::symlink_metadata(&file)?.file_type().is_symlink() {
                 let file = fs::canonicalize(file)?;
-                entries.push(json!({"id":file,"name":name,"kind":"instruction","path":file,"source":"project","native":true}));
+                entries.push(json!({"id":file,"name":name,"kind":"instruction","path":file,"source":"project","native":false,"availability":"discovered"}));
                 paths.push(file);
             }
         }

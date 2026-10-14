@@ -56,6 +56,17 @@ impl Drop for AgentInner {
 #[derive(Clone)]
 pub struct Agent(pub(crate) Arc<AgentInner>);
 impl Agent {
+    /// The live owner's home override, without exposing launch credentials or other environment values.
+    pub fn execution_home(&self) -> Option<std::path::PathBuf> {
+        let execution = self.0.execution.lock().unwrap();
+        let execution = execution.as_ref()?;
+        execution
+            .env
+            .get("HOME")
+            .or_else(|| execution.env.get("USERPROFILE"))
+            .map(std::path::PathBuf::from)
+    }
+
     pub async fn snapshot(&self) -> SessionSnapshot {
         self.0.snapshot.read().await.clone()
     }

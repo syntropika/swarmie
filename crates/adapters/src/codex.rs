@@ -1122,13 +1122,10 @@ impl AgentBackend for CodexBackend {
     async fn commands(&self) -> Result<Value> {
         let response = self
             .wire
-            .request(
-                "skills/list",
-                json!({"cwds":[self.cwd],"forceReload":false}),
-            )
+            .request("skills/list", json!({"cwds":[self.cwd],"forceReload":true}))
             .await?;
-        let commands:Vec<_> = response["data"].as_array().into_iter().flatten().flat_map(|entry|entry["skills"].as_array().into_iter().flatten()).filter(|skill|skill["enabled"] != false).filter_map(|skill| {
-            Some(json!({"name":skill["name"].as_str()?,"description":skill["description"],"source":"skill","path":skill["path"],"invocation":format!("${} ",skill["name"].as_str()?)}))
+        let commands:Vec<_> = response["data"].as_array().into_iter().flatten().flat_map(|entry|entry["skills"].as_array().into_iter().flatten()).filter_map(|skill| {
+            Some(json!({"name":skill["name"].as_str()?,"description":skill["description"],"source":"skill","path":skill["path"],"scope":skill["scope"],"enabled":skill["enabled"] != false,"availability":if skill["enabled"] == false {"blocked-by-native"} else {"advertised"},"metadata":skill,"invocation":format!("${} ",skill["name"].as_str()?)}))
         }).collect();
         Ok(json!(commands))
     }
@@ -1268,6 +1265,12 @@ impl CodexBackend {
         let mut active = self.turn.write().await;
         if active.is_some() || self.compact_receipt.lock().await.is_some() {
             return Err(Error::Busy);
+        }
+        if p.content
+            .iter()
+            .any(|content| matches!(content, PromptContent::Skill { .. }))
+        {
+            super::skills::selected(p, &self.commands().await?)?;
         }
         let mut params = json!({"threadId":self.thread,"input":input(p)?});
         if let Some(id) = submission_id {

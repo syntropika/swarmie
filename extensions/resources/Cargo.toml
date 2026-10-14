@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 swarmie.workspace = true
+swarmie-skills.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
 serde.workspace = true

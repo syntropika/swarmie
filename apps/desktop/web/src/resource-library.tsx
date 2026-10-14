@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useId } from "react";
+import { useEffect, useState, useCallback, useId, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Disclosure } from "@/components/ui/disclosure";
@@ -11,6 +11,16 @@ import { hasCount, hasText } from "./components/presentation-values";
 import type { Thread } from "./protocol";
 import type { WorkspaceStore } from "./workspace";
 
+const resourceOwners = new WeakMap<WorkspaceStore, number>();
+let nextResourceOwner = 0;
+function resourceOwner(store: WorkspaceStore) {
+  let owner = resourceOwners.get(store);
+  if (owner === undefined) {
+    owner = ++nextResourceOwner;
+    resourceOwners.set(store, owner);
+  }
+  return owner;
+}
 export type Template = {
   id: string;
   name: string;
@@ -85,6 +95,49 @@ function TemplateParameters({
     </div>
   );
 }
+export type NativeSkillCommand = {
+  name: string;
+  path?: string;
+  description?: string;
+  source?: string;
+  scope?: string;
+  invocation?: string;
+  availability?: string;
+  enabled?: boolean;
+  userInvocable?: boolean;
+};
+
+function selectNativeSkill(store: WorkspaceStore, thread: Thread, command: NativeSkillCommand) {
+  if (
+    command.source !== "skill" ||
+    !command.path ||
+    command.enabled === false ||
+    command.userInvocable === false ||
+    (command.availability && command.availability !== "advertised") ||
+    thread.capabilities?.nativeSkillInputs?.availability !== "available"
+  )
+    return;
+  const skill = { name: command.name.replace(/^[/$]/, ""), path: command.path };
+  const current = store.getSnapshot().threads.find((item) => item.id === thread.id);
+  if (!current) return;
+  const multiple = thread.harness === "codex";
+  store.updateThread(thread.id, {
+    contextItems: [
+      ...(current.contextItems ?? []).filter(
+        (item) => !item.skill || (multiple && item.skill.path !== skill.path),
+      ),
+      {
+        id: crypto.randomUUID(),
+        kind: "resource",
+        label: `Skill: ${skill.name}`,
+        text: `Native skill selected from ${skill.path}`,
+        path: skill.path,
+        skill,
+      },
+    ],
+  });
+}
+
 type Resource = {
   id: string;
   name: string;
@@ -92,6 +145,12 @@ type Resource = {
   path: string;
   source: string;
   native: boolean;
+  availability?: string;
+  invocation?: string;
+  userInvocable?: boolean;
+  selection?: { name: string; path: string };
+  conflicts?: string[];
+  diagnostics?: string[];
 };
 export function ResourceLibrary({ store, thread }: { store: WorkspaceStore; thread: Thread }) {
   const fieldPrefix = useId();
@@ -102,7 +161,13 @@ export function ResourceLibrary({ store, thread }: { store: WorkspaceStore; thre
   const [pendingTemplate, setPendingTemplate] = useState<Template>();
   const [variables, setVariables] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Template>();
-  const [read, setRead] = useState<{ path: string; text: string }>();
+  const [read, setRead] = useState<{
+    path: string;
+    text: string;
+    resource: Resource;
+    owner: WorkspaceStore;
+    scope: string;
+  }>();
   const [query, setQuery] = useState("");
   const [history, setHistory] = useState<
     { sessionId: string; sequence: number; text: string; timestampMs: number }[]
@@ -121,6 +186,18 @@ export function ResourceLibrary({ store, thread }: { store: WorkspaceStore; thre
     },
     [store],
   );
+  const discoveryRevision = useRef(0);
+  const scope = JSON.stringify([
+    thread.id,
+    thread.worktreeId,
+    thread.sessionId,
+    thread.harness,
+    thread.commandsRevision,
+  ]);
+  useEffect(() => {
+    discoveryRevision.current++;
+    setRead(undefined);
+  }, [store, scope]);
   const fetchCatalog = useCallback(async () => {
     const [saved, found] = await Promise.all([
       store.invokeExtension<{ templates: Template[] }>(
@@ -184,10 +261,18 @@ export function ResourceLibrary({ store, thread }: { store: WorkspaceStore; thre
       resources: found.resources,
       limitations: found.limitations,
     };
-  }, [store, thread.harness, thread.worktreeId, thread.sessionId]);
+  }, [store, thread.harness, thread.worktreeId, thread.sessionId, thread.commandsRevision]);
   const catalog = useExtensionQuery(
     store,
-    ["resource-catalog", thread.id, thread.harness, thread.worktreeId, thread.sessionId],
+    [
+      "resource-catalog",
+      resourceOwner(store),
+      thread.id,
+      thread.harness,
+      thread.worktreeId,
+      thread.sessionId,
+      thread.commandsRevision,
+    ],
     fetchCatalog,
   );
   const templates = catalog.data?.templates ?? [];
@@ -260,36 +345,76 @@ export function ResourceLibrary({ store, thread }: { store: WorkspaceStore; thre
 
             title={r.path}
             onClick={() => {
-              run(async () => {
-                setRead(
-                  await store.invokeExtension(
-                    "resources",
-                    "resources.read",
-                    {
-                      cwd: thread.worktreeId,
-                      sessionId: thread.sessionId,
-                      path: r.path,
-                    },
-                    extensionResult<{ path: string; text: string }>({
-                      type: "object",
-                      properties: { path: { type: "string" }, text: { type: "string" } },
-                      required: ["path", "text"],
-                    }),
-                  ),
+              void run(async () => {
+                const revision = discoveryRevision.current;
+                const value = await store.invokeExtension(
+                  "resources",
+                  "resources.read",
+                  {
+                    cwd: thread.worktreeId,
+                    sessionId: thread.sessionId,
+                    path: r.path,
+                  },
+                  extensionResult<{ path: string; text: string }>({
+                    type: "object",
+                    properties: { path: { type: "string" }, text: { type: "string" } },
+                    required: ["path", "text"],
+                  }),
                 );
-              }).catch(store.setError.bind(store));
+                if (revision === discoveryRevision.current)
+                  setRead({ ...value, resource: r, owner: store, scope });
+              });
             }}
           >
             {r.name}
             <span className="muted">
-              {r.kind} · {r.source}
+              {r.kind} · {r.source} · {r.availability ?? "discovered"}
             </span>
           </Button>
         ))}
-      {read && (
+      {read && read.owner === store && read.scope === scope && (
         <Disclosure defaultOpen>
           <Disclosure.Summary>{read.path}</Disclosure.Summary>
           <pre className="action-output">{read.text}</pre>
+          {read.resource.diagnostics?.map((message) => (
+            <p key={message} className="panel-note">
+              {message}
+            </p>
+          ))}
+          {!!read.resource.conflicts?.length && (
+            <p className="panel-note">
+              Other skills share this name. Inspect their paths before choosing a native skill.
+            </p>
+          )}
+          {read.resource.kind === "skill" && (
+            <Button
+              type="button"
+              variant="ghost"
+              className="small-button"
+              disabled={
+                read.resource.availability !== "advertised" ||
+                read.resource.userInvocable === false ||
+                thread.capabilities?.nativeSkillInputs?.availability !== "available"
+              }
+              onClick={() => {
+                selectNativeSkill(store, thread, {
+                  ...read.resource,
+                  ...read.resource.selection,
+                  source: "skill",
+                });
+                const current = store.getSnapshot().threads.find((item) => item.id === thread.id);
+                if (current && !current.draft?.trim())
+                  store.updateThread(thread.id, {
+                    draft: read.resource.invocation ?? `$${read.resource.name} `,
+                  });
+                window.dispatchEvent(
+                  new CustomEvent("swarmie:composer-text", { detail: { threadId: thread.id } }),
+                );
+              }}
+            >
+              Use native skill
+            </Button>
+          )}
           <Button
             size="sm"
             type="button"
@@ -308,7 +433,7 @@ export function ResourceLibrary({ store, thread }: { store: WorkspaceStore; thre
               }
             }}
           >
-            Add resource to message
+            Attach instructions as text
           </Button>
         </Disclosure>
       )}
@@ -569,9 +694,16 @@ function SlashCommandsContent({
   store: WorkspaceStore;
   setText: (text: string) => void;
 }) {
-  const [commands, setCommands] = useState<
-    { name: string; description?: string; source?: string; path?: string; invocation?: string }[]
-  >([]);
+  const [commands, setCommands] = useState<NativeSkillCommand[]>([]);
+  const scope = JSON.stringify([
+    thread.id,
+    thread.worktreeId,
+    thread.sessionId,
+    thread.harness,
+    thread.commandsRevision,
+  ]);
+  const [catalogOwner, setCatalogOwner] = useState<{ store: WorkspaceStore; scope: string }>();
+  const catalogCurrent = catalogOwner?.store === store && catalogOwner.scope === scope;
   const [templates, setTemplates] = useState<Template[]>([]);
   const [pendingSelection, setPendingSelection] = useState<{
     template: Template;
@@ -621,19 +753,12 @@ function SlashCommandsContent({
         );
         if (!cancelled && current === revision) {
           setTemplates(result.templates);
+          setCatalogOwner({ store, scope });
         }
       }
       if (hasText(thread.sessionId)) {
         const rawCatalog = await store.rpc("agent/commands", { sessionId: thread.sessionId });
-        const catalog = extensionResult<
-          {
-            name: string;
-            description?: string;
-            source?: string;
-            path?: string;
-            invocation?: string;
-          }[]
-        >({
+        const catalog = extensionResult<NativeSkillCommand[]>({
           type: "array",
           items: {
             type: "object",
@@ -649,6 +774,7 @@ function SlashCommandsContent({
         })(rawCatalog);
         if (!cancelled && current === revision) {
           setCommands(catalog);
+          setCatalogOwner({ store, scope });
         }
       }
     };
@@ -666,7 +792,7 @@ function SlashCommandsContent({
       cancelled = true;
       window.removeEventListener("swarmie:templates", refresh);
     };
-  }, [queryEnabled, thread.sessionId, store]);
+  }, [queryEnabled, scope, store]);
 
   if (query === undefined) {
     return null;
@@ -731,59 +857,43 @@ function SlashCommandsContent({
           </Button>
         </div>
       )}
-      {commands
-        .filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))
+      {(catalogCurrent ? commands : [])
+        .filter(
+          (c) =>
+            c.name.toLowerCase().includes(query.toLowerCase()) &&
+            c.enabled !== false &&
+            c.userInvocable !== false &&
+            c.availability !== "requires-restart",
+        )
         .slice(0, 8)
         .map((command) => (
           <Button
             type="button"
             key={`${command.name}:${command.path ?? command.source}`}
             variant="command"
-
-            title={command.path}
+            title={command.path ?? command.availability}
+            disabled={
+              command.source === "skill" &&
+              (!command.path ||
+                thread.capabilities?.nativeSkillInputs?.availability !== "available" ||
+                (command.availability !== undefined && command.availability !== "advertised"))
+            }
             onClick={() => {
-              if (
-                command.source === "skill" &&
-                command.path !== undefined &&
-                command.path !== null &&
-                command.path !== "" &&
-                thread.capabilities?.nativeSkillInputs?.availability === "available"
-              ) {
-                const skill = {
-                  name: command.name.replace(/^[/$]/u, ""),
-                  path: command.path,
-                };
-                const current = store.getSnapshot().threads.find((item) => item.id === thread.id);
-                if (current === undefined) {
-                  store.setError("The conversation is no longer available.");
-                  return;
-                }
-                store.updateThread(thread.id, {
-                  contextItems: [
-                    ...(current.contextItems ?? []).filter(
-                      (item) => item.skill?.path !== skill.path,
-                    ),
-                    {
-                      id: crypto.randomUUID(),
-                      kind: "resource",
-                      label: `Skill: ${skill.name}`,
-                      text: `Native skill selected from ${skill.path}`,
-                      path: skill.path,
-                      skill,
-                    },
-                  ],
-                });
-              }
-              choose(command.invocation ?? `/${command.name.replace(/^[/$]/u, "")} `);
+              selectNativeSkill(store, thread, command);
+              choose(command.invocation ?? `/${command.name.replace(/^[/$]/, "")} `);
             }}
           >
-            {(command.invocation ?? `/${command.name.replace(/^[/$]/u, "")}`).trim()}
+            {command.source === "skill"
+              ? `$${command.name}`
+              : (command.invocation ?? `/${command.name.replace(/^[/$]/, "")}`).trim()}
             <span className="muted">
-              {command.source === "skill" ? "Native skill" : "Native command"}
+              {command.source === "skill"
+                ? `Native skill · ${command.scope ?? command.path ?? "session"}`
+                : "Native command"}
             </span>
           </Button>
         ))}
-      {templates
+      {(catalogCurrent ? templates : [])
         .filter((t) => matchingTemplateIdentifier(t, query) !== undefined)
         .slice(0, 8)
         .map((template) => (

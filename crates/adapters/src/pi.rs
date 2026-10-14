@@ -152,11 +152,24 @@ async fn connect_pi(
                 "Pi strict tool disabling with explicit extensions".into(),
             ));
         }
-        args.extend(["--no-tools".into(), "--no-extensions".into()]);
+        if args
+            .iter()
+            .any(|arg| arg == "--skill" || arg.starts_with("--skill="))
+        {
+            return Err(Error::Invalid(
+                "Disabled tools cannot be combined with explicit skills".into(),
+            ));
+        }
+        args.extend([
+            "--no-tools".into(),
+            "--no-extensions".into(),
+            "--no-skills".into(),
+        ]);
     }
     if o.execution.ephemeral {
         args.push("--no-session".into());
     }
+    let skills = super::skills::shared(o).skills;
     let env = execution_env(o, Some("PI_CODING_AGENT_DIR"))?;
     let (wire, mut frames) = spawn_json(o, &exe, &args, WireStyle::Pi, env).await?;
     let fork_receipt = if fork {
@@ -400,6 +413,15 @@ async fn connect_pi(
         native: native("pi", id),
         capabilities: {
             let mut caps = capabilities();
+            caps.metadata
+                .insert("nativeSkillSteering".into(), json!(false));
+            caps.metadata
+                .insert("maxNativeSkillsPerMessage".into(), json!(1));
+            caps.native_skill_inputs = if o.execution.tools == ToolPolicy::Disabled {
+                Capability::unavailable("Skills are disabled by execution policy")
+            } else {
+                true.into()
+            };
             caps.resume = if o.execution.ephemeral {
                 Capability::unavailable("Ephemeral sessions do not retain native history")
             } else {
@@ -420,6 +442,8 @@ async fn connect_pi(
             outcome,
             dialogs,
             context_window,
+            tools_disabled: o.execution.tools == ToolPolicy::Disabled,
+            skills,
         }),
     })
 }
@@ -446,25 +470,61 @@ struct PiBackend {
     outcome: Arc<RwLock<(TurnOutcome, Option<String>)>>,
     dialogs: Arc<RwLock<BTreeMap<String, Value>>>,
     context_window: Arc<AtomicU64>,
+    tools_disabled: bool,
+    skills: Vec<swarmie_skills::Skill>,
 }
-fn params(p: &Prompt) -> Result<Value> {
+impl PiBackend {
+    async fn skill_command(&self, prompt: &Prompt) -> Result<Option<String>> {
+        if !prompt
+            .content
+            .iter()
+            .any(|content| matches!(content, PromptContent::Skill { .. }))
+        {
+            return Ok(None);
+        }
+        if self.tools_disabled {
+            return Err(Error::Rejected(
+                "Skills are disabled by execution policy".into(),
+            ));
+        }
+        for content in &prompt.content {
+            if let PromptContent::Skill { path, .. } = content
+                && let Some(skill) = self
+                    .skills
+                    .iter()
+                    .find(|skill| skill.path == std::path::Path::new(path))
+                && !skill.unchanged()
+            {
+                return Err(Error::Rejected(
+                    "Selected skill changed; restart the native session".into(),
+                ));
+            }
+        }
+        super::skills::native_command(prompt, &self.commands().await?)
+    }
+}
+fn params(p: &Prompt, command: Option<&str>) -> Result<Value> {
     let mut texts = vec![];
     let mut images = vec![];
     for c in &p.content {
         match c {
             PromptContent::Text(t) => texts.push(t.clone()),
+            PromptContent::Skill { .. } => {}
             PromptContent::Image { data, mime_type } => {
                 images.push(json!({"type":"image","data":data,"mimeType":mime_type}))
             }
             _ => return Err(Error::Unsupported("Pi resource content".into())),
         }
     }
-    Ok(json!({"message":texts.join("\n"),"images":images}))
+    Ok(
+        json!({"message":command.map_or_else(|| texts.join("\n"), |command| super::skills::command_text(p, command)),"images":images}),
+    )
 }
 #[async_trait]
 impl AgentBackend for PiBackend {
     async fn prompt(&self, p: &Prompt) -> Result<()> {
-        let params = params(p)?;
+        let command = self.skill_command(p).await?;
+        let params = params(p, command.as_deref())?;
         *self.outcome.write().await = (TurnOutcome::Completed, None);
         self.wire.set_active(true);
         let r = match self.wire.request("prompt", params).await {
@@ -488,7 +548,15 @@ impl AgentBackend for PiBackend {
         Ok(())
     }
     async fn steer(&self, p: &Prompt) -> Result<()> {
-        self.wire.request("steer", params(p)?).await?;
+        if p.content
+            .iter()
+            .any(|content| matches!(content, PromptContent::Skill { .. }))
+        {
+            return Err(Error::Rejected(
+                "Native skill expansion requires a new Pi turn; queue the message".into(),
+            ));
+        }
+        self.wire.request("steer", params(p, None)?).await?;
         Ok(())
     }
     async fn cancel(&self) -> Result<()> {
@@ -593,13 +661,26 @@ impl AgentBackend for PiBackend {
     }
     async fn commands(&self) -> Result<Value> {
         let result = self.wire.request("get_commands", json!({})).await?;
-        let mut commands = result["commands"].clone();
-        if let Some(values) = commands.as_array_mut() {
-            for command in values {
-                if let Some(name) = command["name"].as_str() {
-                    command["invocation"] = json!(format!("/{} ", name.trim_start_matches('/')));
+        let mut commands = super::skills::pi_catalog(&result, self.tools_disabled);
+        for command in commands.as_array_mut().into_iter().flatten() {
+            if let Some(skill) = self.skills.iter().find(|skill| {
+                command["path"].as_str().is_some_and(|path| {
+                    std::fs::canonicalize(path).ok().as_ref() == Some(&skill.path)
+                })
+            }) {
+                command["userInvocable"] = json!(skill.user_invocable && skill.unchanged());
+                command["modelInvocable"] = json!(skill.model_invocable);
+                command["nativeScope"] = command["scope"].clone();
+                command["scope"] = json!(skill.scope);
+                if !skill.unchanged() {
+                    command["availability"] = json!("requires-restart");
                 }
             }
+        }
+        if commands.is_null() {
+            return Err(Error::Unsupported(
+                "Pi did not advertise its command catalog".into(),
+            ));
         }
         Ok(commands)
     }

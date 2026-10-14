@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 [dependencies]
 swarmie.workspace = true
+swarmie-skills.workspace = true
+tempfile = "3"
+fs2 = "0.4"
 process.workspace = true
 async-trait.workspace = true
 tokio.workspace = true

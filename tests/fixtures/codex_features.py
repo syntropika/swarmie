@@ -80,7 +80,10 @@ for line in sys.stdin:
             {"id": "low-only", "model": "low-only", "displayName": "Low only", "defaultReasoningEffort": "low", "supportedReasoningEfforts": [{"reasoningEffort": "low"}]}
         ]})
     elif method == "skills/list":
-        response(request, {"data": [{"skills": [{"name": "review", "description": "Review changes", "path": "/fixture/review/SKILL.md", "enabled": True}, {"name": "disabled", "enabled": False}]}]})
+        skills = [{"name": "review", "description": "Review changes", "path": "/fixture/review/SKILL.md", "enabled": True}, {"name": "disabled", "enabled": False}]
+        if os.environ.get("SWARMIE_SELECTED_SKILL"):
+            skills.append({"name": "same-name", "path": os.environ["SWARMIE_SELECTED_SKILL"], "enabled": True})
+        response(request, {"data": [{"skills": skills}]})
     elif method == "account/rateLimits/read":
         response(request, {"rateLimits": {"limitId": "other", "primary": {"usedPercent": 99}}, "rateLimitsByLimitId": {"codex": {"planType": "fixture", "primary": {"usedPercent": 25, "windowDurationMins": 300, "resetsAt": 2000000000}}}, "rateLimitResetCredits": {"availableCount": 0}})
     elif method == "turn/start":
