@@ -1,3 +1,6 @@
-[submodule "internal"]
-	path = internal
-	url = git@github.com:syntropika/swarmie-internal.git
+[submodule "cloud"]
+	path = cloud
+	url = git@github.com:syntropika/swarmie-cloud.git
+[submodule "docs"]
+	path = docs
+	url = git@github.com:syntropika/swarmie-docs.git

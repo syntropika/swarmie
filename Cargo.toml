@@ -1,6 +1,6 @@
 [workspace]
 members = ["crates/*", "extensions/*", "examples/external-harness"]
-exclude = ["internal"]
+exclude = ["cloud", "docs"]
 resolver = "2"
 
 [workspace.package]
