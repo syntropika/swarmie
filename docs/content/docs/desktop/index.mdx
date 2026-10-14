@@ -1,0 +1,38 @@
+---
+title: "Desktop workspace"
+description: "Work with projects, conversations, tools, and execution nodes."
+---
+
+The desktop interface connects to this computer's runtime automatically, attaching to the verified owner or starting one when needed. The execution owner continues independently of the window.
+
+The desktop window has a minimum width of **760 pixels**. The shared web interface follows the same minimum width.
+
+## Projects and conversations
+
+The sidebar groups projects, pinned chats, and recent conversations. A project links a directory on the selected execution node. Multiple conversations can share that directory; worktrees are an explicit workflow rather than an automatic folder for every chat.
+
+Create a chat, choose an installed harness and supported model, then write a message. Drafts and selection belong to the viewed node. Switching nodes does not redirect an existing conversation.
+
+## Composer controls
+
+The composer combines harness and node selection, attachments, execution permissions, model settings, context usage, extension actions, and send controls. Native choices come from the runtime. Unknown capacity or unavailable settings are displayed as such.
+
+During a turn, Queue adds a follow-up. Steer appears only for a harness with steering support. Stop requests cancellation of the active turn.
+
+[Dictation](/docs/desktop/dictation/) is a client contribution, independent of the selected harness.
+
+## Workspace tools
+
+Workspace tools discovers runtime extension views. Depending on enabled extensions, these include files, terminal sessions, project actions, Git review, resources, and usage views. Tool tabs and layout are retained per conversation. Closing a tab releases its owned work.
+
+Extension screens and panels have separate navigation menus. Screens replace the conversation content; panels open beside it. [The visual contribution guide](/docs/extensions/visual-guide/) shows their locations.
+
+## Settings
+
+Settings provides account, account security, general, notifications, import, keyboard shortcuts, extensions, and node sections. Extensions contains registered settings contributions, including dictation language.
+
+Notifications are opt-in and depend on WebView support and user permission. Harness readiness belongs to the execution node; check it in node Details.
+
+## Loss of connectivity
+
+The client preserves readable history and drafts while disconnected. Commands remain scoped to their verified node. Reconnecting does not automatically resend an uncertain prompt or migrate local files. See [nodes](/docs/desktop/nodes/) and [submission recovery](/docs/developers/submissions/).

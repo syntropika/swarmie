@@ -1,0 +1,41 @@
+---
+title: "JSON-RPC contract"
+description: "Initialize a runtime, verify its target, and observe ordered events."
+---
+
+The public runtime contract uses JSON-RPC 2.0 with named parameters. Request IDs correlate responses. Notifications do not carry an ID and must not be treated as successful acknowledgements.
+
+## Initialize
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "runtime/initialize",
+  "params": {}
+}
+```
+
+The result identifies the protocol version, method catalog, and `runtimeIdentity`. Compatibility and authentication are separate checks; initialization does not prove harness readiness.
+
+## Guard the intended owner
+
+A retained identity contains `environmentId`, `storeId`, and `ownerScopeId`. The runtime adds an `incarnationId` for the current owner. Include a freshly observed identity as top-level `expectedRuntime` to guard dispatch to the intended owner.
+
+A changed target returns `runtime_target_mismatch` (`-32005`) with `effectKnowledge: "none"` before method effects. General consumers must adopt this guard before claiming the same protection as managed saved connections.
+
+## Session operations
+
+Session methods create, read, prompt, cancel, close, resume, fork, and inspect retained conversations. Configuration, permissions, queues, projects, and extensions have their own method groups. Browse the [generated method reference](/docs/reference/protocol-methods/) for the exact catalog.
+
+Use the current [schema](/contracts/protocol.json) for parameter shapes and result variants. Provider payloads can contain additional native details; canonical fields establish the shared contract.
+
+## Observe a turn
+
+Subscribe or retain the starting event sequence before prompting. Stream or poll events in increasing sequence and store a cursor only after processing them. A submission receipt establishes delivery state; `turn.ended` reports the turn outcome.
+
+Text, tool progress, permission requests, questions, context usage, native model changes, and diagnostics are separate event types. A client should preserve uncertainty rather than turn every unknown state into success.
+
+## Capability evidence
+
+Check the actual capability object for availability, source, and evidence. Declared adapter support, negotiated native support, executable discovery, and authentication evidence describe different facts.

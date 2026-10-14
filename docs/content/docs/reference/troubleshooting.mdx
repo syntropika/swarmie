@@ -1,0 +1,32 @@
+---
+title: "Troubleshooting"
+description: "Check connectivity, readiness, delivery, and browser capability separately."
+---
+
+## No harness installed
+
+Run `swarmie discover` on the execution node. Install a supported agent there and authenticate it with its own CLI. The client displaying the interface may be on a different computer.
+
+## Connected but a prompt fails
+
+Check the selected worktree or directory, model choices, authentication evidence, execution policy, and native capabilities. Runtime initialization only establishes protocol connectivity. `swarmie probe HARNESS` can add readiness evidence where supported.
+
+## The endpoint changed identity
+
+Stop sending commands to that saved target. A different retained identity is a replacement environment, not an ordinary reconnect. Preserve the original connection record and deliberately enroll a replacement if intended.
+
+## Prompt response was lost
+
+Retain the original idempotency key and content. Read its submission receipt before trying new work. Do not infer rejection from connection loss or absence of native evidence. See [submission recovery](/docs/developers/submissions/).
+
+## Dictation is disabled or fails
+
+The current WebView may not provide browser speech recognition. Check provider availability and microphone permission on the displayed client. Use a typed draft or configure another bundled transcription provider. Browser recognition may be remote.
+
+## Browser access is rejected
+
+Browser origins are explicitly controlled. For development, serve frontend assets through the configured loopback daemon or an authorized gateway. A runtime bearer token, origin policy, and target identity check solve different problems.
+
+## The local documentation URL cannot be reached
+
+The documentation server must be running. `127.0.0.1` refers to the computer opening the link; when a preview runs on another computer, use its reachable address and configured port. Serve the static `docs/out` directory or use the docs development server.

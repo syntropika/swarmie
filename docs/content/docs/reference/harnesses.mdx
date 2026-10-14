@@ -1,0 +1,44 @@
+---
+title: "Harnesses and capabilities"
+description: "Discover installed agents and check actual native support."
+---
+
+A harness adapts an installed coding agent's structured interface. Install and authenticate that agent with its own tooling before starting native execution.
+
+## Built-in integrations
+
+| Harness identifier | Native interface |
+| --- | --- |
+| `codex` | Codex App Server JSON-RPC |
+| `claude` | Claude Code SDK control protocol and stream-json |
+| `opencode` | OpenCode HTTP API and SSE |
+| `pi` | Pi RPC |
+| `antigravity` | Native stream-json |
+| `gemini`, `qwen`, `cursor`, `grok`, `hermes`, `kiro` | Registered ACP integrations |
+
+Support depends on the installed agent version, advertised choices, native negotiation, and authentication evidence. Do not infer that every integration supports resume, fork, steering, or the same permission controls.
+
+## Readiness
+
+```sh
+swarmie discover
+swarmie probe codex
+swarmie quotas codex /absolute/project
+```
+
+Discovery is passive executable availability. Probe adds supported version/authentication observations. Quotas reports native account usage where supported. A detected executable alone does not prove a usable model request.
+
+## Generic ACP
+
+A custom ACP executable can be configured without adding a built-in catalog entry:
+
+```sh
+swarmie run custom /absolute/project --executable /absolute/agent --agent-arg=--acp
+swarmie serve --acp custom=/absolute/agent --acp-arg=--acp
+```
+
+Capabilities are negotiated with the native connection. Unsupported operations remain explicit errors.
+
+## Capability evidence
+
+Use the capability's `availability`, `source`, and `evidence`, together with its reason. A common method name does not promise native support. The desktop presents only installed supported harness choices and qualifies settings against the selected session.

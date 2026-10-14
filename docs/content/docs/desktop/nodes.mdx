@@ -1,0 +1,34 @@
+---
+title: "Execution nodes"
+description: "Select where execution happens without moving conversations or files."
+---
+
+A node represents a retained execution environment and its runtime connection. A display name, URL, hostname, or path is connection metadata; the retained identity determines the target.
+
+## This computer
+
+The desktop attaches to the local runtime automatically. There is no manual Add node step for this computer. Temporary connection failures are retried; authentication and identity mismatch remain visible blockers.
+
+For a token-protected browser development connection, use Settings → Nodes → Details → Connection access. Enter a token only in a trusted client. Native same-user connections use the local transport independently of browser bearer authentication.
+
+## Add another node
+
+Settings → Nodes → Control other devices can register a prepared endpoint with a connection name, address, and optional token. SSH enrollment uses existing authenticated SSH access and can offer explicit runtime installation or startup when needed.
+
+The client verifies the target before retaining it. Runtime installation, runtime startup, and automatic service startup are separate choices. Adding a connection does not authorize replacing a live execution owner.
+
+## View node
+
+The composer View node selector changes the visible project and conversation catalog. Existing conversations keep their execution destination. Project folders, credentials, installed agents, and native history are not copied to the newly viewed node.
+
+Node-scoped caches keep equal session IDs and paths on different nodes separate. Removing a route preserves the node's history, drafts, user files, and remote execution. Disconnecting observation does not stop the remote owner.
+
+## Identity and reconnects
+
+The retained identity contains `environmentId`, `storeId`, and `ownerScopeId`. A running owner adds an `incarnationId`. Restarting against the same retained store preserves the identity and changes the incarnation.
+
+A saved connection can reconnect to a new incarnation of the same retained identity. If the endpoint serves another retained identity, the client rejects it before dispatch and keeps the original connection record. Choose a replacement deliberately.
+
+## Independent readiness checks
+
+A reachable runtime does not prove harness authentication or model access. Check the route, protocol compatibility, retained store, working directory continuity, installed harness, authentication evidence, and supported capabilities independently.

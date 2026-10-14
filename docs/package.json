@@ -1,0 +1,37 @@
+{
+  "name": "swarmie-public-docs",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev",
+    "start": "serve out --listen 3000",
+    "types:check": "next typegen && tsc --noEmit",
+    "prebuild": "node scripts/sync-reference.mjs && node scripts/sync-brand.mjs && node scripts/check-content.mjs",
+    "predev": "node scripts/sync-reference.mjs && node scripts/sync-brand.mjs",
+    "check": "node scripts/sync-reference.mjs --check && node scripts/sync-brand.mjs --check && node scripts/check-content.mjs && next typegen && tsc --noEmit",
+    "preview": "serve out --listen tcp://0.0.0.0:3000"
+  },
+  "dependencies": {
+    "cn": "^0.4.0",
+    "fumadocs-core": "16.17.3",
+    "fumadocs-mdx": "15.4.7",
+    "fumadocs-ui": "npm:@fumadocs/base-ui@16.17.3",
+    "lucide-react": "^1.50.0",
+    "next": "16.3.8",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/mdx": "^2.0.14",
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "postcss": "^8.5.28",
+    "serve": "^14.2.6",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2"
+  },
+  "description": "Public user and developer documentation for Swarmie"
+}

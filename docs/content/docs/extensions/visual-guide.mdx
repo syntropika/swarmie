@@ -1,0 +1,81 @@
+---
+title: "Visual contribution guide"
+description: "Explore every implemented UI slot, screen, panel, and dictation state."
+full: true
+---
+
+These captures show the actual implemented desktop UI with **fixture projects, messages, connection data, and simulated dictation**. The demo captures no audio. Periwinkle borders and labels are measured documentation overlays, linked to the corresponding [slot contracts](/docs/extensions/slots/).
+
+The desktop interface has a minimum width of 760 pixels. Screens, panels, settings sections, messages, context menus, and composer states use separate captures to expose normally empty contributions.
+
+## Navigation and headers
+
+The rail, sidebar footer, project row, application header, and conversation header are separate insertion points.
+
+<AnnotatedCapture name="navigation" title="Navigation and headers" />
+
+## Composer
+
+Three surfaces surround the draft: actions, context, and status. The microphone is the built-in dictation contribution.
+
+<AnnotatedCapture name="composer" title="Composer" />
+
+## Messages
+
+The assistant action row is revealed by hover. Both user and assistant messages supply their own message identifiers.
+
+<AnnotatedCapture name="messages" title="Messages" />
+
+## Project menu
+
+Project options supplies its row project and clears conversation-specific targets.
+
+<AnnotatedCapture name="project-menu" title="Project menu" />
+
+## Conversation menu
+
+The titlebar menu supplies the active conversation.
+
+<AnnotatedCapture name="conversation-menu" title="Conversation menu" />
+
+## Sidebar conversation menu
+
+The sidebar menu supplies its row conversation even when another chat is visible. The example inspector preserves that target.
+
+<AnnotatedCapture name="sidebar-menu" title="Sidebar conversation menu" />
+
+## Extension panel
+
+The registered inspector opens alongside the conversation, with toolbar and status slots.
+
+<AnnotatedCapture name="panel" title="Extension panel" />
+
+## Settings sections
+
+Settings → Extensions includes the working dictation settings renderer and a labeled fixture section.
+
+<AnnotatedCapture name="settings" title="Settings sections" />
+
+## Extension screen
+
+Dictation settings replaces conversation content as a registered screen with its own route.
+
+<AnnotatedCapture name="screen" title="Extension screen" />
+
+## Recording
+
+The fixture provider changes the microphone to Stop dictation and publishes recording status.
+
+<AnnotatedCapture name="recording" title="Recording" />
+
+## Processing
+
+The fixture waits for final text, disables repeated activation, and displays processing status.
+
+<AnnotatedCapture name="processing" title="Processing" />
+
+## Command palette
+
+The palette dispatches the same handlers used by buttons, menus, and shortcuts.
+
+<AnnotatedCapture name="commands" title="Command palette" />

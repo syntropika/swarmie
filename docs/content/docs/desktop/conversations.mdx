@@ -1,0 +1,32 @@
+---
+title: "Conversation controls"
+description: "Queue work, answer requests, copy responses, and import native history."
+---
+
+## Queue and steering
+
+Queue schedules a follow-up after the current turn. A queue can be edited, paused, or removed. Restored queues remain paused until you deliberately resume them.
+
+Steering changes an active turn only when the selected harness advertises that capability. An unsupported operation returns an explicit error rather than being simulated with another conversation.
+
+## Approvals and questions
+
+Permission and question cards present the actual options reported by the harness. Select an offered approval or provide the requested answer. A request can outlive an individual turn; its lifecycle is determined by native evidence and the runtime.
+
+Execution modes distinguish requested, staged, and observed settings. See [execution policy](/docs/runtime/execution-policy/) before assuming that a selected label grants a particular filesystem or network boundary.
+
+## Message actions
+
+User and assistant action rows appear on hover or keyboard focus. Copy operates on the selected message text. User message times are shown when a valid stored timestamp is available.
+
+Fork from here appears only when native fork support, an idle session, and a message anchor are available. It creates an explicitly supported branch of conversation history; it is not a universal native rewind operation.
+
+## Import existing history
+
+Settings → Import reads discoverable native harness sessions. Import registers their conversation references and history with the runtime. Reading history is separate from resuming native execution.
+
+The CLI also exposes `swarmie history HARNESS` and optional `--native-id` and `--import` flags. Availability depends on the installed integration and native history format.
+
+## Closing and archiving
+
+Archiving changes conversation organization. Closing a native session ends its owned connection. Closing the desktop window, changing the viewed node, and losing connectivity do not by themselves stop the runtime owner or delete user directories.

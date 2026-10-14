@@ -1,0 +1,44 @@
+---
+title: "Runtime lifecycle"
+description: "Run an execution owner independently of the desktop."
+---
+
+The runtime owns retained sessions, native execution connections, canonical event ordering, submission receipts, and node-local persistence. Clients attach to that owner rather than creating a new writer when they reconnect.
+
+## Start or attach
+
+```sh
+swarmie runtime start
+swarmie runtime status
+```
+
+Start attaches to a verified existing owner or creates the default detached owner when needed. It does not replace a live owner merely because another client attaches.
+
+For process integrations, `swarmie serve` runs JSON-RPC over stdio. HTTP and WebSocket options are available when an explicit daemon listener is needed; see [transports](/docs/runtime/transports/).
+
+## Application data
+
+The CLI uses a node-local application data root, separate from project working directories and native harness authentication. Select another root with the global `--state-dir` option.
+
+Each retained store has stable identity. Starting with another root creates another retained environment; a familiar URL or directory name does not prove that it is the original owner.
+
+## Services
+
+Service installation, enablement, and startup are separate operations:
+
+```sh
+swarmie --state-dir /absolute/runtime-data service install --port 7480
+swarmie service enable
+swarmie service start
+swarmie service status
+```
+
+Enablement configures future startup without starting execution. Linux uses the user systemd manager, macOS uses a user LaunchAgent, and Windows uses a current-user sign-in task. Automatic startup without a user login depends on platform policy and supported deployment mode.
+
+An explicit stop can interrupt active work. Finish work or deliberately accept its interruption before stopping or restarting an owner.
+
+## Session lifecycle
+
+Prompt acceptance starts observation of a turn. `cancel` requests interruption of the active turn; `close` ends the logical session and its owned connection; `kill` forcibly terminates it. Retained history remains separate from live process state.
+
+Closing a client window or removing a connection does not stop the execution owner.

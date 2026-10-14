@@ -1,0 +1,184 @@
+---
+title: "UI slot catalog"
+description: "The 15 supported slots, accepted contribution types, and exact context."
+---
+
+Every slot below is mounted in the current application. The original names are retained: `sidebar.primary` maps to the navigation rail, and `conversation.header.actions` sits inside conversation content separately from the application titlebar.
+
+<SlotIndex />
+
+## Slot contracts
+
+<div id="slot-sidebar.primary" />
+
+### `sidebar.primary`
+
+Primary navigation rail, between workspace tools and the account controls.
+
+- **Accepted types:** action.
+- **Context:** Active workspace; active conversation if selected.
+- **Example:** Open a screen through one command.
+- **Availability:** Always mounted; the rail remains available when the sidebar is hidden.
+
+<div id="slot-sidebar.footer" />
+
+### `sidebar.footer`
+
+Bottom of the projects and chats sidebar, above connection status.
+
+- **Accepted types:** action, text.
+- **Context:** Active workspace and conversation.
+- **Example:** Show extension status or open a tool.
+- **Availability:** Visible while the sidebar is open.
+
+<div id="slot-app.header.actions" />
+
+### `app.header.actions`
+
+Application titlebar, before extension screen/panel navigation and built-in tools.
+
+- **Accepted types:** action.
+- **Context:** Active workspace and conversation.
+- **Example:** Open the contribution demo screen.
+- **Availability:** Available across chat, settings, and extension screens.
+
+<div id="slot-conversation.header.actions" />
+
+### `conversation.header.actions`
+
+Top-right of the conversation content, below the application titlebar.
+
+- **Accepted types:** action.
+- **Context:** The displayed conversation, project, worktree, and session.
+- **Example:** Inspect the conversation in a panel.
+- **Availability:** Mounted when the conversation is displayed; absent while a screen replaces it.
+
+<div id="slot-composer.actions" />
+
+### `composer.actions`
+
+Composer toolbar, between session controls and Send/Queue/Stop.
+
+- **Accepted types:** action.
+- **Context:** Displayed conversation, worktree and session; composerReady.
+- **Example:** dictation/toggle or demo/insert.
+- **Availability:** Visible with the conversation; use enabledWhen: ["composerReady"] for draft-changing actions.
+
+<div id="slot-composer.context" />
+
+### `composer.context`
+
+Context strip above the draft, beside harness and node controls.
+
+- **Accepted types:** action, text.
+- **Context:** Displayed conversation and its working context identifiers.
+- **Example:** Show the selected contribution context.
+- **Availability:** Visible with the composer; no DOM access to harness controls.
+
+<div id="slot-composer.status" />
+
+### `composer.status`
+
+Inside the composer, below its toolbar.
+
+- **Accepted types:** text.
+- **Context:** Displayed conversation and composer readiness.
+- **Example:** Recording or processing status.
+- **Availability:** Empty text occupies no vertical status line. Nonempty status is announced with role="status".
+
+<div id="slot-message.actions" />
+
+### `message.actions`
+
+Each user or assistant message action row.
+
+- **Accepted types:** action.
+- **Context:** Displayed conversation plus the exact messageId.
+- **Example:** Inspect this message in a panel.
+- **Availability:** Shown on hover or keyboard focus. Assistant action rows are hidden during generation.
+
+<div id="slot-message.details" />
+
+### `message.details`
+
+Below each message body and above its action row.
+
+- **Accepted types:** text.
+- **Context:** Displayed conversation plus the exact messageId.
+- **Example:** Show extension metadata.
+- **Availability:** Visible on rendered user and assistant messages; plain text only.
+
+<div id="slot-project.actions" />
+
+### `project.actions`
+
+Project row in the sidebar, beside New chat and Project options.
+
+- **Accepted types:** action.
+- **Context:** The row projectId; conversation, session and worktree identifiers are cleared.
+- **Example:** Inspect the selected project.
+- **Availability:** Visible in expanded project navigation, including rows with no active conversation.
+
+<div id="slot-project.contextMenu" />
+
+### `project.contextMenu`
+
+Project options menu in the project row.
+
+- **Accepted types:** action.
+- **Context:** The menu projectId; no conversation/session/worktree target; composerReady=false.
+- **Example:** Dispatch the same inspection command as the row action.
+- **Availability:** Available when that project options menu is open.
+
+<div id="slot-conversation.contextMenu" />
+
+### `conversation.contextMenu`
+
+Conversation actions menu in the titlebar and Chat options menu on every sidebar row.
+
+- **Accepted types:** action.
+- **Context:** Titlebar: active conversation. Sidebar: the row conversationId, projectId, worktreeId and sessionId; composerReady=false.
+- **Example:** Inspect the menu target without selecting another chat.
+- **Availability:** Mounted inside the open menu. Both placements use the same slot name and command.
+
+<div id="slot-panel.toolbar" />
+
+### `panel.toolbar`
+
+Below the heading of the open conversation side panel.
+
+- **Accepted types:** action.
+- **Context:** Active conversation plus panelId; extension panels retain the context that opened them, including messageId.
+- **Example:** Refresh or inspect the panel context.
+- **Availability:** Visible while a built-in or extension panel is open.
+
+<div id="slot-panel.status" />
+
+### `panel.status`
+
+After the content of the open conversation side panel.
+
+- **Accepted types:** text.
+- **Context:** The panel context and panelId.
+- **Example:** Show extension tool status.
+- **Availability:** Visible while a panel is open. Nonempty text is announced with role="status".
+
+<div id="slot-settings.sections" />
+
+### `settings.sections`
+
+Settings → Extensions, in the settings content area.
+
+- **Accepted types:** section.
+- **Context:** Active workspace and conversation identifiers; composerReady=false.
+- **Example:** Dictation language settings, or a section action that opens a runtime screen.
+- **Availability:** Visible when Extensions is selected. Sections accept a title, text, and optional command; bundled modules may provide a trusted local renderer.
+
+
+## Context and availability
+
+Global placements receive the active workspace context. Project rows explicitly clear conversation, session, and worktree targets. Sidebar conversation menus use their row conversation rather than the active chat and disable composer insertion. Message placements include the exact message identifier.
+
+Screens replace the conversation; their composer is unavailable. Extension panels retain the context that opened them. Read [the contribution contract](/docs/extensions/contribution-contract/) for scope expiry and shared command dispatch.
+
+The [visual guide](/docs/extensions/visual-guide/) links every measured highlight back to its contract here.

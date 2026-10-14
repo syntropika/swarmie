@@ -1,0 +1,28 @@
+---
+title: "Extensions"
+description: "Add runtime capabilities and scoped client contributions."
+---
+
+An extension can add headless runtime operations, agent-callable tools, client interface contributions, or a combination of these responsibilities.
+
+## Runtime capabilities
+
+`RuntimeExtension` is the Rust port for runtime-owned commands, tools, views, and lifecycle hooks. `extension/list` advertises command names and presentation metadata. `extension/invoke` calls an advertised extension operation.
+
+Existing `ExtensionView` entries remain available in Workspace tools. They do not grant arbitrary access to the surrounding application.
+
+## Client contributions
+
+The v1 contribution manifest registers named slots, full screens, conversation panels, and commands. The client renders these declarations and supplies scoped context. A bundled client module can provide command handlers and trusted React renderers; runtime HTML remains isolated.
+
+A microphone captures on the displayed client. A runtime transcription command may run on another node, but it does not become the owner of that microphone or the user's local composer.
+
+## Start building
+
+- [Contribution contract](/docs/extensions/contribution-contract/): versioning, identity, ordering, commands, and lifecycle.
+- [Slot catalog](/docs/extensions/slots/): all 15 mounted insertion points and their supplied context.
+- [Visual guide](/docs/extensions/visual-guide/): annotated captures of the actual implemented surfaces.
+- [Scoped frame bridge](/docs/extensions/frame-bridge/): runtime HTML without host DOM access.
+- [Examples](/docs/extensions/examples/): a small client action and a declarative runtime manifest.
+
+The current implementation supports bundled client modules and declarative runtime contributions. It does not install arbitrary remote JavaScript, create a plugin marketplace, or provision a transcription provider.

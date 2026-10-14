@@ -1,0 +1,55 @@
+---
+title: "Installation"
+description: "Build the runtime or install a trusted platform-specific package."
+---
+
+## Build from a source checkout
+
+The Rust workspace requires Rust 1.88 or later. Build the runtime executable from the repository root:
+
+```sh
+cargo build --locked -p app --release
+./target/release/swarmie --help
+```
+
+On Windows, use `target/release/swarmie.exe`. The runtime build does not require the desktop frontend, a graphical session, or hosted-service credentials. Install and authenticate your preferred coding-agent harness separately.
+
+## Install a runtime package
+
+If you have a trusted runtime archive for your operating system and architecture, extract it and run its included installer:
+
+```sh
+python3 install.py
+```
+
+The installer requires Python 3.9 or later and verifies the package metadata and executable checksum. Defaults use user-owned runtime and launcher directories. Use `--prefix` and `--bin-dir` to choose other paths. Installing a package does not start execution or enable a service.
+
+Updates replace recorded, unmodified installation files. They preserve project directories, credentials, and retained runtime data. Unix processes keep their loaded executable across replacement; Windows requires stopping an in-use executable before replacement.
+
+## Build the desktop frontend
+
+The desktop source is in `apps/desktop`. The native application supports Linux, macOS, and Windows. Build the web layer first:
+
+```sh
+npm --prefix apps/desktop ci
+npm --prefix apps/desktop run build:web
+npm --prefix apps/desktop run check
+```
+
+A complete native build uses the configured native SDK and platform toolchain:
+
+```sh
+npm --prefix apps/desktop run build
+```
+
+macOS native builds require macOS. Signing, notarization, and installer distribution are release concerns; a successful source build is not a signed release.
+
+## Desktop packages
+
+A desktop distribution combines the native host, the runtime executable, and the frontend assets. Use the installer included with a trusted distribution archive. Runtime-only packages remain separately installable.
+
+See [releases and packaging](/docs/reference/distribution/) for source packaging commands and what the resulting archives contain.
+
+## Next
+
+Check a harness and [run your first conversation](/docs/getting-started/first-session/).

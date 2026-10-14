@@ -1,0 +1,119 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+@import './brand-tokens.css';
+
+@font-face {
+  font-family: 'Manrope V5';
+  src: url('/fonts/ManropeV5VF.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+}
+
+:root {
+  --font-brand: 'Manrope V5', sans-serif;
+  --color-fd-background: var(--swarmie-ui-canvas);
+  --color-fd-foreground: var(--swarmie-ui-text);
+  --color-fd-muted: var(--swarmie-ui-composer);
+  --color-fd-muted-foreground: var(--swarmie-ui-muted-text);
+  --color-fd-popover: var(--swarmie-ui-canvas);
+  --color-fd-popover-foreground: var(--swarmie-ui-text);
+  --color-fd-card: var(--swarmie-ui-sidebar);
+  --color-fd-card-foreground: var(--swarmie-ui-text);
+  --color-fd-border: var(--swarmie-ui-border);
+  --color-fd-primary: var(--swarmie-light-functional-foreground);
+  --color-fd-primary-foreground: var(--swarmie-white);
+  --color-fd-secondary: var(--swarmie-ui-composer);
+  --color-fd-secondary-foreground: var(--swarmie-ui-text);
+  --color-fd-accent: color-mix(in srgb, var(--swarmie-periwinkle) 16%, white);
+  --color-fd-accent-foreground: var(--swarmie-light-functional-foreground);
+  --color-fd-ring: var(--swarmie-action-periwinkle);
+  --docs-selection: color-mix(in srgb, var(--swarmie-soft-coral) 45%, white);
+  --docs-selection-text: var(--swarmie-ink);
+  --docs-overlay-line: var(--swarmie-periwinkle);
+  --docs-overlay-fill: #8e9fc21f;
+  --docs-overlay-label: var(--swarmie-ink);
+  --docs-overlay-text: var(--swarmie-white);
+}
+
+:root.dark {
+  --color-fd-background: var(--swarmie-dark-canvas);
+  --color-fd-foreground: #dfdfdf;
+  --color-fd-muted: #282828;
+  --color-fd-muted-foreground: #aaaaaa;
+  --color-fd-popover: #252525;
+  --color-fd-popover-foreground: #dfdfdf;
+  --color-fd-card: #171717;
+  --color-fd-card-foreground: #dfdfdf;
+  --color-fd-border: #383838;
+  --color-fd-primary: var(--swarmie-periwinkle);
+  --color-fd-primary-foreground: var(--swarmie-ink);
+  --color-fd-secondary: #282828;
+  --color-fd-secondary-foreground: #dfdfdf;
+  --color-fd-accent: color-mix(in srgb, var(--swarmie-periwinkle) 16%, var(--swarmie-dark-canvas));
+  --color-fd-accent-foreground: var(--swarmie-periwinkle);
+  --color-fd-ring: var(--swarmie-periwinkle);
+  --docs-selection: color-mix(in srgb, var(--swarmie-soft-coral) 28%, var(--swarmie-dark-canvas));
+  --docs-selection-text: var(--swarmie-white);
+}
+
+#nd-sidebar {
+  background: var(--swarmie-ui-sidebar);
+}
+
+.dark #nd-sidebar {
+  background: #171717;
+  --color-fd-muted: #282828;
+  --color-fd-secondary: #282828;
+  --color-fd-muted-foreground: #aaaaaa;
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+html > body[data-scroll-locked] {
+  margin-right: 0px !important;
+  --removed-body-scroll-bar-size: 0px !important;
+}
+
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+::selection { background: var(--docs-selection); color: var(--docs-selection-text); }
+html { scrollbar-color: var(--swarmie-periwinkle) var(--color-fd-background); }
+input, textarea, [contenteditable] { caret-color: var(--color-fd-primary); }
+a { text-underline-offset: 3px; }
+.swarmie-brand { display: inline-flex; align-items: center; min-height: 36px; }
+.swarmie-brand img { display: block; width: 130px; height: 36px; }
+.swarmie-brand .brand-logo-dark, .dark .swarmie-brand .brand-logo-light { display: none; }
+.dark .swarmie-brand .brand-logo-dark { display: block; }
+#nd-page h1, #nd-page h2, #nd-page h3, .public-docs-home h1, .public-docs-home h2 { font-family: var(--font-brand); font-weight: 700; letter-spacing: -0.025em; }
+#nd-page h2, .public-docs-home h2 { font-weight: 600; }
+.public-docs-home { width: min(960px, calc(100% - 48px)); margin: 64px auto; }
+.public-docs-home h1 { font-size: 2.75rem; line-height: 1.15; margin: 0 0 24px; }
+.public-docs-home .intro { font-size: 1.2rem; line-height: 1.6; max-width: 68ch; margin-bottom: 28px; }
+.start-reading { display: inline-flex; align-items: center; gap: 12px; padding: 12px 18px; border-radius: 8px; background: var(--swarmie-action-background); color: var(--swarmie-action-foreground); font-weight: 600; }
+.start-reading:hover { background: var(--swarmie-light-functional-foreground); }
+.start-reading:focus-visible { outline: 2px solid var(--color-fd-ring); outline-offset: 4px; }
+.public-docs-home h2 { font-size: 1.4rem; font-weight: 600; margin: 56px 0 18px; }
+.reading-paths { display: flex; flex-direction: column; }
+.reading-paths a { padding: 22px 0; border-bottom: 1px solid var(--color-fd-border); display: flex; flex-direction: column; gap: 7px; }
+.reading-paths strong { font-size: 1.1rem; }
+.reading-paths a:hover strong { color: var(--color-fd-primary); }
+.reading-paths span, .documentation-status { color: var(--color-fd-muted-foreground); line-height: 1.65; }
+.documentation-status { max-width: 72ch; margin-top: 40px; font-size: 0.9rem; }
+.extension-capture { margin: 24px 0 42px; }
+.extension-capture .annotated { position: relative; background: #171717; }
+.extension-capture img { display: block; width: 100%; height: auto; margin: 0; }
+.extension-capture .hotspot { position: absolute; border: 2px solid var(--docs-overlay-line); background: var(--docs-overlay-fill); text-decoration: none; z-index: 1; }
+.extension-capture .hotspot:hover, .extension-capture .hotspot:focus-visible { background: #8e9fc233; z-index: 2; outline: 2px solid var(--swarmie-soft-coral); outline-offset: 3px; }
+.extension-capture .hint { position: absolute; top: -24px; left: -2px; background: var(--docs-overlay-label); color: var(--docs-overlay-text); padding: 2px 6px; font: 11px/18px ui-monospace, monospace; white-space: nowrap; border-radius: 3px; }
+.extension-capture .hint.right { left: auto; right: -2px; }
+.extension-capture [data-slot-name="composer.status"] .hint { top: 0; left: auto; right: 0; }
+.extension-capture figcaption { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding-top: 12px; font-size: 13px; line-height: 1.7; }
+.extension-capture .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.extension-capture .legend a { font-family: ui-monospace, monospace; }
+.slot-reference { scroll-margin-top: 90px; padding-top: 12px; }
+.slot-index { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 20px 0 30px; font: 13px/1.8 ui-monospace, monospace; }
+.slot-reference h3 { font: 600 1rem/1.6 ui-monospace, monospace; }
+.slot-reference p { margin: 10px 0; }

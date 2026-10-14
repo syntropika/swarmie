@@ -1,0 +1,26 @@
+---
+title: "History and persistence"
+description: "Retain node identity, session references, event cursors, and user-owned files."
+---
+
+The runtime retains session snapshots, submission receipts, and ordered canonical events. The CLI uses a SQLite-backed store; applications embedding the Rust runtime can choose another `SessionStore` implementation.
+
+## Retained context
+
+A snapshot includes the runtime session ID, native provider reference, working context, redacted options, capabilities, sequence, metadata, queue, and lifecycle state. The native provider still owns its native conversation.
+
+A project links a registered user directory. Project-free sessions use the selected default directory or an explicit launch directory. Each session retains the original selection across project edits and reconnects. Missing or replaced directories block dependent execution while retained history remains readable.
+
+## Event replay
+
+Observe events using their monotonically increasing sequence. Use `session/transcript` for retained paging and save the last successfully processed cursor. Reconnecting observation is separate from resuming native execution.
+
+A live replay buffer is bounded; do not assume it contains the entire retained conversation. Resume restores queues in a paused state until a client explicitly continues them.
+
+## Drafts and attachments
+
+Desktop drafts, selection, cached history, and pending operations are scoped to the full retained node identity. Attachment drafts and richer projections use persistent browser storage when available. Visible saving or storage errors matter: keep unsent content available until it is durably retained.
+
+## File ownership
+
+Closing a session, removing a route, or uninstalling a package does not authorize deleting project folders. Installers and cleanup operations manage only their recorded resources. User-owned directories, credentials, and native history keep their independent lifecycle.
