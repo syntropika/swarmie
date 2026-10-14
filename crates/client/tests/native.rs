@@ -1,6 +1,6 @@
 use std::{
     io::{BufRead, BufReader, Read, Write},
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -30,6 +30,9 @@ impl Server {
             while !stopped.load(Ordering::Relaxed) {
                 if let Ok((stream, _)) = listener.accept() {
                     requests.push(thread::spawn(move || {
+                        // Accepted sockets can inherit the listener's nonblocking mode.
+                        // This handler uses bounded blocking reads, including partial headers.
+                        stream.set_nonblocking(false).unwrap();
                         stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
                         let mut reader = BufReader::new(stream);
                         let mut length = 0;
@@ -113,7 +116,7 @@ fn native_http_bounds_redirects_errors_and_concurrent_cancellation() {
         if let Some(expected) = expected {
             assert_eq!(result["error"]["kind"], expected, "{result}");
         } else {
-            assert_eq!(result["ok"], "null");
+            assert_eq!(result["ok"], "null", "{result}");
         }
     }
     let call = json!({"action":"invoke","client":client,"operation":operation,"request":{"method":"slow","params_json":"{}","timeout_ms":null}});
@@ -157,4 +160,30 @@ fn native_event_validation_deadline_and_turn_completion_share_the_engine() {
     release(&stream);
     release(&operation);
     release(&client);
+}
+
+#[test]
+fn http_fixture_waits_for_fragmented_request_headers() {
+    let server = Server::new();
+    let mut stream = TcpStream::connect(server.url.strip_prefix("http://").unwrap()).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    stream.write_all(b"POST /rpc HTTP/1.1\r\n").unwrap();
+    // A valid request may pause between header fragments while the peer is scheduled.
+    thread::sleep(Duration::from_millis(20));
+    let body = json!({"jsonrpc":"2.0","id":"fragmented","method":"null","params":{}}).to_string();
+    write!(
+        stream,
+        "Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
+    .unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"), "{response}");
+    let (_, body) = response.split_once("\r\n\r\n").unwrap();
+    let envelope: Value = serde_json::from_str(body).unwrap();
+    assert_eq!(envelope["id"], "fragmented");
+    assert_eq!(envelope["result"], Value::Null);
 }
