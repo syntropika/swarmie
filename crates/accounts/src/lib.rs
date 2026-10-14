@@ -21,6 +21,8 @@ use vault::Vault;
 pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("The account service is busy. Try again in {0} seconds")]
+    RateLimited(u64),
     #[error("Invalid account request or response")]
     Invalid,
     #[error("Account service is unavailable; the request was not replayed")]
@@ -74,6 +76,7 @@ struct State {
     generation: u64,
     session_only: bool,
     last_used: Instant,
+    renewal_after: Option<Instant>,
 }
 /// Serializes code redemption, renewal, profile writes and logout under one credential owner.
 pub struct AccountManager {
@@ -126,6 +129,7 @@ impl AccountManager {
             generation: 0,
             session_only: false,
             last_used: Instant::now(),
+            renewal_after: None,
         };
         let manager = Self {
             cloud,
@@ -195,6 +199,13 @@ impl AccountManager {
         if credentials.expires_at > now() + 60 {
             return Ok(());
         }
+        if let Some(deadline) = state.renewal_after
+            && deadline > Instant::now()
+        {
+            return Err(Error::RateLimited(
+                deadline.saturating_duration_since(Instant::now()).as_secs() + 1,
+            ));
+        }
         let token = credentials.refresh_token.clone();
         state.blocked = true;
         let result = self
@@ -207,6 +218,12 @@ impl AccountManager {
             )
             .await;
         match result {
+            Err(Error::RateLimited(seconds)) => {
+                // An explicit rejection precedes rotation; preserve the current one-use credential.
+                state.blocked = false;
+                state.renewal_after = Some(Instant::now() + Duration::from_secs(seconds));
+                Err(Error::RateLimited(seconds))
+            }
             Ok(value) => {
                 let credentials: Credentials = match serde_json::from_value(value) {
                     Ok(value) => value,
@@ -222,6 +239,7 @@ impl AccountManager {
                     return Err(error);
                 }
                 state.blocked = false;
+                state.renewal_after = None;
                 Ok(())
             }
             // A renewal's outcome can be uncertain. Never replay its rotating token automatically.
@@ -241,6 +259,7 @@ impl AccountManager {
         state.generation += 1;
         state.vault_unavailable = false;
         state.blocked = false;
+        state.renewal_after = None;
         Ok(())
     }
     pub async fn read(&self) -> Result<Snapshot> {

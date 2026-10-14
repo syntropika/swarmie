@@ -60,6 +60,16 @@ impl Cloud {
         }
         let mut response = request.send().await.map_err(|_| Error::Unavailable)?;
         match response.status().as_u16() {
+            429 => {
+                let seconds = response
+                    .headers()
+                    .get(reqwest::header::RETRY_AFTER)
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .filter(|value| (1..=86_400).contains(value))
+                    .unwrap_or(60);
+                return Err(Error::RateLimited(seconds));
+            }
             400 => return Err(Error::Invalid),
             401 | 403 => return Err(Error::Unauthenticated),
             409 => return Err(Error::Conflict),

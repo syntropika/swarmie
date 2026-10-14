@@ -6,6 +6,7 @@ export type AccountSnapshot = { status: "signedIn" | "signedOut" | "signingIn" |
 /** Owner incarnation and publication revision also reconcile after restart or service reconfiguration. */
 export type AccountCursor = { ownerId: string; revision: number };
 export type AccountObservation = { cursor: AccountCursor; account: AccountSnapshot };
+/** Profile mutation requestId values are UUIDv7; their issuance time bounds receipt retry validity. */
 export interface AccountMethods {
   "account/read": { params: Record<string, never>; result: AccountSnapshot };
   "account/observe": { params: { cursor?: AccountCursor }; result: AccountObservation };

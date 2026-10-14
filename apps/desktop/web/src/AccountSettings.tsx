@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { useEffect, useRef, useState } from "react";
 import type { AccountSnapshot, AccountMethods } from "@swarmie/contracts";
-import { accountRequest } from "./account";
+import { accountRequest, accountReceiptId } from "./account";
 import { accountStore, useAccount } from "./accountState";
 import { nativeClient } from "./clientTransport";
 import { Button } from "@/components/ui/button";
@@ -71,17 +71,17 @@ export function AccountSettings() {
           void run(async () => {
             if (file.size > 1024 * 1024) throw new Error("Choose a PNG, JPEG or WebP image under 1 MiB.");
             const bytes = new Uint8Array(await file.arrayBuffer()); let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte);
-            const body = { accountId: account.profile!.id, imageBase64: btoa(binary), expectedRevision: account.profile!.revision, requestId: crypto.randomUUID() }; setAvatarReceipt(body);
+            const body = { accountId: account.profile!.id, imageBase64: btoa(binary), expectedRevision: account.profile!.revision, requestId: accountReceiptId() }; setAvatarReceipt(body);
             await apply(await accountRequest("account/profile/avatar/update", body)); setAvatarReceipt(undefined);
           });
         }} /><span className="text-xs text-muted">PNG, JPEG or WebP. Up to 1 MiB and 2048 pixels per side.</span></label>
-        {account.profile.avatarUrl && <Button variant="outline" disabled={busy || !!avatarReceipt} onClick={() => void run(async () => { const body = { accountId: account.profile!.id, imageBase64: null, expectedRevision: account.profile!.revision, requestId: crypto.randomUUID() }; setAvatarReceipt(body); await apply(await accountRequest("account/profile/avatar/update", body)); setAvatarReceipt(undefined); })}>Remove image</Button>}
+        {account.profile.avatarUrl && <Button variant="outline" disabled={busy || !!avatarReceipt} onClick={() => void run(async () => { const body = { accountId: account.profile!.id, imageBase64: null, expectedRevision: account.profile!.revision, requestId: accountReceiptId() }; setAvatarReceipt(body); await apply(await accountRequest("account/profile/avatar/update", body)); setAvatarReceipt(undefined); })}>Remove image</Button>}
       </div>
       {avatarReceipt && <div><Button variant="outline" disabled={busy} onClick={() => void run(async () => { await apply(await accountRequest("account/profile/avatar/update", avatarReceipt)); setAvatarReceipt(undefined); })}>Retry image change</Button></div>}
       <dl className="grid gap-2 text-sm"><dt className="text-muted">Email</dt><dd className="break-all">{account.profile.email}{account.profile.emailVerified ? " · Verified" : " · Unverified"}</dd></dl>
-      <form className="grid gap-3" onSubmit={(event) => { event.preventDefault(); const body = receipt ?? { accountId: account.profile!.id, requestId: crypto.randomUUID(), expectedRevision: draftRevision.current ?? account.profile!.revision, displayName: name.trim() || null }; setReceipt(body); void run(async () => { const saved = await apply(await accountRequest("account/profile/update", body)); if (active.current && saved.profile?.id === body.accountId) { setName(saved.profile.displayName ?? ""); setReceipt(undefined); dirty.current = false; draftRevision.current = undefined; setNotice("Profile saved."); } }); }}>
+      <form className="grid gap-3" onSubmit={(event) => { event.preventDefault(); const body = receipt ?? { accountId: account.profile!.id, requestId: accountReceiptId(), expectedRevision: draftRevision.current ?? account.profile!.revision, displayName: name.trim() || null }; setReceipt(body); void run(async () => { const saved = await apply(await accountRequest("account/profile/update", body)); if (active.current && saved.profile?.id === body.accountId) { setName(saved.profile.displayName ?? ""); setReceipt(undefined); dirty.current = false; draftRevision.current = undefined; setNotice("Profile saved."); } }); }}>
         <label className="grid gap-2 text-sm">Display name<Input autoComplete="name" maxLength={120} value={name} disabled={busy || !!avatarReceipt} onChange={(event) => { if (!dirty.current) draftRevision.current = account.profile!.revision; dirty.current = true; setName(event.target.value); setReceipt(undefined); }} /></label>
-        <div className="flex flex-wrap gap-2"><Button type="submit" disabled={busy || !!avatarReceipt || name === (account.profile.displayName ?? "")}>Save profile</Button><Button type="button" variant="outline" disabled={busy} onClick={() => void run(async () => { const current = await refresh(); if (current.profile && current.profile.id === principal.current) { draftRevision.current = dirty.current ? current.profile.revision : undefined; setReceipt(undefined); } setNotice("Profile refreshed."); })}>Refresh profile</Button></div>
+        <div className="flex flex-wrap gap-2"><Button type="submit" disabled={busy || !!avatarReceipt || name === (account.profile.displayName ?? "")}>Save profile</Button><Button type="button" variant="outline" disabled={busy} onClick={() => void run(async () => { const current = await refresh(); if (current.profile && current.profile.id === principal.current) { draftRevision.current = dirty.current ? current.profile.revision : undefined; setReceipt(undefined); setAvatarReceipt(undefined); } setNotice("Profile refreshed."); })}>Refresh profile</Button></div>
       </form>
       {account.persistence === "session" && <p className="text-sm text-muted">This login lasts until the account owner stops.</p>}
       <div><Button variant="outline" disabled={busy} onClick={() => void run(async () => { const result = await accountRequest("account/logout", { expectedAccountId: account.profile!.id }); await apply(result.account); if (!result.remoteRevocationConfirmed) setNotice("Signed out locally. Remote revocation could not be confirmed."); })}>Sign out</Button></div>

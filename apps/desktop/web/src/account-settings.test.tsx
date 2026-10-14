@@ -13,7 +13,7 @@ vi.mock("./accountState", async () => {
   const reconcile = async () => { const account = await request("account/read", {}); publish(account); return account; };
   return { useAccount: () => useSyncExternalStore((listener) => { presentation.listeners.add(listener); return () => { presentation.listeners.delete(listener); }; }, () => presentation.value), accountStore: { reconcile, refresh: reconcile } };
 });
-vi.mock("./account", () => ({ accountRequest: request }));
+vi.mock("./account", () => ({ accountRequest: request, accountReceiptId: () => crypto.randomUUID() }));
 vi.mock("./clientTransport", () => ({ nativeClient: () => true }));
 const signedOut = { status: "signedOut", profile: null, loginId: null, persistence: "secureVault", generation: 0 };
 beforeEach(() => { request.mockReset(); request.mockResolvedValue(signedOut); publish(signedOut); });

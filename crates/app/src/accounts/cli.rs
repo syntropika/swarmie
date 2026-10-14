@@ -30,7 +30,7 @@ pub enum AccountCommand {
         #[arg(long)]
         revision: i64,
         #[arg(long)]
-        request_id: uuid::Uuid,
+        request_id: Option<uuid::Uuid>,
     },
     /// Upload or remove your app-owned profile image.
     Avatar {
@@ -41,7 +41,7 @@ pub enum AccountCommand {
         #[arg(long)]
         revision: i64,
         #[arg(long)]
-        request_id: uuid::Uuid,
+        request_id: Option<uuid::Uuid>,
     },
     /// Stop the account owner; secure grants can be restored and revalidated on restart.
     Stop,
@@ -76,7 +76,7 @@ pub async fn run(root: &Path, command: AccountCommand) -> Result<()> {
             .await?;
             (
                 "account/profile/update",
-                json!({"accountId":current["result"]["profile"]["id"],"displayName":name,"expectedRevision":revision,"requestId":request_id}),
+                json!({"accountId":current["result"]["profile"]["id"],"displayName":name,"expectedRevision":revision,"requestId":request_id.unwrap_or_else(uuid::Uuid::now_v7)}),
             )
         }
         AccountCommand::Avatar {
@@ -108,7 +108,7 @@ pub async fn run(root: &Path, command: AccountCommand) -> Result<()> {
             .await?;
             (
                 "account/profile/avatar/update",
-                json!({"accountId":current["result"]["profile"]["id"],"imageBase64":image,"expectedRevision":revision,"requestId":request_id}),
+                json!({"accountId":current["result"]["profile"]["id"],"imageBase64":image,"expectedRevision":revision,"requestId":request_id.unwrap_or_else(uuid::Uuid::now_v7)}),
             )
         }
         AccountCommand::Stop => ("account/owner/stop", json!({})),
