@@ -3,6 +3,7 @@ import type { ClientExtension, ContributionRegistry, ScopedClientApi } from "./c
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
+export const DICTATION_EXTENSION_ID = "@swarmie.dictation";
 export type DictationSession = { stop(): void; abort(): void };
 /** Providers capture on this client; implementations may transcribe locally or remotely. */
 export type TranscriptionProvider = {
@@ -49,13 +50,13 @@ export function createDictationExtension(registry: ContributionRegistry, onError
   let serial = 0;
   let finish: (() => void) | undefined;
   const publish = () => {
-    registry.setCommandEnabled("dictation/toggle", provider.available() && state !== "processing");
-    registry.update("dictation", "microphone", { icon: state === "recording" ? "stop" : state === "processing" ? "spinner" : "microphone", title: state === "recording" ? "Stop dictation" : state === "processing" ? "Finishing dictation" : "Dictate message", enabled: provider.available() && state !== "processing" });
-    registry.update("dictation", "status", { text: state === "stopped" ? "" : state === "recording" ? "Recording dictation…" : "Processing dictation…" });
+    registry.setCommandEnabled(`${DICTATION_EXTENSION_ID}/toggle`, provider.available() && state !== "processing");
+    registry.update(DICTATION_EXTENSION_ID, "microphone", { icon: state === "recording" ? "stop" : state === "processing" ? "spinner" : "microphone", title: state === "recording" ? "Stop dictation" : state === "processing" ? "Finishing dictation" : "Dictate message", enabled: provider.available() && state !== "processing" });
+    registry.update(DICTATION_EXTENSION_ID, "status", { text: state === "stopped" ? "" : state === "recording" ? "Recording dictation…" : "Processing dictation…" });
   };
   const cancel = () => { serial++; session?.abort(); session = undefined; state = "stopped"; finish?.(); finish = undefined; publish(); };
   return {
-    id: "dictation",
+    id: DICTATION_EXTENSION_ID,
     manifest: { version: 1, commands: [
       { id: "toggle", title: "Dictate message", when: ["composerReady"], shortcut: "Mod+Shift+d" },
       { id: "settings", title: "Dictation settings", when: [] },

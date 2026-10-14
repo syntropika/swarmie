@@ -7,10 +7,11 @@ import type { WorkspaceStore } from "./workspace";
 import type { ExtensionInfo, Thread } from "./protocol";
 import { readShortcuts, matchesShortcut } from "./shortcuts";
 import { nativeClient } from "./clientTransport";
-import { createDictationExtension, DictationSettings } from "./dictation";
+import { createDictationExtension, DictationSettings, DICTATION_EXTENSION_ID, type TranscriptionProvider } from "./dictation";
 import { CustomExtensionView } from "./CustomExtensionView";
 
 type Mount = (props: { api: ScopedClientApi }) => ReactNode;
+export type ClientContribution = { extension: import("./contributions").ClientExtension; mounts?: Map<string, Mount> };
 type HostContext = {
   registry: ContributionRegistry;
   mounts: Map<string, Mount>;
@@ -20,16 +21,17 @@ type HostContext = {
 };
 const Host = createContext<HostContext | null>(null);
 export const useContributions = () => useContext(Host);
-export function ContributionHost({ children, store, thread, ready, panelId, extensions, openSurface, demo }: {
+export function ContributionHost({ children, store, thread, ready, panelId, extensions, openSurface, clientContributions, transcriptionProvider }: {
   children: ReactNode; store: WorkspaceStore; thread: Thread; ready: boolean; panelId?: string;
   extensions: ExtensionInfo[]; openSurface: (kind: "screen" | "panel", id: string, context: ContributionContext) => void;
-  demo?: { extension: import("./contributions").ClientExtension; mounts?: Map<string, Mount>; transcription?: import("./dictation").TranscriptionProvider };
+  clientContributions?: readonly ClientContribution[];
+  transcriptionProvider?: TranscriptionProvider;
 }) {
   const [registry] = useState(() => new ContributionRegistry());
   useSyncExternalStore(registry.subscribe, registry.getSnapshot);
   const runtimeRegistrations = useRef(new Map<string, { extension: ExtensionInfo; store: WorkspaceStore; dispose: () => void }>());
   const composer = useRef<{ id: string; insert: (text: string, options?: { separateWords?: boolean }) => void } | null>(null);
-  const [mounts] = useState(() => new Map<string, Mount>([["dictation/settings", DictationSettings]]));
+  const [mounts] = useState(() => new Map<string, Mount>([[`${DICTATION_EXTENSION_ID}/settings`, DictationSettings]]));
   const state = store.getSnapshot();
   const context: ContributionContext = {
     client: nativeClient() ? "desktop" : "browser", nodeId: state.node?.environmentId,
@@ -49,15 +51,27 @@ export function ContributionHost({ children, store, thread, ready, panelId, exte
     registry.setContext(context);
   });
   useEffect(() => {
-    const dispose = registry.register(createDictationExtension(registry, (error) => store.setError(error), demo?.transcription));
+    const dispose = registry.registerBuiltin(createDictationExtension(registry, (error) => store.setError(error), transcriptionProvider));
     return dispose;
-  }, [registry, store]);
+  }, [registry, store, transcriptionProvider]);
   useEffect(() => {
-    if (!demo) return;
-    for (const [id, mount] of demo.mounts ?? []) mounts.set(id, mount);
-    const off = registry.register(demo.extension);
-    return () => { off(); for (const id of demo.mounts?.keys() ?? []) mounts.delete(id); };
-  }, [registry, demo, mounts]);
+    const disposers: (() => void)[] = [];
+    const addedMounts = new Map<string, Mount>();
+    const cleanup = () => {
+      for (const off of disposers) off();
+      for (const [id, mount] of addedMounts) if (mounts.get(id) === mount) mounts.delete(id);
+    };
+    try {
+      for (const contribution of clientContributions ?? []) {
+        disposers.push(registry.register(contribution.extension));
+        for (const [id, mount] of contribution.mounts ?? []) {
+          if (!id.startsWith(`${contribution.extension.id}/`) || mounts.has(id)) throw new Error(`Invalid client renderer identity: ${id}`);
+          mounts.set(id, mount); addedMounts.set(id, mount);
+        }
+      }
+    } catch (error) { cleanup(); store.setError(error); }
+    return cleanup;
+  }, [registry, clientContributions, mounts, store]);
   useEffect(() => {
     for (const [id, registration] of runtimeRegistrations.current) {
       if (registration.store !== store || !extensions.some((extension) => extension === registration.extension && !!extension.ui)) {

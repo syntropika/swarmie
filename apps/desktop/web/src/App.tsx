@@ -45,7 +45,8 @@ import {
   Tooltip,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import { ContributionHost, ContributionSlot, ContributionNavigation, ContributionSurface } from "./ContributionHost";
+import { ContributionHost, ContributionSlot, ContributionNavigation, ContributionSurface, type ClientContribution } from "./ContributionHost";
+import type { TranscriptionProvider } from "./dictation";
 import { Conversation, PatchCopy } from "./Conversation";
 import { nodeClient } from "./workspaceInstance";
 import type { NodeClient, NodesState } from "./nodes";
@@ -132,7 +133,7 @@ export function App() {
   const node = nodes.store.getSnapshot().node;
   return <NodeWorkspace key={node ? nodeKey(node) : "local-startup"} store={nodes.store} nodes={nodes} client={nodeClient} />;
 }
-export function NodeWorkspace({ store, nodes, client, demo }: { store: WorkspaceStore; nodes: NodesState; client: NodeClient; demo?: import("./contributionDemo").ContributionDemo }) {
+export function NodeWorkspace({ store, nodes, client, clientContributions, transcriptionProvider }: { store: WorkspaceStore; nodes: NodesState; client: NodeClient; clientContributions?: readonly ClientContribution[]; transcriptionProvider?: TranscriptionProvider }) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [sidebar, setSidebar] = useState(() => window.innerWidth >= 760);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -474,7 +475,7 @@ export function NodeWorkspace({ store, nodes, client, demo }: { store: Workspace
   const composerControls = <><ContextUsage context={active.context} /><SessionControls thread={active} store={store} connected={state.connected} /></>;
 
   return (
-    <ContributionHost store={store} thread={active} ready={ready && !extensionScreen && panel !== "settings"} panelId={panel === "client" ? extensionPanel : panel ?? undefined} extensions={state.extensions} demo={demo} openSurface={(kind, id, context) => { setSurfaceContext(context); if (kind === "screen") { setExtensionScreen(id); setPanel(null); window.location.hash = `/extension/${id}`; } else { setExtensionPanel(id); setPanel("client"); } }}>
+    <ContributionHost store={store} thread={active} ready={ready && !extensionScreen && panel !== "settings"} panelId={panel === "client" ? extensionPanel : panel ?? undefined} extensions={state.extensions} clientContributions={clientContributions} transcriptionProvider={transcriptionProvider} openSurface={(kind, id, context) => { setSurfaceContext(context); if (kind === "screen") { setExtensionScreen(id); setPanel(null); window.location.hash = `/extension/${id}`; } else { setExtensionPanel(id); setPanel("client"); } }}>
     <div
       className={`app-shell ${sidebar ? "" : "sidebar-hidden"} ${panel === "settings" ? "settings-open" : ""}`}
       style={

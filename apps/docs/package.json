@@ -7,7 +7,9 @@
     "dev": "next dev",
     "start": "serve out --listen 3000",
     "types:check": "next typegen && tsc --noEmit",
-    "prebuild": "node scripts/sync-reference.mjs && node scripts/sync-brand.mjs && node scripts/check-content.mjs",
+    "prebuild": "node scripts/sync-reference.mjs --check && node scripts/sync-brand.mjs --check && node scripts/check-content.mjs",
+    "sync": "node scripts/sync-reference.mjs && node scripts/sync-brand.mjs",
+    "test:generated": "node --test scripts/generated-assets.test.mjs",
     "predev": "node scripts/sync-reference.mjs && node scripts/sync-brand.mjs",
     "check": "node scripts/sync-reference.mjs --check && node scripts/sync-brand.mjs --check && node scripts/check-content.mjs && next typegen && tsc --noEmit",
     "preview": "serve out --listen tcp://0.0.0.0:3000"

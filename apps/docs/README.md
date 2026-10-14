@@ -2,7 +2,7 @@
 
 The public Swarmie documentation site uses Fumadocs, Next.js, and MDX. Its content is in `content/docs`; final guide screenshots and schema downloads are in `public`. It builds as a static site with browser-local search and does not need a runtime, account credentials, or private source packages.
 
-Documentation assets live under this directory: captures and the downloadable client example in `public/extensions`, monochrome logos in `public/brand`, and fonts in `public/fonts`. The standalone guide in `public/extensions-guide` shares the same captures and example with Fumadocs. The desktop frontend contains the runnable contribution demo without bundling documentation assets.
+Documentation assets live under this directory: captures and the downloadable client example in `public/extensions`, monochrome logos in `public/brand`, and fonts in `public/fonts`. The standalone guide in `public/extensions-guide` shares the same captures and example with Fumadocs. The contribution demo has its own sources and build in `apps/desktop/web/demo`; the production desktop build contains neither fixtures nor documentation assets.
 
 ## Develop and build
 
@@ -26,7 +26,14 @@ The preview serves `out` on port 3000. When opening it from another computer, us
 npm --prefix apps/docs run check
 ```
 
-Build and checks synchronize the method reference and downloadable schema from `packages/contracts/protocol.json`. Update that public source contract rather than editing the generated method table directly. Content validation checks internal links, slot/capture coverage, and accidental private operational text.
+Build and checks reject stale method references, schema downloads, and branding without rewriting committed files. After changing the canonical public contract or brandkit, update the generated files explicitly:
+
+```sh
+npm --prefix apps/docs run sync
+npm --prefix apps/docs run test:generated
+```
+
+Update `packages/contracts/protocol.json` rather than editing the generated method table directly. Content validation checks internal links, slot/capture coverage, and accidental private operational text.
 
 ## Content boundary
 
@@ -44,6 +51,6 @@ Set `DOCS_SITE_URL` to the canonical public origin at build time to enable absol
 
 ## Branding
 
-The site uses canonical color tokens from `assets/brandkit/tokens/colors.css`. Its Fumadocs theme maps those colors to reading surfaces, navigation, links, and focus states in `app/global.css`. `scripts/sync-brand.mjs` keeps `app/brand-tokens.css`, the monochrome logos, and the favicon identical to the official assets; builds synchronize them and checks report drift.
+The site uses canonical color tokens from `assets/brandkit/tokens/colors.css`. Its Fumadocs theme maps those colors to reading surfaces, navigation, links, and focus states in `app/global.css`. Explicit synchronization keeps `app/brand-tokens.css`, the monochrome logos, and the favicon identical to the official assets; builds and checks report drift.
 
 Headings use the unmodified, self-hosted Manrope V5 variable font from [Michael Sharanda](https://www.sharanda.com/manrope). Body text and interface controls retain platform sans-serif typography. The font attribution and license reference are in `public/fonts/NOTICE.txt`.

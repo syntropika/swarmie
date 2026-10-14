@@ -48,7 +48,7 @@
         "action"
       ],
       "context": "Displayed conversation, worktree and session; composerReady.",
-      "example": "dictation/toggle or demo/insert.",
+      "example": "@swarmie.dictation/toggle or demo/insert.",
       "availability": "Visible with the conversation; use enabledWhen: [\"composerReady\"] for draft-changing actions."
     },
     {

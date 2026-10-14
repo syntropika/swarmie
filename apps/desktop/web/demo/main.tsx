@@ -1,9 +1,10 @@
 import { createRoot } from "react-dom/client";
-import { NodeWorkspace } from "./App";
-import { contributionDemo } from "./contributionDemo";
-import { newThread, type Thread } from "./protocol";
-import type { WorkspaceStore, Workspace } from "./workspace";
-import type { NodesState, NodeClient } from "./nodes";
+import { NodeWorkspace } from "../src/App";
+import { contributionDemo } from "./contributions";
+import { newThread, type Thread } from "../src/protocol";
+import type { WorkspaceStore, Workspace } from "../src/workspace";
+import type { NodesState, NodeClient } from "../src/nodes";
+import "../src/styles.css";
 import "./styles.css";
 
 const node = { environmentId: "demo", storeId: "demo-store", ownerScopeId: "demo-owner" };
@@ -34,4 +35,4 @@ const store = {
 } as unknown as WorkspaceStore;
 const nodes: NodesState = { store, nodes: [{ identity: node, displayName: "Demo client", local: true, registered: true, lastVerifiedAtMs: 0, connections: [] }], loading: false, error: "" };
 const client = { select: async () => {}, getSnapshot: () => nodes } as unknown as NodeClient;
-createRoot(document.getElementById("root")!).render(<><div className="contribution-demo-notice">Contribution demo • UI is implemented; workspace data and transcription are fixtures.</div><NodeWorkspace store={store} nodes={nodes} client={client} demo={contributionDemo} /></>);
+createRoot(document.getElementById("root")!).render(<><div className="contribution-demo-notice">Contribution demo • UI is implemented; workspace data and transcription are fixtures.</div><NodeWorkspace store={store} nodes={nodes} client={client} clientContributions={[contributionDemo]} transcriptionProvider={contributionDemo.transcription} /></>);

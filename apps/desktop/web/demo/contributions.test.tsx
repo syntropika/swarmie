@@ -2,13 +2,12 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ContributionHost, ContributionSlot, ContributionSurface } from "./ContributionHost";
-import { ContributionRegistry } from "./contributions";
-import { CommandPalette } from "./CommandPalette";
-import { Conversation } from "./Conversation";
-import { contributionDemo } from "./contributionDemo";
-import { newThread } from "./protocol";
-import type { WorkspaceStore, Workspace } from "./workspace";
+import { ContributionHost, ContributionSlot, ContributionSurface } from "../src/ContributionHost";
+import { CommandPalette } from "../src/CommandPalette";
+import { Conversation } from "../src/Conversation";
+import { contributionDemo } from "./contributions";
+import { newThread } from "../src/protocol";
+import type { WorkspaceStore, Workspace } from "../src/workspace";
 import { StrictMode } from "react";
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 function setup() {
@@ -21,7 +20,8 @@ function setup() {
 it("renders slots, filters commands into the palette, and routes buttons and shortcuts to the same handler", async () => {
   const { thread, store } = setup(); const handler = vi.fn();
   const demo = { ...contributionDemo, extension: { ...contributionDemo.extension, handlers: { ...contributionDemo.extension.handlers, insert: handler } } };
-  render(<StrictMode><ContributionHost store={store} thread={thread} ready extensions={[]} openSurface={vi.fn()} demo={demo}>
+  const contributions = [demo];
+  render(<StrictMode><ContributionHost store={store} thread={thread} ready extensions={[]} openSurface={vi.fn()} clientContributions={contributions}>
     <ContributionSlot name="composer.actions" /><ContributionSlot name="composer.status" />
     <CommandPalette store={store} onClose={vi.fn()} onPanel={vi.fn()} onOpenProject={vi.fn()} />
   </ContributionHost></StrictMode>);
@@ -35,7 +35,7 @@ it("renders slots, filters commands into the palette, and routes buttons and sho
 });
 it("inserts a contribution at the real composer selection and records the updated draft", async () => {
   const { thread, store, update, error } = setup();
-  render(<ContributionHost store={store} thread={thread} ready extensions={[]} openSurface={vi.fn()} demo={contributionDemo}>
+  render(<ContributionHost store={store} thread={thread} ready extensions={[]} openSurface={vi.fn()} clientContributions={[contributionDemo]}>
     <Conversation thread={thread} store={store} ready controls={null} />
   </ContributionHost>);
   const input = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
@@ -47,11 +47,12 @@ it("inserts a contribution at the real composer selection and records the update
 it("mounts a scoped panel and emits closed lifecycle when removed", async () => {
   const { thread, store } = setup(); const event = vi.fn();
   const demo = { ...contributionDemo, extension: { ...contributionDemo.extension, activate: ({ on }: Parameters<NonNullable<typeof contributionDemo.extension.activate>>[0]) => { on("surface.closed", event); } } };
-  const view = render(<ContributionHost store={store} thread={thread} ready extensions={[]} openSurface={vi.fn()} demo={demo}>
+  const contributions = [demo];
+  const view = render(<ContributionHost store={store} thread={thread} ready extensions={[]} openSurface={vi.fn()} clientContributions={contributions}>
     <ContributionSurface kind="panel" id="demo/inspector" onClose={vi.fn()} />
   </ContributionHost>);
   await waitFor(() => expect(screen.getByRole("button", { name: "Insert example at cursor" })).toBeTruthy());
   expect(screen.getByText("Refresh demo")).toBeTruthy(); expect(screen.getByText("Demo panel • Active")).toBeTruthy();
-  view.rerender(<ContributionHost store={store} thread={thread} ready extensions={[]} openSurface={vi.fn()} demo={demo}>{null}</ContributionHost>);
+  view.rerender(<ContributionHost store={store} thread={thread} ready extensions={[]} openSurface={vi.fn()} clientContributions={contributions}>{null}</ContributionHost>);
   expect(event).toHaveBeenCalledOnce();
 });

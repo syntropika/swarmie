@@ -29,7 +29,15 @@ deactivate();
 
 ## Run the implemented demo
 
-From a checkout, build or start the desktop web frontend and open `/contributions-demo.html`. The separate demo entry uses the real Swarmie components with fixture projects, messages, connection data, and simulated dictation. It never captures microphone audio or contacts a transcription service.
+The demo lives in `apps/desktop/web/demo`, outside the production application sources. From a checkout:
+
+```sh
+npm --prefix apps/desktop run dev:demo
+```
+
+Open `/demo/index.html` on that server. To create its separate static distribution, run `npm --prefix apps/desktop run build:demo`; the output is `apps/desktop/demo-dist`. The regular `build:web` command builds the production application only.
+
+The demo reuses real Swarmie components through client contribution and transcription-provider interfaces, with fixture projects, messages, connection data, and simulated dictation. It never captures microphone audio or contacts a transcription service. Its fixture stores, renderers, and banner styles are excluded from the production build.
 
 Select composer text and click Insert example, use the matching command palette entry, or press Mod+Shift+I. The same handler performs insertion. Message, project, and conversation inspection actions open a scoped example panel. Inspecting another conversation's menu preserves that target and disables insertion into the active draft.
 

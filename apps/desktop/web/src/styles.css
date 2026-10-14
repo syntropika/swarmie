@@ -1412,5 +1412,3 @@ a:hover {
 .dictation-settings input { max-width: 240px; }
 .titlebar-actions .contribution-slot button { font-size: 12px; }
 @media (max-width: 760px) { .titlebar-actions { flex-wrap: wrap; } .titlebar-actions .contribution-slot button { padding: 4px; } .contribution-surface.screen { padding: 12px; } }
-.contribution-demo-notice { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; height: 28px; padding: 5px 12px; font-size: 12px; background: #26362e; color: #dbf4e5; }
-body:has(.contribution-demo-notice) .app-shell { height: calc(100dvh - 28px); }

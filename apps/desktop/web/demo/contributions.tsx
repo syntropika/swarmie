@@ -1,7 +1,7 @@
-import type { ClientExtension, UiSlot, ScopedClientApi } from "./contributions";
-import { slotCatalog } from "./contributions";
+import type { UiSlot, ScopedClientApi } from "../src/contributions";
+import { slotCatalog } from "../src/contributions";
 import { Button } from "@/components/ui/button";
-export type ContributionDemo = { extension: ClientExtension; transcription?: import("./dictation").TranscriptionProvider; mounts?: Map<string, (props: { api: ScopedClientApi }) => React.ReactNode> };
+type ContributionDemo = import("../src/ContributionHost").ClientContribution & { transcription?: import("../src/dictation").TranscriptionProvider };
 const compact: Partial<Record<UiSlot, string>> = {
   "sidebar.primary": "Guide", "sidebar.footer": "Demo active", "app.header.actions": "Guide",
   "conversation.header.actions": "Inspect chat", "composer.actions": "Insert example", "composer.context": "Demo context",

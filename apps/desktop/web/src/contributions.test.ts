@@ -3,6 +3,21 @@ import { ContributionRegistry, type ClientExtension, type ContributionContext, t
 const context: ContributionContext = { client: "browser", nodeId: "node", conversationId: "chat", projectId: "project", worktreeId: "tree", connected: true, composerReady: true };
 const extension = (id = "test"): ClientExtension => ({ id, manifest: { version: 1, commands: [{ id: "run", title: "Run", when: [] }], slots: [{ id: "button", title: "Run", slot: "composer.actions", kind: "action", command: "run", order: 0, when: [], enabledWhen: ["composerReady"], clients: [] }], screens: [{ id: "screen", title: "Screen", clients: [] }], panels: [{ id: "panel", title: "Panel", clients: [] }] }, handlers: { run: vi.fn() } });
 function setup() { const registry = new ContributionRegistry(); const insertText = vi.fn(), openSurface = vi.fn(), error = vi.fn(); registry.configure({ insertText, openSurface, error }); registry.setContext(context); return { registry, insertText, openSurface, error }; }
+it("reserves host-only identities while allowing runtime extensions with the same local name", async () => {
+  const { registry } = setup();
+  const builtin = extension("@swarmie.dictation"), runtime = extension("dictation");
+  expect(() => registry.register(builtin)).toThrow("identity");
+  expect(() => registry.registerBuiltin(runtime)).toThrow("identity");
+  const remove = registry.registerBuiltin(builtin);
+  registry.register(runtime);
+  await registry.execute("@swarmie.dictation/run");
+  await registry.execute("dictation/run");
+  expect(builtin.handlers!.run).toHaveBeenCalledOnce();
+  expect(runtime.handlers!.run).toHaveBeenCalledOnce();
+  remove();
+  expect(registry.canExecute("@swarmie.dictation/run")).toBe(false);
+  expect(registry.canExecute("dictation/run")).toBe(true);
+});
 it("validates atomically, sorts by order and qualified identity, and rejects collisions", () => {
   const { registry } = setup(); const a = extension("a"), b = extension("b");
   registry.register(b); registry.register(a);

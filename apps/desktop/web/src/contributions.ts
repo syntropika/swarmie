@@ -28,9 +28,10 @@ export function conditionsMatch(conditions: UiCondition[] | undefined, context: 
   };
   return (conditions ?? []).every((condition) => values[condition] === true);
 }
-function validate(extension: ClientExtension) {
+function validate(extension: ClientExtension, builtin = false) {
   const { manifest: m, id } = extension;
-  if (!localId.test(id) || m.version !== 1) throw new Error("Unsupported extension identity or contribution version.");
+  const validId = builtin ? id.startsWith("@swarmie.") && localId.test(id.slice("@swarmie.".length)) : localId.test(id);
+  if (!validId || m.version !== 1) throw new Error("Unsupported extension identity or contribution version.");
   const unique = (values: { id: string }[]) => {
     const ids = new Set<string>();
     for (const value of values) {
@@ -80,7 +81,14 @@ export class ContributionRegistry {
     this.changed();
   }
   register(extension: ClientExtension) {
-    validate(extension);
+    return this.add(extension, false);
+  }
+  /** Host-owned IDs are outside the namespace accepted by public registrations. */
+  registerBuiltin(extension: ClientExtension) {
+    return this.add(extension, true);
+  }
+  private add(extension: ClientExtension, builtin: boolean) {
+    validate(extension, builtin);
     if (this.extensions.has(extension.id)) throw new Error(`Extension already registered: ${extension.id}`);
     const registered: Registered = { ...extension, manifest: structuredClone(extension.manifest), controller: new AbortController() };
     const shortcuts = new Set([...this.extensions.values()].flatMap((entry) => (entry.manifest.commands ?? []).flatMap((command) => command.shortcut ? [command.shortcut.toLowerCase()] : [])));

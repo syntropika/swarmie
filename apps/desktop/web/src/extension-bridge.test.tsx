@@ -9,6 +9,26 @@ import { extensionDocument } from "./extensionFrame";
 import { newThread } from "./protocol";
 import type { WorkspaceStore, Workspace } from "./workspace";
 afterEach(cleanup);
+it("keeps runtime dictation commands and surfaces separate from built-in dictation", async () => {
+  const thread = newThread("project", "tree", "codex");
+  const extension = { id: "dictation", commands: [
+    { name: "render", title: "Render", mutates: false }, { name: "echo", title: "Echo", mutates: false },
+  ], ui: { version: 1, commands: [{ id: "echo", title: "Runtime dictation", runtimeCommand: "echo", when: [] }],
+    slots: [{ id: "echo", title: "Runtime dictation", kind: "action" as const, slot: "composer.actions" as const, command: "echo", clients: [], when: [], enabledWhen: [], order: 0 }],
+    screens: [{ id: "settings", title: "Runtime dictation settings", command: "render", clients: [] }], panels: [] } };
+  const state = { connected: true, threads: [thread], extensions: [extension] } as unknown as Workspace;
+  const invoke = vi.fn().mockResolvedValue("<p>Runtime settings</p>"), error = vi.fn();
+  const store = { getSnapshot: () => state, invokeExtension: invoke, setError: error } as unknown as WorkspaceStore;
+  render(<ContributionHost store={store} thread={thread} ready extensions={[extension]} openSurface={vi.fn()}>
+    <ContributionSlot name="composer.actions" /><ContributionSurface kind="screen" id="dictation/settings" onClose={vi.fn()} />
+  </ContributionHost>);
+  await userEvent.click(screen.getByRole("button", { name: "Runtime dictation" }));
+  expect(screen.getByRole("button", { name: "Dictate message" })).toBeTruthy();
+  expect(invoke).toHaveBeenCalledWith("dictation", "echo", expect.objectContaining({ conversationId: thread.id }));
+  expect(await screen.findByTitle("Runtime dictation settings")).toBeTruthy();
+  expect(invoke).toHaveBeenCalledWith("dictation", "render", expect.anything());
+  expect(error).not.toHaveBeenCalled();
+});
 it("keeps legacy command views sandboxed and rejects unadvertised or foreign-frame calls", async () => {
   const invoke = vi.fn().mockResolvedValue("<h1>Legacy tool</h1>");
   const thread = { ...newThread("project", "tree", "codex"), sessionId: "session" };

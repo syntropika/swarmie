@@ -9,6 +9,8 @@ description: "Versioned identity, commands, screens, panels, and client lifecycl
 
 Duplicate IDs, missing handlers, unsupported slots or types, and shortcut collisions reject registration. Screens and panels share one per-extension surface namespace. The client registry is scoped to a workspace and retained node.
 
+Host-owned built-ins use the reserved `@swarmie.` namespace, such as `@swarmie.dictation`. Public client and runtime registrations cannot claim those IDs. A runtime extension named `dictation` remains a separate extension with its own commands and surfaces.
+
 Runtime declarations use the generated `UiManifest` wire type. Bundled authors use `ClientExtension` from `@swarmie/contracts/ui-client`; its authoring forms allow omitted defaults.
 
 ## Slots and ordering
