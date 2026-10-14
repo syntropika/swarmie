@@ -1,20 +1,21 @@
-// Package swarmie provides a bounded HTTP JSON-RPC client for the local runtime.
+// Package swarmie marshals canonical wire types through the native Rust client.
 package swarmie
 
+/*
+#cgo linux LDFLAGS: ${SRCDIR}/native/libswarmie_client_ffi.a -ldl -lpthread -lm
+#cgo darwin LDFLAGS: ${SRCDIR}/native/libswarmie_client_ffi.a -framework Security -framework SystemConfiguration
+#include <stdlib.h>
+#include "native/swarmie_client.h"
+*/
+import "C"
+
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"strings"
-	"sync/atomic"
+	"runtime"
 	"time"
+	"unsafe"
 )
 
 type RPCError struct {
@@ -33,100 +34,149 @@ type Options struct {
 	Token            string
 	Timeout          time.Duration
 	MaxResponseBytes int64
-	HTTPClient       *http.Client
 }
-type Client struct {
-	endpoint         string
-	token            string
-	timeout          time.Duration
-	maxResponseBytes int64
-	http             *http.Client
-	prefix           string
-	sequence         atomic.Uint64
-}
+type Client struct{ handle uint64 }
 
-func New(endpoint string, options Options) (*Client, error) {
-	parsed, err := url.Parse(endpoint)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-		return nil, errors.New("endpoint must be an HTTP or HTTPS URL")
+func native(command any) (json.RawMessage, error) {
+	payload, err := json.Marshal(command)
+	if err != nil {
+		return nil, err
 	}
-	if parsed.Path == "" || parsed.Path == "/" {
-		parsed.Path = "/rpc"
+	input := C.CString(string(payload))
+	defer C.free(unsafe.Pointer(input))
+	output := C.swarmie_client_execute(input)
+	if output == nil {
+		return nil, &ProtocolError{"Native allocation failed"}
 	}
+	defer C.swarmie_client_free(output)
+	var reply struct {
+		OK    json.RawMessage `json:"ok"`
+		Error *struct {
+			Kind    string  `json:"kind"`
+			Message string  `json:"message"`
+			Code    int     `json:"code"`
+			Data    *string `json:"data_json"`
+		} `json:"error"`
+	}
+	if err = json.Unmarshal([]byte(C.GoString(output)), &reply); err != nil {
+		return nil, err
+	}
+	if reply.Error == nil {
+		return reply.OK, nil
+	}
+	e := reply.Error
+	switch e.Kind {
+	case "rpc":
+		var data json.RawMessage
+		if e.Data != nil {
+			data = json.RawMessage(*e.Data)
+		}
+		return nil, &RPCError{e.Code, e.Message, data}
+	case "timeout":
+		return nil, context.DeadlineExceeded
+	case "cancelled":
+		return nil, context.Canceled
+	default:
+		return nil, &ProtocolError{e.Message}
+	}
+}
+func create(command any) (*Client, error) {
+	if C.swarmie_client_abi_version() != 1 {
+		return nil, &ProtocolError{"Unsupported native client ABI"}
+	}
+	value, err := native(command)
+	if err != nil {
+		return nil, err
+	}
+	c := &Client{}
+	if err = json.Unmarshal(value, &c.handle); err != nil {
+		return nil, err
+	}
+	runtime.SetFinalizer(c, func(client *Client) { _ = client.Dispose() })
+	return c, nil
+}
+func defaults(options Options) Options {
 	if options.Timeout == 0 {
 		options.Timeout = 30 * time.Second
 	}
 	if options.MaxResponseBytes == 0 {
 		options.MaxResponseBytes = 16 * 1024 * 1024
 	}
-	if options.Timeout < 0 || options.MaxResponseBytes < 0 {
-		return nil, errors.New("limits must be positive")
-	}
-	random := make([]byte, 16)
-	if _, err = rand.Read(random); err != nil {
-		return nil, err
-	}
-	if options.HTTPClient == nil {
-		options.HTTPClient = &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
-	}
-	return &Client{endpoint: parsed.String(), token: options.Token, timeout: options.Timeout, maxResponseBytes: options.MaxResponseBytes, http: options.HTTPClient, prefix: hex.EncodeToString(random)}, nil
+	return options
+}
+func New(endpoint string, options Options) (*Client, error) {
+	options = defaults(options)
+	return create(map[string]any{"action": "create_http", "config": map[string]any{"url": endpoint, "token": options.Token, "timeout_ms": options.Timeout.Milliseconds(), "max_response_bytes": options.MaxResponseBytes}})
 }
 
-// Call invokes any method from the canonical schema. Credentials remain in memory.
-func (c *Client) Call(ctx context.Context, method string, params any, result any) error {
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-	id := fmt.Sprintf("%s-%d", c.prefix, c.sequence.Add(1))
-	payload, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+// NewStdio owns a runtime child until Dispose or a request deadline/cancellation.
+func NewStdio(command string, args []string, options Options) (*Client, error) {
+	options = defaults(options)
+	if args == nil {
+		args = []string{}
+	}
+	return create(map[string]any{"action": "create_stdio", "config": map[string]any{"command": command, "args": args, "timeout_ms": options.Timeout.Milliseconds(), "max_response_bytes": options.MaxResponseBytes}})
+}
+
+// Dispose closes native resources. In-flight calls finish with a closed error.
+func (c *Client) Dispose() error {
+	_, err := native(map[string]any{"action": "release", "handle": c.handle})
+	runtime.KeepAlive(c)
+	return err
+}
+func operation(ctx context.Context, command map[string]any, result any) error {
+	prepared, err := native(map[string]any{"action": "prepare"})
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(payload))
+	var id uint64
+	if err = json.Unmarshal(prepared, &id); err != nil {
+		return err
+	}
+	defer func() { _, _ = native(map[string]any{"action": "release", "handle": id}) }()
+	done := make(chan struct{})
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		select {
+		case <-ctx.Done():
+			_, _ = native(map[string]any{"action": "cancel", "operation": id})
+		case <-done:
+		}
+	}()
+	// Cancellation must precede dispatch when the context was already cancelled.
+	if ctx.Err() != nil {
+		_, _ = native(map[string]any{"action": "cancel", "operation": id})
+	}
+	command["operation"] = id
+	value, err := native(command)
+	close(done)
+	<-finished
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if err != nil {
 		return err
 	}
-	request.Header.Set("Content-Type", "application/json")
-	if c.token != "" {
-		request.Header.Set("Authorization", "Bearer "+c.token)
-	}
-	response, err := c.http.Do(request)
-	if err != nil {
+	var encoded string
+	if err = json.Unmarshal(value, &encoded); err != nil {
 		return err
-	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return &ProtocolError{Message: fmt.Sprintf("HTTP %d", response.StatusCode)}
-	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, c.maxResponseBytes+1))
-	if err != nil {
-		return err
-	}
-	if int64(len(body)) > c.maxResponseBytes {
-		return &ProtocolError{Message: "response exceeds size limit"}
-	}
-	var envelope struct {
-		JSONRPC string          `json:"jsonrpc"`
-		ID      json.RawMessage `json:"id"`
-		Result  json.RawMessage `json:"result"`
-		Error   *RPCError       `json:"error"`
-	}
-	if err = json.Unmarshal(body, &envelope); err != nil {
-		return &ProtocolError{Message: "response is not valid JSON"}
-	}
-	var receivedID string
-	if envelope.JSONRPC != "2.0" || json.Unmarshal(envelope.ID, &receivedID) != nil || receivedID != id {
-		return &ProtocolError{Message: "invalid JSON-RPC response identity"}
-	}
-	if envelope.Error != nil {
-		return envelope.Error
-	}
-	if envelope.Result == nil {
-		return &ProtocolError{Message: "response has no result"}
 	}
 	if result == nil {
 		return nil
 	}
-	return json.Unmarshal(envelope.Result, result)
+	return json.Unmarshal([]byte(encoded), result)
+}
+
+// Call executes a bounded native RPC request. No automatic retries are performed.
+func (c *Client) Call(ctx context.Context, method string, params any, result any) error {
+	encoded, err := json.Marshal(params)
+	if err != nil {
+		return err
+	}
+	err = operation(ctx, map[string]any{"action": "invoke", "client": c.handle, "request": map[string]any{"method": method, "params_json": string(encoded), "timeout_ms": nil}}, result)
+	runtime.KeepAlive(c)
+	return err
 }
 func (c *Client) Initialize(ctx context.Context) (json.RawMessage, error) {
 	var value json.RawMessage
@@ -189,7 +239,7 @@ type EventOptions struct {
 	PollInterval  time.Duration
 }
 
-// Events polls the durable transcript. Returning false from consume stops cleanly.
+// Events pulls one ordered native event at a time; returning false releases the cursor.
 func (c *Client) Events(ctx context.Context, sessionID string, options EventOptions, consume func(RuntimeEvent) bool) error {
 	if options.Timeout == 0 {
 		options.Timeout = 10 * time.Minute
@@ -197,57 +247,37 @@ func (c *Client) Events(ctx context.Context, sessionID string, options EventOpti
 	if options.PollInterval == 0 {
 		options.PollInterval = 200 * time.Millisecond
 	}
-	if options.Timeout < 0 || options.PollInterval < 0 {
-		return errors.New("limits must be positive")
+	value, err := native(map[string]any{"action": "open_events", "client": c.handle, "session_id": sessionID, "options": map[string]any{"after_sequence": options.AfterSequence, "timeout_ms": options.Timeout.Milliseconds(), "poll_interval_ms": options.PollInterval.Milliseconds()}})
+	if err != nil {
+		return err
 	}
-	ctx, cancel := context.WithTimeout(ctx, options.Timeout)
-	defer cancel()
-	sequence := options.AfterSequence
+	var stream uint64
+	if err = json.Unmarshal(value, &stream); err != nil {
+		return err
+	}
+	defer func() { _, _ = native(map[string]any{"action": "release", "handle": stream}); runtime.KeepAlive(c) }()
 	for {
-		var batch []RuntimeEvent
-		if err := c.Call(ctx, "session/transcript", map[string]any{"sessionId": sessionID, "afterSequence": sequence, "limit": 256}, &batch); err != nil {
+		var event RuntimeEvent
+		if err = operation(ctx, map[string]any{"action": "next_event", "stream": stream}, &event); err != nil {
 			return err
 		}
-		for _, event := range batch {
-			if event.SessionId != sessionID || event.Sequence <= sequence {
-				return &ProtocolError{Message: "transcript is not strictly ordered for this session"}
-			}
-			sequence = event.Sequence
-			if !consume(event) {
-				return nil
-			}
-		}
-		if len(batch) >= 256 {
-			continue
-		}
-		timer := time.NewTimer(options.PollInterval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return ctx.Err()
-		case <-timer.C:
+		if !consume(event) {
+			return nil
 		}
 	}
 }
 func (c *Client) WaitForTurn(ctx context.Context, sessionID string, options EventOptions) ([]RuntimeEvent, error) {
-	var events []RuntimeEvent
-	var ended bool
-	err := c.Events(ctx, sessionID, options, func(event RuntimeEvent) bool {
-		events = append(events, event)
-		if event.Type == "session.ended" {
-			return false
-		}
-		if event.Type == "turn.ended" {
-			ended = true
-			return false
-		}
-		return true
-	})
-	if err == nil && !ended {
-		err = &ProtocolError{Message: "session ended before the requested turn"}
+	if options.Timeout == 0 {
+		options.Timeout = 10 * time.Minute
 	}
+	if options.PollInterval == 0 {
+		options.PollInterval = 200 * time.Millisecond
+	}
+	var events []RuntimeEvent
+	err := operation(ctx, map[string]any{"action": "wait_turn", "client": c.handle, "session_id": sessionID, "options": map[string]any{"after_sequence": options.AfterSequence, "timeout_ms": options.Timeout.Milliseconds(), "poll_interval_ms": options.PollInterval.Milliseconds()}}, &events)
+	runtime.KeepAlive(c)
 	return events, err
 }
 
-// String returns only the endpoint and deliberately excludes the bearer token.
-func (c *Client) String() string { return "SwarmieClient(" + strings.Split(c.endpoint, "?")[0] + ")" }
+// String never includes credentials or transport parameters.
+func (c *Client) String() string { return "SwarmieClient(native)" }

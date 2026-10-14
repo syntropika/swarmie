@@ -4,7 +4,7 @@ import FoundationNetworking
 #endif
 
 public enum JSONValue: Codable, Sendable, Equatable {
-    case null, bool(Bool), number(Double), string(String), array([JSONValue]), object([String: JSONValue])
+    case null, bool(Bool), number(Double), unsigned(UInt64), string(String), array([JSONValue]), object([String: JSONValue])
     public init(from decoder: any Decoder) throws {
         let container = try decoder.singleValueContainer()
         if container.decodeNil() { self = .null }
@@ -20,6 +20,7 @@ public enum JSONValue: Codable, Sendable, Equatable {
         case .null: try container.encodeNil()
         case .bool(let value): try container.encode(value)
         case .number(let value): try container.encode(value)
+        case .unsigned(let value): try container.encode(value)
         case .string(let value): try container.encode(value)
         case .array(let value): try container.encode(value)
         case .object(let value): try container.encode(value)
@@ -50,44 +51,20 @@ public struct EventOptions: Sendable {
     public init(afterSequence: UInt64 = 0, timeout: TimeInterval = 600, pollInterval: TimeInterval = 0.2) { self.afterSequence = afterSequence; self.timeout = timeout; self.pollInterval = pollInterval }
 }
 
-// An actor gives concurrent requests unique IDs without sharing mutable encoders.
 public actor Client {
-    private let endpoint: URL
-    private let options: ClientOptions
-    private let session: URLSession
-    private let prefix = UUID().uuidString
-    private var sequence: UInt64 = 0
-    public init(url: URL, options: ClientOptions = ClientOptions(), session: URLSession = .shared) throws {
-        guard ["http", "https"].contains(url.scheme), url.host != nil else { throw ProtocolError("Use an HTTP or HTTPS endpoint") }
-        guard options.timeout.isFinite, options.timeout > 0, options.maxResponseBytes > 0 else { throw ProtocolError("Limits must be positive") }
-        self.endpoint = url.path.isEmpty || url.path == "/" ? url.appendingPathComponent("rpc") : url
-        self.options = options; self.session = session
+    private nonisolated let native: NativeHandle
+    public init(url: URL, options: ClientOptions = ClientOptions()) throws {
+        native = try NativeHandle(command: .object(["action": .string("create_http"), "config": .object(["url": .string(url.absoluteString), "token": options.token.map(JSONValue.string) ?? .null, "timeout_ms": try milliseconds(options.timeout), "max_response_bytes": .number(Double(options.maxResponseBytes))])]))
     }
+    public init(command: String, arguments: [String] = [], options: ClientOptions = ClientOptions()) throws {
+        native = try NativeHandle(command: .object(["action": .string("create_stdio"), "config": .object(["command": .string(command), "args": .array(arguments.map(JSONValue.string)), "timeout_ms": try milliseconds(options.timeout), "max_response_bytes": .number(Double(options.maxResponseBytes))])]))
+    }
+    public nonisolated func dispose() throws { try native.dispose() }
     public func call<P: Encodable & Sendable, R: Decodable & Sendable>(_ method: String, params: P, as type: R.Type = R.self, timeout: TimeInterval? = nil) async throws -> R {
-        sequence += 1
-        let id = "\(prefix)-\(sequence)"
-        try Task.checkCancellation()
-        let encodedParams = try JSONEncoder().encode(params)
-        let value = try JSONDecoder().decode(JSONValue.self, from: encodedParams)
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"; request.timeoutInterval = min(timeout ?? options.timeout, options.timeout)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let token = options.token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-        request.httpBody = try JSONEncoder().encode(JSONValue.object(["jsonrpc": .string("2.0"), "id": .string(id), "method": .string(method), "params": value]))
-        // AsyncBytes bounds accumulated memory while preserving cancellation.
-        let (bytes, response) = try await session.bytes(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw ProtocolError("Runtime HTTP status \((response as? HTTPURLResponse)?.statusCode ?? 0)") }
-        var data = Data()
-        for try await byte in bytes {
-            if data.count >= options.maxResponseBytes { throw ProtocolError("Runtime response exceeded the configured byte limit") }
-            data.append(byte)
-        }
-        let envelope: JSONValue
-        do { envelope = try JSONDecoder().decode(JSONValue.self, from: data) } catch { throw ProtocolError("Runtime response is not JSON") }
-        guard envelope["jsonrpc"] == .string("2.0"), envelope["id"] == .string(id) else { throw ProtocolError("JSON-RPC response identity mismatch") }
-        if let error = envelope["error"] { throw try JSONDecoder().decode(RPCError.self, from: JSONEncoder().encode(error)) }
-        guard let result = envelope["result"] else { throw ProtocolError("JSON-RPC response has no result") }
-        return try JSONDecoder().decode(R.self, from: JSONEncoder().encode(result))
+        let data = try JSONEncoder().encode(params)
+        guard let encoded = String(data: data, encoding: .utf8) else { throw ProtocolError("Request is not UTF-8") }
+        let result = try await nativeOperation(.object(["action": .string("invoke"), "client": native.value, "request": .object(["method": .string(method), "params_json": .string(encoded), "timeout_ms": try timeout.map(milliseconds) ?? .null])]))
+        return try JSONDecoder().decode(R.self, from: result)
     }
     public func initialize() async throws -> JSONValue { try await call("runtime/initialize", params: [String: String]()) }
     public func schema() async throws -> JSONValue { try await call("runtime/schema", params: [String: String]()) }
@@ -99,61 +76,41 @@ public actor Client {
     public func reconcileSubmission(sessionID: String, idempotencyKey: String) async throws -> SubmissionReceipt? { try await call("session/submission/reconcile", params: ["sessionId": sessionID, "idempotencyKey": idempotencyKey]) }
     public func close(sessionID: String) async throws { let _: JSONValue = try await call("session/close", params: ["sessionId": sessionID]) }
     public nonisolated func events(sessionID: String, options: EventOptions = EventOptions()) throws -> EventStream {
-        try EventStream(client: self, sessionID: sessionID, options: options)
+        try EventStream(client: native, sessionID: sessionID, options: options)
     }
     public func waitForTurn(sessionID: String, options: EventOptions = EventOptions()) async throws -> [RuntimeEvent] {
-        var collected: [RuntimeEvent] = []
-        for try await event in try events(sessionID: sessionID, options: options) {
-            collected.append(event)
-            if event.type == "turn.ended" { return collected }
-            if event.type == "session.ended" { throw ProtocolError("Session ended before the turn completed") }
-        }
-        return collected
+        let result = try await nativeOperation(.object(["action": .string("wait_turn"), "client": native.value, "session_id": .string(sessionID), "options": .object(["after_sequence": .unsigned(options.afterSequence), "timeout_ms": try milliseconds(options.timeout), "poll_interval_ms": try milliseconds(options.pollInterval)])]))
+        return try JSONDecoder().decode([RuntimeEvent].self, from: result)
     }
 }
 
-// Demand-driven iteration holds only one page and never drops ordered events.
+// A reference owns the cursor so copied iterators release it exactly once.
 public struct EventStream: AsyncSequence, Sendable {
     public typealias Element = RuntimeEvent
-    private let client: Client
+    private let client: NativeHandle
     private let sessionID: String
     private let options: EventOptions
-    fileprivate init(client: Client, sessionID: String, options: EventOptions) throws {
-        guard options.timeout.isFinite, options.timeout > 0, options.pollInterval.isFinite, options.pollInterval > 0 else { throw ProtocolError("Limits must be positive") }
+    fileprivate init(client: NativeHandle, sessionID: String, options: EventOptions) throws {
+        _ = try milliseconds(options.timeout)
+        _ = try milliseconds(options.pollInterval)
         self.client = client; self.sessionID = sessionID; self.options = options
     }
     public func makeAsyncIterator() -> AsyncIterator { AsyncIterator(client: client, sessionID: sessionID, options: options) }
     public struct AsyncIterator: AsyncIteratorProtocol {
-        private let client: Client
+        private let client: NativeHandle
         private let sessionID: String
         private let options: EventOptions
-        private let deadline: ContinuousClock.Instant
-        private var sequence: UInt64
-        private var page: [RuntimeEvent] = []
-        private var index = 0
-        private var shouldWait = false
-        fileprivate init(client: Client, sessionID: String, options: EventOptions) {
+        private var stream: NativeHandle?
+        fileprivate init(client: NativeHandle, sessionID: String, options: EventOptions) {
             self.client = client; self.sessionID = sessionID; self.options = options
-            self.sequence = options.afterSequence; self.deadline = ContinuousClock.now.advanced(by: .seconds(options.timeout))
         }
         public mutating func next() async throws -> RuntimeEvent? {
-            while true {
-                try Task.checkCancellation()
-                guard ContinuousClock.now < deadline else { throw ProtocolError("Event polling deadline exceeded") }
-                if index < page.count {
-                    let event = page[index]; index += 1
-                    guard event.sessionId == sessionID, event.sequence > sequence else { throw ProtocolError("Runtime event ordering or session identity mismatch") }
-                    sequence = event.sequence; return event
-                }
-                let remaining = ContinuousClock.now.duration(to: deadline)
-                let seconds = Double(remaining.components.seconds) + Double(remaining.components.attoseconds) / 1e18
-                if shouldWait { try await Task.sleep(for: .seconds(Swift.min(options.pollInterval, seconds))) }
-                guard ContinuousClock.now < deadline else { throw ProtocolError("Event polling deadline exceeded") }
-                let currentRemaining = ContinuousClock.now.duration(to: deadline)
-                let timeout = Double(currentRemaining.components.seconds) + Double(currentRemaining.components.attoseconds) / 1e18
-                page = try await client.call("session/transcript", params: JSONValue.object(["sessionId": .string(sessionID), "afterSequence": .number(Double(sequence)), "limit": .number(256)]), timeout: timeout)
-                index = 0; shouldWait = page.count < 256
+            if stream == nil {
+                stream = try NativeHandle(command: .object(["action": .string("open_events"), "client": client.value, "session_id": .string(sessionID), "options": .object(["after_sequence": .unsigned(options.afterSequence), "timeout_ms": try milliseconds(options.timeout), "poll_interval_ms": try milliseconds(options.pollInterval)])]))
             }
+            guard let stream else { throw ProtocolError("Event stream is closed") }
+            let result = try await nativeOperation(.object(["action": .string("next_event"), "stream": stream.value]))
+            return try JSONDecoder().decode(RuntimeEvent.self, from: result)
         }
     }
 }

@@ -19,6 +19,7 @@ def archive(source, output, prefix):
 
 def package_typescript(output, build=True):
     if build:
+        run([sys.executable,str(ROOT/'tools/build_native.py'),'--release', *(['--apple'] if platform.system() == 'Darwin' else [])],cwd=PROJECT)
         run(['bun','install','--frozen-lockfile','--ignore-scripts'],cwd=PROJECT)
         run(['bun','run','--cwd','sdk/typescript','build'],cwd=PROJECT)
     run(['npm','pack','--pack-destination',str(output)],cwd=CONTRACTS)
@@ -27,6 +28,8 @@ def package_typescript(output, build=True):
         copy_source(ROOT/'typescript',stage)
         shutil.copytree(ROOT/'typescript/dist',stage/'dist')
         manifest=stage/'package.json';package=json.loads(manifest.read_text())
+        package['os']=[{'Linux':'linux','Darwin':'darwin','Windows':'win32'}[platform.system()]]
+        package['cpu']=[{'x86_64':'x64','aarch64':'arm64','arm64':'arm64','AMD64':'x64'}[platform.machine()]]
         package['dependencies']['@swarmie/contracts']=json.loads((CONTRACTS/'package.json').read_text())['version']
         manifest.write_text(json.dumps(package,indent=2)+'\n')
         run(['npm','pack','--pack-destination',str(output)],cwd=stage)

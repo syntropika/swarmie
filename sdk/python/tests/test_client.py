@@ -1,4 +1,4 @@
-import json, os, pathlib, tempfile, threading, unittest
+import json, os, pathlib, tempfile, threading, time, unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from swarmie_client import Client, HttpTransport, StdioTransport, RpcError, ProtocolError
 from swarmie_client.client import decode_response
@@ -7,8 +7,10 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args): pass
     def do_POST(self):
         request=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        if request['method']=='slow': time.sleep(.1)
         self.send_response(200);self.end_headers()
-        self.wfile.write(json.dumps({'jsonrpc':'2.0','id':'wrong' if request['method']=='wrong' else request['id'],'result':'x'*2048 if request['method']=='large' else None}).encode())
+        try:self.wfile.write(json.dumps({'jsonrpc':'2.0','id':'wrong' if request['method']=='wrong' else request['id'],'result':([{'sessionId':'unordered','sequence':2},{'sessionId':'unordered','sequence':1}] if request.get('params',{}).get('sessionId')=='unordered' else [] if request['method']=='session/transcript' else 'x'*2048 if request['method']=='large' else None)}).encode())
+        except BrokenPipeError:pass
 
 class Clients(unittest.TestCase):
     def test_identity_and_structured_errors(self):
@@ -25,18 +27,28 @@ class Clients(unittest.TestCase):
             with self.assertRaises(ProtocolError):client.call('large')
         finally:server.shutdown();server.server_close()
     def test_polling_deadline_and_order(self):
-        class Fake:
-            def request(self,*args):return []
-        with self.assertRaises(TimeoutError):Client(Fake()).wait_for_turn('s',timeout=.02,poll_interval=.002)
-        class Unordered:
-            def request(self,*args):return [{'sessionId':'s','sequence':2},{'sessionId':'s','sequence':1}]
-        with self.assertRaises(ProtocolError):list(Client(Unordered()).events('s'))
+        server=ThreadingHTTPServer(('127.0.0.1',0),Handler);threading.Thread(target=server.serve_forever,daemon=True).start()
+        with Client.http(f'http://127.0.0.1:{server.server_port}') as client:
+            try:
+                with self.assertRaises(TimeoutError):client.wait_for_turn('s',timeout=.02,poll_interval=.002)
+                with self.assertRaises(ProtocolError):list(client.events('unordered'))
+            finally:server.shutdown();server.server_close()
+    def test_cancellation_interrupts_active_native_io(self):
+        server=ThreadingHTTPServer(('127.0.0.1',0),Handler);threading.Thread(target=server.serve_forever,daemon=True).start()
+        with Client.http(f'http://127.0.0.1:{server.server_port}') as client:
+            cancel=threading.Event()
+            timer=threading.Timer(.01,cancel.set)
+            try:
+                timer.start()
+                with self.assertRaises(InterruptedError):client.call('slow',cancel=cancel)
+                with self.assertRaises(InterruptedError):client.call('slow',cancel=cancel)
+            finally:timer.cancel();server.shutdown();server.server_close()
     def test_owned_stdio_timeout(self):
         import sys
         transport=StdioTransport([sys.executable,'-c','import time;time.sleep(60)'],timeout=.02)
         try:
             with self.assertRaises(TimeoutError):Client(transport).initialize()
-            self.assertIsNotNone(transport._process.poll())
+            with self.assertRaises(ProtocolError):Client(transport).initialize()
         finally:transport.close()
     def conformance(self,client):
         self.assertTrue(client.initialize());self.assertIn('session/create',client.schema()['x-methods'])

@@ -1,63 +1,81 @@
-import type { Methods, RuntimeEvent, SessionSnapshot, InputSpawnOptions, InputPromptContent, JsonValue } from "@swarmie/contracts";
-export * from "@swarmie/contracts";
-export class RpcError extends Error {
-  constructor(public readonly code:number,message:string,public readonly data?:unknown){super(message);this.name="RpcError";}
+import type { RuntimeEvent } from "@swarmie/contracts";
+
+import { Client as BrowserClient } from "./browser.js";
+import { HttpTransport } from "./http-transport.js";
+import type { NativeTransport } from "./native-transport.js";
+import { control, execute, handle, jsonResult } from "./native.js";
+import type { ClientOptions, EventOptions } from "./options.js";
+import { fromWire } from "./wire.js";
+
+export type * from "@swarmie/contracts";
+export { RpcError } from "./rpc-error.js";
+export { ProtocolError } from "./protocol-error.js";
+export { NativeTransport } from "./native-transport.js";
+export { HttpTransport } from "./http-transport.js";
+export type { ClientOptions, EventOptions } from "./options.js";
+
+export function decodeResponse(value: unknown, id: string): unknown {
+  return jsonResult(
+    control({ action: "decode", response_json: JSON.stringify(value), request_id: id }),
+  );
 }
-export class ProtocolError extends Error { constructor(message:string){super(message);this.name="ProtocolError";} }
-export type ClientOptions={token?:string;timeoutMs?:number;maxResponseBytes?:number};
-export type EventOptions={afterSequence?:number;timeoutMs?:number;pollIntervalMs?:number;signal?:AbortSignal};
-export interface Transport { request(method:string,params:unknown,signal?:AbortSignal):Promise<unknown>; }
-function positive(value:number,label:string) {if(!Number.isFinite(value) || value<=0)throw new RangeError(`${label} must be positive`);return value;}
-export function decodeResponse(value:unknown,id:string):unknown {
-  if(!value || typeof value !== "object")throw new ProtocolError("Invalid JSON-RPC response");
-  const message=value as {jsonrpc?:unknown;id?:unknown;error?:{code?:unknown;message?:unknown;data?:unknown};result?:unknown};
-  if(message.jsonrpc!=="2.0" || message.id!==id)throw new ProtocolError("JSON-RPC response identity mismatch");
-  if(message.error){if(typeof message.error.code!=="number" || typeof message.error.message!=="string")throw new ProtocolError("Malformed JSON-RPC error");throw new RpcError(message.error.code,message.error.message,message.error.data);}
-  if(!("result" in message))throw new ProtocolError("JSON-RPC response has no result");
-  return message.result;
-}
-export class HttpTransport implements Transport {
-  private sequence=0;private prefix=crypto.randomUUID();private endpoint:URL;
-  constructor(url:string,private options:ClientOptions={}) {
-    this.endpoint=new URL(url);if(!["http:","https:"].includes(this.endpoint.protocol))throw new ProtocolError("Use an HTTP or HTTPS endpoint");
-    if(this.endpoint.pathname==="/")this.endpoint.pathname="/rpc";
-    positive(options.timeoutMs ?? 30000,"timeoutMs");positive(options.maxResponseBytes ?? 16*1024*1024,"maxResponseBytes");
+// Convenience methods only marshal the canonical wire types. Native events replace
+// the browser polling implementation so Node shares all transport invariants with Rust.
+export class Client extends BrowserClient {
+  constructor(public override readonly transport: NativeTransport) {
+    super(transport);
   }
-  async request(method:string,params:unknown,signal?:AbortSignal):Promise<unknown> {
-    const id=`${this.prefix}-${++this.sequence}`;
-    const timeout=AbortSignal.timeout(this.options.timeoutMs ?? 30000);const cancellation=signal ? AbortSignal.any([signal,timeout]) : timeout;
-    const response=await fetch(this.endpoint,{method:"POST",redirect:"error",headers:{"Content-Type":"application/json",...(this.options.token ? {Authorization:`Bearer ${this.options.token}`}:{})},body:JSON.stringify({jsonrpc:"2.0",id,method,params}),signal:cancellation});
-    if(!response.ok)throw new ProtocolError(`Runtime HTTP status ${response.status}`);
-    const reader=response.body?.getReader();if(!reader)throw new ProtocolError("Runtime response has no body");
-    const chunks:Uint8Array[]=[];let length=0;const limit=this.options.maxResponseBytes ?? 16*1024*1024;
-    for(;;){const {done,value}=await reader.read();if(done)break;length+=value.length;if(length>limit){await reader.cancel();throw new ProtocolError("Runtime response exceeded the configured byte limit");}chunks.push(value);}
-    const bytes=new Uint8Array(length);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
-    let value:unknown;try{value=JSON.parse(new TextDecoder().decode(bytes));}catch{throw new ProtocolError("Runtime response is not JSON");}
-    return decodeResponse(value,id);
+  static override http(url: string, options: ClientOptions = {}): Client {
+    return new Client(new HttpTransport(url, options));
   }
-}
-export class Client {
-  constructor(public readonly transport:Transport){}
-  static http(url:string,options:ClientOptions={}) {return new Client(new HttpTransport(url,options));}
-  call<M extends keyof Methods>(method:M,params:Methods[M]["params"],signal?:AbortSignal):Promise<Methods[M]["result"]> {return this.transport.request(method,params,signal) as Promise<Methods[M]["result"]>;}
-  callRaw(method:string,params:unknown={},signal?:AbortSignal):Promise<unknown> {return this.transport.request(method,params,signal);}
-  initialize(){return this.call("runtime/initialize",{});}
-  schema(){return this.call("runtime/schema",{});}
-  discover(){return this.call("runtime/discover",{});}
-  spawn(options:InputSpawnOptions):Promise<SessionSnapshot>{return this.call("session/create",options);}
-  prompt(sessionId:string,prompt:string|InputPromptContent[],idempotencyKey:string){return this.call("session/prompt",{sessionId,idempotencyKey,...(typeof prompt==="string" ? {text:prompt}:{content:prompt})});}
-  submission(sessionId:string,idempotencyKey:string){return this.call("session/submission",{sessionId,idempotencyKey});}
-  reconcileSubmission(sessionId:string,idempotencyKey:string){return this.call("session/submission/reconcile",{sessionId,idempotencyKey});}
-  close(sessionId:string){return this.call("session/close",{sessionId});}
-  async *events(sessionId:string,options:EventOptions={}):AsyncGenerator<RuntimeEvent> {
-    let sequence=options.afterSequence ?? 0;const timeout=positive(options.timeoutMs ?? 600000,"timeoutMs");const interval=positive(options.pollIntervalMs ?? 200,"pollIntervalMs");const end=performance.now()+timeout;
-    while(performance.now()<end){options.signal?.throwIfAborted();const signal=AbortSignal.any([AbortSignal.timeout(Math.max(1,Math.ceil(end-performance.now()))),...(options.signal ? [options.signal]:[])]);const events=await this.call("session/transcript",{sessionId,afterSequence:sequence,limit:256},signal);
-      for(const event of events){if(event.sequence<=sequence || event.sessionId!==sessionId)throw new ProtocolError("Runtime event ordering or session identity mismatch");sequence=event.sequence;yield event;}
-      if(events.length<256)await new Promise<void>((resolve,reject)=>{const timer=setTimeout(done,Math.min(interval,end-performance.now()));function done(){options.signal?.removeEventListener("abort",cancel);resolve();}function cancel(){clearTimeout(timer);options.signal?.removeEventListener("abort",cancel);reject(options.signal?.reason);}options.signal?.addEventListener("abort",cancel,{once:true});});
+  dispose(): void {
+    this.transport.dispose();
+  }
+  override async *events(
+    sessionId: string,
+    options: EventOptions = {},
+  ): AsyncGenerator<RuntimeEvent> {
+    const stream = handle({
+      action: "open_events",
+      client: this.transport.id,
+      session_id: sessionId,
+      options: {
+        after_sequence: options.afterSequence ?? 0,
+        timeout_ms: options.timeoutMs ?? 600_000,
+        poll_interval_ms: options.pollIntervalMs ?? 200,
+      },
+    });
+    try {
+      for (;;) {
+        // oxlint-disable-next-line no-await-in-loop -- Each pull consumes the next event of this cursor.
+        const value = jsonResult(await execute({ action: "next_event", stream }, options.signal));
+        // Rust validates session identity and sequence; schema generation owns event fields.
+        yield fromWire<RuntimeEvent>(value);
+      }
+    } finally {
+      control({ action: "release", handle: stream });
     }
-    throw new ProtocolError("Event polling deadline exceeded");
   }
-  async waitForTurn(sessionId:string,options:EventOptions={}):Promise<RuntimeEvent[]> {
-    const events:RuntimeEvent[]=[];for await(const event of this.events(sessionId,options)){events.push(event);if(event.type==="turn.ended")return events;if(event.type==="session.ended")throw new ProtocolError("Session ended before the turn completed");}return events;
+  override async waitForTurn(
+    sessionId: string,
+    options: EventOptions = {},
+  ): Promise<RuntimeEvent[]> {
+    const value = jsonResult(
+      await execute(
+        {
+          action: "wait_turn",
+          client: this.transport.id,
+          session_id: sessionId,
+          options: {
+            after_sequence: options.afterSequence ?? 0,
+            timeout_ms: options.timeoutMs ?? 600_000,
+            poll_interval_ms: options.pollIntervalMs ?? 200,
+          },
+        },
+        options.signal,
+      ),
+    );
+    // Rust returns an array of events validated against the session and cursor.
+    return fromWire<RuntimeEvent[]>(value);
   }
 }

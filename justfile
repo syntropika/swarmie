@@ -39,3 +39,24 @@ changelog:
 
 docs:
     RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --no-deps --document-private-items
+
+# Stage current-host native libraries before language SDK workflows.
+sdk-build:
+    python3 sdk/tools/build_native.py
+
+sdk-check:
+    cargo fmt -p swarmie-client -p swarmie-client-ffi -p swarmie-client-node -- --check
+    cargo clippy --locked -p swarmie-client -p swarmie-client-ffi -p swarmie-client-node --all-targets -- -D warnings
+    RUSTDOCFLAGS="-D warnings" cargo doc --locked -p swarmie-client -p swarmie-client-ffi -p swarmie-client-node --no-deps --document-private-items
+    bun run --cwd sdk/typescript typecheck
+
+sdk-test swift_host: sdk-build
+    cargo test --locked -p swarmie-client -p swarmie-client-ffi
+    python3 scripts/client-conformance.py --swift-host {{swift_host}}
+
+sdk-package binary output:
+    python3 sdk/tools/package_local.py --binary {{binary}} --output {{output}}
+
+# macOS builds run on a configured macOS host.
+sdk-build-apple:
+    python3 sdk/tools/build_native.py --apple

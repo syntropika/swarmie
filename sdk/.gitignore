@@ -8,3 +8,15 @@ __pycache__/
 build/
 *.tgz
 *.whl
+# Host libraries are staged by the root native build recipe.
+*.node
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+typescript/wit/
+python/swarmie_client/wit/
+swift/CSwarmie.xcframework/
+go/wit/
+swift/wit/

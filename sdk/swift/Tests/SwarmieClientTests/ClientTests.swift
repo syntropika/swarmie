@@ -17,10 +17,28 @@ final class ClientTests: XCTestCase, @unchecked Sendable {
         XCTAssertNil(try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(output))["env"])
         XCTAssertTrue(protocolMethods.contains("session/create"))
     }
+    func testOwnedStdioDeadlineAndCancellation() async throws {
+        let client = try Client(command: "/usr/bin/env", arguments: ["python3", "-c", "import time; time.sleep(60)"], options: ClientOptions(timeout: 0.02))
+        defer { try? client.dispose() }
+        do { _ = try await client.initialize(); XCTFail("Deadline ignored") }
+        catch let error as ProtocolError { XCTAssertTrue(error.message.contains("timed out")) }
+        do { _ = try await client.initialize(); XCTFail("Closed process accepted another call") }
+        catch let error as ProtocolError { XCTAssertTrue(error.message.contains("closed")) }
+        let cancellable = try Client(command: "/usr/bin/env", arguments: ["python3", "-c", "import time; time.sleep(60)"])
+        defer { try? cancellable.dispose() }
+        let request = Task { try await cancellable.initialize() }
+        try await Task.sleep(for: .milliseconds(20))
+        request.cancel()
+        do { _ = try await request.value; XCTFail("Cancellation ignored") }
+        catch is CancellationError { }
+        do { _ = try await cancellable.initialize(); XCTFail("Cancelled process accepted another call") }
+        catch let error as ProtocolError { XCTAssertTrue(error.message.contains("closed")) }
+    }
     func testLiveHTTPConformance() async throws {
         let env = ProcessInfo.processInfo.environment
         guard let endpoint = env["SWARMIE_TEST_URL"] else { throw XCTSkip("Live daemon URL required") }
         let client = try Client(url: XCTUnwrap(URL(string: endpoint)), options: ClientOptions(token: env["SWARMIE_TEST_TOKEN"]))
+        defer { try? client.dispose() }
         let initialized = try await client.initialize(); XCTAssertNotEqual(initialized, .null)
         let schema = try await client.schema(); XCTAssertNotNil(schema["x-methods"]?["session/create"])
         let harnesses = try await client.discover(); XCTAssertTrue(harnesses.contains { $0.harness == "mock" && $0.available })
@@ -59,6 +77,10 @@ final class ClientTests: XCTestCase, @unchecked Sendable {
             do { _ = try await client.waitForTurn(sessionID: session.id, options: EventOptions(afterSequence: events.last!.sequence, timeout: 0.03, pollInterval: 0.005)); XCTFail("Polling deadline ignored") }
             catch let error as ProtocolError { XCTAssertTrue(error.message.contains("deadline")) }
             catch let error as URLError { XCTAssertEqual(error.code, .timedOut) }
+            let waiting = Task { try await client.waitForTurn(sessionID: session.id, options: EventOptions(afterSequence: events.last!.sequence, timeout: 60, pollInterval: 0.01)) }
+            try await Task.sleep(for: .milliseconds(20))
+            waiting.cancel()
+            do { _ = try await waiting.value; XCTFail("Event cancellation ignored") } catch is CancellationError { }
             try await client.close(sessionID: session.id)
         } catch { try? await client.close(sessionID: session.id); throw error }
         let denied = try Client(url: XCTUnwrap(URL(string: endpoint)), options: ClientOptions(token: "incorrect"))

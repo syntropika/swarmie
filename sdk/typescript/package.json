@@ -6,17 +6,33 @@
   "files": [
     "dist",
     "LICENSE",
-    "NOTICE"
+    "NOTICE",
+    "native",
+    "wit"
   ],
   "type": "module",
   "types": "./dist/client.d.ts",
   "exports": {
-    ".": "./dist/client.js",
-    "./stdio": "./dist/stdio.js"
+    ".": {
+      "browser": {
+        "types": "./dist/browser.d.ts",
+        "default": "./dist/browser.js"
+      },
+      "types": "./dist/client.d.ts",
+      "default": "./dist/client.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.js"
+    },
+    "./stdio": {
+      "types": "./dist/stdio.d.ts",
+      "default": "./dist/stdio.js"
+    }
   },
   "scripts": {
     "build": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true });\" && tsc",
-    "test": "npm run build && node --test test/*.mjs",
+    "test": "python3 ../tools/build_native.py && bun run build && node --test test/*.mjs",
     "pack:local": "npm run build && npm pack",
     "typecheck": "tsc --noEmit",
     "lint": "bun run --cwd ../.. lint",

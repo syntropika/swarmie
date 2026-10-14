@@ -180,3 +180,27 @@ func TestLiveHTTPConformance(t *testing.T) {
 		t.Fatal("invalid auth accepted")
 	}
 }
+
+func TestNativeContextCancellation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-time.After(time.Second):
+		}
+	}))
+	defer server.Close()
+	client, err := New(server.URL, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Dispose()
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(10 * time.Millisecond); cancel() }()
+	if err = client.Call(ctx, "slow", map[string]any{}, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected cancellation: %v", err)
+	}
+	if err = client.Call(ctx, "slow", map[string]any{}, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected pre-dispatch cancellation: %v", err)
+	}
+}
