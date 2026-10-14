@@ -1,0 +1,10 @@
+SWARMIE — TYPOGRAPHY REFERENCE
+
+Brand typeface: Manrope
+Designer reference: https://www.sharanda.com/manrope
+Brand weights: Regular 400, Medium 500, SemiBold 600, Bold 700
+
+The Swarmie wordmark retains its custom lettering. It is not specified as a Manrope text setting.
+The product interface retains platform sans-serif typography.
+
+The current author release and the Google Fonts release are separate distributions. Use the author reference above for the chosen brand direction and keep the chosen version consistent when implementing it. No font software is bundled here.
