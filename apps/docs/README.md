@@ -9,21 +9,21 @@ Documentation assets live under this directory: captures and the downloadable cl
 Use Node.js 24 and npm. From the repository root:
 
 ```sh
-npm --prefix docs ci
-npm --prefix docs run dev
+npm --prefix apps/docs ci
+npm --prefix apps/docs run dev
 ```
 
 Open the development server's printed address. For a static build and preview:
 
 ```sh
-npm --prefix docs run build
-npm --prefix docs run preview
+npm --prefix apps/docs run build
+npm --prefix apps/docs run preview
 ```
 
 The preview serves `out` on port 3000. When opening it from another computer, use the server's reachable address; loopback refers to the computer opening the link.
 
 ```sh
-npm --prefix docs run check
+npm --prefix apps/docs run check
 ```
 
 Build and checks synchronize the method reference and downloadable schema from `packages/contracts/protocol.json`. Update that public source contract rather than editing the generated method table directly. Content validation checks internal links, slot/capture coverage, and accidental private operational text.
@@ -34,7 +34,7 @@ Public pages describe user workflows, observable product behavior, supported con
 
 Source documentation reflects the current development checkout. Examples must not imply published installers or registry packages unless a corresponding release actually exists. Keep persisted prose in English. Screenshots with simulated data must say so.
 
-The optional private documentation submodule is retained at `private-docs/`; public builds do not initialize it. Repository visibility and site deployment are separate actions from maintaining these public source files.
+This public application lives in `apps/docs/`. The optional private documentation submodule remains at the repository-root `docs/`; public builds do not initialize or read it. Repository visibility and site deployment are separate actions from maintaining these public source files.
 
 ## Publishing
 

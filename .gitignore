@@ -29,5 +29,5 @@
 # Generated native harness smoke-test data, not source fixtures.
 /tests/fixtures/harnesses/*-smoke/
 
-# Local agent instructions are supplied by the private documentation submodule.
+# Agent instructions are supplied by the private documentation submodule.
 /AGENTS.md

@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const docsRoot = fileURLToPath(new URL('../', import.meta.url));
-const repository = path.dirname(docsRoot);
+const repository = path.resolve(docsRoot, '../..');
 const check = process.argv.includes('--check');
 const schemaText = await readFile(path.join(repository, 'packages/contracts/protocol.json'), 'utf8');
 const schema = JSON.parse(schemaText);

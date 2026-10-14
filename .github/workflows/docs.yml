@@ -3,13 +3,13 @@ name: Validate public documentation
 on:
   pull_request:
     paths:
-      - 'docs/**'
+      - 'apps/docs/**'
       - 'packages/contracts/**'
       - 'assets/brandkit/**'
       - '.github/workflows/docs.yml'
   push:
     paths:
-      - 'docs/**'
+      - 'apps/docs/**'
       - 'packages/contracts/**'
       - 'assets/brandkit/**'
       - '.github/workflows/docs.yml'
@@ -30,12 +30,12 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: docs/package-lock.json
-      - run: npm --prefix docs ci
-      - run: npm --prefix docs run build
-      - run: npm --prefix docs run check
+          cache-dependency-path: apps/docs/package-lock.json
+      - run: npm --prefix apps/docs ci
+      - run: npm --prefix apps/docs run build
+      - run: npm --prefix apps/docs run check
       - uses: actions/upload-artifact@v4
         with:
           name: public-documentation
-          path: docs/out
+          path: apps/docs/out
           if-no-files-found: error

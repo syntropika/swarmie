@@ -20,7 +20,7 @@ for (const file of pages) {
     const link = match[1].replace(/\/$/, '');
     if (!routes.has(link) && !downloads.has(link)) failures.push(`${file}: broken link ${match[1]}`);
   }
-  if (/\/(?:home|Users)\/[\w.-]+\/|private-docs\/|\b(?:AGENTS|PRODUCT|DESIGN)\.md\b|\bFIXTURE_[A-Z_]*RECEIPT\b/i.test(source)) failures.push(`${file}: private operational or build context`);
+  if (/\/(?:home|Users)\/[\w.-]+\/|\bdocs\/(?:client-runtime|cloud)\b|\b(?:AGENTS|PRODUCT|DESIGN)\.md\b|\bFIXTURE_[A-Z_]*RECEIPT\b/i.test(source)) failures.push(`${file}: private operational or build context`);
   if (/[áéíóúñ¿¡]/i.test(source)) failures.push(`${file}: unexpected non-English prose`);
 }
 for (const file of publicFiles.filter((file) => file.endsWith('.html'))) {

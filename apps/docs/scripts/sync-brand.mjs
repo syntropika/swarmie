@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const source = path.join(root, '../assets/brandkit');
+const source = path.resolve(root, '../../assets/brandkit');
 const destination = path.join(root, 'public/brand');
 const check = process.argv.includes('--check');
 const assets = [
