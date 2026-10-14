@@ -2,31 +2,34 @@
   "name": "@swarmie/client",
   "version": "0.1.0",
   "description": "Typed clients for the swarmie runtime protocol",
-  "type": "module",
   "license": "Apache-2.0",
-  "engines": {
-    "node": ">=22"
-  },
-  "exports": {
-    ".": "./dist/client.js",
-    "./stdio": "./dist/stdio.js"
-  },
-  "types": "./dist/client.d.ts",
   "files": [
     "dist",
     "LICENSE",
     "NOTICE"
   ],
+  "type": "module",
+  "types": "./dist/client.d.ts",
+  "exports": {
+    ".": "./dist/client.js",
+    "./stdio": "./dist/stdio.js"
+  },
   "scripts": {
     "build": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true });\" && tsc",
     "test": "npm run build && node --test test/*.mjs",
-    "pack:local": "npm run build && npm pack"
-  },
-  "devDependencies": {
-    "typescript": "^5.9.3",
-    "@types/node": "^24.0.0"
+    "pack:local": "npm run build && npm pack",
+    "typecheck": "tsc --noEmit",
+    "lint": "bun run --cwd ../../.. lint",
+    "format": "bun run --cwd ../../.. format"
   },
   "dependencies": {
-    "@swarmie/contracts": "file:../../contracts"
+    "@swarmie/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

@@ -17,8 +17,8 @@ def archive(source, output, prefix):
 
 def package_typescript(output, build=True):
     if build:
-        run(['npm','ci','--ignore-scripts'],cwd=ROOT/'typescript')
-        run(['npm','run','build'],cwd=ROOT/'typescript')
+        run(['bun','install','--frozen-lockfile','--ignore-scripts'],cwd=PROJECT)
+        run(['bun','run','--cwd','packages/clients/typescript','build'],cwd=PROJECT)
     run(['npm','pack','--pack-destination',str(output)],cwd=ROOT.parent/'contracts')
     with tempfile.TemporaryDirectory(prefix='typescript-stage-',dir=output) as staging:
         stage=pathlib.Path(staging)/'typescript'
