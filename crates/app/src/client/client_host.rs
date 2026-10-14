@@ -21,6 +21,7 @@ use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
 struct Host {
+    account_root: PathBuf,
     nodes: NodeGateway,
     origin: String,
     token: String,
@@ -57,6 +58,7 @@ impl ClientHost {
         let cache = storage::SqliteSessionStore::new(root.join("client")).await?;
         let submissions = ClientSubmissions::new(nodes.clone(), cache.clone());
         let host = Host {
+            account_root: root.to_owned(),
             observed: Arc::new(Mutex::new(nodes.events())),
             nodes: nodes.clone(),
             origin: url.clone(),
@@ -143,6 +145,18 @@ async fn dispatch(host: &Host, path: &str, request: Value) -> Result<Value> {
     match path {
         "/rpc" => node_request(host, host.nodes.local_id(), request).await,
         "/client/rpc" => {
+            if request["method"]
+                .as_str()
+                .is_some_and(|method| method.starts_with("account/"))
+            {
+                if request["method"]
+                    .as_str()
+                    .is_some_and(|method| method.starts_with("account/owner/"))
+                {
+                    return Err(Error::Unsupported("private account owner method".into()));
+                }
+                return crate::accounts::call(&host.account_root, request).await;
+            }
             if request["method"] == "nodes/disconnect" {
                 let node = request["params"]["environmentId"]
                     .as_str()

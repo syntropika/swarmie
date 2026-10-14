@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { AccountSettings } from "./AccountSettings";
+import { useState, useEffect } from "react";
 import { NodeSettings } from "./NodeSettings";
 import type { NodeClient, NodesState } from "./nodes";
 import { InputGroup } from "@/components/ui/input-group";
-import { Settings, Bell, Keyboard, Download, Plug, Search, X } from "lucide-react";
+import { Settings, Bell, Keyboard, Download, Plug, Search, X, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -12,6 +13,7 @@ import { shortcutBinding, defaultShortcuts, type Shortcuts } from "./shortcuts";
 import type { WorkspaceStore, Workspace } from "./workspace";
 
 const sections = [
+  { id: "account", title: "Account", icon: UserRound },
   { id: "general", title: "General", icon: Settings },
   { id: "notifications", title: "Notifications", icon: Bell },
   { id: "import", title: "Import", icon: Download },
@@ -19,7 +21,8 @@ const sections = [
   { id: "connections", title: "Nodes", icon: Plug },
 ] as const;
 
-export function SettingsPage({ store, state, shortcuts, setShortcuts, onClose, client, nodes }: {
+export function SettingsPage({ store, state, shortcuts, setShortcuts, onClose, client, nodes, initialSection = "general" }: {
+  initialSection?: "general" | "account";
   client: NodeClient;
   nodes: NodesState;
   store: WorkspaceStore;
@@ -28,7 +31,8 @@ export function SettingsPage({ store, state, shortcuts, setShortcuts, onClose, c
   setShortcuts: (value: Shortcuts) => void;
   onClose: () => void;
 }) {
-  const [section, setSection] = useState<string>("general");
+  const [section, setSection] = useState<string>(initialSection);
+  useEffect(() => setSection(initialSection), [initialSection]);
   const [query, setQuery] = useState("");
   const [working, setWorking] = useState(false);
   const perform = async (action: () => Promise<unknown>) => {
@@ -48,6 +52,7 @@ export function SettingsPage({ store, state, shortcuts, setShortcuts, onClose, c
       <div className="settings-content-width">
         <h1>{sections.find((entry) => entry.id === section)?.title}</h1>
         {state.error && <div className="settings-error" role="alert"><p>{state.error}</p><Button variant="ghost" size="icon" aria-label="Dismiss settings error" onClick={() => store.dismissError()}><X size={14} /></Button></div>}
+        {section === "account" && <div className="settings-section"><AccountSettings /></div>}
         {section === "general" && <div className="settings-section"><ChatDirectorySettings store={store} directory={state.chatDirectory} custom={!!state.customChatDirectory} connected={state.connected} /></div>}
         {section === "notifications" && <div className="settings-section settings-notifications">
               {(

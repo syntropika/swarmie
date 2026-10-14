@@ -1,8 +1,8 @@
-use swarmie::{Error, Result};
 use std::{
     path::{Path, PathBuf},
     process::Stdio,
 };
+use swarmie::{Error, Result};
 
 fn native_url(url: &reqwest::Url) -> bool {
     url.scheme() == "http"
@@ -86,21 +86,49 @@ pub async fn run(
                 .spawn()?;
             return Ok(());
         }
-        let mut command = if cfg!(windows) {
-            let mut command = tokio::process::Command::new("powershell.exe");
-            command.args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "Start-Process -FilePath $env:SWARMIE_OPEN_URL -ErrorAction Stop"]).env("SWARMIE_OPEN_URL", parsed.as_str());
-            command
+        browser(parsed.as_str()).await?;
+    }
+    Ok(())
+}
+
+pub(crate) async fn browser(value: &str) -> Result<()> {
+    let parsed =
+        reqwest::Url::parse(value).map_err(|_| Error::Invalid("invalid browser URL".into()))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(Error::Invalid("browser requires HTTP(S)".into()));
+    }
+    let mut command = if cfg!(windows) {
+        let mut command = tokio::process::Command::new("powershell.exe");
+        command
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Start-Process -FilePath $env:SWARMIE_OPEN_URL -ErrorAction Stop",
+            ])
+            .env("SWARMIE_OPEN_URL", parsed.as_str());
+        command
+    } else {
+        let mut command = tokio::process::Command::new(if cfg!(target_os = "macos") {
+            "open"
         } else {
-            let mut command = tokio::process::Command::new(if cfg!(target_os = "macos") { "open" } else { "xdg-open" });
-            command.arg(parsed.as_str());
-            command
-        };
-        let status = command.status().await?;
-        if !status.success() {
-            return Err(Error::Provider(format!(
-                "application opener exited: {status}"
-            )));
-        }
+            "xdg-open"
+        });
+        command.arg(parsed.as_str());
+        command
+    };
+    command
+        .kill_on_drop(true)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let status = tokio::time::timeout(std::time::Duration::from_secs(15), command.status())
+        .await
+        .map_err(|_| Error::Timeout("opening browser".into()))??;
+    if !status.success() {
+        return Err(Error::Provider(format!(
+            "application opener exited: {status}"
+        )));
     }
     Ok(())
 }
@@ -128,7 +156,11 @@ mod tests {
     #[test]
     fn packaged_services_resolve_the_sibling_native_host() {
         let directory = tempfile::tempdir().unwrap();
-        let host = directory.path().join(if cfg!(windows) { "swarmie-desktop.exe" } else { "swarmie-desktop" });
+        let host = directory.path().join(if cfg!(windows) {
+            "swarmie-desktop.exe"
+        } else {
+            "swarmie-desktop"
+        });
         std::fs::write(&host, []).unwrap();
         assert_eq!(
             packaged_host(&directory.path().join("swarmie-desktop_services")),

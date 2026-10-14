@@ -11,6 +11,7 @@ import {
   GitBranch,
   PanelLeft,
   Settings,
+  UserRound,
   Search,
   Plus,
   Folder,
@@ -142,6 +143,7 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
     }
   });
   const [panel, setPanel] = useState<Panel>(null);
+  const [settingsSection, setSettingsSection] = useState<"general" | "account">("general");
   const [palette, setPalette] = useState(false);
   const [finder, setFinder] = useState(false);
   const [shortcuts, setShortcuts] = useState(readShortcuts);
@@ -559,7 +561,8 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
         <IconButton label="Review changes" active={panel === "review"} disabled={!project?.git} onClick={() => { setPanel(panel === "review" ? null : "review"); void perform(() => store.review()); }}><GitBranch size={18} /></IconButton>
         <IconButton label="Workspace tools" active={panel === "extensions"} disabled={!state.extensions.some((e) => e.views?.length)} onClick={() => setPanel(panel === "extensions" ? null : "extensions")}><Layers size={18} /></IconButton>
         <div className="rail-spacer" />
-        <IconButton label="Settings" active={panel === "settings"} onClick={() => setPanel(panel === "settings" ? null : "settings")}><Settings size={18} /></IconButton>
+        <IconButton label="Account" active={panel === "settings" && settingsSection === "account"} onClick={() => { setSettingsSection("account"); setPanel("settings"); }}><UserRound size={18} /></IconButton>
+        <IconButton label="Settings" active={panel === "settings"} onClick={() => { setSettingsSection("general"); setPanel(panel === "settings" ? null : "settings"); }}><Settings size={18} /></IconButton>
       </nav>
       <aside className="sidebar" aria-label="Projects and chats">
         <div className="sidebar-resize" role="separator" aria-label="Resize sidebar" aria-orientation="vertical"
@@ -773,7 +776,7 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
       )}
       {finder && <FileFinder store={store} onClose={() => setFinder(false)} />}
       {projectDialog && <ProjectDialog store={store} onClose={() => setProjectDialog(false)} />}
-      {panel === "settings" && <SettingsPage client={client} nodes={nodes} store={store} state={state} shortcuts={shortcuts} setShortcuts={setShortcuts} onClose={() => setPanel(null)} />}
+      {panel === "settings" && <SettingsPage initialSection={settingsSection} client={client} nodes={nodes} store={store} state={state} shortcuts={shortcuts} setShortcuts={setShortcuts} onClose={() => setPanel(null)} />}
       {panel && panel !== "settings" && (
         <aside
           className="detail-panel"

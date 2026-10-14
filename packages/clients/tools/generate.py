@@ -122,6 +122,7 @@ def main():
     for name,value in sorted(defs.items()):code+='export type '+name+' = '+ts(value)+';\n'
     code+='export interface Methods {\n'+''.join('  '+json.dumps(name)+': { params: '+ts(value['params'])+'; result: '+ts(value['result'])+' };\n' for name,value in sorted(methods.items()))+'}\n'
     code+='export type { NativeClientMethods, SubmissionProjection, SessionProjection, SessionLaunchIntent, SessionControls, SessionOpenProjection, ClientProject, InputAttachment, InputContext, PreparedInput, RecoveredDraft, SshReadiness, NodeStartup } from "./client.js";\n'
+    code+='export type { AccountMethods, AccountProfile, AccountSnapshot } from "./account.js";\n'
     files[CONTRACTS/'index.d.ts']=code
     code='# Generated from runtime/schema. Run tools/generate.py to refresh.\nfrom __future__ import annotations\nfrom typing import Any, Literal, Union, TypedDict, NotRequired\n\n'
     aliases=[]

@@ -1,8 +1,9 @@
+mod accounts;
 mod client;
 mod runtime;
 use client::{
-    client_host, client_monitor, client_operations, client_projection, client_submissions, desktop, node_channel,
-    node_connection, node_credentials, node_gateway, open, remote,
+    client_host, client_monitor, client_operations, client_projection, client_submissions, desktop,
+    node_channel, node_connection, node_credentials, node_gateway, open, remote,
 };
 use runtime::{mcp_bridge, runtime_host, service, transport};
 mod update;
@@ -30,6 +31,11 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Commands {
+    /// Manage your optional account independently of execution nodes.
+    Account {
+        #[command(subcommand)]
+        command: accounts::AccountCommand,
+    },
     /// Inspect the client-owned node registry; retained observations do not imply live connectivity.
     Node {
         #[command(subcommand)]
@@ -245,6 +251,7 @@ async fn entry() -> Result<()> {
         None => storage::default_data_root()?,
     };
     match cli.command {
+        Commands::Account { command } => return accounts::run(&root, command).await,
         Commands::Node {
             command: NodeCommand::List,
         } => {
@@ -484,6 +491,7 @@ async fn entry() -> Result<()> {
                     cleanup?;
                 }
                 Commands::Call { .. }
+                | Commands::Account { .. }
                 | Commands::Node { .. }
                 | Commands::Desktop { .. }
                 | Commands::Update { .. }

@@ -94,13 +94,13 @@ impl Drop for Attributes {
     }
 }
 
-pub(super) struct Child {
+pub(crate) struct Child {
     process: Handle,
 }
 // Owned process handles can be moved between executor threads.
 unsafe impl Send for Child {}
 impl Child {
-    pub(super) fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
+    pub(crate) fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
         match unsafe { WaitForSingleObject(self.process.0, 0) } {
             WAIT_TIMEOUT => Ok(None),
             WAIT_OBJECT_0 => {
@@ -113,7 +113,7 @@ impl Child {
             _ => Err(io::Error::last_os_error()),
         }
     }
-    pub(super) fn start_kill(&mut self) -> io::Result<()> {
+    pub(crate) fn start_kill(&mut self) -> io::Result<()> {
         if self.try_wait()?.is_some() {
             return Ok(());
         }
@@ -157,7 +157,7 @@ fn quoted(value: &std::ffi::OsStr) -> Vec<u16> {
     output.push(b'"' as u16);
     output
 }
-pub(super) fn owner(executable: &Path, arguments: &[OsString], output: &File) -> io::Result<Child> {
+pub(crate) fn owner(executable: &Path, arguments: &[OsString], output: &File) -> io::Result<Child> {
     let input = inherit(&File::open("NUL")?)?;
     let output = inherit(output)?;
     let mut handles = [input.0, output.0];

@@ -16,7 +16,7 @@ use windows_sys::Win32::{
     System::Threading::{GetCurrentProcess, OpenProcessToken},
 };
 
-fn user_sid() -> io::Result<String> {
+pub(crate) fn user_sid() -> io::Result<String> {
     unsafe {
         let mut token = std::ptr::null_mut();
         if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {

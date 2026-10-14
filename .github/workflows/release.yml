@@ -72,6 +72,8 @@ jobs:
           cargo test --locked -p app --bin swarmie update::tests
           cargo test --locked -p app --test ssh_preparation
           cargo test --locked -p app --test startup
+          cargo test --locked -p app --test accounts
+          cargo test --locked -p swarmie-accounts --test lifecycle
       - name: Build desktop and standalone runtime packages
         shell: bash
         run: |
@@ -134,6 +136,8 @@ jobs:
           cargo test --locked -p app --bin swarmie
           cargo test --locked -p app --test remote_cli
           cargo test --locked -p app --test windows_runtime
+          cargo test --locked -p app --test accounts
+          cargo test --locked -p swarmie-accounts --test lifecycle
           cargo test --locked -p swarmie --test directory_identity
           cargo test --locked -p storage --test local_context
           cargo test --locked -p process discovery

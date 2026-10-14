@@ -15,6 +15,7 @@
   "files": [
     "index.d.ts",
     "client.d.ts",
+    "account.d.ts",
     "index.js",
     "protocol.json",
     "LICENSE",
