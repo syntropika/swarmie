@@ -2530,6 +2530,7 @@ dependencies = [
  "async-trait",
  "axum",
  "base64 0.22.1",
+ "httpdate",
  "keyring-core",
  "rand 0.9.5",
  "reqwest",

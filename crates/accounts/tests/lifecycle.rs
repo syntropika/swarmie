@@ -57,6 +57,7 @@ struct Fake {
     reads: AtomicUsize,
     fail_refresh: AtomicBool,
     throttle_refresh: AtomicBool,
+    retry_after: Mutex<Option<String>>,
 }
 fn profile() -> Value {
     json!({"id":uuid::Uuid::nil(),"displayName":"Test","email":"test@example.com","emailVerified":true,"avatarUrl":null,"revision":0})
@@ -90,9 +91,15 @@ async fn refresh(
     fake.renewals.fetch_add(1, Ordering::SeqCst);
     assert_eq!(value["refreshToken"], "private-refresh");
     if fake.throttle_refresh.load(Ordering::SeqCst) {
+        let delay = fake
+            .retry_after
+            .lock()
+            .await
+            .clone()
+            .unwrap_or_else(|| "1".into());
         return (
             axum::http::StatusCode::TOO_MANY_REQUESTS,
-            [(axum::http::header::RETRY_AFTER, "1")],
+            [(axum::http::header::RETRY_AFTER, delay)],
         )
             .into_response();
     }
@@ -125,6 +132,7 @@ async fn fixture() -> (
         reads: AtomicUsize::new(0),
         fail_refresh: AtomicBool::new(false),
         throttle_refresh: AtomicBool::new(false),
+        retry_after: Mutex::new(None),
     });
     let router = axum::Router::new()
         .route("/auth/native/request", post(request))
@@ -425,6 +433,45 @@ async fn rejected_renewal_preserves_the_vault_and_waits_before_another_attempt()
     tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
     assert_eq!(manager.read().await.unwrap().status, "signedIn");
     assert_eq!(fake.renewals.load(Ordering::SeqCst), 2);
+    manager.logout().await.unwrap();
+    task.abort();
+}
+
+#[tokio::test]
+async fn zero_retry_delay_does_not_block_a_later_explicit_request() {
+    let (fake, vault, manager, task, _) = fixture().await;
+    sign_in(&fake, &manager, false).await;
+    let before = vault.value.lock().await.clone();
+    *fake.retry_after.lock().await = Some("0".into());
+    fake.throttle_refresh.store(true, Ordering::SeqCst);
+    assert!(matches!(manager.read().await, Err(Error::RateLimited(0))));
+    assert_eq!(*vault.value.lock().await, before);
+    fake.throttle_refresh.store(false, Ordering::SeqCst);
+    assert_eq!(manager.read().await.unwrap().status, "signedIn");
+    assert_eq!(fake.renewals.load(Ordering::SeqCst), 2);
+    manager.logout().await.unwrap();
+    task.abort();
+}
+
+#[tokio::test]
+async fn retry_date_preserves_credentials_and_prevents_early_rotation() {
+    let (fake, vault, manager, task, _) = fixture().await;
+    sign_in(&fake, &manager, false).await;
+    let before = vault.value.lock().await.clone();
+    *fake.retry_after.lock().await = Some(httpdate::fmt_http_date(
+        std::time::SystemTime::now() + std::time::Duration::from_secs(3600),
+    ));
+    fake.throttle_refresh.store(true, Ordering::SeqCst);
+    assert!(
+        matches!(manager.read().await, Err(Error::RateLimited(seconds)) if (3599..=3600).contains(&seconds))
+    );
+    manager.tick().await;
+    assert!(
+        matches!(manager.read().await, Err(Error::RateLimited(seconds)) if (3598..=3601).contains(&seconds))
+    );
+    assert_eq!(fake.renewals.load(Ordering::SeqCst), 1);
+    assert_eq!(*vault.value.lock().await, before);
+    assert_eq!(manager.retained_snapshot().await.status, "signedIn");
     manager.logout().await.unwrap();
     task.abort();
 }

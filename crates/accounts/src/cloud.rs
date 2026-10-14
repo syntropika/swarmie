@@ -5,7 +5,7 @@ use crate::{Error, Result};
 use reqwest::{Client, Method, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -61,13 +61,13 @@ impl Cloud {
         let mut response = request.send().await.map_err(|_| Error::Unavailable)?;
         match response.status().as_u16() {
             429 => {
-                let seconds = response
-                    .headers()
-                    .get(reqwest::header::RETRY_AFTER)
-                    .and_then(|value| value.to_str().ok())
-                    .and_then(|value| value.parse::<u64>().ok())
-                    .filter(|value| (1..=86_400).contains(value))
-                    .unwrap_or(60);
+                let seconds = retry_after(
+                    response
+                        .headers()
+                        .get(reqwest::header::RETRY_AFTER)
+                        .and_then(|value| value.to_str().ok()),
+                    SystemTime::now(),
+                );
                 return Err(Error::RateLimited(seconds));
             }
             400 => return Err(Error::Invalid),
@@ -89,6 +89,24 @@ impl Cloud {
         serde_json::from_slice(&bytes).map_err(|_| Error::Invalid)
     }
 }
+/// Accept HTTP delay-seconds and dates, rounding up so a fractional wait never retries early.
+fn retry_after(value: Option<&str>, now: SystemTime) -> u64 {
+    let parsed = value.and_then(|value| {
+        let value = value.trim();
+        if !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Some(value.parse::<u64>().unwrap_or(u64::MAX));
+        }
+        let wait = httpdate::parse_http_date(value)
+            .ok()?
+            .duration_since(now)
+            .unwrap_or_default();
+        Some(
+            wait.as_secs()
+                .saturating_add(u64::from(wait.subsec_nanos() > 0)),
+        )
+    });
+    parsed.map(|seconds| seconds.min(86_400)).unwrap_or(60)
+}
 pub fn validate_origin(value: &str) -> Result<Url> {
     let url = Url::parse(value).map_err(|_| Error::Invalid)?;
     if !(url.scheme() == "https" || (url.scheme() == "http" && url.host_str() == Some("127.0.0.1")))
@@ -101,4 +119,51 @@ pub fn validate_origin(value: &str) -> Result<Url> {
         return Err(Error::Invalid);
     }
     Ok(url)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn retry_delays_accept_zero_and_bound_large_valid_values() {
+        let now = SystemTime::UNIX_EPOCH;
+        for (input, expected) in [
+            ("0", 0),
+            ("120", 120),
+            (" 120 ", 120),
+            ("86400", 86400),
+            ("86401", 86400),
+            ("184467440737095516160", 86400),
+        ] {
+            assert_eq!(retry_after(Some(input), now), expected);
+        }
+        for invalid in [
+            None,
+            Some(""),
+            Some("-1"),
+            Some("+1"),
+            Some("1.5"),
+            Some("invalid date"),
+        ] {
+            assert_eq!(retry_after(invalid, now), 60);
+        }
+    }
+    #[test]
+    fn retry_dates_accept_all_http_formats_without_shortening_the_wait() {
+        let instant = httpdate::parse_http_date("Sun, 06 Nov 1994 08:49:37 GMT").unwrap();
+        let now = instant - Duration::from_millis(2250);
+        for date in [
+            "Sun, 06 Nov 1994 08:49:37 GMT",
+            "Sunday, 06-Nov-94 08:49:37 GMT",
+            "Sun Nov  6 08:49:37 1994",
+        ] {
+            assert_eq!(retry_after(Some(date), now), 3);
+            assert_eq!(retry_after(Some(date), instant), 0);
+            assert_eq!(retry_after(Some(date), instant + Duration::from_secs(1)), 0);
+            assert_eq!(
+                retry_after(Some(date), instant - Duration::from_secs(172800)),
+                86400
+            );
+        }
+    }
 }

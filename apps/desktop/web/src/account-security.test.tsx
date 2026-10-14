@@ -8,7 +8,7 @@ import { AccountSecurity } from "./AccountSecurity";
 const fixture = vi.hoisted(() => ({ state: { account: undefined as any, error: "" }, request: vi.fn(), reconcile: vi.fn() }));
 vi.mock("./accountState", () => ({ useAccount: () => fixture.state, accountStore: { reconcile: fixture.reconcile } }));
 vi.mock("./account", () => ({ accountRequest: fixture.request }));
-const session = (id: string) => ({ id, installationId: "installation-id", authenticatedAt: "2026-10-14T10:00:00Z", createdAt: "2026-10-14T10:00:00Z", lastUsedAt: "2026-10-14T11:00:00Z", expiresAt: "2026-11-13T10:00:00Z" });
+const session = (id: string) => ({ id, installationId: "installation-id", authenticatedAt: "2026-10-10T10:00:00Z", createdAt: "2026-10-14T10:00:00Z", lastUsedAt: "2026-10-14T11:00:00Z", expiresAt: "2026-11-13T10:00:00Z" });
 const page = { current: session("current-session"), others: [session("other-session")], nextCursor: null };
 beforeEach(() => {
   vi.clearAllMocks();
@@ -16,6 +16,16 @@ beforeEach(() => {
   fixture.reconcile.mockResolvedValue({});
 });
 afterEach(cleanup);
+it("shows the authentication time when family creation happened later", async () => {
+  fixture.request.mockResolvedValueOnce(page);
+  render(<AccountSecurity onProfile={vi.fn()} />);
+  await screen.findByRole("button", { name: "Sign out session other-se" });
+  for (const label of screen.getAllByText("Signed in", { exact: true })) {
+    const time = label.parentElement!.querySelector("time")!;
+    expect(time.getAttribute("datetime")).toBe(page.current.authenticatedAt);
+    expect(time.textContent).toBe(new Date(page.current.authenticatedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }));
+  }
+});
 it("revokes only the selected session with the displayed account intent and refreshes metadata", async () => {
   fixture.request.mockResolvedValueOnce(page).mockResolvedValueOnce({ status: "signedIn" }).mockResolvedValueOnce({ ...page, others: [] });
   render(<AccountSecurity onProfile={vi.fn()} />);

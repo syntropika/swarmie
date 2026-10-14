@@ -43,7 +43,7 @@ function date(value: string) {
 }
 function SessionDetails({ session }: { session: AccountSession }) {
   return <dl className="grid gap-1 text-sm text-muted">
-    <div><dt className="inline">Signed in </dt><dd className="inline"><time dateTime={session.createdAt}>{date(session.createdAt)}</time></dd></div>
+    <div><dt className="inline">Signed in </dt><dd className="inline"><time dateTime={session.authenticatedAt}>{date(session.authenticatedAt)}</time></dd></div>
     <div><dt className="inline">Last active </dt><dd className="inline"><time dateTime={session.lastUsedAt}>{date(session.lastUsedAt)}</time></dd></div>
     <div><dt className="inline">Expires </dt><dd className="inline"><time dateTime={session.expiresAt}>{date(session.expiresAt)}</time></dd></div>
   </dl>;
