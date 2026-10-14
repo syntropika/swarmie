@@ -191,6 +191,7 @@ a:hover {
   scrollbar-width: thin;
 }
 .app-shell {
+  min-width: 760px;
   --sidebar-width: 290px;
   height: 100dvh;
   overflow: hidden;
@@ -1388,3 +1389,28 @@ a:hover {
 .harness-menu { min-width: 180px; max-width: calc(100vw - 32px); }
 
 .model-trigger-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.contribution-slot { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.contribution-slot > span { font-size: 12px; color: var(--muted-foreground, #b5b5b5); overflow-wrap: anywhere; }
+.contribution-slot > span:empty { display: none; }
+.contribution-menu { display: block; }
+.activity-rail .contribution-slot { flex-direction: column; }
+.activity-rail .contribution-slot button { padding: 4px; font-size: 10px; }
+.conversation-contribution-header { display: flex; justify-content: flex-end; padding: 8px 20px 0; }
+.conversation-contribution-header:has(.contribution-slot) { min-height: 38px; }
+.conversation-contribution-header:not(:has(.contribution-slot)) { display: none; }
+[data-contribution-slot="composer.status"] { padding: 0 14px; }
+[data-contribution-slot="composer.status"]:has(span:not(:empty)) { padding-bottom: 8px; }
+[data-contribution-slot="settings.sections"] { display: block; }
+[data-contribution-slot="settings.sections"] h2 { font-size: 18px; font-weight: 600; margin-bottom: 12px; }
+[data-contribution-slot="message.details"] { margin-top: 8px; }
+.contribution-surface { min-width: 0; overflow: auto; }
+.contribution-surface.screen { height: 100%; padding: 20px; }
+.contribution-surface .detail-heading { padding: 8px 0 18px; }
+.contribution-surface.panel { padding: 12px; }
+.dictation-settings { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; max-width: 68ch; padding: 16px 0; font-size: 14px; line-height: 1.6; }
+.dictation-settings input { max-width: 240px; }
+.titlebar-actions .contribution-slot button { font-size: 12px; }
+@media (max-width: 760px) { .titlebar-actions { flex-wrap: wrap; } .titlebar-actions .contribution-slot button { padding: 4px; } .contribution-surface.screen { padding: 12px; } }
+.contribution-demo-notice { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; height: 28px; padding: 5px 12px; font-size: 12px; background: #26362e; color: #dbf4e5; }
+body:has(.contribution-demo-notice) .app-shell { height: calc(100dvh - 28px); }

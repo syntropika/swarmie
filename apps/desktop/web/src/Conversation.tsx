@@ -46,7 +46,7 @@ import { SlashCommands } from "./ResourceLibrary";
 import { MediaPreview, OutputAssets } from "./AssetPreview";
 import { Tooltip, TooltipContent } from "@/components/ui/tooltip";
 import { MessageActions } from "@/components/assistant-ui/elements/message-actions";
-import { VoiceInput } from "./VoiceInput";
+import { ContributionSlot, useContributions } from "./ContributionHost";
 
 const ActivityContext = createContext<{ tools: Tool[]; running: boolean }>({
   tools: [],
@@ -178,11 +178,13 @@ function UserMessage() {
     <div data-slot="user-message-bubble" className="min-w-0 rounded-[17px] bg-[#242424] px-4 py-3 text-sm leading-5 whitespace-pre-wrap wrap-anywhere">
       <MessagePrimitive.Content components={{ Image: MessageImage }} />
     </div>
+    <ContributionSlot name="message.details" context={{ messageId }} />
     <ActionBarPrimitive.Root className="pointer-events-none flex h-7 items-center gap-1 text-xs text-muted opacity-0 transition-opacity duration-150 group-hover/user-message:pointer-events-auto group-hover/user-message:opacity-100 group-focus-within/user-message:pointer-events-auto group-focus-within/user-message:opacity-100 motion-reduce:transition-none">
       {validDate && <time dateTime={validDate.toISOString()} title={validDate.toLocaleString()} className="mr-1 tabular-nums">{validDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}</time>}
       <Tooltip><Button variant="ghost" size="icon-sm" className={`rounded-full ${copied ? "text-emerald-500 hover:text-emerald-500" : "text-muted hover:text-foreground"}`} aria-label={copied ? "Copied" : "Copy"} onClick={copy}>
         {copied ? <Check size={14} /> : <Copy size={14} />}
       </Button><TooltipContent>{copied ? "Copied" : "Copy"}</TooltipContent></Tooltip>
+      <ContributionSlot name="message.actions" context={{ messageId }} />
     </ActionBarPrimitive.Root>
   </MessagePrimitive.Root>;
 }
@@ -201,7 +203,9 @@ function AssistantMessage() {
       <MessagePrimitive.If last={false}>
         <div className="message-divider" />
       </MessagePrimitive.If>
+      <ContributionSlot name="message.details" context={{ messageId }} />
       <ActionBarPrimitive.Root className="pointer-events-none mt-3 flex h-7 items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/assistant-message:pointer-events-auto group-hover/assistant-message:opacity-100 group-focus-within/assistant-message:pointer-events-auto group-focus-within/assistant-message:opacity-100 motion-reduce:transition-none" hideWhenRunning>
+      <ContributionSlot name="message.actions" context={{ messageId }} />
       <MessageActions copied={copied} reaction={null} regenerating={false} onCopy={copy} />
       {host?.thread.capabilities?.fork?.availability === "available" &&
         anchor &&
@@ -245,6 +249,9 @@ export function Conversation({
   context?: React.ReactNode;
   projectName?: string;
 }) {
+  const contributions = useContributions();
+  const input = useRef<HTMLTextAreaElement>(null);
+  const selection = useRef({ start: 0, end: 0 });
   const upload = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
   const [caret, setCaret] = useState(0);
@@ -297,6 +304,30 @@ export function Conversation({
     window.addEventListener("swarmie:composer-text", applyDraft);
     return () => window.removeEventListener("swarmie:composer-text", applyDraft);
   }, [thread.id]);
+  useEffect(() => {
+    const registry = contributions?.registry;
+    if (!registry) return;
+    const composer = runtime.thread.composer;
+    let previous = composer.getState().text;
+    return composer.subscribe(() => {
+      const text = composer.getState().text;
+      if (text === previous) return;
+      previous = text;
+      if (registry.getContext().conversationId === thread.id)
+        registry.emit({ type: "composer.changed", context: registry.getContext() });
+    });
+  }, [contributions?.registry, runtime, thread.id]);
+  useEffect(() => contributions?.bindComposer(thread.id, (text, options) => {
+    const draft = runtime.thread.composer.getState().text;
+    const start = Math.min(selection.current.start, draft.length);
+    const end = Math.min(selection.current.end, draft.length);
+    if (options?.separateWords) text = (start > 0 && !/\s$/.test(draft.slice(0, start)) ? " " : "") + text + (end < draft.length && !/^\s/.test(draft.slice(end)) ? " " : "");
+    const next = draft.slice(0, start) + text + draft.slice(end);
+    runtime.thread.composer.setText(next);
+    store.updateThread(thread.id, { draft: next });
+    selection.current = { start: start + text.length, end: start + text.length };
+    requestAnimationFrame(() => { if (input.current?.isConnected) { input.current.focus(); input.current.setSelectionRange(start + text.length, start + text.length); } });
+  }), [contributions?.registry, thread.id, runtime, store]);
   const [checkingRecovery, setCheckingRecovery] = useState(false);
   const unresolvedSubmission = thread.submissionKeys?.some((entry) =>
     !entry.receipt || entry.receipt.recoveryRequired || !["accepted", "rejected"].includes(entry.receipt.delivery));
@@ -350,6 +381,7 @@ export function Conversation({
       <ConversationContext.Provider value={{ thread, store }}>
         <ActivityContext.Provider value={{ tools: thread.tools, running }}>
           <ThreadPrimitive.Root className={`conversation ${thread.messages.length === 0 && !running ? "conversation-empty" : ""}`}>
+            <div className="conversation-contribution-header"><ContributionSlot name="conversation.header.actions" /></div>
             <ThreadPrimitive.Viewport
               className="conversation-scroll"
               autoScroll
@@ -433,7 +465,7 @@ export function Conversation({
                   </Button>
                 </ThreadPrimitive.ScrollToBottom>
                 <Queue thread={thread} store={store} />
-                {context && <div className="composer-context-bar">{context}</div>}
+                <div className="composer-context-bar">{context}<ContributionSlot name="composer.context" /></div>
                 <ComposerPrimitive.Root
                   className="composer"
                   onDragOver={(e) => e.preventDefault()}
@@ -515,15 +547,18 @@ export function Conversation({
                   />
                   <ComposerPrimitive.Input
                     className="composer-input"
+                    ref={input}
+                    onBlur={(event) => { selection.current = { start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd }; }}
                     placeholder="Ask anything, or describe a task…"
                     aria-label="Message"
                     disabled={!ready}
                     rows={2}
                     onChange={(e) => {
                       setCaret(e.target.selectionStart);
+                      selection.current = { start: e.target.selectionStart, end: e.target.selectionEnd };
                       store.updateThread(thread.id, { draft: e.target.value });
                     }}
-                    onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+                    onSelect={(e) => { setCaret(e.currentTarget.selectionStart); selection.current = { start: e.currentTarget.selectionStart, end: e.currentTarget.selectionEnd }; }}
                     onPaste={(e) => {
                       if (e.clipboardData.files.length) {
                         e.preventDefault();
@@ -547,10 +582,7 @@ export function Conversation({
                     <div className="composer-spacer" />
                     <div className="composer-send-actions">
                     {controls}
-                    <VoiceInput key={thread.id} disabled={!ready} onText={(text) => {
-                      const draft = store.getSnapshot().threads.find((item) => item.id === thread.id)?.draft ?? "";
-                      runtime.thread.composer.setText(`${draft}${draft && !/\s$/.test(draft) ? " " : ""}${text}`);
-                    }} onError={(error) => store.setError(error)} />
+                    <ContributionSlot name="composer.actions" />
                     <ThreadPrimitive.If running={false}>
                       <ComposerPrimitive.Send asChild>
                         <Button
@@ -602,6 +634,7 @@ export function Conversation({
                     </ThreadPrimitive.If>
                     </div>
                   </div>
+                  <ContributionSlot name="composer.status" />
                 </ComposerPrimitive.Root>
               </div>
             </div>

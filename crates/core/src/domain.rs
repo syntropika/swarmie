@@ -21,6 +21,8 @@ pub struct ExtensionInfo {
     pub commands: Vec<ExtensionCommand>,
     #[serde(default)]
     pub views: Vec<ExtensionView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui: Option<UiManifest>,
 }
 /// An optional client presentation of a headless extension command.
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
@@ -31,6 +33,129 @@ pub struct ExtensionView {
     pub kind: String,
     pub command: String,
 }
+/// Versioned declarative client contributions. Runtime extensions never receive host DOM access.
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiManifest {
+    pub version: u32,
+    #[serde(default)]
+    pub commands: Vec<UiCommand>,
+    #[serde(default)]
+    pub slots: Vec<UiContribution>,
+    #[serde(default)]
+    pub screens: Vec<UiSurface>,
+    #[serde(default)]
+    pub panels: Vec<UiSurface>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+pub enum UiSlot {
+    #[serde(rename = "sidebar.primary")]
+    SidebarPrimary,
+    #[serde(rename = "sidebar.footer")]
+    SidebarFooter,
+    #[serde(rename = "app.header.actions")]
+    AppHeaderActions,
+    #[serde(rename = "conversation.header.actions")]
+    ConversationHeaderActions,
+    #[serde(rename = "composer.actions")]
+    ComposerActions,
+    #[serde(rename = "composer.context")]
+    ComposerContext,
+    #[serde(rename = "composer.status")]
+    ComposerStatus,
+    #[serde(rename = "message.actions")]
+    MessageActions,
+    #[serde(rename = "message.details")]
+    MessageDetails,
+    #[serde(rename = "project.actions")]
+    ProjectActions,
+    #[serde(rename = "project.contextMenu")]
+    ProjectContextMenu,
+    #[serde(rename = "conversation.contextMenu")]
+    ConversationContextMenu,
+    #[serde(rename = "panel.toolbar")]
+    PanelToolbar,
+    #[serde(rename = "panel.status")]
+    PanelStatus,
+    #[serde(rename = "settings.sections")]
+    SettingsSections,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiCommand {
+    pub id: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shortcut: Option<String>,
+    #[serde(default)]
+    pub when: Vec<UiCondition>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiContribution {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<UiIcon>,
+    pub slot: UiSlot,
+    pub kind: UiContributionKind,
+    pub title: String,
+    #[serde(default)]
+    pub order: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub when: Vec<UiCondition>,
+    #[serde(default)]
+    pub enabled_when: Vec<UiCondition>,
+    #[serde(default)]
+    pub clients: Vec<UiClient>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum UiContributionKind {
+    Action,
+    Text,
+    Section,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum UiClient {
+    Browser,
+    Desktop,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum UiIcon {
+    Microphone,
+    Stop,
+    Spinner,
+    Extension,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum UiCondition {
+    Connected,
+    Conversation,
+    Project,
+    Message,
+    Panel,
+    ComposerReady,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiSurface {
+    pub id: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub clients: Vec<UiClient>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("unsupported capability: {0}")]
@@ -575,5 +700,39 @@ impl BackendEvent {
             kind: Box::new(kind),
             raw: Some(raw),
         }
+    }
+}
+
+#[cfg(test)]
+mod contribution_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn legacy_extension_catalogs_keep_commands_and_views_without_ui() {
+        let legacy = json!({"id":"example","commands":[{"name":"inspect","title":"Inspect","mutates":false}],"views":[{"id":"inspect","title":"Inspect","kind":"web","command":"inspect"}]});
+        let extension: ExtensionInfo = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(extension.ui.is_none());
+        assert_eq!(serde_json::to_value(extension).unwrap(), legacy);
+    }
+
+    #[test]
+    fn contribution_manifest_round_trips_named_slots_and_separate_surfaces() {
+        let manifest: UiManifest = serde_json::from_value(json!({
+            "version":1,
+            "commands":[{"id":"inspect","title":"Inspect","runtimeCommand":"inspect"}],
+            "slots":[{"id":"inspect","slot":"composer.actions","kind":"action","title":"Inspect","command":"inspect","enabledWhen":["composerReady"]}],
+            "screens":[{"id":"screen","title":"Screen","command":"inspect"}],
+            "panels":[{"id":"panel","title":"Panel","command":"inspect"}]
+        })).unwrap();
+        let encoded = serde_json::to_value(manifest).unwrap();
+        assert_eq!(encoded["slots"][0]["slot"], "composer.actions");
+        assert_eq!(encoded["slots"][0]["enabledWhen"][0], "composerReady");
+        assert_eq!(encoded["screens"][0]["id"], "screen");
+        assert_eq!(encoded["panels"][0]["id"], "panel");
+        assert!(
+            serde_json::from_value::<UiManifest>(json!({"version":1,"html":"unrestricted"}))
+                .is_err()
+        );
     }
 }

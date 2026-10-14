@@ -45,6 +45,7 @@ import {
   Tooltip,
   TooltipContent,
 } from "@/components/ui/tooltip";
+import { ContributionHost, ContributionSlot, ContributionNavigation, ContributionSurface } from "./ContributionHost";
 import { Conversation, PatchCopy } from "./Conversation";
 import { nodeClient } from "./workspaceInstance";
 import type { NodeClient, NodesState } from "./nodes";
@@ -75,7 +76,7 @@ import { watchThreadTimes } from "./threadClock";
 import { SidebarSection, SidebarSortMenu, type SidebarSort } from "./SidebarSection";
 import { SidebarChatActions } from "./SidebarChatActions";
 
-type Panel = "project" | "settings" | "review" | "extensions" | null;
+type Panel = "project" | "settings" | "review" | "extensions" | "client" | null;
 const blank: Thread = {
   id: "blank",
   title: "New chat",
@@ -131,7 +132,7 @@ export function App() {
   const node = nodes.store.getSnapshot().node;
   return <NodeWorkspace key={node ? nodeKey(node) : "local-startup"} store={nodes.store} nodes={nodes} client={nodeClient} />;
 }
-function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes: NodesState; client: NodeClient }) {
+export function NodeWorkspace({ store, nodes, client, demo }: { store: WorkspaceStore; nodes: NodesState; client: NodeClient; demo?: import("./contributionDemo").ContributionDemo }) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [sidebar, setSidebar] = useState(() => window.innerWidth >= 760);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -143,6 +144,15 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
     }
   });
   const [panel, setPanel] = useState<Panel>(null);
+  const [extensionScreen, setExtensionScreen] = useState<string>();
+  const [surfaceContext, setSurfaceContext] = useState<import("./contributions").ContributionContext>();
+  const [extensionPanel, setExtensionPanel] = useState<string>();
+  const closeScreen = () => { setExtensionScreen(undefined); if (window.location.hash.startsWith("#/extension/")) window.history.replaceState(null, "", window.location.pathname + window.location.search); };
+  useEffect(() => {
+    const route = () => { const match = window.location.hash.match(/^#\/extension\/([^/]+\/[^/]+)$/); setExtensionScreen(match?.[1]); };
+    route(); window.addEventListener("hashchange", route); return () => window.removeEventListener("hashchange", route);
+  }, []);
+
   const [settingsSection, setSettingsSection] = useState<"general" | "account" | "security">("general");
   const [palette, setPalette] = useState(false);
   const [finder, setFinder] = useState(false);
@@ -191,6 +201,13 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
   >(undefined);
   const draggedClick = useRef<string | undefined>(undefined);
   const active = state.threads.find((t) => t.id === state.activeId) ?? blank;
+  const surfaceScope = `${active.id}:${active.projectId}:${active.worktreeId}:${active.sessionId}`;
+  const lastSurfaceScope = useRef(surfaceScope);
+  useEffect(() => {
+    if (lastSurfaceScope.current === surfaceScope) return;
+    lastSurfaceScope.current = surfaceScope;
+    closeScreen(); setExtensionPanel(undefined); setSurfaceContext(undefined); setPanel((value) => value === "client" ? null : value);
+  }, [surfaceScope]);
   const project = state.projects.find((p) => p.id === active.projectId);
   const tree = project?.worktrees.find((t) => t.id === active.worktreeId);
   const sessionOpen =
@@ -323,6 +340,7 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
     }
   };
   const select = (id: string) => {
+    closeScreen();
     history.current = [
       ...history.current.slice(0, historyIndex.current + 1),
       id,
@@ -332,6 +350,7 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
     if (window.innerWidth < 760) setSidebar(false);
   };
   const navigate = (direction: number) => {
+    closeScreen();
     const index = historyIndex.current + direction;
     if (index >= 0 && index < history.current.length) {
       historyIndex.current = index;
@@ -339,6 +358,7 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
     }
   };
   const newChat = (projectId?: string) => {
+    closeScreen();
     store.createThread(projectId);
     setPanel(null);
     if (window.innerWidth < 760) setSidebar(false);
@@ -454,6 +474,7 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
   const composerControls = <><ContextUsage context={active.context} /><SessionControls thread={active} store={store} connected={state.connected} /></>;
 
   return (
+    <ContributionHost store={store} thread={active} ready={ready && !extensionScreen && panel !== "settings"} panelId={panel === "client" ? extensionPanel : panel ?? undefined} extensions={state.extensions} demo={demo} openSurface={(kind, id, context) => { setSurfaceContext(context); if (kind === "screen") { setExtensionScreen(id); setPanel(null); window.location.hash = `/extension/${id}`; } else { setExtensionPanel(id); setPanel("client"); } }}>
     <div
       className={`app-shell ${sidebar ? "" : "sidebar-hidden"} ${panel === "settings" ? "settings-open" : ""}`}
       style={
@@ -519,6 +540,9 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
           )}
         </div>
         <div className="titlebar-actions">
+          <ContributionSlot name="app.header.actions" />
+          <ContributionNavigation kind="screen" />
+          <ContributionNavigation kind="panel" />
           <IconButton label="Workspace tools" active={panel === "extensions"}
             disabled={!state.extensions.some((e) => e.views?.length)}
             onClick={() => setPanel(panel === "extensions" ? null : "extensions")}>
@@ -532,6 +556,7 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
             <Button variant="ghost" size="icon" className="icon-button" aria-label="Conversation actions"><MoreHorizontal size={17} /></Button>
             <Dropdown.Popover className="workspace-menu" placement="bottom end">
               <Dropdown.Menu aria-label="Conversation actions">
+                <ContributionSlot name="conversation.contextMenu" menu />
                 <Dropdown.Item id="rename" textValue="Rename chat" isDisabled={active === blank} onAction={renameActive}><Pencil size={14} />Rename chat</Dropdown.Item>
                 <Dropdown.Item id="pin" textValue={active.pinned ? "Unpin chat" : "Pin chat"} isDisabled={active === blank} onAction={pinActive}>{active.pinned ? <PinOff size={14} /> : <Pin size={14} />}{active.pinned ? "Unpin chat" : "Pin chat"}</Dropdown.Item>
                 <Dropdown.Item id="archive" textValue={active.archived ? "Restore chat" : "Archive chat"} isDisabled={archiveDisabled} onAction={archiveActive}><Archive size={14} />{active.archived ? "Restore chat" : "Archive chat"}</Dropdown.Item>
@@ -555,11 +580,12 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
         </div>
       </header>
       <nav className="activity-rail" aria-label="Workspace navigation">
-        <IconButton label="Chats" active={!panel && !archived} onClick={() => { setPanel(null); setArchived(false); setSidebar(true); }}><Home size={18} /></IconButton>
+        <IconButton label="Chats" active={!panel && !archived} onClick={() => { closeScreen(); setPanel(null); setArchived(false); setSidebar(true); }}><Home size={18} /></IconButton>
         <IconButton label="Archived chats" active={archived} onClick={() => { setArchived((value) => !value); setSidebar(true); }}><History size={18} /></IconButton>
         <div className="rail-divider" />
         <IconButton label="Review changes" active={panel === "review"} disabled={!project?.git} onClick={() => { setPanel(panel === "review" ? null : "review"); void perform(() => store.review()); }}><GitBranch size={18} /></IconButton>
         <IconButton label="Workspace tools" active={panel === "extensions"} disabled={!state.extensions.some((e) => e.views?.length)} onClick={() => setPanel(panel === "extensions" ? null : "extensions")}><Layers size={18} /></IconButton>
+        <ContributionSlot name="sidebar.primary" />
         <div className="rail-spacer" />
         <AccountMenu onOpen={(section) => { setSettingsSection(section); setPanel("settings"); }} onNotice={(message) => store.setError(message)} />
         <IconButton label="Settings" active={panel === "settings"} onClick={() => { setSettingsSection("general"); setPanel(panel === "settings" ? null : "settings"); }}><Settings size={18} /></IconButton>
@@ -680,6 +706,8 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
                         <span className="project-name">{p.name}</span>
                         <ChevronDown size={12} className={`shrink-0 transition-transform ${collapsed.has(p.id) ? "-rotate-90" : "opacity-0 group-hover/project:opacity-100 group-focus-within/project:opacity-100"}`} />
                       </Button>
+                      <ContributionSlot name="project.actions" context={{ projectId: p.id, worktreeId: undefined, conversationId: undefined, sessionId: undefined, composerReady: false }} />
+                      <Dropdown><Button variant="ghost" size="icon-sm" aria-label={`Project options: ${p.name}`}><MoreHorizontal size={14} /></Button><Dropdown.Popover><Dropdown.Menu aria-label={`Actions for project ${p.name}`}><Dropdown.Item id="new" onAction={() => newChat(p.id)}>New chat</Dropdown.Item><ContributionSlot name="project.contextMenu" context={{ projectId: p.id, worktreeId: undefined, conversationId: undefined, sessionId: undefined, composerReady: false }} menu /></Dropdown.Menu></Dropdown.Popover></Dropdown>
                       <div className="pointer-events-none opacity-0 group-hover/project:pointer-events-auto group-hover/project:opacity-100 group-focus-within/project:pointer-events-auto group-focus-within/project:opacity-100">
                         <Tooltip><Button variant="ghost" size="icon-sm" aria-label={`New chat in ${p.name}`} className="text-muted" onClick={() => newChat(p.id)}><Plus size={14} /></Button><TooltipContent>New chat</TooltipContent></Tooltip>
                       </div>
@@ -704,6 +732,7 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
           </div>
         </div>
         <div className="sidebar-footer">
+          <ContributionSlot name="sidebar.footer" />
           <div className="workspace-status" role="status">
             <span className={`connection-dot ${state.connected ? "connected" : ""}`} />
             <span>{state.cacheSaving ? "Saving draft…" : state.connected ? (nodes.nodes.find((node) => node.identity.environmentId === state.node?.environmentId)?.displayName ?? "Connected") : state.busy ? "Connecting…" : "Disconnected"}</span>
@@ -755,7 +784,7 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
             onAnswer={(option, data) => store.respond(p.id, option, data)}
           />
         ))}
-        <Conversation
+        {extensionScreen ? <ContributionSurface kind="screen" id={extensionScreen} context={surfaceContext} onClose={closeScreen} /> : <Conversation
           key={active.id}
           thread={active}
           store={store}
@@ -764,7 +793,7 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
           context={composerContext}
           projectName={project?.name}
           ready={ready}
-        />
+        />}
       </main>
       {palette && (
         <CommandPalette
@@ -835,7 +864,7 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
               e.currentTarget.releasePointerCapture(e.pointerId)
             }
           />
-          <div className="detail-heading">
+          {panel !== "client" && <div className="detail-heading">
             <h2>
               {panel === "review"
                 ? "Changes"
@@ -849,6 +878,9 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
               <X size={17} />
             </IconButton>
           </div>
+          }
+          {panel !== "client" && <ContributionSlot name="panel.toolbar" />}
+          {panel === "client" && extensionPanel && <ContributionSurface kind="panel" id={extensionPanel} context={surfaceContext} onClose={() => { setExtensionPanel(undefined); setPanel(null); }} />}
           {panel === "extensions" && (
             <Suspense
               fallback={<p className="panel-note">Loading workspace tools…</p>}
@@ -1013,8 +1045,10 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
               )}
             </div>
           )}
+        {panel !== "client" && <ContributionSlot name="panel.status" />}
         </aside>
       )}
     </div>
+    </ContributionHost>
   );
 }

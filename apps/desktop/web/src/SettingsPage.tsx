@@ -1,3 +1,4 @@
+import { ContributionSlot } from "./ContributionHost";
 import { AccountSettings } from "./AccountSettings";
 import { AccountSecurity } from "./AccountSecurity";
 import { useState, useEffect } from "react";
@@ -20,6 +21,7 @@ const sections = [
   { id: "notifications", title: "Notifications", icon: Bell },
   { id: "import", title: "Import", icon: Download },
   { id: "shortcuts", title: "Keyboard shortcuts", icon: Keyboard },
+  { id: "extensions", title: "Extensions", icon: Plug },
   { id: "connections", title: "Nodes", icon: Plug },
 ] as const;
 
@@ -56,6 +58,7 @@ export function SettingsPage({ store, state, shortcuts, setShortcuts, onClose, c
         {state.error && <div className="settings-error" role="alert"><p>{state.error}</p><Button variant="ghost" size="icon" aria-label="Dismiss settings error" onClick={() => store.dismissError()}><X size={14} /></Button></div>}
         {section === "account" && <div className="settings-section"><AccountSettings /></div>}
         {section === "security" && <div className="settings-section"><AccountSecurity onProfile={() => setSection("account")} /></div>}
+        {section === "extensions" && <ContributionSlot name="settings.sections" />}
         {section === "general" && <div className="settings-section"><ChatDirectorySettings store={store} directory={state.chatDirectory} custom={!!state.customChatDirectory} connected={state.connected} /></div>}
         {section === "notifications" && <div className="settings-section settings-notifications">
               {(

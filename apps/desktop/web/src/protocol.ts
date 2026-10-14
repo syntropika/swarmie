@@ -75,6 +75,7 @@ export type ExtensionView = {
 };
 export type ExtensionInfo = {
   id: string;
+  ui?: import("@swarmie/contracts").UiManifest;
   views?: ExtensionView[];
   commands?: { name: string; title: string; mutates: boolean }[];
 };

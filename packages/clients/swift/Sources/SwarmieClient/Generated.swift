@@ -227,10 +227,12 @@ public struct ExtensionCommand: Codable, Sendable {
 public struct ExtensionInfo: Codable, Sendable {
     public var commands: [ExtensionCommand]
     public var id: String
+    public var ui: JSONValue?
     public var views: [ExtensionView]
-    public init(commands: [ExtensionCommand], id: String, views: [ExtensionView]) {
+    public init(commands: [ExtensionCommand], id: String, ui: JSONValue? = nil, views: [ExtensionView]) {
         self.commands = commands
         self.id = id
+        self.ui = ui
         self.views = views
     }
 }
@@ -1003,6 +1005,77 @@ public struct ToolProgress: Codable, Sendable {
     }
 }
 public typealias TurnOutcome = String
+public typealias UiClient = String
+public struct UiCommand: Codable, Sendable {
+    public var id: String
+    public var runtimeCommand: String?
+    public var shortcut: String?
+    public var title: String
+    public var when: [UiCondition]
+    public init(id: String, runtimeCommand: String? = nil, shortcut: String? = nil, title: String, when: [UiCondition]) {
+        self.id = id
+        self.runtimeCommand = runtimeCommand
+        self.shortcut = shortcut
+        self.title = title
+        self.when = when
+    }
+}
+public typealias UiCondition = String
+public struct UiContribution: Codable, Sendable {
+    public var clients: [UiClient]
+    public var command: String?
+    public var enabledWhen: [UiCondition]
+    public var icon: JSONValue?
+    public var id: String
+    public var kind: UiContributionKind
+    public var order: Int64
+    public var slot: UiSlot
+    public var text: String?
+    public var title: String
+    public var when: [UiCondition]
+    public init(clients: [UiClient], command: String? = nil, enabledWhen: [UiCondition], icon: JSONValue? = nil, id: String, kind: UiContributionKind, order: Int64, slot: UiSlot, text: String? = nil, title: String, when: [UiCondition]) {
+        self.clients = clients
+        self.command = command
+        self.enabledWhen = enabledWhen
+        self.icon = icon
+        self.id = id
+        self.kind = kind
+        self.order = order
+        self.slot = slot
+        self.text = text
+        self.title = title
+        self.when = when
+    }
+}
+public typealias UiContributionKind = String
+public typealias UiIcon = String
+public struct UiManifest: Codable, Sendable {
+    public var commands: [UiCommand]
+    public var panels: [UiSurface]
+    public var screens: [UiSurface]
+    public var slots: [UiContribution]
+    public var version: UInt64
+    public init(commands: [UiCommand], panels: [UiSurface], screens: [UiSurface], slots: [UiContribution], version: UInt64) {
+        self.commands = commands
+        self.panels = panels
+        self.screens = screens
+        self.slots = slots
+        self.version = version
+    }
+}
+public typealias UiSlot = String
+public struct UiSurface: Codable, Sendable {
+    public var clients: [UiClient]
+    public var command: String?
+    public var id: String
+    public var title: String
+    public init(clients: [UiClient], command: String? = nil, id: String, title: String) {
+        self.clients = clients
+        self.command = command
+        self.id = id
+        self.title = title
+    }
+}
 public struct Usage: Codable, Sendable {
     public var cacheWriteTokens: UInt64?
     public var cachedInputTokens: UInt64?
