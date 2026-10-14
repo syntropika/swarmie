@@ -204,3 +204,40 @@ func TestNativeContextCancellation(t *testing.T) {
 		t.Fatalf("expected pre-dispatch cancellation: %v", err)
 	}
 }
+
+func TestOwnedStdioConformance(t *testing.T) {
+	binary := os.Getenv("SWARMIE_TEST_BINARY")
+	if binary == "" {
+		t.Skip("runtime executable required")
+	}
+	client, err := NewStdio(binary, []string{"--state-dir", t.TempDir(), "serve", "--mock-script", os.Getenv("SWARMIE_TEST_SCRIPT")}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Dispose()
+	ctx := context.Background()
+	if _, err = client.Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var rpcError *RPCError
+	if err = client.Call(ctx, "not/a/method", map[string]any{}, nil); !errors.As(err, &rpcError) || rpcError.Code != -32601 {
+		t.Fatalf("expected RPC error: %v", err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := client.Spawn(ctx, InputSpawnOptions{Harness: "mock", Cwd: &cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(ctx, session.Id)
+	receipt, err := client.Prompt(ctx, session.Id, "Reply", "stdio-request")
+	if err != nil || receipt.Delivery != "accepted" {
+		t.Fatalf("prompt: %+v %v", receipt, err)
+	}
+	events, err := client.WaitForTurn(ctx, session.Id, EventOptions{AfterSequence: session.Sequence, Timeout: 3 * time.Second, PollInterval: 5 * time.Millisecond})
+	if err != nil || len(events) == 0 || events[len(events)-1].Type != "turn.ended" {
+		t.Fatalf("events: %+v %v", events, err)
+	}
+}
