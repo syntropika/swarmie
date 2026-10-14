@@ -19,8 +19,8 @@
     "test": "npm run build && node --test test/*.mjs",
     "pack:local": "npm run build && npm pack",
     "typecheck": "tsc --noEmit",
-    "lint": "bun run --cwd ../../.. lint",
-    "format": "bun run --cwd ../../.. format"
+    "lint": "bun run --cwd ../.. lint",
+    "format": "bun run --cwd ../.. format"
   },
   "dependencies": {
     "@swarmie/contracts": "workspace:*"

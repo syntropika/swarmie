@@ -64,24 +64,6 @@
         "vitest": "4.1.11",
       },
     },
-    "packages/clients/runtime": {
-      "name": "@swarmie/runtime-local",
-      "version": "0.1.0",
-      "bin": {
-        "swarmie": "bin/swarmie.cjs",
-      },
-    },
-    "packages/clients/typescript": {
-      "name": "@swarmie/client",
-      "version": "0.1.0",
-      "dependencies": {
-        "@swarmie/contracts": "workspace:*",
-      },
-      "devDependencies": {
-        "@types/node": "^24.0.0",
-        "typescript": "7.0.2",
-      },
-    },
     "packages/config": {
       "name": "@swarmie/config",
       "version": "0.0.0",
@@ -92,6 +74,13 @@
     "packages/contracts": {
       "name": "@swarmie/contracts",
       "version": "0.1.0",
+    },
+    "packages/runtime": {
+      "name": "@swarmie/runtime-local",
+      "version": "0.1.0",
+      "bin": {
+        "swarmie": "bin/swarmie.cjs",
+      },
     },
     "packages/ui": {
       "name": "@swarmie/ui",
@@ -132,6 +121,17 @@
       "peerDependencies": {
         "react": "^19.2.0",
         "react-dom": "^19.2.0",
+      },
+    },
+    "sdk/typescript": {
+      "name": "@swarmie/client",
+      "version": "0.1.0",
+      "dependencies": {
+        "@swarmie/contracts": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/node": "^24.0.0",
+        "typescript": "7.0.2",
       },
     },
   },
@@ -791,13 +791,13 @@
 
     "@storybook/react-vite": ["@storybook/react-vite@10.6.0", "", { "dependencies": { "@joshwooding/vite-plugin-react-docgen-typescript": "^0.7.0", "@rollup/pluginutils": "^5.0.2", "@storybook/builder-vite": "10.6.0", "@storybook/react": "10.6.0", "empathic": "^2.0.0", "magic-string": "^1.1.0", "react-docgen": "^8.0.2", "resolve": "^1.22.8", "tsconfig-paths": "^4.2.0" }, "peerDependencies": { "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "storybook": "^10.6.0", "typescript": ">= 4.9.x", "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0" }, "optionalPeers": ["typescript"] }, "sha512-nc1dqnmjGOcDJvPCkAn4Hmu1gi7dNHHoibNmlBp0d1adosejELZxuNjHBkPl/KxZjbzP3jljQHnHB/guxd8e2g=="],
 
-    "@swarmie/client": ["@swarmie/client@workspace:packages/clients/typescript"],
+    "@swarmie/client": ["@swarmie/client@workspace:sdk/typescript"],
 
     "@swarmie/config": ["@swarmie/config@workspace:packages/config"],
 
     "@swarmie/contracts": ["@swarmie/contracts@workspace:packages/contracts"],
 
-    "@swarmie/runtime-local": ["@swarmie/runtime-local@workspace:packages/clients/runtime"],
+    "@swarmie/runtime-local": ["@swarmie/runtime-local@workspace:packages/runtime"],
 
     "@swarmie/ui": ["@swarmie/ui@workspace:packages/ui"],
 

@@ -2,7 +2,7 @@
 """Generate client types and method catalogs from the daemon's canonical schema."""
 import argparse,json,pathlib,re,urllib.request
 ROOT=pathlib.Path(__file__).resolve().parents[1]
-CONTRACTS=ROOT.parent/'contracts'
+CONTRACTS=ROOT.parent/'packages/contracts'
 
 def ts(schema):
     if schema is True:return 'JsonValue'

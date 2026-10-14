@@ -172,7 +172,7 @@ export default defineConfig({
       rules: { "shadcn/no-restyle": "off", "shadcn/require-static-classes": "off" },
     },
     {
-      files: ["packages/contracts/**/*.{ts,tsx}", "packages/clients/typescript/src/**/*.{ts,tsx}"],
+      files: ["packages/contracts/**/*.{ts,tsx}", "sdk/typescript/src/**/*.{ts,tsx}"],
       rules: {
         "no-restricted-imports": [
           "error",

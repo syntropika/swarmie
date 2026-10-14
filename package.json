@@ -4,8 +4,7 @@
   "workspaces": [
     "apps/desktop",
     "packages/*",
-    "packages/clients/typescript",
-    "packages/clients/runtime"
+    "sdk/typescript"
   ],
   "type": "module",
   "scripts": {
@@ -21,7 +20,7 @@
     "lint:doctor": "ultracite doctor",
     "format": "node node_modules/oxfmt/bin/oxfmt .",
     "format:check": "node node_modules/oxfmt/bin/oxfmt --check .",
-    "test": "bun run test:ui && bun run --cwd apps/desktop test:web && bun run --cwd packages/clients/typescript test",
+    "test": "bun run test:ui && bun run --cwd apps/desktop test:web && bun run --cwd sdk/typescript test",
     "check": "bun run format:check && bun run typecheck && bun run lint:code && bun run test",
     "lint:shared": "oxlint --deny-warnings --report-unused-disable-directives oxlint.config.ts oxfmt.config.ts packages/config packages/ui",
     "format:shared:check": "node node_modules/oxfmt/bin/oxfmt --check oxlint.config.ts oxfmt.config.ts package.json tsconfig.json packages/config packages/ui",

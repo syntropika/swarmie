@@ -3,7 +3,7 @@
 import argparse, json, os, pathlib, re, shlex, socket, subprocess, tempfile, time, urllib.request
 
 PROJECT=pathlib.Path(__file__).resolve().parents[1]
-CLIENTS=PROJECT/'packages/clients'
+CLIENTS=PROJECT/'sdk'
 ARTIFACTS=pathlib.Path(tempfile.gettempdir())/'swarmie-client-conformance'
 
 def run(command,cwd=None,env=None):
@@ -64,8 +64,8 @@ def main():
                     if time.monotonic()>deadline:raise RuntimeError('Disposable daemon initialization timed out')
                     time.sleep(.05)
             run(['python3',str(CLIENTS/'tools/generate.py'),'--url',environment['SWARMIE_TEST_URL'],'--check'],env=environment)
-            run(['npm','ci','--ignore-scripts'],cwd=CLIENTS/'typescript',env=environment)
-            run(['npm','test'],cwd=CLIENTS/'typescript',env=environment)
+            run(['bun','install','--frozen-lockfile','--ignore-scripts'],cwd=PROJECT,env=environment)
+            run(['bun','run','--cwd','sdk/typescript','test'],cwd=PROJECT,env=environment)
             verify_typescript_packages()
             python_env={**environment,'PYTHONPATH':str(CLIENTS/'python')}
             run(['python3','-m','unittest','discover','-s',str(CLIENTS/'python/tests'),'-v'],cwd=PROJECT,env=python_env)

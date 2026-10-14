@@ -7,10 +7,10 @@ The repository includes generated contracts and language clients. Install from a
 
 | Client | Requirement | Source directory |
 | --- | --- | --- |
-| TypeScript | Node 22+ for owned stdio | `packages/clients/typescript` |
-| Python | Python 3.11+ | `packages/clients/python` |
-| Go | Go 1.22+ | `packages/clients/go` |
-| Swift | Swift 6 | `packages/clients/swift` |
+| TypeScript | Node 22+ for owned stdio | `sdk/typescript` |
+| Python | Python 3.11+ | `sdk/python` |
+| Go | Go 1.22+ | `sdk/go` |
+| Swift | Swift 6 | `sdk/swift` |
 
 ## TypeScript
 
@@ -37,7 +37,7 @@ Present any `permission.requested` event and respond through `permission/respond
 ## Python
 
 ```sh
-python3 -m pip install /absolute/checkout/packages/clients/python
+python3 -m pip install /absolute/checkout/sdk/python
 ```
 
 ```python
@@ -58,7 +58,7 @@ client.close(session['id'])
 
 ## Go and Swift
 
-Use the local Go module `swarmie.local/client` with a `replace` directive pointing to `packages/clients/go`. Swift applications can add a local SwiftPM dependency on `packages/clients/swift` and import `SwarmieClient`.
+Use the local Go module `swarmie.local/client` with a `replace` directive pointing to `sdk/go`. Swift applications can add a local SwiftPM dependency on `sdk/swift` and import `SwarmieClient`.
 
 The Go client uses contexts for cancellation. Swift uses structured concurrency and task cancellation. All language clients expose generic RPC calls alongside typed helpers. HTTP is their common transport; [the transport matrix](/docs/runtime/transports/) lists the maintained alternatives.
 
@@ -70,7 +70,7 @@ Generate client files from a built runtime's schema export:
 
 ```sh
 cargo run -p protocol --example export_schema > /absolute/artifact/protocol.json
-python3 packages/clients/tools/generate.py --schema /absolute/artifact/protocol.json
+python3 sdk/tools/generate.py --schema /absolute/artifact/protocol.json
 ```
 
 Runtime invocation and UI contributions have distinct ownership. See [extensions](/docs/extensions/) for the client-side API.
