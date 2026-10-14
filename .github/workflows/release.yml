@@ -22,8 +22,8 @@ concurrency:
 env:
   RELEASE_TAG: ${{ inputs.tag }}
   RUSTUP_TOOLCHAIN: 1.94.0
-  CARGO_PROFILE_DEV_DEBUG: '0'
-  CARGO_PROFILE_TEST_DEBUG: '0'
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
 
 jobs:
   build:
@@ -50,14 +50,15 @@ jobs:
           submodules: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: '3.12'
+          python-version: "3.12"
       - name: Validate release version
         run: python3 scripts/distribution/release.py validate-tag --tag "$RELEASE_TAG"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: apps/desktop/package-lock.json
+          node-version: "24"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.10"
       - name: Install Rust toolchain
         run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
       - name: Install Linux desktop prerequisites
@@ -82,7 +83,7 @@ jobs:
           python3 scripts/distribution/package-runtime.py --skip-build --output "$RUNNER_TEMP/packages/runtime" --release-base-url "$release_base"
       - name: Verify frontend behavior
         working-directory: apps/desktop
-        run: npm exec -- vitest run
+        run: bun run test:web
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: packages-${{ matrix.platform }}
@@ -117,15 +118,16 @@ jobs:
           submodules: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: '3.12'
+          python-version: "3.12"
       - name: Validate release version
         shell: bash
         run: python3 scripts/distribution/release.py validate-tag --tag "$RELEASE_TAG"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: apps/desktop/package-lock.json
+          node-version: "24"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.10"
       - name: Install Rust toolchain
         shell: bash
         run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
@@ -148,7 +150,7 @@ jobs:
           python3 scripts/distribution/package-runtime.py --skip-build --output "$RUNNER_TEMP/packages/runtime" --release-base-url "https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG"
       - name: Verify frontend behavior
         working-directory: apps/desktop
-        run: npm exec -- vitest run
+        run: bun run test:web
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: packages-${{ matrix.platform }}
@@ -175,7 +177,7 @@ jobs:
           submodules: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: '3.12'
+          python-version: "3.12"
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           pattern: packages-*

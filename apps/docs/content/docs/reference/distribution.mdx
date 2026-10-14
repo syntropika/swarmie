@@ -25,7 +25,7 @@ The desktop distribution combines the native host, runtime, frontend, installer,
 
 ```sh
 cargo build --locked -p app --release
-python3 packages/clients/tools/package_local.py --binary target/release/swarmie
+python3 sdk/tools/package_local.py --binary target/release/swarmie
 ```
 
 This creates contracts and TypeScript npm archives, a Python wheel, Go and Swift source packages, a schema export, and a runtime archive. The supplied executable must match the target platform and version. No npm, PyPI, Go proxy, or Swift registry publication is implied.

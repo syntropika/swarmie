@@ -1,0 +1,21 @@
+{
+  "name": "@swarmie/config",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "exports": {
+    "./ts/base.json": "./ts/base.json",
+    "./ts/react.json": "./ts/react.json",
+    "./ts/start.json": "./ts/start.json",
+    "./tailwind/base.css": "./tailwind/base.css",
+    "./fonts": "./fonts/index.css",
+    "./fonts/*": "./fonts/*"
+  },
+  "dependencies": {
+    "tailwindcss": "4.3.3"
+  }
+}

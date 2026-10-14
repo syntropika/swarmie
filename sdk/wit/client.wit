@@ -1,0 +1,49 @@
+package swarmie:client@0.1.0;
+
+/// Native client boundary. JSON strings carry values from the runtime schema.
+/// Handles are owned by the caller; release them even after failed operations.
+interface native {
+    enum error-kind { protocol, rpc, timeout, cancelled, closed, invalid-input, internal }
+    record client-error {
+        kind: error-kind,
+        message: string,
+        code: option<s64>,
+        data-json: option<string>,
+    }
+    record http-config {
+        url: string,
+        token: option<string>,
+        timeout-ms: u64,
+        max-response-bytes: u64,
+    }
+    record stdio-config {
+        command: string,
+        args: list<string>,
+        timeout-ms: u64,
+        max-response-bytes: u64,
+    }
+    record request {
+        method: string,
+        params-json: string,
+        timeout-ms: option<u64>,
+    }
+    record event-options {
+        after-sequence: u64,
+        timeout-ms: u64,
+        poll-interval-ms: u64,
+    }
+    create-http: func(config: http-config) -> result<u64, client-error>;
+    create-stdio: func(config: stdio-config) -> result<u64, client-error>;
+    /// Prepare before scheduling to make cancellation before dispatch effective.
+    prepare: func() -> result<u64, client-error>;
+    cancel: func(operation: u64) -> result<_, client-error>;
+    release: func(handle: u64) -> result<_, client-error>;
+    invoke: func(client: u64, operation: u64, request: request) -> result<string, client-error>;
+    open-events: func(client: u64, session-id: string, options: event-options) -> result<u64, client-error>;
+    next-event: func(%stream: u64, operation: u64) -> result<string, client-error>;
+    wait-turn: func(client: u64, operation: u64, session-id: string, options: event-options) -> result<string, client-error>;
+    decode: func(response-json: string, request-id: string) -> result<string, client-error>;
+}
+world client {
+    export native;
+}

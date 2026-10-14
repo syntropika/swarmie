@@ -44,8 +44,8 @@ def main():
     output=args.output.expanduser().resolve();output.mkdir(parents=True,exist_ok=True)
     if not args.skip_build:
         run(['cargo','build','--locked','--release','-p','app'])
-        run(['npm','ci'],desktop)
-        run(['npm','run','build:web'],desktop)
+        run(['bun','install','--frozen-lockfile'])
+        run(['bun','run','--cwd','apps/desktop','build:web'])
         run(['npm','exec','--','native','build'],desktop)
     suffix='.exe' if system=='windows' else ''
     daemon=PROJECT/('target/release/swarmie'+suffix);host=desktop/('zig-out/bin/swarmie-desktop'+suffix);assets=desktop/'dist'

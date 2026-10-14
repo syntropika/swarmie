@@ -3,8 +3,8 @@
 import argparse, json, os, pathlib, re, shlex, socket, subprocess, tempfile, time, urllib.request
 
 PROJECT=pathlib.Path(__file__).resolve().parents[1]
-CLIENTS=PROJECT/'packages/clients'
-ARTIFACTS=pathlib.Path(tempfile.gettempdir())/'swarmie-client-conformance'
+CLIENTS=PROJECT/'sdk'
+ARTIFACTS=pathlib.Path.home()/'.codex/artifacts/installations/swarmie-client-conformance'
 
 def run(command,cwd=None,env=None):
     subprocess.run(command,cwd=cwd,env=env,check=True)
@@ -13,14 +13,29 @@ def verify_swift(host,port,environment,remote_port):
     directory=subprocess.check_output(['ssh',host,'mktemp -d /tmp/swarmie-swift-sdk.XXXXXX'],text=True).strip()
     if not re.fullmatch(r'/tmp/swarmie-swift-sdk\.[A-Za-z0-9]+',directory): raise RuntimeError('Unexpected remote temporary directory')
     try:
-        run(['rsync','-az','--exclude','.build','--exclude','.swiftpm',str(CLIENTS/'swift')+'/',host+':'+directory+'/'])
+        import importlib.util
+        spec=importlib.util.spec_from_file_location('stage_rust',CLIENTS/'tools/stage_rust.py')
+        staging=importlib.util.module_from_spec(spec);spec.loader.exec_module(staging)
+        with tempfile.TemporaryDirectory(prefix='swift-source-',dir=ARTIFACTS) as local:
+            staging.stage(pathlib.Path(local)/'source')
+            run(['rsync','-az',str(pathlib.Path(local)/'source')+'/',host+':'+directory+'/rust/'])
+        run(['ssh',host,'cd '+shlex.quote(directory+'/rust')+' && python3 sdk/tools/build_apple.py --release'])
+        run(['ssh',host,'cp -R '+shlex.quote(directory+'/rust/sdk/swift/CSwarmie.xcframework')+' '+shlex.quote(directory+'/CSwarmie.xcframework')])
+        run(['rsync','-az','--exclude','.build','--exclude','.swiftpm','--exclude','native','--exclude','CSwarmie.xcframework',str(CLIENTS/'swift')+'/',host+':'+directory+'/'])
         values={key:value for key,value in environment.items() if key.startswith('SWARMIE_TEST_')}
         values['SWARMIE_TEST_URL']=f'http://127.0.0.1:{remote_port}'
         assignment=' '.join(key+'='+shlex.quote(value) for key,value in values.items())
         run(['ssh','-o','ExitOnForwardFailure=yes','-R',f'{remote_port}:127.0.0.1:{port}',host,'cd '+shlex.quote(directory)+' && '+assignment+' swift test'])
+        consumer=directory+'/consumer'
+        run(['ssh',host,'mkdir -p '+shlex.quote(consumer+'/Sources/Consumer')])
+        manifest='// swift-tools-version: 6.0\nimport PackageDescription\nlet package = Package(name: "Consumer", platforms: [.macOS(.v13)], dependencies: [.package(path: "../rust/sdk/swift")], targets: [.executableTarget(name: "Consumer", dependencies: [.product(name: "SwarmieClient", package: "swift")])])\n'
+        source='import Foundation\nimport SwarmieClient\nlet env = ProcessInfo.processInfo.environment\nlet client = try Client(url: URL(string: env["SWARMIE_TEST_URL"]!)!, options: ClientOptions(token: env["SWARMIE_TEST_TOKEN"]))\ndefer { try? client.dispose() }\nlet initialized = try await client.initialize()\nprecondition(initialized != .null)\nprint("Native Swift consumer passed")\n'
+        for relative, contents in [('Package.swift',manifest),('Sources/Consumer/main.swift',source)]:
+            subprocess.run(['ssh',host,'cat > '+shlex.quote(consumer+'/'+relative)],input=contents,text=True,check=True)
+        run(['ssh','-o','ExitOnForwardFailure=yes','-R',f'{remote_port}:127.0.0.1:{port}',host,'cd '+shlex.quote(consumer)+' && '+assignment+' swift run'])
     finally: run(['ssh',host,'rm -rf '+shlex.quote(directory)])
 
-def verify_typescript_packages():
+def verify_typescript_packages(environment):
     import importlib.util
     spec=importlib.util.spec_from_file_location('swarmie_package_local',CLIENTS/'tools/package_local.py')
     packaging=importlib.util.module_from_spec(spec);spec.loader.exec_module(packaging)
@@ -32,18 +47,21 @@ def verify_typescript_packages():
         run(['npm','install','--ignore-scripts','--offline','--no-audit','--no-fund',str(contracts),str(client)],cwd=consumer)
         (consumer/'check.ts').write_text('import { Client, type InputSpawnOptions } from "@swarmie/client";\nimport type { SessionProjection } from "@swarmie/contracts";\nconst options: InputSpawnOptions = { harness: "codex", cwd: "/project" };\nconst client = Client.http("http://127.0.0.1:7457");\nvoid client.spawn(options);\nconst projection = null as unknown as SessionProjection;\nvoid projection.events;\n')
         run([str(CLIENTS/'typescript/node_modules/.bin/tsc'),'--strict','--noEmit','--target','ES2022','--module','NodeNext','--moduleResolution','NodeNext','check.ts'],cwd=consumer)
-        run(['node','--input-type=module','-e','import { Client } from "@swarmie/client"; if (typeof Client.http !== "function") process.exit(1);'],cwd=consumer)
+        run(['node','--input-type=module','-e','import { Client } from "@swarmie/client"; const client=Client.http(process.env.SWARMIE_TEST_URL,{token:process.env.SWARMIE_TEST_TOKEN}); try { if (!await client.initialize()) throw new Error("Runtime did not initialize"); } finally { client.dispose(); }'],cwd=consumer,env=environment)
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary',type=pathlib.Path,default=PROJECT/'target/debug/swarmie')
     parser.add_argument('--swift-host',help='Configured SSH alias for a macOS host; required unless --skip-swift is set')
+    parser.add_argument('--swift-local',action='store_true',help='Run Swift on the current macOS host')
     parser.add_argument('--skip-swift',action='store_true',help='Run Linux clients only; Swift remains explicitly unverified')
     parser.add_argument('--swift-forward-port',type=int,default=17462)
     args=parser.parse_args()
     binary=args.binary.resolve()
     if not binary.is_file(): raise SystemExit('Build the runtime first: cargo build -p app')
-    if not args.skip_swift and not args.swift_host: parser.error('--swift-host is required unless --skip-swift is set')
+    if sum([bool(args.swift_host),args.skip_swift,args.swift_local]) != 1: parser.error('Choose exactly one of --swift-host, --swift-local, or --skip-swift')
+    if args.swift_local and os.uname().sysname != 'Darwin': parser.error('--swift-local requires macOS')
+    if not args.skip_swift and not args.swift_host and not args.swift_local: parser.error('--swift-host is required unless --skip-swift is set')
     if args.swift_host and args.swift_host.startswith('-'): raise SystemExit('Invalid SSH host')
     ARTIFACTS.mkdir(parents=True,exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='daemon-',dir=ARTIFACTS) as directory:
@@ -64,13 +82,15 @@ def main():
                     if time.monotonic()>deadline:raise RuntimeError('Disposable daemon initialization timed out')
                     time.sleep(.05)
             run(['python3',str(CLIENTS/'tools/generate.py'),'--url',environment['SWARMIE_TEST_URL'],'--check'],env=environment)
-            run(['npm','ci','--ignore-scripts'],cwd=CLIENTS/'typescript',env=environment)
-            run(['npm','test'],cwd=CLIENTS/'typescript',env=environment)
-            verify_typescript_packages()
+            run(['python3',str(CLIENTS/'tools/build_native.py'), *(['--apple'] if args.swift_local else [])],cwd=PROJECT,env=environment)
+            run(['bun','install','--frozen-lockfile','--ignore-scripts'],cwd=PROJECT,env=environment)
+            run(['bun','run','--cwd','sdk/typescript','test'],cwd=PROJECT,env=environment)
+            verify_typescript_packages(environment)
             python_env={**environment,'PYTHONPATH':str(CLIENTS/'python')}
             run(['python3','-m','unittest','discover','-s',str(CLIENTS/'python/tests'),'-v'],cwd=PROJECT,env=python_env)
             run(['go','test','-race','./...'],cwd=CLIENTS/'go',env=environment)
-            if not args.skip_swift:verify_swift(args.swift_host,port,environment,args.swift_forward_port)
+            if args.swift_local:run(['swift','test','--package-path',str(CLIENTS/'swift')],env=environment)
+            elif not args.skip_swift:verify_swift(args.swift_host,port,environment,args.swift_forward_port)
             print('Client conformance passed'+(' (Swift explicitly skipped)' if args.skip_swift else ' (including macOS Swift)'))
         finally:
             daemon.terminate()

@@ -30,5 +30,15 @@
 # Generated native harness smoke-test data, not source fixtures.
 /tests/fixtures/harnesses/*-smoke/
 
-# Agent instructions are supplied by the private documentation submodule.
-/AGENTS.md
+
+# Frontend generated assets and tool caches.
+**/.tanstack/
+**/.nitro/
+**/.output/
+**/.wrangler/
+**/storybook-static/
+**/coverage/
+*.tsbuildinfo
+
+# Editor-specific local configuration.
+/.vscode/
