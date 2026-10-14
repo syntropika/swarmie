@@ -1,0 +1,36 @@
+:root {
+  --swarmie-periwinkle: #8E9FC2;
+  --swarmie-soft-coral: #DDA99F;
+  --swarmie-action-periwinkle: #5F739D;
+  --swarmie-ink: #1A1C1F;
+  --swarmie-white: #FFFFFF;
+  --swarmie-dark-canvas: #181818;
+  --swarmie-light-functional-foreground: #465F8C;
+  --swarmie-light-surface: #F3F3F3;
+  --swarmie-action-background: var(--swarmie-action-periwinkle);
+  --swarmie-action-foreground: var(--swarmie-white);
+}
+
+:root, [data-swarmie-theme="light"] {
+  --swarmie-ui-canvas: #FFFFFF;
+  --swarmie-ui-sidebar: #F9F9F9;
+  --swarmie-ui-composer: #F3F3F3;
+  --swarmie-ui-composer-cap: #EAEAEA;
+  --swarmie-ui-user-bubble: #F0F0F0;
+  --swarmie-ui-selected-chat: #E8E8E8;
+  --swarmie-ui-text: #1A1C1F;
+  --swarmie-ui-muted-text: #606568;
+  --swarmie-ui-border: #D9D9D9;
+}
+
+[data-swarmie-theme="dark"] {
+  --swarmie-ui-canvas: #181818;
+  --swarmie-ui-sidebar: #171717;
+  --swarmie-ui-composer: #282828;
+  --swarmie-ui-composer-cap: #252525;
+  --swarmie-ui-user-bubble: #242424;
+  --swarmie-ui-selected-chat: #303030;
+  --swarmie-ui-text: #DFDFDF;
+  --swarmie-ui-muted-text: #AAAAAA;
+  --swarmie-ui-border: #383838;
+}

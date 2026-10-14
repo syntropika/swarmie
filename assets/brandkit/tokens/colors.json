@@ -1,0 +1,116 @@
+{
+  "palette": "Periwinkle & Soft Coral",
+  "brand_direction": "Friendly Intelligence",
+  "colors": {
+    "periwinkle": "#8E9FC2",
+    "soft_coral": "#DDA99F",
+    "action_periwinkle": "#5F739D",
+    "ink": "#1A1C1F",
+    "white": "#FFFFFF",
+    "dark_canvas": "#181818",
+    "light_functional_foreground": "#465F8C",
+    "light_surface": "#F3F3F3"
+  },
+  "primary_action": {
+    "fill": "action_periwinkle",
+    "foreground": "white",
+    "intended_contrast_ratio": 4.74
+  },
+  "logo_geometry": "three rounded curved streams converging into a symmetric rounded diamond",
+  "logo_applications": {
+    "mono_ink": {
+      "streams": "ink",
+      "core": "ink",
+      "wordmark": "ink",
+      "background": "white"
+    },
+    "mono_white": {
+      "streams": "white",
+      "core": "white",
+      "wordmark": "white",
+      "background": "dark_canvas"
+    },
+    "ink_coral": {
+      "streams": "ink",
+      "core": "soft_coral",
+      "wordmark": "ink",
+      "background": "white"
+    },
+    "white_coral": {
+      "streams": "white",
+      "core": "soft_coral",
+      "wordmark": "white",
+      "background": "dark_canvas"
+    },
+    "primary": {
+      "streams": "periwinkle",
+      "core": "soft_coral",
+      "wordmark": "soft_coral",
+      "background": "white"
+    },
+    "white_on_periwinkle": {
+      "streams": "white",
+      "core": "white",
+      "wordmark": "white",
+      "background": "periwinkle"
+    }
+  },
+  "mascot": {
+    "asset": "mascot/swarmie-mascot-coral.png",
+    "shape": "rounded diamond",
+    "body": "soft coral",
+    "face": "dark oval eyes with small white highlights and a friendly curved smile"
+  },
+  "typography": {
+    "brand_family": "Manrope",
+    "brand_weights": [
+      400,
+      500,
+      600,
+      700
+    ],
+    "source": "https://www.sharanda.com/manrope",
+    "wordmark": "custom Swarmie lettering retained from the approved mark",
+    "interface": "platform sans serif",
+    "alternative_specimen": "https://fonts.google.com/specimen/Manrope"
+  },
+  "interface_themes": {
+    "light": {
+      "canvas": "#FFFFFF",
+      "sidebar": "#F9F9F9",
+      "composer": "#F3F3F3",
+      "composer_cap": "#EAEAEA",
+      "user_bubble": "#F0F0F0",
+      "selected_chat": "#E8E8E8",
+      "text": "#1A1C1F",
+      "muted_text": "#606568",
+      "border": "#D9D9D9"
+    },
+    "dark": {
+      "canvas": "#181818",
+      "sidebar": "#171717",
+      "composer": "#282828",
+      "composer_cap": "#252525",
+      "user_bubble": "#242424",
+      "selected_chat": "#303030",
+      "text": "#DFDFDF",
+      "muted_text": "#AAAAAA",
+      "border": "#383838"
+    }
+  },
+  "logo_core": {
+    "primitive": "regular rounded square",
+    "side": 84,
+    "corner_radius": 18,
+    "rotation_degrees": 45,
+    "symmetry": "equal horizontal and vertical diagonals; four equal rounded corners",
+    "canonical_geometry": "source/logo-geometry.json"
+  },
+  "delivery": {
+    "logos": "logos/swarmie-{application}.svg",
+    "marks": "marks/swarmie-mark-{application}.svg",
+    "application_filename_rule": "replace underscores with hyphens",
+    "vector_family": "boards/swarmie-logo-family.svg",
+    "raster_brand_presentation": "boards/swarmie-brand-toolkit.png"
+  }
+}
