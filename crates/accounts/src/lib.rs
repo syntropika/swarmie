@@ -55,6 +55,7 @@ pub struct Snapshot {
     pub profile: Option<AccountProfile>,
     pub persistence: String,
     pub login_id: Option<uuid::Uuid>,
+    pub authorization_url: Option<String>,
 }
 struct Pending {
     id: uuid::Uuid,
@@ -63,6 +64,7 @@ struct Pending {
     callback: String,
     expires: Instant,
     session_only: bool,
+    authorization_url: String,
 }
 struct State {
     blocked: bool,
@@ -157,6 +159,7 @@ impl AccountManager {
             }
             .into(),
             login_id: state.pending.as_ref().map(|p| p.id),
+            authorization_url: state.pending.as_ref().map(|p| p.authorization_url.clone()),
         }
     }
     fn expire(state: &mut State) {
@@ -287,6 +290,10 @@ impl AccountManager {
         }
         Ok(Self::snapshot(&state))
     }
+    /// Observers receive only retained presentation state; observation never renews credentials.
+    pub async fn retained_snapshot(&self) -> Snapshot {
+        Self::snapshot(&*self.state.lock().await)
+    }
     pub async fn start(&self, callback: String, session_only: bool) -> Result<Value> {
         let mut state = self.state.lock().await;
         Self::expire(&mut state);
@@ -314,6 +321,7 @@ impl AccountManager {
             callback,
             expires: Instant::now() + Duration::from_secs(600),
             session_only,
+            authorization_url: url.clone(),
         });
         state.generation += 1;
         Ok(

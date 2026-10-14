@@ -8,6 +8,23 @@ use axum::{
 use serde_json::{Value, json};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Mutex;
+async fn owner_request(root: &std::path::Path, method: &str, params: Value) -> Value {
+    let endpoint: Value =
+        serde_json::from_slice(&std::fs::read(root.join("identity/endpoint.json")).unwrap())
+            .unwrap();
+    let value = reqwest::Client::new()
+        .post(format!("{}/rpc", endpoint["url"].as_str().unwrap()))
+        .bearer_auth(endpoint["token"].as_str().unwrap())
+        .json(&json!({"jsonrpc":"2.0","id":1,"method":method,"params":params}))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert!(value.get("error").is_none(), "{value}");
+    value["result"].clone()
+}
 async fn command(root: &std::path::Path, args: &[&str]) -> Value {
     let output = tokio::process::Command::new(
         std::env::var_os("SWARMIE_TEST_BINARY")
@@ -74,8 +91,45 @@ async fn native_owner_is_independent_of_windows_clients_and_execution_nodes() {
     });
     let configured = command(root.path(), &["configure", &origin]).await;
     assert_eq!(configured["configured"], true);
+    let initial = owner_request(root.path(), "account/observe", json!({})).await;
+    let cursor = initial["cursor"].clone();
+    let observers: Vec<_> = (0..2)
+        .map(|_| {
+            let path = root.path().to_owned();
+            let cursor = cursor.clone();
+            tokio::spawn(async move {
+                owner_request(&path, "account/observe", json!({"cursor":cursor})).await
+            })
+        })
+        .collect();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(observers.iter().all(|task| !task.is_finished()));
     let pending = command(root.path(), &["login", "--session-only", "--no-open"]).await;
     assert!(pending["loginId"].is_string());
+    for task in observers {
+        let observed = tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(observed["account"]["status"], "signingIn");
+        assert_eq!(
+            observed["account"]["authorizationUrl"],
+            pending["authorizationUrl"]
+        );
+        assert_eq!(observed["cursor"]["ownerId"], cursor["ownerId"]);
+        assert!(observed["cursor"]["revision"].as_u64() > cursor["revision"].as_u64());
+        assert!(!observed.to_string().contains("native-private"));
+    }
+    let waiting = owner_request(root.path(), "account/observe", json!({})).await;
+    let path = root.path().to_owned();
+    let completing = tokio::spawn(async move {
+        owner_request(
+            &path,
+            "account/observe",
+            json!({"cursor":waiting["cursor"]}),
+        )
+        .await
+    });
     // No initiating client remains. A later browser callback still completes the same native attempt.
     let value = saved.lock().await.clone();
     let callback = value["callback"].as_str().unwrap();
@@ -104,6 +158,13 @@ async fn native_owner_is_independent_of_windows_clients_and_execution_nodes() {
     let snapshot = command(root.path(), &["read"]).await;
     assert_eq!(snapshot["status"], "signedIn");
     assert_eq!(snapshot["profile"], profile);
+    assert_eq!(snapshot["authorizationUrl"], Value::Null);
+    let completed = tokio::time::timeout(Duration::from_secs(5), completing)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(completed["account"]["status"], "signedIn");
+    assert_eq!(completed["account"]["profile"], profile);
     assert!(!snapshot.to_string().contains("native-private"));
     assert!(!root.path().join("state").exists());
     assert!(!root.path().join("runtime").exists());
@@ -133,5 +194,10 @@ async fn native_owner_is_independent_of_windows_clients_and_execution_nodes() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     assert!(!root.path().join("identity/endpoint.json").exists());
+    command(root.path(), &["read"]).await;
+    let restarted = owner_request(root.path(), "account/observe", json!({"cursor":cursor})).await;
+    assert_ne!(restarted["cursor"]["ownerId"], cursor["ownerId"]);
+    assert_eq!(restarted["account"]["status"], "signedOut");
+    command(root.path(), &["stop"]).await;
     server.abort();
 }

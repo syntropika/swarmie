@@ -153,4 +153,4 @@ export interface Methods {
   "settings/setDirectory": { params: InputDefaultDirectoryUpdate; result: DefaultDirectory };
 }
 export type { NativeClientMethods, SubmissionProjection, SessionProjection, SessionLaunchIntent, SessionControls, SessionOpenProjection, ClientProject, InputAttachment, InputContext, PreparedInput, RecoveredDraft, SshReadiness, NodeStartup } from "./client.js";
-export type { AccountMethods, AccountProfile, AccountSnapshot } from "./account.js";
+export type { AccountCursor, AccountMethods, AccountObservation, AccountProfile, AccountSnapshot } from "./account.js";

@@ -170,6 +170,27 @@ async fn headless_tick_renews_once_and_restart_revalidates_without_ui() {
     task.abort();
 }
 #[tokio::test]
+async fn locked_restored_vault_recovers_after_unlock_without_a_new_login() {
+    let (fake, vault, manager, task, installation) = fixture().await;
+    sign_in(&fake, &manager, false).await;
+    drop(manager);
+    vault.locked.store(true, Ordering::SeqCst);
+    let restored = AccountManager::new(&fake.origin, installation, vault.clone())
+        .await
+        .unwrap();
+    assert_eq!(restored.read().await.unwrap().status, "storageUnavailable");
+    assert_eq!(fake.renewals.load(Ordering::SeqCst), 0);
+    vault.locked.store(false, Ordering::SeqCst);
+    assert_eq!(restored.read().await.unwrap().status, "signedIn");
+    assert_eq!(fake.renewals.load(Ordering::SeqCst), 1);
+    let before = fake.reads.load(Ordering::SeqCst);
+    assert_eq!(restored.retained_snapshot().await.status, "signedIn");
+    assert_eq!(fake.reads.load(Ordering::SeqCst), before);
+    assert_eq!(fake.renewals.load(Ordering::SeqCst), 1);
+    restored.logout().await.unwrap();
+    task.abort();
+}
+#[tokio::test]
 async fn wrong_state_does_not_consume_login_and_explicit_cancel_does() {
     let (fake, _, manager, task, _) = fixture().await;
     let pending = manager
