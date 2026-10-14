@@ -39,3 +39,6 @@
 **/storybook-static/
 **/coverage/
 *.tsbuildinfo
+
+# Editor-specific local configuration.
+/.vscode/

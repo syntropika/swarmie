@@ -24,7 +24,7 @@
     "test": "bun run test:ui && bun run --cwd apps/desktop test:web && bun run --cwd packages/clients/typescript test",
     "check": "bun run format:check && bun run typecheck && bun run lint:code && bun run test",
     "lint:shared": "oxlint --deny-warnings --report-unused-disable-directives oxlint.config.ts oxfmt.config.ts packages/config packages/ui",
-    "format:shared:check": "node node_modules/oxfmt/bin/oxfmt --check oxlint.config.ts oxfmt.config.ts package.json tsconfig.json .vscode packages/config packages/ui",
+    "format:shared:check": "node node_modules/oxfmt/bin/oxfmt --check oxlint.config.ts oxfmt.config.ts package.json tsconfig.json packages/config packages/ui",
     "check:ui": "bun run format:shared:check && bun run --filter @swarmie/ui typecheck && bun run lint:shared",
     "test:ui": "bun test packages/ui"
   },
