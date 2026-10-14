@@ -1,0 +1,30 @@
+---
+title: "Dictation"
+description: "Capture speech on the displayed client with an interchangeable provider."
+---
+
+Dictation contributes a microphone action to `composer.actions`, a status line to `composer.status`, and settings to `settings.sections`. Its `@swarmie.dictation/toggle` command is shared by the microphone, the command palette, and **Mod+Shift+D**.
+
+## Start and stop
+
+Click Dictate message to begin capture. The action becomes Stop dictation while recording. Stopping waits for the provider's final transcript, displays a processing status, and disables duplicate activation until completion.
+
+Final transcript text replaces the current composer selection and adds word boundaries when needed. It updates the draft; sending the message remains your choice.
+
+## Where capture and transcription happen
+
+Audio capture belongs to the client displaying the interface, even when its runtime or harness is on another node. The harness receives ordinary draft text and does not own the microphone interaction.
+
+The built-in browser speech provider depends on browser support and microphone permission. It **may use a remote transcription service**; local processing is not guaranteed. Unsupported clients show a disabled action. Permission denial and recognition failures appear as errors.
+
+A bundled client can provide another `TranscriptionProvider` to `createDictationExtension`. Providers define availability, start capture, deliver final text, and expose stop/abort operations. They may transcribe locally or remotely. No speech engine or cloud service is installed by the contribution contract.
+
+## Language
+
+Open Settings → Extensions → Dictation, or the Dictation settings screen. Save a recognition language tag such as `en-US`. Changes apply to the next recording.
+
+## Context changes
+
+Changing the node, conversation, project, worktree, or session invalidates capture scopes. Leaving the ready composer stops recording. Late provider callbacks cannot insert text into another conversation.
+
+The [contribution demo](/docs/extensions/examples/) uses simulated dictation and captures no audio.

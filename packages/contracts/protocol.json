@@ -1279,6 +1279,16 @@
         "id": {
           "type": "string"
         },
+        "ui": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiManifest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "views": {
           "default": [],
           "items": {
@@ -4168,6 +4178,250 @@
         "unknown"
       ],
       "type": "string"
+    },
+    "UiClient": {
+      "enum": [
+        "browser",
+        "desktop"
+      ],
+      "type": "string"
+    },
+    "UiCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "runtimeCommand": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "shortcut": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "when": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/UiCondition"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "when"
+      ],
+      "type": "object"
+    },
+    "UiCondition": {
+      "enum": [
+        "connected",
+        "conversation",
+        "project",
+        "message",
+        "panel",
+        "composerReady"
+      ],
+      "type": "string"
+    },
+    "UiContribution": {
+      "additionalProperties": false,
+      "properties": {
+        "clients": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/UiClient"
+          },
+          "type": "array"
+        },
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enabledWhen": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/UiCondition"
+          },
+          "type": "array"
+        },
+        "icon": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiIcon"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/UiContributionKind"
+        },
+        "order": {
+          "default": 0,
+          "format": "int32",
+          "type": "integer"
+        },
+        "slot": {
+          "$ref": "#/$defs/UiSlot"
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "when": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/UiCondition"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "slot",
+        "kind",
+        "title",
+        "order",
+        "when",
+        "enabledWhen",
+        "clients"
+      ],
+      "type": "object"
+    },
+    "UiContributionKind": {
+      "enum": [
+        "action",
+        "text",
+        "section"
+      ],
+      "type": "string"
+    },
+    "UiIcon": {
+      "enum": [
+        "microphone",
+        "stop",
+        "spinner",
+        "extension"
+      ],
+      "type": "string"
+    },
+    "UiManifest": {
+      "additionalProperties": false,
+      "description": "Versioned declarative client contributions. Runtime extensions never receive host DOM access.",
+      "properties": {
+        "commands": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/UiCommand"
+          },
+          "type": "array"
+        },
+        "panels": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/UiSurface"
+          },
+          "type": "array"
+        },
+        "screens": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/UiSurface"
+          },
+          "type": "array"
+        },
+        "slots": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/UiContribution"
+          },
+          "type": "array"
+        },
+        "version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "commands",
+        "slots",
+        "screens",
+        "panels"
+      ],
+      "type": "object"
+    },
+    "UiSlot": {
+      "enum": [
+        "sidebar.primary",
+        "sidebar.footer",
+        "app.header.actions",
+        "conversation.header.actions",
+        "composer.actions",
+        "composer.context",
+        "composer.status",
+        "message.actions",
+        "message.details",
+        "project.actions",
+        "project.contextMenu",
+        "conversation.contextMenu",
+        "panel.toolbar",
+        "panel.status",
+        "settings.sections"
+      ],
+      "type": "string"
+    },
+    "UiSurface": {
+      "additionalProperties": false,
+      "properties": {
+        "clients": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/UiClient"
+          },
+          "type": "array"
+        },
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "clients"
+      ],
+      "type": "object"
     },
     "Usage": {
       "properties": {

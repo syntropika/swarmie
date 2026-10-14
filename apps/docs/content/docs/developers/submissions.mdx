@@ -1,0 +1,28 @@
+---
+title: "Submission recovery"
+description: "Use retained idempotency keys and receipts to recover uncertain delivery."
+---
+
+Every intentional prompt needs a unique, persisted idempotency key. Save the key and original content before transmission. Reusing that exact key and content obtains the retained receipt rather than dispatching the prompt again.
+
+## Delivery states
+
+A receipt distinguishes delivery knowledge such as `not_sent`, `in_flight`, `accepted`, `rejected`, and `unknown`. Acceptance is not turn completion. A timeout or connection loss does not by itself prove that native execution rejected the prompt.
+
+## Recover a lost response
+
+1. Retain the original session, idempotency key, and content.
+2. Query `session/submission` for the retained receipt.
+3. Recover authoritative event cursors and observed native state.
+4. If qualified support is available, use `session/submission/reconcile` without resending the prompt.
+5. Keep dependent work paused while delivery remains uncertain.
+
+Reading a receipt does not open a native session. Reconciliation can inspect an already open native connection; explicitly resume a closed session first. Native absence is not proof of rejection, and unsupported adapters preserve uncertainty.
+
+## Queue recovery
+
+Restored queues remain paused. Do not resume them or send another prompt merely because a client reconnected. Continue only after the session's authoritative delivery and execution state permits it.
+
+## Cancellation
+
+Use the client's cancellation mechanism to stop waiting. Cancelling observation is different from cancelling a native turn. An owned stdio client may terminate its process after a bounded request timeout; a managed runtime has its own independent lifetime.

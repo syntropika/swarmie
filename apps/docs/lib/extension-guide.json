@@ -1,0 +1,380 @@
+{
+  "slots": [
+    {
+      "id": "sidebar.primary",
+      "purpose": "Primary navigation rail, between workspace tools and the account controls.",
+      "kinds": [
+        "action"
+      ],
+      "context": "Active workspace; active conversation if selected.",
+      "example": "Open a screen through one command.",
+      "availability": "Always mounted; the rail remains available when the sidebar is hidden."
+    },
+    {
+      "id": "sidebar.footer",
+      "purpose": "Bottom of the projects and chats sidebar, above connection status.",
+      "kinds": [
+        "action",
+        "text"
+      ],
+      "context": "Active workspace and conversation.",
+      "example": "Show extension status or open a tool.",
+      "availability": "Visible while the sidebar is open."
+    },
+    {
+      "id": "app.header.actions",
+      "purpose": "Application titlebar, before extension screen/panel navigation and built-in tools.",
+      "kinds": [
+        "action"
+      ],
+      "context": "Active workspace and conversation.",
+      "example": "Open the contribution demo screen.",
+      "availability": "Available across chat, settings, and extension screens."
+    },
+    {
+      "id": "conversation.header.actions",
+      "purpose": "Top-right of the conversation content, below the application titlebar.",
+      "kinds": [
+        "action"
+      ],
+      "context": "The displayed conversation, project, worktree, and session.",
+      "example": "Inspect the conversation in a panel.",
+      "availability": "Mounted when the conversation is displayed; absent while a screen replaces it."
+    },
+    {
+      "id": "composer.actions",
+      "purpose": "Composer toolbar, between session controls and Send/Queue/Stop.",
+      "kinds": [
+        "action"
+      ],
+      "context": "Displayed conversation, worktree and session; composerReady.",
+      "example": "@swarmie.dictation/toggle or demo/insert.",
+      "availability": "Visible with the conversation; use enabledWhen: [\"composerReady\"] for draft-changing actions."
+    },
+    {
+      "id": "composer.context",
+      "purpose": "Context strip above the draft, beside harness and node controls.",
+      "kinds": [
+        "action",
+        "text"
+      ],
+      "context": "Displayed conversation and its working context identifiers.",
+      "example": "Show the selected contribution context.",
+      "availability": "Visible with the composer; no DOM access to harness controls."
+    },
+    {
+      "id": "composer.status",
+      "purpose": "Inside the composer, below its toolbar.",
+      "kinds": [
+        "text"
+      ],
+      "context": "Displayed conversation and composer readiness.",
+      "example": "Recording or processing status.",
+      "availability": "Empty text occupies no vertical status line. Nonempty status is announced with role=\"status\"."
+    },
+    {
+      "id": "message.actions",
+      "purpose": "Each user or assistant message action row.",
+      "kinds": [
+        "action"
+      ],
+      "context": "Displayed conversation plus the exact messageId.",
+      "example": "Inspect this message in a panel.",
+      "availability": "Shown on hover or keyboard focus. Assistant action rows are hidden during generation."
+    },
+    {
+      "id": "message.details",
+      "purpose": "Below each message body and above its action row.",
+      "kinds": [
+        "text"
+      ],
+      "context": "Displayed conversation plus the exact messageId.",
+      "example": "Show extension metadata.",
+      "availability": "Visible on rendered user and assistant messages; plain text only."
+    },
+    {
+      "id": "project.actions",
+      "purpose": "Project row in the sidebar, beside New chat and Project options.",
+      "kinds": [
+        "action"
+      ],
+      "context": "The row projectId; conversation, session and worktree identifiers are cleared.",
+      "example": "Inspect the selected project.",
+      "availability": "Visible in expanded project navigation, including rows with no active conversation."
+    },
+    {
+      "id": "project.contextMenu",
+      "purpose": "Project options menu in the project row.",
+      "kinds": [
+        "action"
+      ],
+      "context": "The menu projectId; no conversation/session/worktree target; composerReady=false.",
+      "example": "Dispatch the same inspection command as the row action.",
+      "availability": "Available when that project options menu is open."
+    },
+    {
+      "id": "conversation.contextMenu",
+      "purpose": "Conversation actions menu in the titlebar and Chat options menu on every sidebar row.",
+      "kinds": [
+        "action"
+      ],
+      "context": "Titlebar: active conversation. Sidebar: the row conversationId, projectId, worktreeId and sessionId; composerReady=false.",
+      "example": "Inspect the menu target without selecting another chat.",
+      "availability": "Mounted inside the open menu. Both placements use the same slot name and command."
+    },
+    {
+      "id": "panel.toolbar",
+      "purpose": "Below the heading of the open conversation side panel.",
+      "kinds": [
+        "action"
+      ],
+      "context": "Active conversation plus panelId; extension panels retain the context that opened them, including messageId.",
+      "example": "Refresh or inspect the panel context.",
+      "availability": "Visible while a built-in or extension panel is open."
+    },
+    {
+      "id": "panel.status",
+      "purpose": "After the content of the open conversation side panel.",
+      "kinds": [
+        "text"
+      ],
+      "context": "The panel context and panelId.",
+      "example": "Show extension tool status.",
+      "availability": "Visible while a panel is open. Nonempty text is announced with role=\"status\"."
+    },
+    {
+      "id": "settings.sections",
+      "purpose": "Settings \u2192 Extensions, in the settings content area.",
+      "kinds": [
+        "section"
+      ],
+      "context": "Active workspace and conversation identifiers; composerReady=false.",
+      "example": "Dictation language settings, or a section action that opens a runtime screen.",
+      "availability": "Visible when Extensions is selected. Sections accept a title, text, and optional command; bundled modules may provide a trusted local renderer."
+    }
+  ],
+  "captures": [
+    {
+      "name": "commands",
+      "width": 1440,
+      "height": 1000,
+      "slots": []
+    },
+    {
+      "name": "composer",
+      "width": 1096,
+      "height": 188,
+      "slots": [
+        {
+          "height": 18,
+          "slot": "composer.context",
+          "width": 74.046875,
+          "x": 825.953125,
+          "y": 17
+        },
+        {
+          "height": 28,
+          "slot": "composer.actions",
+          "width": 145.265625,
+          "x": 730.734375,
+          "y": 108
+        },
+        {
+          "height": 26,
+          "slot": "composer.status",
+          "width": 736,
+          "x": 180,
+          "y": 146
+        }
+      ]
+    },
+    {
+      "name": "conversation-menu",
+      "width": 1440,
+      "height": 1000,
+      "slots": [
+        {
+          "height": 32,
+          "slot": "conversation.contextMenu",
+          "width": 164,
+          "x": 1250,
+          "y": 76
+        }
+      ]
+    },
+    {
+      "name": "messages",
+      "width": 736,
+      "height": 161,
+      "slots": [
+        {
+          "height": 21.59375,
+          "slot": "message.details",
+          "width": 736,
+          "x": 0,
+          "y": 99.5625
+        },
+        {
+          "height": 28,
+          "slot": "message.actions",
+          "width": 118.28125,
+          "x": 0,
+          "y": 133.15625
+        }
+      ]
+    },
+    {
+      "name": "navigation",
+      "width": 1440,
+      "height": 1000,
+      "slots": [
+        {
+          "height": 28,
+          "slot": "app.header.actions",
+          "width": 52.03125,
+          "x": 1078.515625,
+          "y": 32
+        },
+        {
+          "height": 28,
+          "slot": "sidebar.primary",
+          "width": 34.6875,
+          "x": 7.65625,
+          "y": 259
+        },
+        {
+          "height": 28,
+          "slot": "project.actions",
+          "width": 61.921875,
+          "x": 205.078125,
+          "y": 216
+        },
+        {
+          "height": 18,
+          "slot": "sidebar.footer",
+          "width": 269,
+          "x": 60,
+          "y": 943.5
+        },
+        {
+          "height": 30,
+          "slot": "conversation.header.actions",
+          "width": 90.109375,
+          "x": 1325.890625,
+          "y": 72
+        }
+      ]
+    },
+    {
+      "name": "panel",
+      "width": 1440,
+      "height": 1000,
+      "slots": [
+        {
+          "height": 28,
+          "slot": "panel.toolbar",
+          "width": 345,
+          "x": 1083,
+          "y": 131
+        },
+        {
+          "height": 18,
+          "slot": "panel.status",
+          "width": 345,
+          "x": 1083,
+          "y": 466.125
+        }
+      ]
+    },
+    {
+      "name": "processing",
+      "width": 1096,
+      "height": 188,
+      "slots": [
+        {
+          "height": 28,
+          "slot": "composer.actions",
+          "width": 145.265625,
+          "x": 730.734375,
+          "y": 108
+        },
+        {
+          "height": 26,
+          "slot": "composer.status",
+          "width": 736,
+          "x": 180,
+          "y": 146
+        }
+      ]
+    },
+    {
+      "name": "project-menu",
+      "width": 1440,
+      "height": 1000,
+      "slots": [
+        {
+          "height": 32,
+          "slot": "project.contextMenu",
+          "width": 164,
+          "x": 276,
+          "y": 290
+        }
+      ]
+    },
+    {
+      "name": "recording",
+      "width": 1096,
+      "height": 188,
+      "slots": [
+        {
+          "height": 28,
+          "slot": "composer.actions",
+          "width": 145.265625,
+          "x": 730.734375,
+          "y": 108
+        },
+        {
+          "height": 26,
+          "slot": "composer.status",
+          "width": 736,
+          "x": 180,
+          "y": 146
+        }
+      ]
+    },
+    {
+      "name": "screen",
+      "width": 1440,
+      "height": 1000,
+      "slots": []
+    },
+    {
+      "name": "settings",
+      "width": 1440,
+      "height": 1000,
+      "slots": [
+        {
+          "height": 809.046875,
+          "slot": "settings.sections",
+          "width": 640,
+          "x": 543,
+          "y": 187
+        }
+      ]
+    },
+    {
+      "name": "sidebar-menu",
+      "width": 1440,
+      "height": 1000,
+      "slots": [
+        {
+          "height": 32,
+          "slot": "conversation.contextMenu",
+          "width": 164,
+          "x": 158,
+          "y": 322
+        }
+      ]
+    }
+  ]
+}

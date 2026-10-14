@@ -1,0 +1,76 @@
+---
+title: "Typed clients"
+description: "Integrate the public runtime with TypeScript, Python, Go, or Swift."
+---
+
+The repository includes generated contracts and language clients. Install from a source checkout or local distribution artifacts until a corresponding registry release is available. Package namespaces do not claim publication.
+
+| Client | Requirement | Source directory |
+| --- | --- | --- |
+| TypeScript | Node 22+ for owned stdio | `packages/clients/typescript` |
+| Python | Python 3.11+ | `packages/clients/python` |
+| Go | Go 1.22+ | `packages/clients/go` |
+| Swift | Swift 6 | `packages/clients/swift` |
+
+## TypeScript
+
+Build the local package with `npm ci` and `npm run build` in its source directory. It depends on `@swarmie/contracts`.
+
+```ts
+import { Client } from '@swarmie/client';
+
+const client = Client.http('http://127.0.0.1:7457');
+await client.initialize();
+const session = await client.spawn({ harness: 'codex', cwd: '/absolute/project' });
+const key = crypto.randomUUID();
+// Persist key before submitting an intentional prompt.
+await client.prompt(session.id, 'Describe the project.', key);
+for await (const event of client.events(session.id, { afterSequence: session.sequence })) {
+  if (event.type === 'text.delta') process.stdout.write(event.data.text);
+  if (event.type === 'turn.ended') break;
+}
+await client.close(session.id);
+```
+
+Present any `permission.requested` event and respond through `permission/respond`. Use `try/finally` to close an owned session when integrating this example into an application. An uncertain submission must be recovered before sending another intentional prompt.
+
+## Python
+
+```sh
+python3 -m pip install /absolute/checkout/packages/clients/python
+```
+
+```python
+import uuid
+from swarmie_client import Client
+
+client = Client.http('http://127.0.0.1:7457')
+client.initialize()
+session = client.spawn({'harness': 'codex', 'cwd': '/absolute/project'})
+key = str(uuid.uuid4())
+# Persist key before sending; retain it for recovery.
+client.prompt(session['id'], 'Describe the project.', key)
+for event in client.events(session['id'], after_sequence=session['sequence']):
+    if event['type'] == 'turn.ended':
+        break
+client.close(session['id'])
+```
+
+## Go and Swift
+
+Use the local Go module `swarmie.local/client` with a `replace` directive pointing to `packages/clients/go`. Swift applications can add a local SwiftPM dependency on `packages/clients/swift` and import `SwarmieClient`.
+
+The Go client uses contexts for cancellation. Swift uses structured concurrency and task cancellation. All language clients expose generic RPC calls alongside typed helpers. HTTP is their common transport; [the transport matrix](/docs/runtime/transports/) lists the maintained alternatives.
+
+## Contracts and generation
+
+`packages/contracts/protocol.json` is the canonical exported wire schema. `packages/contracts/index.d.ts` contains runtime types; `ui-client.d.ts` contains scoped client contribution authoring types. [Download the schema](/contracts/protocol.json) or browse [method groups](/docs/reference/protocol-methods/).
+
+Generate client files from a built runtime's schema export:
+
+```sh
+cargo run -p protocol --example export_schema > /absolute/artifact/protocol.json
+python3 packages/clients/tools/generate.py --schema /absolute/artifact/protocol.json
+```
+
+Runtime invocation and UI contributions have distinct ownership. See [extensions](/docs/extensions/) for the client-side API.

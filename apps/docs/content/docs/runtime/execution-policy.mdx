@@ -1,0 +1,28 @@
+---
+title: "Execution policy"
+description: "Understand requested settings, native enforcement, and approval modes."
+---
+
+Execution policy describes how a session maps common permission choices to the selected harness's native controls. Choosing a project folder does not itself restrict the harness to that directory.
+
+## Common profiles
+
+The common profile identifiers are `ask`, `review`, `full`, and `native_custom`. The server publishes available choices, their descriptions, native mappings, application scope, and capability evidence. A client must use the choices actually advertised for that session.
+
+Common labels do not imply identical native behavior across harnesses. Native settings remain available where an equivalent common mapping is unavailable.
+
+## Requested, staged, and observed
+
+The contract separates the user's requested profile, planned configuration, and observed native policy. A staged selection is not proof that the native process has applied it.
+
+Settings may apply at creation, immediately, or to a later turn, according to the advertised descriptor. Unresolved application can block dependent work. Configuration changes require a supported session state and actual native capability.
+
+## Requests and questions
+
+Approval requests and structured questions carry offered options. Present those options and send the user's chosen response through `permission/respond`. Do not manufacture a native approval or treat a question as automatically answered by an approval policy.
+
+CLI one-shot policy and native execution permissions are related but distinct: a CLI choice controls how surfaced requests are answered, while the harness controls actual native effects.
+
+## Extensions and files
+
+An extension's directory context does not replace native filesystem or network enforcement. Clients and tools should present the actual scope, capabilities, and pending requests rather than promise isolation that the selected integration does not establish.

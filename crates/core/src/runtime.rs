@@ -139,6 +139,7 @@ impl Runtime {
                 id: e.id().into(),
                 commands: e.commands(),
                 views: e.views(),
+                ui: e.ui(),
             })
             .collect()
     }

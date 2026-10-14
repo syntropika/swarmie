@@ -11,6 +11,7 @@
 **/node_modules/
 **/target/
 **/dist/
+/apps/desktop/demo-dist/
 *.pyc
 .DS_Store
 

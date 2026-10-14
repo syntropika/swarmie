@@ -1,3 +1,4 @@
+import { ContributionSlot } from "./ContributionHost";
 import { Archive, MoreHorizontal, Pencil, Pin, PinOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dropdown } from "@/components/ui/dropdown";
@@ -18,6 +19,7 @@ export function SidebarChatActions({ thread, onPin, onRename, onArchive }: {
       <Dropdown triggerTooltip={<TooltipContent>Chat options</TooltipContent>}>
         <Button variant="ghost" size="icon-sm" className="text-muted" aria-label={`Chat options: ${thread.title}`}><MoreHorizontal size={14} /></Button>
         <Dropdown.Popover placement="bottom end"><Dropdown.Menu aria-label={`Actions for ${thread.title}`}>
+          <ContributionSlot name="conversation.contextMenu" context={{ conversationId: thread.id, projectId: thread.projectId || undefined, worktreeId: thread.worktreeId || undefined, sessionId: thread.sessionId, composerReady: false }} menu />
           <Dropdown.Item id="rename" onAction={onRename}><Pencil size={14} />Rename chat</Dropdown.Item>
           <Dropdown.Item id="pin" onAction={onPin}>{thread.pinned ? <PinOff size={14} /> : <Pin size={14} />}{pinLabel}</Dropdown.Item>
           <Dropdown.Item id="archive" isDisabled={busy} onAction={onArchive}><Archive size={14} />{archiveLabel}</Dropdown.Item>

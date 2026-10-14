@@ -1,0 +1,60 @@
+---
+title: "Contribution examples"
+description: "Reuse one action across a composer button, palette entry, and shortcut."
+---
+
+## Small bundled client action
+
+This module uses the public client authoring contract. Register it with that workspace's `ContributionRegistry`. The returned disposer removes its commands, UI, and callbacks.
+
+```ts
+import type { ClientExtension } from '@swarmie/contracts/ui-client';
+
+export const example: ClientExtension = {
+  id: 'example',
+  manifest: {
+    version: 1,
+    commands: [{ id: 'insert', title: 'Insert example', when: ['composerReady'], shortcut: 'Mod+Shift+i' }],
+    slots: [{ id: 'insert', slot: 'composer.actions', kind: 'action', title: 'Insert example', command: 'insert', order: 100, enabledWhen: ['composerReady'] }],
+  },
+  handlers: { insert: (api) => api.insertText('Example text from the contribution demo. ') },
+};
+
+const deactivate = registry.register(example);
+// Invoke this disposer when the extension is disabled.
+deactivate();
+```
+
+[Download the focused module](/extensions/example.ts).
+
+## Run the implemented demo
+
+The demo lives in `apps/desktop/web/demo`, outside the production application sources. From a checkout:
+
+```sh
+npm --prefix apps/desktop run dev:demo
+```
+
+Open `/demo/index.html` on that server. To create its separate static distribution, run `npm --prefix apps/desktop run build:demo`; the output is `apps/desktop/demo-dist`. The regular `build:web` command builds the production application only.
+
+The demo reuses real Swarmie components through client contribution and transcription-provider interfaces, with fixture projects, messages, connection data, and simulated dictation. It never captures microphone audio or contacts a transcription service. Its fixture stores, renderers, and banner styles are excluded from the production build.
+
+Select composer text and click Insert example, use the matching command palette entry, or press Mod+Shift+I. The same handler performs insertion. Message, project, and conversation inspection actions open a scoped example panel. Inspecting another conversation's menu preserves that target and disables insertion into the active draft.
+
+The [visual guide](/docs/extensions/visual-guide/) shows the demo surfaces. The docs site is independently static and does not require that demo server.
+
+## Declarative runtime manifest
+
+Return a manifest from `RuntimeExtension::ui()`. These rendering and action names must also appear in the extension's advertised command catalog:
+
+```json
+{
+  "version": 1,
+  "commands": [{ "id": "inspect", "title": "Inspect", "runtimeCommand": "tool.inspect" }],
+  "slots": [{ "id": "inspect", "slot": "message.actions", "kind": "action", "title": "Inspect", "command": "inspect", "enabledWhen": ["connected"] }],
+  "screens": [{ "id": "overview", "title": "Tool overview", "command": "tool.html" }],
+  "panels": [{ "id": "inspector", "title": "Tool inspector", "command": "tool.html" }]
+}
+```
+
+Deserialize authoring data into the Rust `UiManifest` type to apply omitted defaults. The runtime advertises normalized wire data. `tool.html` returns HTML for the [scoped frame bridge](/docs/extensions/frame-bridge/); it does not receive arbitrary DOM access.

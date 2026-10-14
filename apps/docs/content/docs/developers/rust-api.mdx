@@ -1,0 +1,44 @@
+---
+title: "Rust API"
+description: "Embed the runtime with public ports and native harness adapters."
+---
+
+The `swarmie` crate defines runtime and domain contracts. The `adapters` crate registers built-in native harnesses. Applications can use those adapters or provide their own public port implementations.
+
+## Subscribe before prompting
+
+```rust
+use futures_util::StreamExt;
+use swarmie::{EventKind, SpawnOptions};
+
+async fn run() -> swarmie::Result<()> {
+    let runtime = adapters::builtin_builder().build();
+    let agent = runtime.spawn(SpawnOptions::new("codex", "/absolute/project")).await?;
+    let mut events = agent.events();
+    agent.prompt("Explain this project").await?;
+
+    while let Some(event) = events.next().await {
+        match event?.kind {
+            EventKind::TextDelta { text, .. } => print!("{text}"),
+            EventKind::TurnEnded { .. } => break,
+            _ => {}
+        }
+    }
+    agent.close().await?;
+    Ok(())
+}
+```
+
+Prompt acceptance is separate from completion. Present and answer approval or question events in a controlling application; do not ignore them in a production event loop. Bound observation with your application's cancellation and timeout policy, and close owned sessions on error as well as success.
+
+## Storage and lifetime
+
+The default builder uses an in-memory store. Use `storage::SqliteSessionStore` or a custom `SessionStore` when retained sessions, transcripts, and submission recovery are needed. Native connections and the runtime owner have lifetimes separate from client windows.
+
+`cancel` requests interruption of a turn, `close` ends a logical session and its connection, and `kill` forcibly terminates it. Unsupported native operations remain explicit errors.
+
+## Public ports
+
+A harness implements the native integration contract; an extension implements `RuntimeExtension`. Optional extension commands and tools remain outside the shared session actor's conversational core. Client rendering and audio capture belong to the client contribution contract rather than a remote runtime port.
+
+See [extensions](/docs/extensions/) and [execution policy](/docs/runtime/execution-policy/) when designing a new adapter or tool.

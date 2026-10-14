@@ -1,0 +1,28 @@
+---
+title: "Data and execution boundaries"
+description: "Understand where state, files, credentials, and provider requests belong."
+---
+
+## Execution destination
+
+The selected runtime node owns native execution and its working directories. Client connection metadata and a familiar filesystem path do not establish a destination's retained identity. Verify the intended owner before sending commands.
+
+Selecting another node changes the viewed catalog. It does not copy projects, authentication, native history, or installed agents. Removing a connection does not delete remote state or stop execution.
+
+## Local state and provider requests
+
+Runtime records belong to that node's retained store. Client drafts and caches belong to a node-scoped client state instance. Native harnesses own their authentication and native conversation formats.
+
+A harness may transmit prompt content, files, or other context to its configured model provider. Dictation may use a remote transcription provider. Node-local storage does not imply that inference or speech recognition is offline.
+
+## Credentials
+
+Use private credential storage or environment configuration suited to the selected integration. Public catalogs, examples, logs, and screenshots must not contain credential values. Avoid embedding provider secrets in spawn configuration that can be retained in session options.
+
+Account identity, node connectivity, harness authentication, and native execution policy describe separate authorities. Signing in does not automatically transfer local files or grant native filesystem access.
+
+## Working directories and ownership
+
+A project links a user-owned directory. Retained context protects continuity across reconnects and project edits; it is not a sandbox guarantee. Filesystem and network behavior depend on the selected harness's effective native policy.
+
+Closing a client, archiving a conversation, or uninstalling a package does not authorize deleting user files. Explicit cleanup must follow ownership rules for the resources it manages.

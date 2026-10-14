@@ -113,6 +113,7 @@ class ExtensionCommand(TypedDict):
 class ExtensionInfo(TypedDict):
     commands: list[ExtensionCommand]
     id: str
+    ui: NotRequired[Union[UiManifest, None]]
     views: list[ExtensionView]
 
 class ExtensionView(TypedDict):
@@ -492,6 +493,39 @@ class ToolProgress(TypedDict):
     message: NotRequired[Union[str, None]]
     percent: NotRequired[Union[float, None]]
 
+class UiCommand(TypedDict):
+    id: str
+    runtimeCommand: NotRequired[Union[str, None]]
+    shortcut: NotRequired[Union[str, None]]
+    title: str
+    when: list[UiCondition]
+
+class UiContribution(TypedDict):
+    clients: list[UiClient]
+    command: NotRequired[Union[str, None]]
+    enabledWhen: list[UiCondition]
+    icon: NotRequired[Union[UiIcon, None]]
+    id: str
+    kind: UiContributionKind
+    order: int
+    slot: UiSlot
+    text: NotRequired[Union[str, None]]
+    title: str
+    when: list[UiCondition]
+
+class UiManifest(TypedDict):
+    commands: list[UiCommand]
+    panels: list[UiSurface]
+    screens: list[UiSurface]
+    slots: list[UiContribution]
+    version: int
+
+class UiSurface(TypedDict):
+    clients: list[UiClient]
+    command: NotRequired[Union[str, None]]
+    id: str
+    title: str
+
 class Usage(TypedDict):
     cacheWriteTokens: Union[int, None]
     cachedInputTokens: Union[int, None]
@@ -534,4 +568,9 @@ SettingApplication = Literal['creation_only', 'next_turn', 'current_turn']
 SettingType = Literal['select', 'boolean', 'string', 'number']
 ToolPolicy = Literal['enabled', 'disabled']
 TurnOutcome = Literal['completed', 'cancelled', 'interrupted', 'failed', 'limited', 'refused', 'handled', 'unknown']
+UiClient = Literal['browser', 'desktop']
+UiCondition = Literal['connected', 'conversation', 'project', 'message', 'panel', 'composerReady']
+UiContributionKind = Literal['action', 'text', 'section']
+UiIcon = Literal['microphone', 'stop', 'spinner', 'extension']
+UiSlot = Literal['sidebar.primary', 'sidebar.footer', 'app.header.actions', 'conversation.header.actions', 'composer.actions', 'composer.context', 'composer.status', 'message.actions', 'message.details', 'project.actions', 'project.contextMenu', 'conversation.contextMenu', 'panel.toolbar', 'panel.status', 'settings.sections']
 METHODS = ('agent/commands', 'agent/configuration', 'agent/configure', 'agent/kill', 'agent/models', 'agent/quotas', 'agent/spawn', 'directory/get', 'directory/register', 'extension/invoke', 'extension/list', 'permission/respond', 'project/create', 'project/get', 'project/list', 'project/update', 'runtime/configuration', 'runtime/discover', 'runtime/generate', 'runtime/history', 'runtime/history/read', 'runtime/initialize', 'runtime/probe', 'runtime/quotas', 'runtime/quotas/all', 'runtime/schema', 'runtime/shutdown', 'session/cancel', 'session/close', 'session/compact', 'session/context', 'session/create', 'session/events', 'session/fork', 'session/get', 'session/import', 'session/list', 'session/metadata', 'session/prompt', 'session/queue', 'session/queue/list', 'session/queue/pause', 'session/queue/remove', 'session/queue/update', 'session/resume', 'session/rollback', 'session/steer', 'session/submission', 'session/submission/reconcile', 'session/transcript', 'session/tree', 'settings/directory', 'settings/setDirectory')

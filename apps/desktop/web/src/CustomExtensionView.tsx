@@ -1,19 +1,25 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import type { ExtensionInfo, ExtensionView, Thread } from "./protocol";
 import type { WorkspaceStore } from "./workspace";
+import { useContributions } from "./ContributionHost";
 import { extensionDocument } from "./extensionFrame";
 export function CustomExtensionView({
   store,
   thread,
   extension,
   view,
+  context,
 }: {
   store: WorkspaceStore;
   thread: Thread;
   extension: ExtensionInfo;
   view: ExtensionView;
+  context?: import("./contributions").ContributionContext;
 }) {
+  const host = useContributions();
+  useSyncExternalStore(host?.registry.subscribe ?? (() => () => {}), host?.registry.getSnapshot ?? (() => 0));
+  const lifetime = host?.registry.getLifetime(extension.id);
   const frame = useRef<HTMLIFrameElement>(null);
   const [source, setSource] = useState("");
   const [revision, setRevision] = useState(0);
@@ -21,6 +27,10 @@ export function CustomExtensionView({
   useEffect(() => {
     let disposed = false;
     const channel = crypto.randomUUID();
+    const api = extension.ui && lifetime ? host?.registry.api(extension.id, context) : undefined;
+    const off = api ? ["context.changed", "composer.changed", "surface.opened", "surface.closed"].map((type) => api.on(type as import("./contributions").ContributionEvent["type"], (event) => {
+      if (!disposed && !api.signal.aborted) frame.current?.contentWindow?.postMessage({ channel, event }, "*");
+    })) : [];
     setSource("");
     setError("");
     void store
@@ -48,7 +58,7 @@ export function CustomExtensionView({
         event.data?.channel !== channel
       )
         return;
-      const { id, command, arguments: args } = event.data;
+      const { id, command, operation = "runtime.invoke", arguments: args } = event.data;
       if (!Number.isSafeInteger(id) || id < 1) return;
       const reply = (body: Record<string, unknown>) => {
         if (!disposed)
@@ -57,7 +67,21 @@ export function CustomExtensionView({
             "*",
           );
       };
-      if (!extension.commands?.some((c) => c.name === command)) {
+      if (typeof operation !== "string") return;
+      if (operation.startsWith("client.")) {
+        try {
+          if (!api || api.signal.aborted) throw new Error("This view has no active v1 client API.");
+          switch (operation) {
+            case "client.context": reply({ result: api.context }); break;
+            case "client.insertText": api.insertText(event.data.text, { separateWords: event.data.options?.separateWords === true }); reply({ result: null }); break;
+            case "client.openScreen": api.openScreen(event.data.surfaceId); reply({ result: null }); break;
+            case "client.openPanel": api.openPanel(event.data.surfaceId); reply({ result: null }); break;
+            default: throw new Error("Unknown client operation.");
+          }
+        } catch (error) { reply({ error: String(error) }); }
+        return;
+      }
+      if (operation !== "runtime.invoke" || (api && api.signal.aborted) || !extension.commands?.some((c) => c.name === command)) {
         reply({ error: "This command is not advertised by the extension." });
         return;
       }
@@ -80,9 +104,15 @@ export function CustomExtensionView({
     return () => {
       disposed = true;
       window.removeEventListener("message", handle);
+      off.forEach((unsubscribe) => unsubscribe()); api?.dispose();
     };
   }, [
-    extension.id,
+    extension,
+    lifetime,
+    host?.registry,
+    thread.id,
+    context?.messageId,
+    context?.projectId,
     view.command,
     thread.worktreeId,
     thread.sessionId,

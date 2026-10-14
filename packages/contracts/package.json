@@ -10,7 +10,10 @@
       "types": "./index.d.ts",
       "default": "./index.js"
     },
-    "./schema": "./protocol.json"
+    "./schema": "./protocol.json",
+    "./ui-client": {
+      "types": "./ui-client.d.ts"
+    }
   },
   "files": [
     "index.d.ts",
@@ -19,6 +22,7 @@
     "index.js",
     "protocol.json",
     "LICENSE",
-    "NOTICE"
+    "NOTICE",
+    "ui-client.d.ts"
   ]
 }

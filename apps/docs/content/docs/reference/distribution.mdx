@@ -1,0 +1,37 @@
+---
+title: "Releases and packaging"
+description: "Create verified runtime, desktop, and SDK distribution artifacts."
+---
+
+These commands prepare artifacts from a source checkout. They do not publish registries, change repository visibility, or deploy hosted services.
+
+## Runtime-only package
+
+```sh
+python3 scripts/distribution/package-runtime.py --output /absolute/artifacts/runtime
+```
+
+The archive contains the matching platform executable, installer, runtime package metadata, license, and notices. It excludes the desktop host, frontend, and WebView resources. Build each operating system and architecture with a compatible native toolchain.
+
+## Desktop package
+
+```sh
+python3 scripts/distribution/package.py --output /absolute/artifacts/desktop
+```
+
+The desktop distribution combines the native host, runtime, frontend, installer, and attribution. Signing and notarization require configured platform credentials and explicit release options.
+
+## Client artifacts
+
+```sh
+cargo build --locked -p app --release
+python3 packages/clients/tools/package_local.py --binary target/release/swarmie
+```
+
+This creates contracts and TypeScript npm archives, a Python wheel, Go and Swift source packages, a schema export, and a runtime archive. The supplied executable must match the target platform and version. No npm, PyPI, Go proxy, or Swift registry publication is implied.
+
+## Updates and removal
+
+An update archive can be checked and staged with a trusted HTTPS manifest. Staging verifies and stores an archive; it does not execute its installer or restart active work. Runtime and desktop manifests are separate package kinds.
+
+Installers manage recorded package files and refuse ambiguous or modified ownership. Service configuration and running work must be handled explicitly before removal. User directories, retained data, and credentials keep their separate lifecycle.

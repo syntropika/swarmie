@@ -424,6 +424,10 @@ pub trait RuntimeExtension: Send + Sync {
     ) -> Result<Value> {
         Err(Error::Unsupported(format!("host tool {tool}")))
     }
+    /// Optional versioned client presentation, independent of harness capabilities.
+    fn ui(&self) -> Option<UiManifest> {
+        None
+    }
     fn views(&self) -> Vec<ExtensionView> {
         vec![]
     }

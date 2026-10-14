@@ -1,0 +1,38 @@
+---
+title: "Overview"
+description: "Use the desktop workspace, run coding agents, and integrate the public runtime."
+---
+
+Swarmie brings conversations, projects, coding-agent harnesses, and workspace tools into one desktop interface. Its execution runtime can also run independently as a command-line program or JSON-RPC daemon.
+
+These pages describe the current development source. Source-build instructions assume access to a checkout. Package names and prepared release URLs do not establish that an installer or registry release is publicly available.
+
+## Choose a starting point
+
+- [Install or build the runtime](/docs/getting-started/installation/).
+- [Run your first conversation](/docs/getting-started/first-session/).
+- [Use the desktop workspace](/docs/desktop/).
+- [Connect another execution node](/docs/desktop/nodes/).
+- [Integrate a typed client](/docs/developers/clients/).
+- [Build an extension](/docs/extensions/).
+
+## How the pieces fit
+
+| Piece | Responsibility |
+| --- | --- |
+| Client | Displays conversations, keeps drafts, chooses the viewed node, and presents approvals. |
+| Runtime | Owns execution, retained sessions, ordered events, and node-local state. |
+| Harness | Adapts an installed coding agent's native protocol to the runtime contract. |
+| Extension | Adds optional runtime operations or scoped client interface contributions. |
+
+A client and a runtime can be on different computers. Closing a client does not stop the runtime, and viewing another node does not move an existing conversation or copy its files.
+
+## Supported interfaces
+
+Use the native desktop, the `swarmie` CLI, the Rust API, or a JSON-RPC client. The repository includes TypeScript, Python, Go, and Swift clients. Harness capabilities depend on the installed version and its negotiated support; [discover and probe](/docs/reference/harnesses/) before relying on an operation.
+
+## Accounts and providers
+
+Local execution and authorized SSH connections do not require a Swarmie cloud account. Each harness still needs its own installation, provider configuration, and authentication. Signing in does not automatically upload local projects or conversations.
+
+See [data and execution boundaries](/docs/reference/data-and-execution/) for how node selection, credentials, provider requests, and file ownership interact.

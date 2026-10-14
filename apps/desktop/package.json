@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "npm run build:web && native dev",
     "dev:web": "vite --config vite.config.ts",
+    "dev:demo": "vite --config vite.demo.config.ts",
     "build:web": "tsc --noEmit && vite build --config vite.config.ts",
+    "build:demo": "tsc --noEmit -p tsconfig.demo.json && vite build --config vite.demo.config.ts",
     "build": "npm run build:web && native build",
     "check": "tsc --noEmit && native check --strict",
     "test": "vitest run && native test"

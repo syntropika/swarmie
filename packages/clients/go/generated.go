@@ -145,6 +145,7 @@ type ExtensionCommand struct {
 type ExtensionInfo struct {
 	Commands []ExtensionCommand `json:"commands"`
 	Id       string             `json:"id"`
+	Ui       json.RawMessage    `json:"ui,omitempty"`
 	Views    []ExtensionView    `json:"views"`
 }
 
@@ -611,6 +612,53 @@ type ToolProgress struct {
 }
 
 type TurnOutcome string
+
+type UiClient string
+
+type UiCommand struct {
+	Id             string        `json:"id"`
+	RuntimeCommand *string       `json:"runtimeCommand,omitempty"`
+	Shortcut       *string       `json:"shortcut,omitempty"`
+	Title          string        `json:"title"`
+	When           []UiCondition `json:"when"`
+}
+
+type UiCondition string
+
+type UiContribution struct {
+	Clients     []UiClient         `json:"clients"`
+	Command     *string            `json:"command,omitempty"`
+	EnabledWhen []UiCondition      `json:"enabledWhen"`
+	Icon        json.RawMessage    `json:"icon,omitempty"`
+	Id          string             `json:"id"`
+	Kind        UiContributionKind `json:"kind"`
+	Order       int64              `json:"order"`
+	Slot        UiSlot             `json:"slot"`
+	Text        *string            `json:"text,omitempty"`
+	Title       string             `json:"title"`
+	When        []UiCondition      `json:"when"`
+}
+
+type UiContributionKind string
+
+type UiIcon string
+
+type UiManifest struct {
+	Commands []UiCommand      `json:"commands"`
+	Panels   []UiSurface      `json:"panels"`
+	Screens  []UiSurface      `json:"screens"`
+	Slots    []UiContribution `json:"slots"`
+	Version  uint64           `json:"version"`
+}
+
+type UiSlot string
+
+type UiSurface struct {
+	Clients []UiClient `json:"clients"`
+	Command *string    `json:"command,omitempty"`
+	Id      string     `json:"id"`
+	Title   string     `json:"title"`
+}
 
 type Usage struct {
 	CacheWriteTokens  *uint64  `json:"cacheWriteTokens"`

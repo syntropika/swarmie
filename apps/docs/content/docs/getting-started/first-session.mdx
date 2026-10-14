@@ -1,0 +1,52 @@
+---
+title: "First conversation"
+description: "Check an installed harness, run a prompt, and understand session completion."
+---
+
+## Check an installed harness
+
+From a source checkout, these commands use the release executable built in the installation guide. An installed package provides the `swarmie` launcher instead.
+
+```sh
+./target/release/swarmie discover
+./target/release/swarmie probe codex
+```
+
+Discovery reports executable availability. Probe adds version and authentication evidence where the harness supports it. Neither command guarantees that a model request will succeed.
+
+## Send a prompt
+
+Run in a project directory that you own:
+
+```sh
+./target/release/swarmie run codex /absolute/project --prompt "Explain this project"
+```
+
+Replace `codex` with an [available harness](/docs/reference/harnesses/). Select a supported model with `--model`. The command uses that harness's credentials and native execution permissions.
+
+One-shot runs use a 600-second timeout by default. Adjust it with `--timeout`. Use `--json` to print normalized events as JSONL. The default one-shot permission policy denies requests that require interactive input; use an interactive client to review and answer them.
+
+## Work interactively
+
+Omit `--prompt` to keep a conversation open:
+
+```sh
+./target/release/swarmie run codex /absolute/project
+```
+
+Ordinary text starts a turn. Interactive commands include `/cancel`, `/quit`, `/steer TEXT`, and `/answer OPTION [JSON]` for a pending request. Steering is available only when the harness supports it.
+
+A prompt submitted during an active turn can return `Busy`. Use the desktop queue or an explicitly supported steering operation instead of silently creating another writer.
+
+## Resume a retained session
+
+```sh
+./target/release/swarmie sessions
+./target/release/swarmie run codex /absolute/project --resume RUNTIME_SESSION_ID --prompt "Continue"
+```
+
+The runtime retains its own session ID and native provider reference. Resume follows the original session and working context; it does not create a replacement conversation when native resume is unsupported.
+
+## Acceptance and completion
+
+Prompt acceptance and turn completion are different events. A client receives a submission receipt before streaming the turn. Observe `turn.ended` to determine completion and its canonical outcome. A connection failure can leave delivery uncertain; [recover the retained receipt](/docs/developers/submissions/) before sending new work.

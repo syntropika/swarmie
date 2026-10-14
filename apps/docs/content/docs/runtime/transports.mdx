@@ -1,0 +1,45 @@
+---
+title: "Transports"
+description: "Use JSON-RPC through stdio, HTTP, WebSocket, or managed desktop channels."
+---
+
+The public method contract is independent of the transport. The native desktop gateway can retain persistent node channels; typed language SDKs currently use HTTP polling or owned stdio as documented below.
+
+## HTTP daemon
+
+```sh
+swarmie serve --http 127.0.0.1:7457
+```
+
+JSON-RPC requests use `POST /rpc`. A bearer token is mandatory for a non-loopback listener. Prefer a protected route when accessing a runtime across networks; authentication and intended-target identity are independent checks.
+
+Set `SWARMIE_TOKEN` or provide `--token-file` when a bearer token is required. Keep credentials out of examples, shell history, screenshots, and shared logs.
+
+## Browser development UI
+
+Serving frontend assets explicitly enables the daemon's own browser origin on a loopback listener:
+
+```sh
+swarmie serve --http 127.0.0.1:7447 --desktop-assets apps/desktop/dist --workbench
+```
+
+An allowed browser origin does not grant access to another node or change runtime identity. Native clients use their IPC adapter and client-owned gateway; a language SDK's transport is not the desktop host's IPC implementation.
+
+## WebSocket and local channels
+
+The HTTP daemon exposes `/ws`; an independent client can also use the explicit WebSocket listener. Managed native clients use private same-user local transports and verified node channels. SSH connections proxy bytes to the remote owner's local transport and preserve its retained identity.
+
+## SDK transport support
+
+| Client | HTTP | Owned stdio | WebSocket or local socket |
+| --- | --- | --- | --- |
+| TypeScript | Yes | Yes, Node | Not provided by this SDK |
+| Python | Yes | Yes, Unix | Not provided by this SDK |
+| Go | Yes | No | Not provided by this SDK |
+| Swift | Yes | No | Not provided by this SDK |
+
+These SDKs poll retained transcript pages for events. Independent consumers can implement another supported runtime transport while preserving correlation, ordering, cancellation, and target guards.
+
+## Disconnects
+
+Connection loss does not establish whether a prompt was accepted. Retain its idempotency key, read its receipt, and recover authoritative event cursors before sending dependent work. [Submission recovery](/docs/developers/submissions/) describes the required distinction.

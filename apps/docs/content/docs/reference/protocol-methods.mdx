@@ -1,0 +1,99 @@
+---
+title: "Protocol methods"
+description: "The method catalog generated from the canonical public runtime schema."
+---
+
+This reference is generated from `packages/contracts/protocol.json`. Parameter and result details are available in the [downloadable schema](/contracts/protocol.json). Availability of a method does not imply that every harness supports its native operation.
+
+## agent
+
+| Method | Parameters | Result |
+| --- | --- | --- |
+| `agent/commands` | `object` | `JSON value` |
+| `agent/configuration` | `object` | `SettingDescriptor[]` |
+| `agent/configure` | `JSON value` | `ConfigurationReceipt` |
+| `agent/kill` | `object` | `null` |
+| `agent/models` | `object` | `ModelDescriptor[]` |
+| `agent/quotas` | `object` | `JSON value` |
+| `agent/spawn` | `InputSpawnOptions` | `SessionSnapshot` |
+
+## directory
+
+| Method | Parameters | Result |
+| --- | --- | --- |
+| `directory/get` | `InputDirectoryRef` | `DirectoryResource` |
+| `directory/register` | `InputDirectoryRegistration` | `DirectoryResource` |
+
+## extension
+
+| Method | Parameters | Result |
+| --- | --- | --- |
+| `extension/invoke` | `object` | `JSON value` |
+| `extension/list` | `object` | `ExtensionInfo[]` |
+
+## permission
+
+| Method | Parameters | Result |
+| --- | --- | --- |
+| `permission/respond` | `JSON value` | `null` |
+
+## project
+
+| Method | Parameters | Result |
+| --- | --- | --- |
+| `project/create` | `InputProjectCreate` | `ProjectRecord` |
+| `project/get` | `object` | `ProjectRecord` |
+| `project/list` | `object` | `ProjectRecord[]` |
+| `project/update` | `InputProjectUpdate` | `ProjectRecord` |
+
+## runtime
+
+| Method | Parameters | Result |
+| --- | --- | --- |
+| `runtime/configuration` | `InputSpawnOptions` | `ConfigurationPreview` |
+| `runtime/discover` | `object` | `Detection[]` |
+| `runtime/generate` | `JSON value` | `string` |
+| `runtime/history` | `InputNativeHistoryQuery` | `NativeHistorySession[]` |
+| `runtime/history/read` | `JSON value` | `NativeHistoryDocument` |
+| `runtime/initialize` | `object` | `object` |
+| `runtime/probe` | `object` | `HarnessProbe` |
+| `runtime/quotas` | `InputAccountQuery` | `JSON value` |
+| `runtime/quotas/all` | `object` | `AccountQuotaResult[]` |
+| `runtime/schema` | `object` | `object` |
+| `runtime/shutdown` | `object` | `null` |
+
+## session
+
+| Method | Parameters | Result |
+| --- | --- | --- |
+| `session/cancel` | `JSON value` | `null` |
+| `session/close` | `object` | `null` |
+| `session/compact` | `object` | `null` |
+| `session/context` | `object` | `ContextStatus` |
+| `session/create` | `InputSpawnOptions` | `SessionSnapshot` |
+| `session/events` | `JSON value` | `RuntimeEvent[]` |
+| `session/fork` | `JSON value` | `SessionSnapshot` |
+| `session/get` | `object` | `SessionSnapshot` |
+| `session/import` | `JSON value` | `SessionSnapshot` |
+| `session/list` | `object` | `SessionSnapshot[]` |
+| `session/metadata` | `JSON value` | `SessionSnapshot` |
+| `session/prompt` | `JSON value` | `SubmissionReceipt` |
+| `session/queue` | `JSON value` | `QueuedPrompt` |
+| `session/queue/list` | `object` | `PromptQueue` |
+| `session/queue/pause` | `JSON value` | `null` |
+| `session/queue/remove` | `JSON value` | `null` |
+| `session/queue/update` | `JSON value` | `null` |
+| `session/resume` | `JSON value` | `SessionSnapshot` |
+| `session/rollback` | `JSON value` | `null` |
+| `session/steer` | `JSON value` | `object` |
+| `session/submission` | `JSON value` | `JSON value` |
+| `session/submission/reconcile` | `JSON value` | `JSON value` |
+| `session/transcript` | `JSON value` | `RuntimeEvent[]` |
+| `session/tree` | `object` | `NativeMessageNode[]` |
+
+## settings
+
+| Method | Parameters | Result |
+| --- | --- | --- |
+| `settings/directory` | `object` | `JSON value` |
+| `settings/setDirectory` | `InputDefaultDirectoryUpdate` | `DefaultDirectory` |

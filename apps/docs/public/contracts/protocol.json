@@ -1,0 +1,5762 @@
+{
+  "$defs": {
+    "AccountQuotaResult": {
+      "description": "Aggregate queries retain unsupported and failed providers independently.",
+      "oneOf": [
+        {
+          "properties": {
+            "harness": {
+              "type": "string"
+            },
+            "quotas": true,
+            "status": {
+              "const": "available",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "harness",
+            "quotas"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "harness": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "status": {
+              "const": "unsupported",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "harness",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "harness": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "status": {
+              "const": "error",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "harness",
+            "message"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Capabilities": {
+      "properties": {
+        "cancel": {
+          "$ref": "#/$defs/Capability"
+        },
+        "commands": {
+          "$ref": "#/$defs/Capability"
+        },
+        "compact": {
+          "$ref": "#/$defs/Capability"
+        },
+        "configure": {
+          "$ref": "#/$defs/Capability"
+        },
+        "ephemeral": {
+          "$ref": "#/$defs/Capability"
+        },
+        "fork": {
+          "$ref": "#/$defs/Capability"
+        },
+        "forkAtMessage": {
+          "$ref": "#/$defs/Capability"
+        },
+        "forkBeforeUser": {
+          "$ref": "#/$defs/Capability"
+        },
+        "images": {
+          "$ref": "#/$defs/Capability"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "default": {},
+          "type": "object"
+        },
+        "models": {
+          "$ref": "#/$defs/Capability"
+        },
+        "modes": {
+          "$ref": "#/$defs/Capability"
+        },
+        "nativeSkillInputs": {
+          "$ref": "#/$defs/Capability"
+        },
+        "operationApprovals": {
+          "$ref": "#/$defs/Capability"
+        },
+        "outputSchema": {
+          "$ref": "#/$defs/Capability"
+        },
+        "permissions": {
+          "$ref": "#/$defs/Capability"
+        },
+        "queue": {
+          "$ref": "#/$defs/Capability",
+          "default": {
+            "availability": "available",
+            "evidence": "declared",
+            "source": "runtime"
+          }
+        },
+        "quotas": {
+          "$ref": "#/$defs/Capability"
+        },
+        "reasoning": {
+          "$ref": "#/$defs/Capability"
+        },
+        "resume": {
+          "$ref": "#/$defs/Capability"
+        },
+        "rollback": {
+          "$ref": "#/$defs/Capability"
+        },
+        "steering": {
+          "$ref": "#/$defs/Capability"
+        },
+        "submissionReconciliation": {
+          "$ref": "#/$defs/Capability"
+        },
+        "toolsDisabled": {
+          "$ref": "#/$defs/Capability"
+        },
+        "usage": {
+          "$ref": "#/$defs/Capability"
+        }
+      },
+      "required": [
+        "queue",
+        "commands",
+        "quotas",
+        "ephemeral",
+        "outputSchema",
+        "toolsDisabled",
+        "forkAtMessage",
+        "forkBeforeUser",
+        "nativeSkillInputs",
+        "submissionReconciliation",
+        "resume",
+        "fork",
+        "steering",
+        "cancel",
+        "permissions",
+        "operationApprovals",
+        "reasoning",
+        "usage",
+        "models",
+        "configure",
+        "rollback",
+        "compact",
+        "modes",
+        "images",
+        "metadata"
+      ],
+      "type": "object"
+    },
+    "Capability": {
+      "properties": {
+        "availability": {
+          "$ref": "#/$defs/CapabilityAvailability"
+        },
+        "evidence": {
+          "$ref": "#/$defs/CapabilityEvidence"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/CapabilitySource"
+        },
+        "sourceId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "availability",
+        "source",
+        "evidence"
+      ],
+      "type": "object"
+    },
+    "CapabilityAvailability": {
+      "enum": [
+        "available",
+        "unavailable",
+        "unsupported",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "CapabilityEvidence": {
+      "description": "Evidence describes the declaration, not certification of live model execution.",
+      "enum": [
+        "declared",
+        "negotiated"
+      ],
+      "type": "string"
+    },
+    "CapabilitySource": {
+      "enum": [
+        "harness",
+        "runtime",
+        "extension"
+      ],
+      "type": "string"
+    },
+    "ConfigurationPreview": {
+      "properties": {
+        "capabilities": {
+          "$ref": "#/$defs/Capabilities"
+        },
+        "configuration": {
+          "description": "None means unavailable; an empty array is an available, empty catalog.",
+          "items": {
+            "$ref": "#/$defs/SettingDescriptor"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "executionPolicy": {
+          "$ref": "#/$defs/ExecutionPolicy"
+        },
+        "models": {
+          "items": {
+            "$ref": "#/$defs/ModelDescriptor"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "capabilities",
+        "executionPolicy",
+        "configuration",
+        "models"
+      ],
+      "type": "object"
+    },
+    "ConfigurationReceipt": {
+      "properties": {
+        "configuration": {
+          "items": {
+            "$ref": "#/$defs/SettingDescriptor"
+          },
+          "type": "array"
+        },
+        "executionPolicy": {
+          "$ref": "#/$defs/ExecutionPolicy"
+        },
+        "raw": true,
+        "values": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "required": [
+        "values",
+        "executionPolicy",
+        "configuration"
+      ],
+      "type": "object"
+    },
+    "ContextSource": {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "project_folder",
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "projectId",
+            "revision"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "project_free_default",
+              "type": "string"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "revision"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An explicit host-directory selection by a CLI/library launcher.",
+          "properties": {
+            "kind": {
+              "const": "explicit_directory",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "native_existing",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ContextStatus": {
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "context": {
+          "$ref": "#/$defs/WorkingContext"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "context",
+        "available",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "ContextUsage": {
+      "properties": {
+        "contextWindowTokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "percent": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "remainingTokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "usedTokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "usedTokens",
+        "contextWindowTokens",
+        "remainingTokens",
+        "percent"
+      ],
+      "type": "object"
+    },
+    "DefaultDirectory": {
+      "properties": {
+        "directory": {
+          "$ref": "#/$defs/DirectoryRef"
+        },
+        "environmentId": {
+          "type": "string"
+        },
+        "ownerScopeId": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision",
+        "environmentId",
+        "ownerScopeId",
+        "directory"
+      ],
+      "type": "object"
+    },
+    "DeliveryKnowledge": {
+      "description": "Knowledge of native delivery, independent of execution outcome.",
+      "enum": [
+        "not_sent",
+        "in_flight",
+        "accepted",
+        "rejected",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "Detection": {
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/Capabilities"
+        },
+        "executable": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "harness": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "harness",
+        "available",
+        "executable",
+        "capabilities"
+      ],
+      "type": "object"
+    },
+    "DirectoryOwnership": {
+      "enum": [
+        "user",
+        "external_owner"
+      ],
+      "type": "string"
+    },
+    "DirectoryRef": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "DirectoryResource": {
+      "properties": {
+        "environmentId": {
+          "type": "string"
+        },
+        "fingerprint": {
+          "description": "Node-local continuity evidence, not a filesystem lease or permission grant.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "ownership": {
+          "$ref": "#/$defs/DirectoryOwnership"
+        },
+        "path": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "environmentId",
+        "path",
+        "ownership",
+        "fingerprint"
+      ],
+      "type": "object"
+    },
+    "EventKind": {
+      "oneOf": [
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/SessionSnapshot"
+            },
+            "type": {
+              "const": "session.started",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": true,
+            "type": {
+              "const": "session.updated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": true,
+            "type": {
+              "const": "configuration.updated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/ModelReroute"
+            },
+            "type": {
+              "const": "model.rerouted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": true,
+            "type": {
+              "const": "commands.updated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": true,
+            "type": {
+              "const": "quotas.updated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/PromptQueue"
+            },
+            "type": {
+              "const": "queue.changed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "turns": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "turns"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "conversation.rolled_back",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "session.ended",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "turn.started",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "nativeReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "outcome": {
+                  "$ref": "#/$defs/TurnOutcome"
+                }
+              },
+              "required": [
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "turn.ended",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/Prompt"
+            },
+            "type": {
+              "const": "message.user",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": true,
+            "type": {
+              "const": "message.assistant",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "item_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "item_id"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "message.ended",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": true,
+            "type": {
+              "const": "output.structured",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "item_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "item_id"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "text.delta",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "reasoning.delta",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/ToolEvent"
+            },
+            "type": {
+              "const": "tool.started",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/ToolEvent"
+            },
+            "type": {
+              "const": "tool.updated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/ToolEvent"
+            },
+            "type": {
+              "const": "tool.completed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/PermissionRequest"
+            },
+            "type": {
+              "const": "permission.requested",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "option": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "option"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "permission.resolved",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": true,
+            "type": {
+              "const": "file.changed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": true,
+            "type": {
+              "const": "diff",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/PlanUpdate"
+            },
+            "type": {
+              "const": "plan.updated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/SubagentInfo"
+            },
+            "type": {
+              "const": "subagent.updated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/Usage"
+            },
+            "type": {
+              "const": "usage.updated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/ContextUsage"
+            },
+            "type": {
+              "const": "context.updated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/SessionState"
+            },
+            "type": {
+              "const": "state.changed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "error",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": true,
+            "type": {
+              "const": "diagnostic",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "provider.raw",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ExecutionPolicy": {
+      "description": "A requested selection and its native observation have independent lifetimes.",
+      "properties": {
+        "bindingId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "choices": {
+          "items": {
+            "$ref": "#/$defs/ExecutionProfileChoice"
+          },
+          "type": "array"
+        },
+        "controlledSettings": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "dispatchBlocked": {
+          "type": "boolean"
+        },
+        "nativeSession": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NativeSessionRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "observed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PolicyObservation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "planned": true,
+        "plannedProfile": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExecutionProfile"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "requested": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExecutionProfile"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/$defs/PolicyStatus"
+        }
+      },
+      "required": [
+        "revision",
+        "requested",
+        "status",
+        "planned",
+        "plannedProfile",
+        "observed",
+        "choices",
+        "controlledSettings",
+        "dispatchBlocked",
+        "reason",
+        "bindingId",
+        "nativeSession"
+      ],
+      "type": "object"
+    },
+    "ExecutionProfile": {
+      "enum": [
+        "ask",
+        "review",
+        "full",
+        "native_custom"
+      ],
+      "type": "string"
+    },
+    "ExecutionProfileChoice": {
+      "properties": {
+        "application": {
+          "$ref": "#/$defs/SettingApplication"
+        },
+        "capability": {
+          "$ref": "#/$defs/Capability"
+        },
+        "description": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "mapping": {
+          "$ref": "#/$defs/PolicyMapping"
+        },
+        "profile": {
+          "$ref": "#/$defs/ExecutionProfile"
+        }
+      },
+      "required": [
+        "profile",
+        "label",
+        "description",
+        "capability",
+        "mapping",
+        "application"
+      ],
+      "type": "object"
+    },
+    "ExtensionCommand": {
+      "properties": {
+        "mutates": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "mutates"
+      ],
+      "type": "object"
+    },
+    "ExtensionInfo": {
+      "properties": {
+        "commands": {
+          "items": {
+            "$ref": "#/$defs/ExtensionCommand"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "ui": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiManifest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "views": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ExtensionView"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "commands",
+        "views"
+      ],
+      "type": "object"
+    },
+    "ExtensionView": {
+      "description": "An optional client presentation of a headless extension command.",
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "kind",
+        "command"
+      ],
+      "type": "object"
+    },
+    "FileDiff": {
+      "additionalProperties": true,
+      "properties": {
+        "change": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "newText": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "oldText": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "unified": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "FileLocation": {
+      "additionalProperties": true,
+      "properties": {
+        "column": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "endColumn": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "endLine": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "line": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "ForkOrigin": {
+      "properties": {
+        "messageId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sessionId",
+        "messageId",
+        "sequence",
+        "turnId"
+      ],
+      "type": "object"
+    },
+    "HarnessProbe": {
+      "properties": {
+        "authState": {
+          "description": "`authenticated`, `unauthenticated`, `unknown`, or `unsupported`.",
+          "type": "string"
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/Capabilities"
+        },
+        "executable": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "harness": {
+          "type": "string"
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "harness",
+        "available",
+        "executable",
+        "version",
+        "authState",
+        "message",
+        "capabilities"
+      ],
+      "type": "object"
+    },
+    "HostToolGrant": {
+      "additionalProperties": false,
+      "properties": {
+        "argumentConstraints": {
+          "additionalProperties": {
+            "items": true,
+            "type": "array"
+          },
+          "default": {},
+          "description": "Each constrained argument must equal one of the explicitly allowed values.",
+          "type": "object"
+        },
+        "extensionId": {
+          "type": "string"
+        },
+        "toolId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "extensionId",
+        "toolId",
+        "argumentConstraints"
+      ],
+      "type": "object"
+    },
+    "InputAccountExecutionOptions": {
+      "additionalProperties": false,
+      "properties": {
+        "configHome": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "writeOnly": true
+        }
+      },
+      "type": "object"
+    },
+    "InputAccountQuery": {
+      "additionalProperties": false,
+      "description": "Connection options for an account query, with no conversational operations.",
+      "properties": {
+        "config": {
+          "default": null,
+          "description": "Native connection configuration, including executable and diagnostic overrides."
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "execution": {
+          "$ref": "#/$defs/InputAccountExecutionOptions",
+          "default": {
+            "configHome": null
+          }
+        },
+        "harness": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "harness",
+        "cwd"
+      ],
+      "type": "object"
+    },
+    "InputDefaultDirectoryUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "directory": {
+          "$ref": "#/$defs/InputDirectoryRef"
+        },
+        "expectedRevision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "expectedRevision",
+        "directory"
+      ],
+      "type": "object"
+    },
+    "InputDirectoryRef": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "InputDirectoryRegistration": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "InputHostToolGrant": {
+      "additionalProperties": false,
+      "properties": {
+        "argumentConstraints": {
+          "additionalProperties": {
+            "items": true,
+            "type": "array"
+          },
+          "default": {},
+          "description": "Each constrained argument must equal one of the explicitly allowed values.",
+          "type": "object"
+        },
+        "extensionId": {
+          "type": "string"
+        },
+        "toolId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "extensionId",
+        "toolId"
+      ],
+      "type": "object"
+    },
+    "InputLocalStoreIdentity": {
+      "properties": {
+        "environmentId": {
+          "type": "string"
+        },
+        "ownerScopeId": {
+          "type": "string"
+        },
+        "storeId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "storeId",
+        "environmentId",
+        "ownerScopeId"
+      ],
+      "type": "object"
+    },
+    "InputMcpServer": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "transport": {
+          "$ref": "#/$defs/InputMcpTransport"
+        }
+      },
+      "required": [
+        "name",
+        "transport"
+      ],
+      "type": "object"
+    },
+    "InputMcpTransport": {
+      "oneOf": [
+        {
+          "properties": {
+            "args": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "command": {
+              "type": "string"
+            },
+            "env": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object",
+              "writeOnly": true
+            },
+            "type": {
+              "const": "stdio",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "command"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "headers": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object",
+              "writeOnly": true
+            },
+            "type": {
+              "const": "http",
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "url"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "headers": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object",
+              "writeOnly": true
+            },
+            "type": {
+              "const": "sse",
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "url"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "InputNativeHistoryQuery": {
+      "properties": {
+        "configHome": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cwd": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "harness": {
+          "type": "string"
+        },
+        "limit": {
+          "default": 100,
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "harness"
+      ],
+      "type": "object"
+    },
+    "InputPermissionResponse": {
+      "properties": {
+        "answers": {
+          "additionalProperties": {
+            "$ref": "#/$defs/InputQuestionAnswer"
+          },
+          "type": "object"
+        },
+        "data": {
+          "default": null
+        },
+        "id": {
+          "type": "string"
+        },
+        "option": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "option"
+      ],
+      "type": "object"
+    },
+    "InputProjectCreate": {
+      "additionalProperties": false,
+      "properties": {
+        "directory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InputDirectoryRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "launch": {
+          "$ref": "#/$defs/InputProjectLaunchDefaults",
+          "default": {
+            "config": null,
+            "harness": null,
+            "model": null
+          }
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "InputProjectLaunchDefaults": {
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "default": null
+        },
+        "harness": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "InputProjectUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "archived": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "directory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InputDirectoryRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Omission retains the selection; explicit unlink is a separate flag."
+        },
+        "expectedRevision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "launch": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InputProjectLaunchDefaults"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "unlinkDirectory": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "projectId",
+        "expectedRevision"
+      ],
+      "type": "object"
+    },
+    "InputPromptContent": {
+      "oneOf": [
+        {
+          "properties": {
+            "data": {
+              "type": "string"
+            },
+            "type": {
+              "const": "text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "data": {
+                  "type": "string"
+                },
+                "mime_type": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "data",
+                "mime_type"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "image",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "uri": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uri"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "resource",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "path"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "skill",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "InputQuestionAnswer": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ],
+      "description": "Single answers are strings; multiple selections retain their ordered string array."
+    },
+    "InputRollbackScope": {
+      "enum": [
+        "conversation_only",
+        "conversation_and_files"
+      ],
+      "type": "string"
+    },
+    "InputRuntimeIdentity": {
+      "additionalProperties": false,
+      "description": "A retained Environment identity and one live execution-owner incarnation.",
+      "properties": {
+        "identity": {
+          "$ref": "#/$defs/InputLocalStoreIdentity"
+        },
+        "incarnationId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "identity",
+        "incarnationId"
+      ],
+      "type": "object"
+    },
+    "InputSessionExecutionOptions": {
+      "properties": {
+        "configHome": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Process overrides are supplied anew on resume and never included in saved snapshots.",
+          "type": "object",
+          "writeOnly": true
+        },
+        "ephemeral": {
+          "default": false,
+          "type": "boolean"
+        },
+        "hostTools": {
+          "default": [],
+          "description": "Explicit host tool grants; native tool permissions remain independent.",
+          "items": {
+            "$ref": "#/$defs/InputHostToolGrant"
+          },
+          "type": "array"
+        },
+        "mcpServers": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/InputMcpServer"
+          },
+          "type": "array"
+        },
+        "outputSchema": {
+          "default": null
+        },
+        "tools": {
+          "$ref": "#/$defs/InputToolPolicy",
+          "default": "enabled"
+        }
+      },
+      "type": "object"
+    },
+    "InputSessionMetadataUpdate": {
+      "properties": {
+        "archived": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "InputSpawnOptions": {
+      "properties": {
+        "config": {
+          "default": null,
+          "description": "Provider-specific configuration remains opaque to the core."
+        },
+        "cwd": {
+          "default": "",
+          "type": "string"
+        },
+        "execution": {
+          "$ref": "#/$defs/InputSessionExecutionOptions",
+          "default": {
+            "configHome": null,
+            "ephemeral": false,
+            "hostTools": [],
+            "mcpServers": [],
+            "outputSchema": null,
+            "tools": "enabled"
+          }
+        },
+        "harness": {
+          "type": "string"
+        },
+        "model": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "projectId": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "projectRevision": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "harness"
+      ],
+      "type": "object"
+    },
+    "InputToolPolicy": {
+      "enum": [
+        "enabled",
+        "disabled"
+      ],
+      "type": "string"
+    },
+    "LocalStoreIdentity": {
+      "properties": {
+        "environmentId": {
+          "type": "string"
+        },
+        "ownerScopeId": {
+          "type": "string"
+        },
+        "storeId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "storeId",
+        "environmentId",
+        "ownerScopeId"
+      ],
+      "type": "object"
+    },
+    "McpServer": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "transport": {
+          "$ref": "#/$defs/McpTransport"
+        }
+      },
+      "required": [
+        "name",
+        "transport"
+      ],
+      "type": "object"
+    },
+    "McpTransport": {
+      "oneOf": [
+        {
+          "properties": {
+            "args": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "command": {
+              "type": "string"
+            },
+            "type": {
+              "const": "stdio",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "command",
+            "args"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "http",
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "url"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "sse",
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "url"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ModelDescriptor": {
+      "properties": {
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "type": "object"
+    },
+    "ModelReroute": {
+      "properties": {
+        "fromModel": {
+          "type": "string"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "toModel": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "fromModel",
+        "toModel",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "NativeHistoryDocument": {
+      "properties": {
+        "capabilities": {
+          "$ref": "#/$defs/Capabilities"
+        },
+        "options": {
+          "$ref": "#/$defs/SpawnOptions"
+        },
+        "records": {
+          "items": {
+            "$ref": "#/$defs/NativeHistoryRecord"
+          },
+          "type": "array"
+        },
+        "session": {
+          "$ref": "#/$defs/NativeHistorySession"
+        },
+        "tree": {
+          "items": {
+            "$ref": "#/$defs/NativeMessageNode"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "session",
+        "options",
+        "capabilities",
+        "records",
+        "tree"
+      ],
+      "type": "object"
+    },
+    "NativeHistoryRecord": {
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/EventKind"
+        },
+        "raw": true,
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "turnId",
+        "kind",
+        "raw"
+      ],
+      "type": "object"
+    },
+    "NativeHistorySession": {
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "metadata": {
+          "default": null
+        },
+        "native": {
+          "$ref": "#/$defs/NativeSessionRef"
+        },
+        "path": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "updatedAtMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "native",
+        "cwd",
+        "title",
+        "path",
+        "updatedAtMs",
+        "metadata"
+      ],
+      "type": "object"
+    },
+    "NativeMessageNode": {
+      "properties": {
+        "active": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "metadata": {
+          "default": null
+        },
+        "parentId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "role": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "parentId",
+        "role",
+        "text",
+        "active",
+        "metadata"
+      ],
+      "type": "object"
+    },
+    "NativeSessionRef": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "id"
+      ],
+      "type": "object"
+    },
+    "PermissionOption": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "PermissionRequest": {
+      "properties": {
+        "command": {
+          "default": null
+        },
+        "description": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "metadata": {
+          "default": null
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/PermissionOption"
+          },
+          "type": "array"
+        },
+        "paths": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "questions": {
+          "items": {
+            "$ref": "#/$defs/Question"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "description",
+        "command",
+        "paths",
+        "options",
+        "metadata"
+      ],
+      "type": "object"
+    },
+    "PlanEntry": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "priority": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "PlanUpdate": {
+      "additionalProperties": true,
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/PlanEntry"
+          },
+          "type": "array"
+        },
+        "markdown": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "PolicyEvidence": {
+      "enum": [
+        "native_receipt",
+        "native_acknowledgement"
+      ],
+      "type": "string"
+    },
+    "PolicyMapping": {
+      "enum": [
+        "equivalent",
+        "partial",
+        "unsupported",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "PolicyObservation": {
+      "properties": {
+        "coverage": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "evidence": {
+          "$ref": "#/$defs/PolicyEvidence"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "native": true,
+        "nativeVersion": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "profile": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExecutionProfile"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "profile",
+        "native",
+        "evidence",
+        "coverage",
+        "limitations",
+        "nativeVersion"
+      ],
+      "type": "object"
+    },
+    "PolicyStatus": {
+      "enum": [
+        "staged",
+        "acknowledged",
+        "effective",
+        "rejected",
+        "partial",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "ProjectLaunchDefaults": {
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "default": null
+        },
+        "harness": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "harness",
+        "model",
+        "config"
+      ],
+      "type": "object"
+    },
+    "ProjectRecord": {
+      "properties": {
+        "archived": {
+          "type": "boolean"
+        },
+        "directory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DirectoryRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "launch": {
+          "$ref": "#/$defs/ProjectLaunchDefaults"
+        },
+        "name": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "name",
+        "archived",
+        "directory",
+        "launch"
+      ],
+      "type": "object"
+    },
+    "Prompt": {
+      "properties": {
+        "content": {
+          "items": {
+            "$ref": "#/$defs/PromptContent"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "type": "object"
+    },
+    "PromptContent": {
+      "oneOf": [
+        {
+          "properties": {
+            "data": {
+              "type": "string"
+            },
+            "type": {
+              "const": "text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "data": {
+                  "type": "string"
+                },
+                "mime_type": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "data",
+                "mime_type"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "image",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "uri": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uri"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "resource",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "path"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "skill",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PromptQueue": {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/QueuedPrompt"
+          },
+          "type": "array"
+        },
+        "paused": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "items",
+        "paused"
+      ],
+      "type": "object"
+    },
+    "Question": {
+      "additionalProperties": true,
+      "properties": {
+        "allowText": {
+          "default": true,
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "multiple": {
+          "default": false,
+          "type": "boolean"
+        },
+        "options": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/QuestionOption"
+          },
+          "type": "array"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "secret": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "prompt",
+        "options",
+        "multiple",
+        "allowText",
+        "secret"
+      ],
+      "type": "object"
+    },
+    "QuestionOption": {
+      "additionalProperties": true,
+      "properties": {
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "type": "object"
+    },
+    "QueuedPrompt": {
+      "properties": {
+        "createdAtMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "prompt": {
+          "$ref": "#/$defs/Prompt"
+        }
+      },
+      "required": [
+        "id",
+        "prompt",
+        "createdAtMs"
+      ],
+      "type": "object"
+    },
+    "RuntimeEvent": {
+      "oneOf": [
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/SessionSnapshot"
+            },
+            "type": {
+              "const": "session.started",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": true,
+            "type": {
+              "const": "session.updated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": true,
+            "type": {
+              "const": "configuration.updated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/ModelReroute"
+            },
+            "type": {
+              "const": "model.rerouted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": true,
+            "type": {
+              "const": "commands.updated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": true,
+            "type": {
+              "const": "quotas.updated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/PromptQueue"
+            },
+            "type": {
+              "const": "queue.changed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "turns": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "turns"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "conversation.rolled_back",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "session.ended",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "turn.started",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "nativeReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "outcome": {
+                  "$ref": "#/$defs/TurnOutcome"
+                }
+              },
+              "required": [
+                "outcome"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "turn.ended",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/Prompt"
+            },
+            "type": {
+              "const": "message.user",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": true,
+            "type": {
+              "const": "message.assistant",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "item_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "item_id"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "message.ended",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": true,
+            "type": {
+              "const": "output.structured",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "item_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "item_id"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "text.delta",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "reasoning.delta",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/ToolEvent"
+            },
+            "type": {
+              "const": "tool.started",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/ToolEvent"
+            },
+            "type": {
+              "const": "tool.updated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/ToolEvent"
+            },
+            "type": {
+              "const": "tool.completed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/PermissionRequest"
+            },
+            "type": {
+              "const": "permission.requested",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "option": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "option"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "permission.resolved",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": true,
+            "type": {
+              "const": "file.changed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": true,
+            "type": {
+              "const": "diff",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/PlanUpdate"
+            },
+            "type": {
+              "const": "plan.updated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/SubagentInfo"
+            },
+            "type": {
+              "const": "subagent.updated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/Usage"
+            },
+            "type": {
+              "const": "usage.updated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/ContextUsage"
+            },
+            "type": {
+              "const": "context.updated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/SessionState"
+            },
+            "type": {
+              "const": "state.changed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "error",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": true,
+            "type": {
+              "const": "diagnostic",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "provider.raw",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "raw": true,
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "timestampMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sessionId",
+        "sequence",
+        "turnId",
+        "source",
+        "timestampMs"
+      ],
+      "type": "object"
+    },
+    "RuntimeIdentity": {
+      "additionalProperties": false,
+      "description": "A retained Environment identity and one live execution-owner incarnation.",
+      "properties": {
+        "identity": {
+          "$ref": "#/$defs/LocalStoreIdentity"
+        },
+        "incarnationId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "identity",
+        "incarnationId"
+      ],
+      "type": "object"
+    },
+    "SessionExecutionOptions": {
+      "properties": {
+        "configHome": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ephemeral": {
+          "default": false,
+          "type": "boolean"
+        },
+        "hostTools": {
+          "default": [],
+          "description": "Explicit host tool grants; native tool permissions remain independent.",
+          "items": {
+            "$ref": "#/$defs/HostToolGrant"
+          },
+          "type": "array"
+        },
+        "mcpServers": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/McpServer"
+          },
+          "type": "array"
+        },
+        "outputSchema": {
+          "default": null
+        },
+        "tools": {
+          "$ref": "#/$defs/ToolPolicy",
+          "default": "enabled"
+        }
+      },
+      "required": [
+        "configHome",
+        "mcpServers",
+        "tools",
+        "hostTools",
+        "outputSchema",
+        "ephemeral"
+      ],
+      "type": "object"
+    },
+    "SessionMetadata": {
+      "properties": {
+        "archived": {
+          "type": "boolean"
+        },
+        "createdAtMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "forkOrigin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ForkOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "updatedAtMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "title",
+        "archived",
+        "createdAtMs",
+        "updatedAtMs",
+        "forkOrigin"
+      ],
+      "type": "object"
+    },
+    "SessionSnapshot": {
+      "properties": {
+        "capabilities": {
+          "$ref": "#/$defs/Capabilities"
+        },
+        "executionPolicy": {
+          "$ref": "#/$defs/ExecutionPolicy",
+          "default": {
+            "bindingId": null,
+            "choices": [],
+            "controlledSettings": [],
+            "dispatchBlocked": false,
+            "nativeSession": null,
+            "observed": null,
+            "planned": null,
+            "plannedProfile": null,
+            "reason": null,
+            "requested": null,
+            "revision": 0,
+            "status": "unknown"
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/SessionMetadata",
+          "default": {
+            "archived": false,
+            "createdAtMs": 0,
+            "forkOrigin": null,
+            "title": null,
+            "updatedAtMs": 0
+          }
+        },
+        "native": {
+          "$ref": "#/$defs/NativeSessionRef"
+        },
+        "options": {
+          "$ref": "#/$defs/SpawnOptions"
+        },
+        "queue": {
+          "$ref": "#/$defs/PromptQueue",
+          "default": {
+            "items": [],
+            "paused": false
+          }
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "state": {
+          "$ref": "#/$defs/SessionState"
+        },
+        "turn": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "turnsCompleted": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "workingContext": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkingContext"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "workingContext",
+        "executionPolicy",
+        "native",
+        "options",
+        "capabilities",
+        "state",
+        "sequence",
+        "turn",
+        "turnsCompleted",
+        "metadata",
+        "queue"
+      ],
+      "type": "object"
+    },
+    "SessionState": {
+      "enum": [
+        "idle",
+        "running",
+        "needs_input",
+        "cancelling",
+        "closed",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "SettingApplication": {
+      "description": "Application scope is independent of whether an execution is currently busy.",
+      "enum": [
+        "creation_only",
+        "next_turn",
+        "current_turn"
+      ],
+      "type": "string"
+    },
+    "SettingChoice": {
+      "properties": {
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "type": "object"
+    },
+    "SettingDescriptor": {
+      "properties": {
+        "application": {
+          "$ref": "#/$defs/SettingApplication"
+        },
+        "choices": {
+          "items": {
+            "$ref": "#/$defs/SettingChoice"
+          },
+          "type": "array"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "type": {
+          "$ref": "#/$defs/SettingType"
+        },
+        "value": {
+          "description": "Absent means unobserved; a present null is an acknowledged reset."
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "type",
+        "application"
+      ],
+      "type": "object"
+    },
+    "SettingType": {
+      "enum": [
+        "select",
+        "boolean",
+        "string",
+        "number"
+      ],
+      "type": "string"
+    },
+    "SpawnOptions": {
+      "properties": {
+        "config": {
+          "default": null,
+          "description": "Provider-specific configuration remains opaque to the core."
+        },
+        "cwd": {
+          "default": "",
+          "type": "string"
+        },
+        "execution": {
+          "$ref": "#/$defs/SessionExecutionOptions",
+          "default": {
+            "configHome": null,
+            "ephemeral": false,
+            "hostTools": [],
+            "mcpServers": [],
+            "outputSchema": null,
+            "tools": "enabled"
+          }
+        },
+        "harness": {
+          "type": "string"
+        },
+        "model": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "projectId": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "projectRevision": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "harness",
+        "cwd",
+        "projectId",
+        "projectRevision",
+        "model",
+        "config",
+        "execution"
+      ],
+      "type": "object"
+    },
+    "SubagentInfo": {
+      "additionalProperties": true,
+      "properties": {
+        "background": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parentSessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parentToolId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "role": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "summary": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "textDelta": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Usage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "SubmissionReceipt": {
+      "properties": {
+        "delivery": {
+          "$ref": "#/$defs/DeliveryKnowledge"
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "idempotencyKey": {
+          "type": "string"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TurnOutcome"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "recoveryRequired": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "sessionId",
+        "idempotencyKey",
+        "turnId",
+        "delivery",
+        "recoveryRequired",
+        "outcome",
+        "error"
+      ],
+      "type": "object"
+    },
+    "ToolDetails": {
+      "additionalProperties": true,
+      "properties": {
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cwd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "diffs": {
+          "items": {
+            "$ref": "#/$defs/FileDiff"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "locations": {
+          "items": {
+            "$ref": "#/$defs/FileLocation"
+          },
+          "type": "array"
+        },
+        "progress": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ToolProgress"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "subagent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SubagentInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ToolEvent": {
+      "properties": {
+        "details": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ToolDetails"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "input": true,
+        "metadata": {
+          "default": null
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output": true,
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "status",
+        "input",
+        "output",
+        "metadata"
+      ],
+      "type": "object"
+    },
+    "ToolPolicy": {
+      "enum": [
+        "enabled",
+        "disabled"
+      ],
+      "type": "string"
+    },
+    "ToolProgress": {
+      "additionalProperties": true,
+      "properties": {
+        "elapsedSeconds": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "percent": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "TurnOutcome": {
+      "description": "A turn's terminal execution result, independent of native provider vocabulary.\nCompletion describes the execution cycle, not achievement of a user goal.",
+      "enum": [
+        "completed",
+        "cancelled",
+        "interrupted",
+        "failed",
+        "limited",
+        "refused",
+        "handled",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "UiClient": {
+      "enum": [
+        "browser",
+        "desktop"
+      ],
+      "type": "string"
+    },
+    "UiCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "runtimeCommand": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "shortcut": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "when": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/UiCondition"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "when"
+      ],
+      "type": "object"
+    },
+    "UiCondition": {
+      "enum": [
+        "connected",
+        "conversation",
+        "project",
+        "message",
+        "panel",
+        "composerReady"
+      ],
+      "type": "string"
+    },
+    "UiContribution": {
+      "additionalProperties": false,
+      "properties": {
+        "clients": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/UiClient"
+          },
+          "type": "array"
+        },
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enabledWhen": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/UiCondition"
+          },
+          "type": "array"
+        },
+        "icon": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UiIcon"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/UiContributionKind"
+        },
+        "order": {
+          "default": 0,
+          "format": "int32",
+          "type": "integer"
+        },
+        "slot": {
+          "$ref": "#/$defs/UiSlot"
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "when": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/UiCondition"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "slot",
+        "kind",
+        "title",
+        "order",
+        "when",
+        "enabledWhen",
+        "clients"
+      ],
+      "type": "object"
+    },
+    "UiContributionKind": {
+      "enum": [
+        "action",
+        "text",
+        "section"
+      ],
+      "type": "string"
+    },
+    "UiIcon": {
+      "enum": [
+        "microphone",
+        "stop",
+        "spinner",
+        "extension"
+      ],
+      "type": "string"
+    },
+    "UiManifest": {
+      "additionalProperties": false,
+      "description": "Versioned declarative client contributions. Runtime extensions never receive host DOM access.",
+      "properties": {
+        "commands": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/UiCommand"
+          },
+          "type": "array"
+        },
+        "panels": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/UiSurface"
+          },
+          "type": "array"
+        },
+        "screens": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/UiSurface"
+          },
+          "type": "array"
+        },
+        "slots": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/UiContribution"
+          },
+          "type": "array"
+        },
+        "version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "commands",
+        "slots",
+        "screens",
+        "panels"
+      ],
+      "type": "object"
+    },
+    "UiSlot": {
+      "enum": [
+        "sidebar.primary",
+        "sidebar.footer",
+        "app.header.actions",
+        "conversation.header.actions",
+        "composer.actions",
+        "composer.context",
+        "composer.status",
+        "message.actions",
+        "message.details",
+        "project.actions",
+        "project.contextMenu",
+        "conversation.contextMenu",
+        "panel.toolbar",
+        "panel.status",
+        "settings.sections"
+      ],
+      "type": "string"
+    },
+    "UiSurface": {
+      "additionalProperties": false,
+      "properties": {
+        "clients": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/UiClient"
+          },
+          "type": "array"
+        },
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "clients"
+      ],
+      "type": "object"
+    },
+    "Usage": {
+      "properties": {
+        "cacheWriteTokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cachedInputTokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "costUsd": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "inputTokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "outputTokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "scope": {
+          "type": "string"
+        },
+        "totalTokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "scope",
+        "inputTokens",
+        "outputTokens",
+        "cachedInputTokens",
+        "cacheWriteTokens",
+        "totalTokens",
+        "costUsd"
+      ],
+      "type": "object"
+    },
+    "WorkingContext": {
+      "properties": {
+        "bindingId": {
+          "type": "string"
+        },
+        "directory": {
+          "$ref": "#/$defs/DirectoryResource"
+        },
+        "environmentId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/ContextSource"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "sessionId",
+        "bindingId",
+        "environmentId",
+        "directory",
+        "source"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "swarmie runtime protocol",
+  "x-event": {
+    "$ref": "#/$defs/RuntimeEvent"
+  },
+  "x-methods": {
+    "agent/commands": {
+      "params": {
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "type": "object"
+      },
+      "result": true
+    },
+    "agent/configuration": {
+      "params": {
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "type": "object"
+      },
+      "result": {
+        "items": {
+          "$ref": "#/$defs/SettingDescriptor"
+        },
+        "type": "array"
+      }
+    },
+    "agent/configure": {
+      "params": {
+        "allOf": [
+          {
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "config": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "config"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/ConfigurationReceipt"
+      }
+    },
+    "agent/kill": {
+      "params": {
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "type": "object"
+      },
+      "result": {
+        "type": "null"
+      }
+    },
+    "agent/models": {
+      "params": {
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "type": "object"
+      },
+      "result": {
+        "items": {
+          "$ref": "#/$defs/ModelDescriptor"
+        },
+        "type": "array"
+      }
+    },
+    "agent/quotas": {
+      "params": {
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "type": "object"
+      },
+      "result": true
+    },
+    "agent/spawn": {
+      "params": {
+        "$ref": "#/$defs/InputSpawnOptions"
+      },
+      "result": {
+        "$ref": "#/$defs/SessionSnapshot"
+      }
+    },
+    "directory/get": {
+      "params": {
+        "$ref": "#/$defs/InputDirectoryRef"
+      },
+      "result": {
+        "$ref": "#/$defs/DirectoryResource"
+      }
+    },
+    "directory/register": {
+      "params": {
+        "$ref": "#/$defs/InputDirectoryRegistration"
+      },
+      "result": {
+        "$ref": "#/$defs/DirectoryResource"
+      }
+    },
+    "extension/invoke": {
+      "params": {
+        "properties": {
+          "arguments": true,
+          "command": {
+            "type": "string"
+          },
+          "extensionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "extensionId",
+          "command"
+        ],
+        "type": "object"
+      },
+      "result": true
+    },
+    "extension/list": {
+      "params": {
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "result": {
+        "items": {
+          "$ref": "#/$defs/ExtensionInfo"
+        },
+        "type": "array"
+      }
+    },
+    "permission/respond": {
+      "params": {
+        "allOf": [
+          {
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "type": "object"
+          },
+          {
+            "$ref": "#/$defs/InputPermissionResponse"
+          }
+        ]
+      },
+      "result": {
+        "type": "null"
+      }
+    },
+    "project/create": {
+      "params": {
+        "$ref": "#/$defs/InputProjectCreate"
+      },
+      "result": {
+        "$ref": "#/$defs/ProjectRecord"
+      }
+    },
+    "project/get": {
+      "params": {
+        "properties": {
+          "projectId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "projectId"
+        ],
+        "type": "object"
+      },
+      "result": {
+        "$ref": "#/$defs/ProjectRecord"
+      }
+    },
+    "project/list": {
+      "params": {
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "result": {
+        "items": {
+          "$ref": "#/$defs/ProjectRecord"
+        },
+        "type": "array"
+      }
+    },
+    "project/update": {
+      "params": {
+        "$ref": "#/$defs/InputProjectUpdate"
+      },
+      "result": {
+        "$ref": "#/$defs/ProjectRecord"
+      }
+    },
+    "runtime/configuration": {
+      "params": {
+        "$ref": "#/$defs/InputSpawnOptions"
+      },
+      "result": {
+        "$ref": "#/$defs/ConfigurationPreview"
+      }
+    },
+    "runtime/discover": {
+      "params": {
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "result": {
+        "items": {
+          "$ref": "#/$defs/Detection"
+        },
+        "type": "array"
+      }
+    },
+    "runtime/generate": {
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/InputSpawnOptions"
+          },
+          {
+            "anyOf": [
+              {
+                "required": [
+                  "text"
+                ]
+              },
+              {
+                "required": [
+                  "content"
+                ]
+              }
+            ],
+            "properties": {
+              "content": {
+                "items": {
+                  "$ref": "#/$defs/InputPromptContent"
+                },
+                "type": "array"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "timeoutMs": {
+                "maximum": 600000,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        ]
+      },
+      "result": {
+        "type": "string"
+      }
+    },
+    "runtime/history": {
+      "params": {
+        "$ref": "#/$defs/InputNativeHistoryQuery"
+      },
+      "result": {
+        "items": {
+          "$ref": "#/$defs/NativeHistorySession"
+        },
+        "type": "array"
+      }
+    },
+    "runtime/history/read": {
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/InputNativeHistoryQuery"
+          },
+          {
+            "properties": {
+              "nativeId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "nativeId"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/NativeHistoryDocument"
+      }
+    },
+    "runtime/initialize": {
+      "params": {
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "result": {
+        "properties": {
+          "eventHistoryLimit": {
+            "type": "integer"
+          },
+          "methods": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "protocolVersion": {
+            "type": "string"
+          },
+          "runtimeIdentity": {
+            "$ref": "#/$defs/RuntimeIdentity"
+          },
+          "transcriptDurability": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "protocolVersion",
+          "methods",
+          "eventHistoryLimit",
+          "transcriptDurability",
+          "runtimeIdentity"
+        ],
+        "type": "object"
+      }
+    },
+    "runtime/probe": {
+      "params": {
+        "properties": {
+          "harness": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "harness"
+        ],
+        "type": "object"
+      },
+      "result": {
+        "$ref": "#/$defs/HarnessProbe"
+      }
+    },
+    "runtime/quotas": {
+      "params": {
+        "$ref": "#/$defs/InputAccountQuery"
+      },
+      "result": true
+    },
+    "runtime/quotas/all": {
+      "params": {
+        "properties": {
+          "queries": {
+            "items": {
+              "$ref": "#/$defs/InputAccountQuery"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "queries"
+        ],
+        "type": "object"
+      },
+      "result": {
+        "items": {
+          "$ref": "#/$defs/AccountQuotaResult"
+        },
+        "type": "array"
+      }
+    },
+    "runtime/schema": {
+      "params": {
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    "runtime/shutdown": {
+      "params": {
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "result": {
+        "type": "null"
+      }
+    },
+    "session/cancel": {
+      "params": {
+        "allOf": [
+          {
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "turnId": {
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        ]
+      },
+      "result": {
+        "type": "null"
+      }
+    },
+    "session/close": {
+      "params": {
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "type": "object"
+      },
+      "result": {
+        "type": "null"
+      }
+    },
+    "session/compact": {
+      "params": {
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "type": "object"
+      },
+      "result": {
+        "type": "null"
+      }
+    },
+    "session/context": {
+      "params": {
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "type": "object"
+      },
+      "result": {
+        "$ref": "#/$defs/ContextStatus"
+      }
+    },
+    "session/create": {
+      "params": {
+        "$ref": "#/$defs/InputSpawnOptions"
+      },
+      "result": {
+        "$ref": "#/$defs/SessionSnapshot"
+      }
+    },
+    "session/events": {
+      "params": {
+        "allOf": [
+          {
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "afterSequence": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "limit": {
+                "maximum": 4096,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        ]
+      },
+      "result": {
+        "items": {
+          "$ref": "#/$defs/RuntimeEvent"
+        },
+        "type": "array"
+      }
+    },
+    "session/fork": {
+      "params": {
+        "allOf": [
+          {
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "execution": {
+                "$ref": "#/$defs/InputSessionExecutionOptions"
+              },
+              "messageId": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              "position": {
+                "enum": [
+                  "after_assistant",
+                  "before_user"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/SessionSnapshot"
+      }
+    },
+    "session/get": {
+      "params": {
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "type": "object"
+      },
+      "result": {
+        "$ref": "#/$defs/SessionSnapshot"
+      }
+    },
+    "session/import": {
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/InputNativeHistoryQuery"
+          },
+          {
+            "properties": {
+              "nativeId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "nativeId"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/SessionSnapshot"
+      }
+    },
+    "session/list": {
+      "params": {
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "result": {
+        "items": {
+          "$ref": "#/$defs/SessionSnapshot"
+        },
+        "type": "array"
+      }
+    },
+    "session/metadata": {
+      "params": {
+        "allOf": [
+          {
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "type": "object"
+          },
+          {
+            "$ref": "#/$defs/InputSessionMetadataUpdate"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/SessionSnapshot"
+      }
+    },
+    "session/prompt": {
+      "params": {
+        "allOf": [
+          {
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "type": "object"
+          },
+          {
+            "anyOf": [
+              {
+                "required": [
+                  "text"
+                ]
+              },
+              {
+                "required": [
+                  "content"
+                ]
+              }
+            ],
+            "properties": {
+              "content": {
+                "items": {
+                  "$ref": "#/$defs/InputPromptContent"
+                },
+                "type": "array"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "idempotencyKey": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "idempotencyKey"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/SubmissionReceipt"
+      }
+    },
+    "session/queue": {
+      "params": {
+        "allOf": [
+          {
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "type": "object"
+          },
+          {
+            "anyOf": [
+              {
+                "required": [
+                  "text"
+                ]
+              },
+              {
+                "required": [
+                  "content"
+                ]
+              }
+            ],
+            "properties": {
+              "content": {
+                "items": {
+                  "$ref": "#/$defs/InputPromptContent"
+                },
+                "type": "array"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/QueuedPrompt"
+      }
+    },
+    "session/queue/list": {
+      "params": {
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "type": "object"
+      },
+      "result": {
+        "$ref": "#/$defs/PromptQueue"
+      }
+    },
+    "session/queue/pause": {
+      "params": {
+        "allOf": [
+          {
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "paused": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "paused"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "result": {
+        "type": "null"
+      }
+    },
+    "session/queue/remove": {
+      "params": {
+        "allOf": [
+          {
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "result": {
+        "type": "null"
+      }
+    },
+    "session/queue/update": {
+      "params": {
+        "allOf": [
+          {
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "type": "object"
+          },
+          {
+            "anyOf": [
+              {
+                "required": [
+                  "text"
+                ]
+              },
+              {
+                "required": [
+                  "content"
+                ]
+              }
+            ],
+            "properties": {
+              "content": {
+                "items": {
+                  "$ref": "#/$defs/InputPromptContent"
+                },
+                "type": "array"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "result": {
+        "type": "null"
+      }
+    },
+    "session/resume": {
+      "params": {
+        "allOf": [
+          {
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "execution": {
+                "$ref": "#/$defs/InputSessionExecutionOptions"
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/SessionSnapshot"
+      }
+    },
+    "session/rollback": {
+      "params": {
+        "allOf": [
+          {
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "expectedSequence": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "scope": {
+                "$ref": "#/$defs/InputRollbackScope"
+              },
+              "turns": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "turns"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "result": {
+        "type": "null"
+      }
+    },
+    "session/steer": {
+      "params": {
+        "allOf": [
+          {
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "type": "object"
+          },
+          {
+            "anyOf": [
+              {
+                "required": [
+                  "text"
+                ]
+              },
+              {
+                "required": [
+                  "content"
+                ]
+              }
+            ],
+            "properties": {
+              "content": {
+                "items": {
+                  "$ref": "#/$defs/InputPromptContent"
+                },
+                "type": "array"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        ]
+      },
+      "result": {
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "accepted"
+        ],
+        "type": "object"
+      }
+    },
+    "session/submission": {
+      "params": {
+        "allOf": [
+          {
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "idempotencyKey": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "idempotencyKey"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "result": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/SubmissionReceipt"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "session/submission/reconcile": {
+      "params": {
+        "allOf": [
+          {
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "idempotencyKey": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "idempotencyKey"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "result": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/SubmissionReceipt"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "session/transcript": {
+      "params": {
+        "allOf": [
+          {
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionId"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "afterSequence": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "limit": {
+                "maximum": 4096,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        ]
+      },
+      "result": {
+        "items": {
+          "$ref": "#/$defs/RuntimeEvent"
+        },
+        "type": "array"
+      }
+    },
+    "session/tree": {
+      "params": {
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "type": "object"
+      },
+      "result": {
+        "items": {
+          "$ref": "#/$defs/NativeMessageNode"
+        },
+        "type": "array"
+      }
+    },
+    "settings/directory": {
+      "params": {
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "result": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/DefaultDirectory"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "settings/setDirectory": {
+      "params": {
+        "$ref": "#/$defs/InputDefaultDirectoryUpdate"
+      },
+      "result": {
+        "$ref": "#/$defs/DefaultDirectory"
+      }
+    }
+  },
+  "x-protocolVersion": "1",
+  "x-requestTarget": {
+    "$ref": "#/$defs/InputRuntimeIdentity"
+  }
+}

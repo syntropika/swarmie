@@ -1,0 +1,41 @@
+---
+title: "Scoped frame bridge"
+description: "Render runtime HTML without unrestricted host interface access."
+---
+
+Runtime screens and panels use an advertised rendering command returning an HTML string or `{ html }`. The client renders it in an iframe with `sandbox="allow-scripts"`, a per-render message channel, and a restrictive content security policy.
+
+## API
+
+A v1 frame can use:
+
+| Operation | Scope |
+| --- | --- |
+| `swarmie.invoke(command, arguments)` | An advertised command of this runtime extension. |
+| `swarmie.getContext()` | The frame's captured contribution context. |
+| `swarmie.insertText(text, options)` | The current ready composer, guarded by its captured scope. |
+| `swarmie.openScreen(id)` | A screen advertised by this extension. |
+| `swarmie.openPanel(id)` | A panel advertised by this extension. |
+| `swarmie.on(type, callback)` | Lifecycle events while the frame scope is active. |
+
+Host operations require an active v1 client registration. Legacy views retain their advertised runtime invocation bridge.
+
+## Validation and lifetime
+
+The host validates the frame source, render channel, request identity, operation, and advertised command. HTML and argument payloads are bounded to 1 MB. The frame CSP blocks network connections and unrestricted resource loading.
+
+Removal and context changes invalidate callbacks. Pending frame requests are released on closure. The bridge exposes neither surrounding application DOM access nor arbitrary commands from other extensions.
+
+## Example
+
+```js
+const context = await swarmie.getContext();
+await swarmie.insertText('Text from this extension. ');
+const stop = swarmie.on('composer.changed', (event) => {
+  console.log(event.context.conversationId);
+});
+// Release the listener when this frame no longer needs it.
+stop();
+```
+
+Handle promise rejection when a composer is unavailable or context has expired. A frame cannot capture audio on a remote runtime by calling a host operation; client capture belongs to a trusted client provider.

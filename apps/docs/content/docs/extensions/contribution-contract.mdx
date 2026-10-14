@@ -1,0 +1,52 @@
+---
+title: "Contribution contract"
+description: "Versioned identity, commands, screens, panels, and client lifecycle."
+---
+
+## Version and identity
+
+`UiManifest.version` must be `1`. Extension, command, contribution, and surface IDs start with an ASCII letter or digit and contain letters, digits, dots, underscores, or hyphens, up to 96 characters. Qualified identities use `extensionId/localId`.
+
+Duplicate IDs, missing handlers, unsupported slots or types, and shortcut collisions reject registration. Screens and panels share one per-extension surface namespace. The client registry is scoped to a workspace and retained node.
+
+Host-owned built-ins use the reserved `@swarmie.` namespace, such as `@swarmie.dictation`. Public client and runtime registrations cannot claim those IDs. A runtime extension named `dictation` remains a separate extension with its own commands and surfaces.
+
+Runtime declarations use the generated `UiManifest` wire type. Bundled authors use `ClientExtension` from `@swarmie/contracts/ui-client`; its authoring forms allow omitted defaults.
+
+## Slots and ordering
+
+Each slot declaration has an identity, title, accepted kind, optional command or text, order, visibility conditions, enabled conditions, and client support. Order sorts ascending, then by qualified identity. Host controls retain their own positions.
+
+`when` and `enabledWhen` are conjunctions of `connected`, `conversation`, `project`, `message`, `panel`, and `composerReady`. Hidden contributions are unmounted. Disabled actions remain visible. Runtime HTML cannot provide an arbitrary host component for a slot.
+
+`clients` supports `browser` and `desktop`; an empty or omitted list supports both. Capability availability still depends on the actual engine and provider. Built-in icons include microphone, stop, spinner, and extension.
+
+## One command for every trigger
+
+Slots name an extension-local command. Buttons, menus, the command palette, and shortcuts dispatch that same qualified implementation. Shortcuts use `Mod+[Shift+]key`, with a letter or digit. Built-in application shortcuts take priority.
+
+A handler receives captured context and an `AbortSignal`. An asynchronous handler keeps its scope until its promise settles. Dynamic enabled state and command conditions apply across triggers.
+
+## Screens and panels
+
+Register full screens and conversation panels separately from slots. Each surface has an ID, title, client support, and renderer. Screen routes use `#/extension/extensionId/screenId`; screens replace conversation content. Panels open alongside conversations and retain the context that opened them.
+
+`api.openScreen(localId)` and `api.openPanel(localId)` open only the caller's advertised surfaces. Changing the node or active conversation context closes or disposes scoped surfaces. Closing a surface unmounts its renderer and subscriptions.
+
+## Scoped composer operations
+
+`api.insertText(text)` replaces the current draft selection and places the caret after inserted text. `{ separateWords: true }` adds needed word boundaries and is used by dictation.
+
+Insertion requires the active, mounted, ready composer. Scope expires when the node, conversation, project, worktree, or session changes, including switching away and back. Text and frame payloads are bounded to 1 MB.
+
+## Events and deactivation
+
+`activate({ signal, on })` runs at registration and may return cleanup. Events include `context.changed`, `composer.changed`, `surface.opened`, and `surface.closed`. Subscriptions return an unsubscribe function.
+
+Deactivation aborts owned scopes, runs cleanup, removes commands and contributions, and releases callbacks. Long-running providers should handle abort and avoid retaining an API beyond its lifetime.
+
+## Runtime registration
+
+`RuntimeExtension::ui()` optionally returns a manifest through `extension/list`. A runtime UI command names an advertised `runtimeCommand`; a runtime screen or panel names an advertised rendering `command`.
+
+Command triggers supply worktree, session, conversation, and message identifiers from their UI context. The existing runtime convention sends a worktree identifier as `projectId` when a worktree is supplied; project-only slots send their row project ID. `projectRecordId` and `worktreeId` preserve the separate identities, and `clientContext` carries the complete captured UI context. This does not make the runtime's execution context the client microphone or host DOM.

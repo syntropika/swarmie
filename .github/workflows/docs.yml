@@ -1,0 +1,42 @@
+name: Validate public documentation
+
+on:
+  pull_request:
+    paths:
+      - 'apps/docs/**'
+      - 'packages/contracts/**'
+      - 'assets/brandkit/**'
+      - '.github/workflows/docs.yml'
+  push:
+    paths:
+      - 'apps/docs/**'
+      - 'packages/contracts/**'
+      - 'assets/brandkit/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/docs/package-lock.json
+      - run: npm --prefix apps/docs ci
+      - run: npm --prefix apps/docs run test:generated
+      - run: npm --prefix apps/docs run check
+      - run: npm --prefix apps/docs run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: public-documentation
+          path: apps/docs/out
+          if-no-files-found: error
