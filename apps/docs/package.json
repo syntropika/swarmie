@@ -2,6 +2,7 @@
   "name": "swarmie-public-docs",
   "version": "0.1.0",
   "private": true,
+  "description": "Public user and developer documentation for Swarmie",
   "scripts": {
     "build": "next build",
     "dev": "next dev",
@@ -25,6 +26,7 @@
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@swarmie/contracts": "file:../../packages/contracts",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/mdx": "^2.0.14",
     "@types/node": "^26.6.4",
@@ -34,6 +36,5 @@
     "serve": "^14.2.6",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2"
-  },
-  "description": "Public user and developer documentation for Swarmie"
+  }
 }

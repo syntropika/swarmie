@@ -1,7 +1,7 @@
-use swarmie::RuntimeExtension;
-use swarmie_git::GitExtension;
 use serde_json::{Value, json};
 use std::path::Path;
+use swarmie::RuntimeExtension;
+use swarmie_git::GitExtension;
 fn git(cwd: &Path, args: &[&str]) -> String {
     let out = std::process::Command::new("git")
         .args(args)

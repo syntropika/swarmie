@@ -1,10 +1,10 @@
+use serde_json::json;
+use std::{path::Path, time::Duration};
 use swarmie::{
     Runtime, SpawnOptions,
     mock::{MockHarness, MockScript, MockStep},
 };
 use swarmie_git::GitExtension;
-use serde_json::json;
-use std::{path::Path, time::Duration};
 
 fn git(path: &Path, args: &[&str]) {
     let result = std::process::Command::new("git")

@@ -2,6 +2,7 @@ mod acp;
 mod antigravity;
 mod claude;
 mod codex;
+mod cursor;
 mod history;
 mod opencode;
 mod outcome;
@@ -9,16 +10,18 @@ mod pi;
 mod policy;
 mod readiness;
 mod settings;
+pub mod setup;
 pub use acp::AcpHarness;
 pub use antigravity::AntigravityHarness;
 pub use claude::ClaudeHarness;
 pub use codex::CodexHarness;
-use swarmie::*;
+pub use cursor::CursorHarness;
 pub use opencode::OpenCodeHarness;
 pub use pi::PiHarness;
 use process::{JsonProcess, WireStyle, find_executable};
 use serde_json::{Value, json};
 use std::path::PathBuf;
+use swarmie::*;
 use tokio::sync::mpsc;
 
 pub fn builtin_builder() -> RuntimeBuilder {
@@ -28,17 +31,13 @@ pub fn builtin_builder() -> RuntimeBuilder {
         .harness(ClaudeHarness)
         .harness(OpenCodeHarness)
         .harness(AntigravityHarness)
+        .harness(CursorHarness)
         .harness(AcpHarness::new(
             "gemini",
             "gemini",
             vec!["--experimental-acp".into()],
         ))
         .harness(AcpHarness::new("qwen", "qwen", vec!["--acp".into()]))
-        .harness(AcpHarness::new(
-            "cursor",
-            "cursor-agent",
-            vec!["acp".into()],
-        ))
         .harness(AcpHarness::new(
             "grok",
             "grok",
@@ -51,6 +50,26 @@ pub fn builtin_builder() -> RuntimeBuilder {
         ))
         .harness(AcpHarness::new("hermes", "hermes", vec!["acp".into()]))
         .harness(AcpHarness::new("kiro", "kiro-cli", vec!["acp".into()]))
+}
+fn agent_tools_root() -> Option<PathBuf> {
+    if let Some(root) = std::env::var_os("SWARMIE_AGENT_TOOLS_DIR") {
+        return Some(root.into());
+    }
+    let executable = std::env::current_exe().ok()?;
+    let parent = executable.parent()?;
+    if let Ok(contents) = std::fs::read(parent.join(".swarmie-runtime-location.json"))
+        && let Ok(location) = serde_json::from_slice::<Value>(&contents)
+        && let Some(root) = location["agentToolsDirectory"].as_str()
+    {
+        return Some(root.into());
+    }
+    [
+        parent.join("agent-tools"),
+        parent.join("../agent-tools"),
+        parent.join("../Resources/agent-tools"),
+    ]
+    .into_iter()
+    .find(|path| path.is_dir())
 }
 fn launch(options: &SpawnOptions, default: &str, args: Vec<String>) -> (PathBuf, Vec<String>) {
     let executable = options.config["executable"]
@@ -88,6 +107,18 @@ fn execution_env(
             )));
         }
         env.insert(name.into(), home.to_string_lossy().into_owned());
+        if name == "GROK_HOME" {
+            let auth = home.join("auth.json").to_string_lossy().into_owned();
+            if env
+                .get("GROK_AUTH_PATH")
+                .is_some_and(|previous| previous != &auth)
+            {
+                return Err(Error::Invalid(
+                    "conflicting native authentication path and configuration home".into(),
+                ));
+            }
+            env.insert("GROK_AUTH_PATH".into(), auth);
+        }
     }
     Ok(env)
 }

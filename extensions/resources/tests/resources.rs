@@ -1,12 +1,12 @@
 use async_trait::async_trait;
 use futures_util::StreamExt;
+use serde_json::{Value, json};
+use std::{collections::BTreeMap, time::Duration};
 use swarmie::{
     mock::{MockHarness, MockScript, MockStep},
     *,
 };
 use swarmie_resources::ResourcesExtension;
-use serde_json::{Value, json};
-use std::{collections::BTreeMap, time::Duration};
 async fn call(runtime: &Runtime, command: &str, args: Value) -> Value {
     runtime
         .invoke_extension("resources", command, args)

@@ -1,42 +1,68 @@
 import "fake-indexeddb/auto";
 import { expect, it, vi } from "vitest";
+
 import { WorkspaceCache, hydrateThreads } from "./cache";
+import { record } from "./checked-json";
+import { decodeCachedWorkspace } from "./connections";
+import { workspaceStorageKey } from "./node-scope";
 import { newThread } from "./protocol";
+import { fixtureRequest } from "./test-fixtures";
 import { WorkspaceStore } from "./workspace";
-import { workspaceStorageKey } from "./nodeScope";
-const node = { environmentId: "cache-node", storeId: "cache-store", ownerScopeId: "cache-owner" };
+
+const node = {
+  environmentId: "cache-node",
+  storeId: "cache-store",
+  ownerScopeId: "cache-owner",
+};
 it("roundtrips an 8 MiB image draft through IndexedDB and lightweight metadata", async () => {
   const local = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => local.get(key) ?? null,
     setItem: (key: string, value: string) => {
-      if (value.length > 5 * 1024 * 1024)
+      if (value.length > 5 * 1024 * 1024) {
         throw new Error("localStorage quota exceeded");
+      }
       local.set(key, value);
     },
   });
-  const first = new WorkspaceStore({ node });
+  const first = new WorkspaceStore({
+    node,
+  });
   first.createThread();
-  const id = first.active()!.id;
+  const { id } = requireFixtureValue(first.active());
   const data = "A".repeat(Math.ceil((8 * 1024 * 1024) / 3) * 4);
   first.updateThread(id, {
     draft: "Inspect attached image",
     attachments: [
-      { id: "image", name: "large.png", mime: "image/png", data, image: true },
+      {
+        id: "image",
+        name: "large.png",
+        mime: "image/png",
+        data,
+        image: true,
+      },
     ],
     fileDrafts: {
-      "draft.rs": { content: "Unsaved edit", original: "Original file" },
+      "draft.rs": {
+        content: "Unsaved edit",
+        original: "Original file",
+      },
     },
   });
   await first.flushPersistence();
-  const stored = local.get(workspaceStorageKey(node))!;
-  expect(stored.length).toBeLessThan(10000);
+  const stored = requireFixtureValue(local.get(workspaceStorageKey(node)));
+  expect(stored.length).toBeLessThan(10_000);
   expect(stored).not.toContain(data.slice(0, 1024));
-  const second = new WorkspaceStore({ node });
+  const durable = await new WorkspaceCache(node).load();
+  expect(durable?.threads[0].attachments?.[0].data).toBe(data);
+  const second = new WorkspaceStore({
+    node,
+  });
   await second.flushPersistence();
-  expect(second.active()!.draft).toBe("Inspect attached image");
-  expect(second.active()!.attachments![0].data).toBe(data);
-  expect(second.active()!.fileDrafts?.["draft.rs"]).toEqual({
+  expect(second.getSnapshot().error).toBe("");
+  expect(requireFixtureValue(second.active()).draft).toBe("Inspect attached image");
+  expect(requireFixtureValue(requireFixtureValue(second.active()).attachments)[0].data).toBe(data);
+  expect(requireFixtureValue(second.active()).fileDrafts?.["draft.rs"]).toEqual({
     content: "Unsaved edit",
     original: "Original file",
   });
@@ -74,30 +100,40 @@ it("restores dirty file drafts despite early layout changes during hydration", (
   const cached = {
     ...newThread("p", "w", "pi"),
     fileDrafts: {
-      "hello.txt": { content: "Unsaved native editor", original: "First line" },
+      "hello.txt": {
+        content: "Unsaved native editor",
+        original: "First line",
+      },
     },
   };
   const current = {
     ...cached,
     fileDrafts: undefined,
-    layout: { panel: "extensions" },
+    layout: {
+      panel: "extensions",
+    },
   };
-  const hydrated = hydrateThreads(
+  const [hydrated] = hydrateThreads(
     [current],
     [cached],
     new Map([[cached.id, new Set(["layout" as const])]]),
-  )[0];
+  );
   expect(hydrated.fileDrafts).toEqual(cached.fileDrafts);
   expect(hydrated.layout).toEqual(current.layout);
 });
 it("reports failed persistent attachment writes visibly", async () => {
-  vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn() });
+  vi.stubGlobal("localStorage", {
+    getItem: () => null,
+    setItem: vi.fn(),
+  });
   const save = vi
     .spyOn(WorkspaceCache.prototype, "save")
     .mockRejectedValueOnce(new Error("Disk quota"));
-  const workspace = new WorkspaceStore({ node });
+  const workspace = new WorkspaceStore({
+    node,
+  });
   workspace.createThread();
-  workspace.updateThread(workspace.active()!.id, {
+  workspace.updateThread(requireFixtureValue(workspace.active()).id, {
     draft: "Keep this",
     attachments: [
       {
@@ -111,29 +147,78 @@ it("reports failed persistent attachment writes visibly", async () => {
   });
   await workspace.flushPersistence();
   expect(workspace.getSnapshot().error).toContain("Draft storage failed");
-  expect(workspace.active()!.attachments).toHaveLength(1);
+  expect(requireFixtureValue(workspace.active()).attachments).toHaveLength(1);
   save.mockRestore();
 });
-
 it("restores native drafts and view metadata after the WebView origin storage is empty", async () => {
-  let nativeSaved: unknown = {
-    node, revision: 1,
-    threads: [{ ...newThread("project", "/work", "mock"), id: "native-draft", draft: "Keep this draft", attachments: [{ id: "file", name: "note.txt", mime: "text/plain", data: "hello", image: false }] }],
-    metadata: { projects: [], activeId: "native-draft", customChatDirectory: "/work" },
-  };
-  vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn() });
-  vi.stubGlobal("window", { location: { search: "?client=native" }, addEventListener: vi.fn(), zero: { invoke: async (_command: string, payload: any) => {
-    expect(payload.path).toBe("/client/cache");
-    const request = payload.request;
-    if (request.method === "client/cacheSave") nativeSaved = request.params.value;
-    return { response: { jsonrpc: "2.0", id: request.id, result: request.method === "client/cacheLoad" ? nativeSaved : null } };
-  } } });
+  let nativeSaved = decodeCachedWorkspace({
+    node,
+    revision: 1,
+    threads: [
+      {
+        ...newThread("project", "/work", "mock"),
+        id: "native-draft",
+        draft: "Keep this draft",
+        attachments: [
+          {
+            id: "file",
+            name: "note.txt",
+            mime: "text/plain",
+            data: "hello",
+            image: false,
+          },
+        ],
+      },
+    ],
+    metadata: {
+      projects: [],
+      activeId: "native-draft",
+      customChatDirectory: "/work",
+    },
+  });
+  vi.stubGlobal("localStorage", {
+    getItem: () => null,
+    setItem: vi.fn(),
+  });
+  vi.stubGlobal("window", {
+    location: {
+      search: "?client=native",
+    },
+    addEventListener: vi.fn(),
+    zero: {
+      invoke: async (_command: string, payload: unknown) => {
+        const bridgePayload = record(payload);
+        expect(bridgePayload.path).toBe("/client/cache");
+        const request = fixtureRequest(bridgePayload.request);
+        if (request.method === "client/cacheSave") {
+          nativeSaved = decodeCachedWorkspace(request.params.value);
+        }
+        return {
+          response: {
+            jsonrpc: "2.0",
+            id: request.id,
+            result: request.method === "client/cacheLoad" ? nativeSaved : null,
+          },
+        };
+      },
+    },
+  });
   try {
-    const store = new WorkspaceStore({ node });
+    const store = new WorkspaceStore({
+      node,
+    });
     await store.flushPersistence();
     expect(store.active()?.id).toBe("native-draft");
     expect(store.active()?.draft).toBe("Keep this draft");
     expect(store.active()?.attachments?.[0].data).toBe("hello");
     expect(store.getSnapshot().customChatDirectory).toBe("/work");
-  } finally { vi.unstubAllGlobals(); }
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
+function requireFixtureValue<T>(value: T | null | undefined): T {
+  if (value === undefined || value === null) {
+    throw new Error("Expected the fixture value to be present.");
+  }
+  return value;
+}

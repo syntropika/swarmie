@@ -14,7 +14,9 @@ fn endpoint(url: &str) -> Result<reqwest::Url> {
             "daemon URL must not contain credentials".into(),
         ));
     }
-    if (parsed.query().is_some() && !matches!(parsed.scheme(), "ssh" | "pipe")) || parsed.fragment().is_some() {
+    if (parsed.query().is_some() && !matches!(parsed.scheme(), "ssh" | "pipe"))
+        || parsed.fragment().is_some()
+    {
         return Err(Error::Invalid(
             "node endpoint must not contain a query or fragment".into(),
         ));
@@ -249,7 +251,13 @@ impl ConnectionManager {
     ) -> Result<NodeConnection> {
         self.pair_inner(name, url, token, true, None).await
     }
-    pub async fn pair_prepared(&self, name: String, url: String, token: Option<String>, target: &RuntimeIdentity) -> Result<NodeConnection> {
+    pub async fn pair_prepared(
+        &self,
+        name: String,
+        url: String,
+        token: Option<String>,
+        target: &RuntimeIdentity,
+    ) -> Result<NodeConnection> {
         self.pair_inner(name, url, token, true, Some(target)).await
     }
     async fn pair_inner(
@@ -272,7 +280,9 @@ impl ConnectionManager {
             previous.as_ref().map(|connection| &connection.identity),
         )?;
         if prepared.is_some_and(|target| target != &identity) {
-            return Err(Error::Invalid("remote runtime changed since readiness verification; check again".into()));
+            return Err(Error::Invalid(
+                "remote runtime changed since readiness verification; check again".into(),
+            ));
         }
         let transport = match endpoint(&url)?.scheme() {
             "http" | "https" => NodeTransport::Http { url },

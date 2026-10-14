@@ -1,9 +1,9 @@
 //! Private immutable credential files referenced by client node metadata.
-use swarmie::{Error, Result};
 use std::{
     io::Write,
     path::{Path, PathBuf},
 };
+use swarmie::{Error, Result};
 pub struct Credentials {
     directory: PathBuf,
 }

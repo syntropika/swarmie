@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use swarmie::*;
 use serde_json::json;
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use swarmie::*;
 use tokio::sync::{Mutex, mpsc};
 
 #[derive(Clone, Default)]

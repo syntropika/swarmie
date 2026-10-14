@@ -1,7 +1,4 @@
 {
   "title": "Getting started",
-  "pages": [
-    "installation",
-    "first-session"
-  ]
+  "pages": ["installation", "first-session"]
 }

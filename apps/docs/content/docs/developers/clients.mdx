@@ -5,12 +5,12 @@ description: "Integrate the public runtime with TypeScript, Python, Go, or Swift
 
 The repository includes generated contracts and language clients. Node, Python, Go, and Swift use the shared Rust client through native bindings. Install from a source checkout or local distribution artifacts containing matching native libraries until a corresponding registry release is available. Package namespaces do not claim publication. Source builds use the tools pinned in the root `mise.toml`; start development commands from the checkout root.
 
-| Client | Requirement | Source directory |
-| --- | --- | --- |
-| TypeScript | Node 22+ for native HTTP and owned stdio | `sdk/typescript` |
-| Python | Python 3.11+ | `sdk/python` |
-| Go | Go 1.22+, cgo, and a C compiler | `sdk/go` |
-| Swift | Swift 6; macOS and Xcode for native builds | `sdk/swift` |
+| Client     | Requirement                                | Source directory |
+| ---------- | ------------------------------------------ | ---------------- |
+| TypeScript | Node 22+ for native HTTP and owned stdio   | `sdk/typescript` |
+| Python     | Python 3.11+                               | `sdk/python`     |
+| Go         | Go 1.22+, cgo, and a C compiler            | `sdk/go`         |
+| Swift      | Swift 6; macOS and Xcode for native builds | `sdk/swift`      |
 
 ## TypeScript
 
@@ -26,17 +26,17 @@ bun run --cwd sdk/typescript build
 Browser applications can import `@swarmie/client/browser`, which uses Fetch without a native library.
 
 ```ts
-import { Client } from '@swarmie/client';
+import { Client } from "@swarmie/client";
 
-const client = Client.http('http://127.0.0.1:7457');
+const client = Client.http("http://127.0.0.1:7457");
 await client.initialize();
-const session = await client.spawn({ harness: 'codex', cwd: '/absolute/project' });
+const session = await client.spawn({ harness: "codex", cwd: "/absolute/project" });
 const key = crypto.randomUUID();
 // Persist key before submitting an intentional prompt.
-await client.prompt(session.id, 'Describe the project.', key);
+await client.prompt(session.id, "Describe the project.", key);
 for await (const event of client.events(session.id, { afterSequence: session.sequence })) {
-  if (event.type === 'text.delta') process.stdout.write(event.data.text);
-  if (event.type === 'turn.ended') break;
+  if (event.type === "text.delta") process.stdout.write(event.data.text);
+  if (event.type === "turn.ended") break;
 }
 await client.close(session.id);
 client.dispose();

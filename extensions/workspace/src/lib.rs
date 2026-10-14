@@ -8,13 +8,13 @@ mod terminal;
 mod windows;
 
 use async_trait::async_trait;
-use swarmie::{Error, ExtensionCommand, ExtensionView, Result, RuntimeExtension};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     path::{Component, Path, PathBuf},
     sync::Arc,
 };
+use swarmie::{Error, ExtensionCommand, ExtensionView, Result, RuntimeExtension};
 use tokio::sync::RwLock;
 
 /// Optional local workbench commands; no filesystem or terminal service lives in the core.

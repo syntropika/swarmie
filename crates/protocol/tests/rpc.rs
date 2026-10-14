@@ -1,6 +1,6 @@
-use swarmie::Runtime;
 use protocol::RuntimeService;
 use serde_json::json;
+use swarmie::Runtime;
 #[tokio::test]
 async fn json_rpc_validates_ids_params_notifications_and_batches() {
     let service = RuntimeService::new(Runtime::default());

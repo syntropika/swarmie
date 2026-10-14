@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use swarmie::*;
 use serde_json::json;
+use swarmie::*;
 use tokio::sync::mpsc;
 
 struct EchoHarness;

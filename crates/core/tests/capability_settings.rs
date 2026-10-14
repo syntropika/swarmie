@@ -1,6 +1,6 @@
+use serde_json::json;
 use swarmie::mock::{MockHarness, MockScript, MockStep};
 use swarmie::*;
-use serde_json::json;
 
 #[test]
 fn capability_states_and_provider_are_independent_of_execution_readiness() {

@@ -1,9 +1,9 @@
 use async_trait::async_trait;
-use swarmie::*;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+use swarmie::*;
 use tokio::sync::{Mutex, Semaphore, mpsc};
 
 struct Control {

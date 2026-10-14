@@ -1,5 +1,5 @@
-use swarmie::{Error, Result};
 use std::path::{Path, PathBuf};
+use swarmie::{Error, Result};
 use tokio::process::Command;
 
 /// Attach a client without transferring execution ownership to its window.

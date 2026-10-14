@@ -1,7 +1,7 @@
 use adapters::{ClaudeHarness, CodexHarness, PiHarness};
-use swarmie::*;
 use serde_json::{Value, json};
 use std::path::PathBuf;
+use swarmie::*;
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {

@@ -1,4 +1,5 @@
 mod account;
+mod agent_tools;
 pub mod attachments;
 mod contracts;
 mod domain;
@@ -14,6 +15,7 @@ mod session;
 mod submission;
 mod tools;
 pub use account::*;
+pub use agent_tools::*;
 pub use contracts::*;
 pub use domain::*;
 pub use history::*;

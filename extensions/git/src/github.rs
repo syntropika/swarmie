@@ -1,12 +1,12 @@
 //! Optional GitHub CLI operations. Pull requests are never merged by this extension.
 use crate::required;
-use swarmie::{Error, Result};
 use serde_json::{Value, json};
 use std::{
     path::{Path, PathBuf},
     process::Stdio,
     time::Duration,
 };
+use swarmie::{Error, Result};
 use tokio::{io::AsyncReadExt, process::Command};
 
 pub async fn run(executable: &Path, cwd: &Path, args: &[String]) -> Result<String> {

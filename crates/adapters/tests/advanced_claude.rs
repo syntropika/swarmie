@@ -1,11 +1,11 @@
 use adapters::builtin_builder;
 use futures_util::StreamExt;
-use swarmie::*;
 use serde_json::{Value, json};
 use std::{
     path::PathBuf,
     time::{Duration, Instant},
 };
+use swarmie::*;
 
 struct Workspace(PathBuf);
 impl Workspace {
@@ -59,6 +59,65 @@ async fn turn(agent: &Agent, events: &mut EventStream, text: &str) -> (Value, St
         }
     }
     (body.unwrap(), anchor.unwrap_or_default())
+}
+
+#[tokio::test]
+async fn sdk_steering_delivers_immediate_input_during_the_existing_turn() {
+    let workspace = Workspace::new();
+    let agent = builtin_builder()
+        .build()
+        .spawn(workspace.options())
+        .await
+        .unwrap();
+    let mut events = agent.events();
+    assert!(agent.snapshot().await.capabilities.steering.is_available());
+    agent.prompt("steering-work").await.unwrap();
+    assert!(agent.snapshot().await.turn.is_some());
+    agent.steer("use the new direction").await.unwrap();
+    let mut received = false;
+    loop {
+        match next(&mut events).await.kind {
+            EventKind::AssistantMessage(message) => {
+                let body: Value =
+                    serde_json::from_str(message["content"][0]["text"].as_str().unwrap()).unwrap();
+                assert_eq!(body["text"], "steering-work: use the new direction");
+                received = true;
+            }
+            EventKind::TurnEnded { outcome, .. } => {
+                assert_eq!(outcome, TurnOutcome::Completed);
+                break;
+            }
+            _ => (),
+        }
+    }
+    assert!(received);
+    assert_eq!(agent.snapshot().await.turns_completed, 1);
+    assert!(agent.steer("too late").await.is_err());
+    agent.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn disabled_tools_reject_explicit_mcp_and_tool_flags_with_assigned_values() {
+    let workspace = Workspace::new();
+    for flag in [
+        "--tools=Read",
+        "--mcp-config=server.json",
+        "--plugin-dir=plugin",
+    ] {
+        let mut options = workspace.options();
+        options.execution.tools = ToolPolicy::Disabled;
+        options.config["args"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!(flag));
+        let error = match builtin_builder().build().spawn(options).await {
+            Ok(_) => panic!("explicit native tools were accepted while tools were disabled"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, Error::Invalid(_)), "{error}");
+        assert!(error.to_string().contains("disabled tools"));
+    }
+    assert!(!workspace.0.join("native-sessions").exists());
 }
 
 #[tokio::test]
@@ -561,4 +620,120 @@ async fn active_interrupt_correlates_an_early_error_terminal_without_overriding_
         }
         agent.close().await.unwrap();
     }
+}
+
+async fn task_update(events: &mut EventStream, status: AgentTaskStatus) -> AgentTask {
+    loop {
+        if let EventKind::TaskUpdated(task) = next(events).await.kind
+            && task.status == status
+        {
+            return task;
+        }
+    }
+}
+
+#[tokio::test]
+async fn sdk_task_controls_work_during_a_parent_turn_and_wait_for_native_stop_confirmation() {
+    let workspace = Workspace::new();
+    let agent = builtin_builder()
+        .build()
+        .spawn(workspace.options())
+        .await
+        .unwrap();
+    let mut events = agent.events();
+    assert!(
+        agent
+            .snapshot()
+            .await
+            .capabilities
+            .background_tasks
+            .is_available()
+    );
+    assert!(agent.tasks().await.unwrap().is_empty());
+    agent.prompt("task-control-busy").await.unwrap();
+    let task = task_update(&mut events, AgentTaskStatus::Running).await;
+    assert_eq!(task.id, "controlled-task");
+    assert_eq!(task.kind.as_deref(), Some("local_bash"));
+    let parent_turn = agent.snapshot().await.turn;
+    assert!(parent_turn.is_some());
+    assert_eq!(agent.tasks().await.unwrap(), vec![task]);
+    assert!(agent.stop_task("unobserved-task").await.is_err());
+    assert!(!workspace.0.join("task-stops.jsonl").exists());
+    agent.stop_task("controlled-task").await.unwrap();
+    assert_eq!(
+        agent.tasks().await.unwrap()[0].status,
+        AgentTaskStatus::Running
+    );
+    assert_eq!(agent.snapshot().await.turn, parent_turn);
+    let stopped = task_update(&mut events, AgentTaskStatus::Stopped).await;
+    assert_eq!(stopped.summary.as_deref(), Some("Native task stopped"));
+    assert_eq!(agent.tasks().await.unwrap(), vec![stopped]);
+    assert!(agent.snapshot().await.turn.is_some());
+    assert!(agent.stop_task("controlled-task").await.is_err());
+    let stops: Vec<Value> = std::fs::read_to_string(workspace.0.join("task-stops.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(
+        stops,
+        vec![json!({"subtype":"stop_task","task_id":"controlled-task"})]
+    );
+    agent.cancel().await.unwrap();
+    while !matches!(next(&mut events).await.kind, EventKind::TurnEnded { .. }) {}
+    agent.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn sdk_task_stop_does_not_consume_or_bypass_an_unrelated_tool_permission() {
+    let workspace = Workspace::new();
+    let agent = builtin_builder()
+        .build()
+        .spawn(workspace.options())
+        .await
+        .unwrap();
+    let mut events = agent.events();
+    let permission = request(&agent, &mut events, "task-control-permission").await;
+    assert_eq!(
+        agent.tasks().await.unwrap()[0].status,
+        AgentTaskStatus::Running
+    );
+    agent.stop_task("controlled-task").await.unwrap();
+    task_update(&mut events, AgentTaskStatus::Stopped).await;
+    assert!(agent.snapshot().await.turn.is_some());
+    assert!(!workspace.0.join("permission-answer.json").exists());
+    agent
+        .respond_permission(PermissionResponse {
+            id: permission.id,
+            option: "deny".into(),
+            answers: Default::default(),
+            data: Value::Null,
+        })
+        .await
+        .unwrap();
+    while !matches!(next(&mut events).await.kind, EventKind::TurnEnded { .. }) {}
+    assert_eq!(
+        agent.tasks().await.unwrap()[0].status,
+        AgentTaskStatus::Stopped
+    );
+    agent.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn sdk_task_ids_are_scoped_to_the_observing_query_and_controls_expire_on_close() {
+    let first_workspace = Workspace::new();
+    let other_workspace = Workspace::new();
+    let runtime = builtin_builder().build();
+    let first = runtime.spawn(first_workspace.options()).await.unwrap();
+    let other = runtime.spawn(other_workspace.options()).await.unwrap();
+    let mut events = first.events();
+    first.prompt("task-control-busy").await.unwrap();
+    task_update(&mut events, AgentTaskStatus::Running).await;
+    assert!(other.tasks().await.unwrap().is_empty());
+    assert!(other.stop_task("controlled-task").await.is_err());
+    assert!(!other_workspace.0.join("task-stops.jsonl").exists());
+    first.close().await.unwrap();
+    assert!(first.tasks().await.is_err());
+    assert!(first.stop_task("controlled-task").await.is_err());
+    other.close().await.unwrap();
 }

@@ -40,7 +40,8 @@ for line in sys.stdin:
         continue
     send({'event': 'step_update', 'step_update': {'step_index': 2, 'state': 'DONE', 'step_type': 'tool', 'tool_info': {'output': 'contents'}}})
     send({'event': 'step_update', 'step_update': {'step_index': 3, 'state': 'DONE', 'step_type': 'subagent', 'subagent_info': {'subagents': [{'conversation_id': 'child-conversation', 'type_name': 'reviewer', 'role': 'Review changes'}]}}})
-    receipt = json.dumps({'prompt': prompt, 'args': args, 'env': os.environ.get('SWARMIE_NATIVE_ENV'), 'pid': os.getpid(), 'session': session})
+    settings = Path.home() / '.gemini/antigravity-cli/settings.json'
+    receipt = json.dumps({'prompt': prompt, 'args': args, 'env': os.environ.get('SWARMIE_NATIVE_ENV'), 'pid': os.getpid(), 'session': session, 'home': str(Path.home()), 'geminiHome': os.environ.get('GEMINI_HOME'), 'settings': json.loads(settings.read_text()) if settings.is_file() else None, 'geminiKeyPresent': bool(os.environ.get('GEMINI_API_KEY'))})
     send({'event': 'step_update', 'step_update': {'step_index': 4, 'state': 'ACTIVE', 'step_type': 'agent_response', 'text_delta': receipt}})
     send({'event': 'step_update', 'step_update': {'step_index': 4, 'state': 'DONE', 'step_type': 'agent_response', 'usage': {'input_tokens': 100, 'output_tokens': 7, 'cache_read_tokens': 50, 'total_tokens': 107}}})
     result = {'status': 'SUCCESS', 'response': receipt, 'usage': {'input_tokens': 70000, 'output_tokens': 7777, 'cache_read_tokens': 50000, 'total_tokens': 77777}}

@@ -1,4 +1,3 @@
-use swarmie::{Error, Result, Usage};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -7,6 +6,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
 };
+use swarmie::{Error, Result, Usage};
 
 pub const MAX_TEXT: usize = 64 * 1024;
 pub const MAX_ITEMS: usize = 128;

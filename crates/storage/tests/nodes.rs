@@ -1,5 +1,5 @@
-use swarmie::LocalStoreIdentity;
 use storage::{NodeConnection, NodeTransport, SqliteSessionStore};
+use swarmie::LocalStoreIdentity;
 fn route(name: &str, identity: LocalStoreIdentity) -> NodeConnection {
     NodeConnection {
         name: name.into(),

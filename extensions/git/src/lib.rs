@@ -6,15 +6,15 @@ mod restore;
 mod setup;
 
 use async_trait::async_trait;
-use swarmie::{
-    Error, EventKind, ExtensionCommand, ExtensionView, Prompt, Result, RuntimeEvent,
-    RuntimeExtension, SessionSnapshot,
-};
 use repository::{git, utf8, worktrees};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
+};
+use swarmie::{
+    Error, EventKind, ExtensionCommand, ExtensionView, Prompt, Result, RuntimeEvent,
+    RuntimeExtension, SessionSnapshot,
 };
 use tokio::sync::{Mutex, RwLock};
 

@@ -1,7 +1,7 @@
 use crate::{WorkspaceExtension, command, required};
-use swarmie::{Error, Result};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
+use swarmie::{Error, Result};
 pub async fn invoke(
     extension: &WorkspaceExtension,
     command_name: &str,

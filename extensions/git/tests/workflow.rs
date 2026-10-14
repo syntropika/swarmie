@@ -1,9 +1,9 @@
-use swarmie::Runtime;
-use swarmie::TurnOutcome;
-use swarmie_git::GitExtension;
 use protocol::RuntimeService;
 use serde_json::{Value, json};
 use std::path::Path;
+use swarmie::Runtime;
+use swarmie::TurnOutcome;
+use swarmie_git::GitExtension;
 
 fn git(path: &Path, args: &[&str]) {
     let output = std::process::Command::new("git")
@@ -25,7 +25,11 @@ fn repository(path: &Path) {
     git(path, &["add", "."]);
     git(path, &["commit", "-m", "Initial fixture"]);
 }
-async fn invoke(service: &RuntimeService, command: &str, arguments: Value) -> swarmie::Result<Value> {
+async fn invoke(
+    service: &RuntimeService,
+    command: &str,
+    arguments: Value,
+) -> swarmie::Result<Value> {
     service
         .invoke(
             "extension/invoke",

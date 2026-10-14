@@ -1,8 +1,8 @@
 use futures_util::StreamExt;
-use swarmie::mock::*;
-use swarmie::*;
 use serde_json::{Value, json};
 use std::time::Duration;
+use swarmie::mock::*;
+use swarmie::*;
 fn options() -> SpawnOptions {
     SpawnOptions::new("mock", std::env::current_dir().unwrap())
 }

@@ -61,11 +61,16 @@ pub(super) async fn execute(
     let operation = async {
         let writer = async {
             if let Some(mut stdin) = input {
-                if let Some(prelude) = prelude { stdin.write_all(prelude).await?; }
+                if let Some(prelude) = prelude {
+                    stdin.write_all(prelude).await?;
+                }
                 if let Some(path) = archive {
                     let mut file = tokio::fs::File::open(path).await?;
-                    let count = tokio::io::copy(&mut (&mut file).take(LIMIT + 1), &mut stdin).await?;
-                    if count > LIMIT { return Err(Error::Invalid("runtime package exceeds 512 MiB".into())); }
+                    let count =
+                        tokio::io::copy(&mut (&mut file).take(LIMIT + 1), &mut stdin).await?;
+                    if count > LIMIT {
+                        return Err(Error::Invalid("runtime package exceeds 512 MiB".into()));
+                    }
                 }
                 stdin.shutdown().await?;
             }
@@ -118,16 +123,31 @@ pub(crate) async fn preparation(host: &str, socket: &str, install: bool) -> Valu
     }
     let shell = match super::ssh_shell::discover(host).await {
         Ok(shell) => shell,
-        Err(_) => return json!({"available":false,"reason":"Check remote SSH access and shell support."}),
+        Err(_) => {
+            return json!({"available":false,"reason":"Check remote SSH access and shell support."});
+        }
     };
     let (command, prelude) = shell.python(SCRIPT, &["probe".into()]);
-    match execute(host, command, None, prelude.as_deref(), Duration::from_secs(12)).await {
+    match execute(
+        host,
+        command,
+        None,
+        prelude.as_deref(),
+        Duration::from_secs(12),
+    )
+    .await
+    {
         Ok(probe) => {
             let platform = probe["platform"].as_str();
             let supported = platform.is_some_and(|p| {
                 matches!(
                     p,
-                    "linux-x86_64" | "linux-aarch64" | "macos-x86_64" | "macos-aarch64" | "windows-x86_64" | "windows-aarch64"
+                    "linux-x86_64"
+                        | "linux-aarch64"
+                        | "macos-x86_64"
+                        | "macos-aarch64"
+                        | "windows-x86_64"
+                        | "windows-aarch64"
                 )
             });
             let ready = supported && probe["pythonReady"] == true;
@@ -227,7 +247,14 @@ async fn prepare_inner(host: &str, socket: &str, action: &str) -> Result<Value> 
     }
     // Start/attach uses the owner's serialized bootstrap and never restarts an existing owner.
     let shell = super::ssh_shell::discover(host).await?;
-    execute(host, shell.runtime(&["runtime".into(), "start".into()]), None, None, Duration::from_secs(40)).await?;
+    execute(
+        host,
+        shell.runtime(&["runtime".into(), "start".into()]),
+        None,
+        None,
+        Duration::from_secs(40),
+    )
+    .await?;
     let verified = crate::remote::inspect_ssh(host, socket, None).await?;
     if verified["ready"] != true {
         return Err(Error::Provider("runtime preparation completed but verification failed; check the connection before trying again".into()));

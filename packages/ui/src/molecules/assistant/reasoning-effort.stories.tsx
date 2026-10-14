@@ -4,7 +4,7 @@ import { ExampleFrame } from "./examples/fixtures";
 import { ReasoningMessageExample } from "./examples/reasoning-messages";
 
 const meta = {
-  title: "Assistant/Reasoning/ReasoningEffort",
+  title: "Assistant/Reasoning/reasoning-effort",
   parameters: {
     layout: "fullscreen",
     docs: {

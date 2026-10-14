@@ -11,6 +11,7 @@ import tarfile
 import tempfile
 import tomllib
 import urllib.parse
+from agent_tools import copy_agent_tools
 
 PROJECT = Path(__file__).resolve().parents[2]
 
@@ -31,6 +32,7 @@ def main():
     parser.add_argument('--release-base-url', help='HTTPS directory for the runtime-only updater manifest')
     parser.add_argument('--client-packages', type=Path, help='Also stage this archive and checksum in a native client runtime-package directory')
     parser.add_argument('--identity', help='macOS signing identity; omit to leave the runtime unsigned')
+    parser.add_argument('--agent-tools', type=Path, help='Include explicitly staged SDK support assets from stage-agent-tools.py')
     args = parser.parse_args()
     system = {'Linux': 'linux', 'Darwin': 'macos', 'Windows': 'windows'}.get(platform.system())
     arch = {'x86_64': 'x86_64', 'amd64': 'x86_64', 'aarch64': 'aarch64', 'arm64': 'aarch64'}.get(platform.machine().lower())
@@ -66,6 +68,20 @@ def main():
     shutil.copy2(PROJECT / 'scripts/distribution/install-runtime.py', bundle / 'install.py')
     metadata = {'kind': 'swarmie-runtime', 'version': version, 'platform': system + '-' + arch,
                 'executableSha256': digest(bundle / 'bin' / executable)}
+    if args.agent_tools:
+        metadata['supportFiles'] = copy_agent_tools(args.agent_tools, bundle / 'agent-tools', metadata['platform'])
+        if args.identity:
+            for path in (bundle / 'agent-tools').rglob('*'):
+                if path.is_file():
+                    with path.open('rb') as source:
+                        header = source.read(4)
+                    if header in (b'\xcf\xfa\xed\xfe', b'\xca\xfe\xba\xbe', b'\xfe\xed\xfa\xcf'):
+                        subprocess.run(['codesign', '--force', '--options', 'runtime', '--timestamp', '--sign', args.identity, path], check=True)
+            support_manifest = bundle / 'agent-tools/agent-tools.json'
+            support_metadata = json.loads(support_manifest.read_text())
+            support_metadata['files'] = {path.relative_to(bundle / 'agent-tools').as_posix(): digest(path) for path in (bundle / 'agent-tools').rglob('*') if path.is_file() and path != support_manifest}
+            support_manifest.write_text(json.dumps(support_metadata, indent=2) + '\n')
+            metadata['supportFiles'] = {'agent-tools/' + path.relative_to(bundle / 'agent-tools').as_posix(): digest(path) for path in (bundle / 'agent-tools').rglob('*') if path.is_file()}
     (bundle / 'runtime-package.json').write_text(json.dumps(metadata, indent=2) + '\n')
     with tarfile.open(archive, 'w:gz') as result:
         result.add(bundle, arcname=name)

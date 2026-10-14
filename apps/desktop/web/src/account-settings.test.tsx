@@ -1,66 +1,182 @@
 // @vitest-environment happy-dom
 // Copyright 2026 Syntropika
 // SPDX-License-Identifier: Apache-2.0
-import { render, screen, waitFor, cleanup } from "@testing-library/react";
+import { act, screen, waitFor, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { AccountSettings } from "./AccountSettings";
-const request = vi.hoisted(() => vi.fn());
-const presentation = vi.hoisted(() => ({ value: { account: undefined as any, error: "" }, listeners: new Set<() => void>() }));
-function publish(account: any) { presentation.value = { account, error: "" }; for (const listener of presentation.listeners) listener(); }
-vi.mock("./accountState", async () => {
-  const { useSyncExternalStore } = await import("react");
-  const reconcile = async () => { const account = await request("account/read", {}); publish(account); return account; };
-  return { useAccount: () => useSyncExternalStore((listener) => { presentation.listeners.add(listener); return () => { presentation.listeners.delete(listener); }; }, () => presentation.value), accountStore: { reconcile, refresh: reconcile } };
-});
-vi.mock("./account", () => ({ accountRequest: request, accountReceiptId: () => crypto.randomUUID() }));
-vi.mock("./clientTransport", () => ({ nativeClient: () => true }));
-const signedOut = { status: "signedOut", profile: null, loginId: null, persistence: "secureVault", generation: 0 };
-beforeEach(() => { request.mockReset(); request.mockResolvedValue(signedOut); publish(signedOut); });
+import { afterEach, expect, it } from "vitest";
+
+import { AccountSettings } from "./account-settings";
+import {
+  AccountFixture,
+  accountSnapshot,
+  accountProfile,
+  renderAccount,
+  accountFixtureValue,
+} from "./account-test-fixture";
+import { deferred } from "./test-fixtures";
+
 afterEach(cleanup);
 it("requires an explicit choice for session-only sign-in and does not cancel on unmount", async () => {
-  const user = userEvent.setup(); const view = render(<AccountSettings />);
+  const fixture = new AccountFixture();
+  fixture.handle("account/login/start", async () => {
+    fixture.publish(
+      accountSnapshot({
+        status: "signingIn",
+        loginId: "login",
+        persistence: "session",
+        authorizationUrl: "https://accounts.example.com/auth/native/authorize",
+      }),
+    );
+    return {
+      loginId: "login",
+      authorizationUrl: "https://accounts.example.com/auth/native/authorize",
+      expiresIn: 300,
+      persistence: "session",
+    };
+  });
+  const view = renderAccount(fixture, <AccountSettings />);
+  const user = userEvent.setup();
   await screen.findByRole("button", { name: "Sign in" });
   await user.click(screen.getByRole("switch"));
-  request.mockImplementation(async (method) => method === "account/login/start" ? { loginId: "login", authorizationUrl: "https://accounts.example.com/auth/native/authorize" } : { ...signedOut, status: "signingIn", loginId: "login" });
   await user.click(screen.getByRole("button", { name: "Sign in" }));
   await screen.findByRole("button", { name: "Cancel sign-in" });
-  expect(request).toHaveBeenCalledWith("account/login/start", { sessionOnly: true });
-  view.unmount(); expect(request.mock.calls.some(([method]) => method === "account/login/cancel")).toBe(false);
+  expect(fixture.calls("account/login/start")).toEqual([{ sessionOnly: true }]);
+  view.unmount();
+  expect(fixture.calls("account/login/cancel")).toEqual([]);
 });
 it("retains a mutation receipt for an explicit retry after an uncertain save", async () => {
-  const profile = { id: "user", displayName: "Original", email: "test@example.com", emailVerified: true, revision: 4 };
-  request.mockImplementation(async (method) => { if (method === "account/profile/update") throw Error("Request outcome is unknown"); return { ...signedOut, status: "signedIn", profile }; });
-  publish({ ...signedOut, status: "signedIn", profile });
-  const user = userEvent.setup(); render(<AccountSettings />);
-  const input = await screen.findByRole("textbox", { name: "Display name" }); await waitFor(() => expect((input as HTMLInputElement).value).toBe("Original"));
-  await user.clear(input); await user.type(input, "Updated"); await user.click(screen.getByRole("button", { name: "Save profile" }));
-  await screen.findByRole("alert"); await user.click(screen.getByRole("button", { name: "Save profile" }));
-  await waitFor(() => expect(request.mock.calls.filter(([method]) => method === "account/profile/update")).toHaveLength(2));
-  const calls = request.mock.calls.filter(([method]) => method === "account/profile/update"); expect(calls[0][1]).toEqual(calls[1][1]);
-});
-
-it("preserves an unsaved name when another window updates the profile", async () => {
-  const profile = { id: "user", displayName: "Original", email: "test@example.com", emailVerified: true, avatarUrl: null, revision: 4 };
-  publish({ ...signedOut, status: "signedIn", profile });
-  const user = userEvent.setup(); render(<AccountSettings />);
-  const input = await screen.findByRole("textbox", { name: "Display name" });
-  await user.clear(input); await user.type(input, "My unsaved draft");
-  const { act } = await import("@testing-library/react");
-  act(() => publish({ ...signedOut, status: "signedIn", profile: { ...profile, displayName: "Saved elsewhere", revision: 5 } }));
-  expect((input as HTMLInputElement).value).toBe("My unsaved draft");
-  request.mockImplementation(async (method) => { if (method === "account/profile/update") throw Error("Profile changed; read it again before saving"); return { ...signedOut, status: "signedIn", profile }; });
+  const fixture = new AccountFixture(
+    accountSnapshot({ status: "signedIn", profile: accountProfile() }),
+  );
+  fixture.handle("account/profile/update", async () => {
+    throw new Error("Request outcome is unknown");
+  });
+  const user = userEvent.setup();
+  renderAccount(fixture, <AccountSettings />);
+  const input = await screen.findByRole<HTMLInputElement>("textbox", { name: "Display name" });
+  await user.clear(input);
+  await user.type(input, "Updated");
   await user.click(screen.getByRole("button", { name: "Save profile" }));
-  expect(request.mock.calls.find(([method]) => method === "account/profile/update")?.[1].expectedRevision).toBe(4);
-  expect((input as HTMLInputElement).value).toBe("My unsaved draft");
-  act(() => publish({ ...signedOut, status: "signedIn", profile: { ...profile, id: "another-user", displayName: "Another account", revision: 0 } }));
-  await waitFor(() => expect((input as HTMLInputElement).value).toBe("Another account"));
+  await screen.findByText("Request outcome is unknown");
+  expect(fixture.calls("account/profile/update")).toHaveLength(1);
+  await user.click(screen.getByRole("button", { name: "Save profile" }));
+  await waitFor(() => {
+    expect(fixture.calls("account/profile/update")).toHaveLength(2);
+  });
+  const calls = fixture.calls("account/profile/update");
+  expect(calls.at(0)).toEqual(calls.at(1));
+});
+it("preserves a dirty CAS revision across observations and replaces the editor on a principal change", async () => {
+  const profile = accountProfile();
+  const fixture = new AccountFixture(accountSnapshot({ status: "signedIn", profile }));
+  fixture.handle("account/profile/update", async () => {
+    throw new Error("Profile changed; read it again before saving");
+  });
+  const user = userEvent.setup();
+  renderAccount(fixture, <AccountSettings />);
+  const input = await screen.findByRole<HTMLInputElement>("textbox", { name: "Display name" });
+  await user.clear(input);
+  await user.type(input, "My unsaved draft");
+  act(() => {
+    fixture.publish(
+      accountSnapshot({
+        status: "signedIn",
+        profile: { ...profile, displayName: "Saved elsewhere", revision: 5 },
+      }),
+    );
+  });
+  await waitFor(() => {
+    expect(screen.getByRole<HTMLInputElement>("textbox", { name: "Display name" }).value).toBe(
+      "My unsaved draft",
+    );
+  });
+  await user.click(screen.getByRole("button", { name: "Save profile" }));
+  await screen.findByText("Profile changed; read it again before saving");
+  expect(fixture.calls("account/profile/update").at(0)).toHaveProperty("expectedRevision", 4);
+  act(() => {
+    fixture.publish(
+      accountSnapshot({
+        status: "signedIn",
+        profile: accountProfile({ id: "account-b", displayName: "Another account", revision: 0 }),
+      }),
+    );
+  });
+  await waitFor(() => {
+    expect(screen.getByRole<HTMLInputElement>("textbox", { name: "Display name" }).value).toBe(
+      "Another account",
+    );
+  });
+});
+it("refreshes an untouched name without manufacturing a dirty revision", async () => {
+  const profile = accountProfile();
+  const fixture = new AccountFixture(accountSnapshot({ status: "signedIn", profile }));
+  renderAccount(fixture, <AccountSettings />);
+  await screen.findByRole<HTMLInputElement>("textbox", { name: "Display name" });
+  act(() => {
+    fixture.publish(
+      accountSnapshot({
+        status: "signedIn",
+        profile: { ...profile, displayName: "Saved elsewhere", revision: 5 },
+      }),
+    );
+  });
+  await waitFor(() => {
+    expect(screen.getByRole<HTMLInputElement>("textbox", { name: "Display name" }).value).toBe(
+      "Saved elsewhere",
+    );
+  });
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Save profile" }).disabled).toBe(
+    true,
+  );
+});
+it("captures the initiating account and revision before reading an image", async () => {
+  const fixture = new AccountFixture(
+    accountSnapshot({ status: "signedIn", profile: accountProfile() }),
+  );
+  const bytes = deferred<ArrayBuffer>();
+  const file = new File(["image"], "profile.png", { type: "image/png" });
+  Object.defineProperty(file, "arrayBuffer", { value: async () => await bytes.promise });
+  fixture.handle("account/profile/avatar/update", async () => fixture.snapshot);
+  renderAccount(fixture, <AccountSettings />);
+  const input = await screen.findByLabelText<HTMLInputElement>("Profile image");
+  await userEvent.upload(input, file);
+  act(() => {
+    fixture.publish(
+      accountSnapshot({
+        status: "signedIn",
+        profile: accountProfile({ id: "account-b", revision: 0, email: "b@example.test" }),
+      }),
+    );
+  });
+  await waitFor(() => {
+    expect(screen.getByText(/b@example\.test/u)).toBeDefined();
+  });
+  await act(async () => {
+    bytes.resolve(new Uint8Array([1, 2, 3]).buffer);
+    await bytes.promise;
+  });
+  await waitFor(() => {
+    expect(fixture.calls("account/profile/avatar/update")).toHaveLength(1);
+  });
+  const receipt = accountFixtureValue(fixture.calls("account/profile/avatar/update").at(0));
+  expect(receipt).toHaveProperty("accountId", "account-a");
+  expect(receipt).toHaveProperty("expectedRevision", 4);
 });
 it("can reopen a pending browser sign-in after the settings view was closed", async () => {
-  publish({ ...signedOut, status: "signingIn", loginId: "login", authorizationUrl: "https://accounts.example.com/auth/native/authorize?request=pending" });
-  const view = render(<AccountSettings />);
-  expect(screen.getByRole("link", { name: "Open sign-in in browser" }).getAttribute("href")).toContain("request=pending");
-  view.unmount(); render(<AccountSettings />);
-  expect(screen.getByRole("link", { name: "Open sign-in in browser" }).getAttribute("href")).toContain("request=pending");
-  expect(request).not.toHaveBeenCalled();
+  const fixture = new AccountFixture(
+    accountSnapshot({
+      status: "signingIn",
+      loginId: "login",
+      authorizationUrl: "https://accounts.example.com/auth/native/authorize?request=pending",
+    }),
+  );
+  const view = renderAccount(fixture, <AccountSettings />);
+  const link = await screen.findByRole("link", { name: "Open sign-in in browser" });
+  expect(link.getAttribute("href")).toContain("request=pending");
+  view.unmount();
+  renderAccount(fixture, <AccountSettings />);
+  const reopenedLink = await screen.findByRole("link", { name: "Open sign-in in browser" });
+  expect(reopenedLink.getAttribute("href")).toContain("request=pending");
+  expect(fixture.calls("account/login/start")).toEqual([]);
+  expect(fixture.calls("account/login/cancel")).toEqual([]);
 });

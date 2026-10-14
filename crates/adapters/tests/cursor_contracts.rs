@@ -1,8 +1,8 @@
 #![cfg(unix)]
 use adapters::AcpHarness;
-use swarmie::*;
 use serde_json::{Value, json};
 use std::{path::PathBuf, time::Duration};
+use swarmie::*;
 
 struct Fixture(PathBuf);
 impl Fixture {

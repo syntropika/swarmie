@@ -1,16 +1,17 @@
 #![cfg(unix)]
 
 use adapters::{AcpHarness, OpenCodeHarness, PiHarness};
-use swarmie::*;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, path::PathBuf, time::Duration};
+use swarmie::*;
 
 // Independent native wire peer. Receipts assert what crosses the process/API boundary.
 
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
-        let folder = std::env::temp_dir().join(format!("swarmie-contract-{}", uuid::Uuid::new_v4()));
+        let folder =
+            std::env::temp_dir().join(format!("swarmie-contract-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&folder).unwrap();
         Self(folder)
     }

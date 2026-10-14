@@ -1,9 +1,4 @@
 {
   "title": "Desktop",
-  "pages": [
-    "index",
-    "nodes",
-    "conversations",
-    "dictation"
-  ]
+  "pages": ["index", "nodes", "conversations", "dictation"]
 }

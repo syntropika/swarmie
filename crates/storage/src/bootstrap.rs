@@ -1,10 +1,10 @@
-use swarmie::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
 };
+use swarmie::{Error, Result};
 
 const DATABASE: &str = "state/host.sqlite";
 #[derive(Serialize, Deserialize)]

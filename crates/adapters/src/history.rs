@@ -1,11 +1,11 @@
 //! Provider-owned readers for native CLI session journals.
-use swarmie::*;
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
     time::UNIX_EPOCH,
 };
+use swarmie::*;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 
 fn root(query: &NativeHistoryQuery) -> Result<PathBuf> {
@@ -21,8 +21,9 @@ fn root(query: &NativeHistoryQuery) -> Result<PathBuf> {
     if let Some(home) = std::env::var_os(variable) {
         return Ok(home.into());
     }
-    let home =
-        std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).ok_or_else(|| Error::Invalid("HOME is unavailable".into()))?;
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .ok_or_else(|| Error::Invalid("HOME is unavailable".into()))?;
     Ok(PathBuf::from(home).join(match query.harness.as_str() {
         "codex" => ".codex",
         "claude" => ".claude",

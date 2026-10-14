@@ -1,13 +1,13 @@
 #![cfg(unix)]
 
 use adapters::CodexHarness;
-use swarmie::*;
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     path::PathBuf,
     time::{Duration, Instant},
 };
+use swarmie::*;
 
 struct Fixture(PathBuf);
 impl Fixture {

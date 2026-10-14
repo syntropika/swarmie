@@ -8,16 +8,28 @@ description: "Reuse one action across a composer button, palette entry, and shor
 This module uses the public client authoring contract. Register it with that workspace's `ContributionRegistry`. The returned disposer removes its commands, UI, and callbacks.
 
 ```ts
-import type { ClientExtension } from '@swarmie/contracts/ui-client';
+import type { ClientExtension } from "@swarmie/contracts/ui-client";
 
 export const example: ClientExtension = {
-  id: 'example',
+  id: "example",
   manifest: {
     version: 1,
-    commands: [{ id: 'insert', title: 'Insert example', when: ['composerReady'], shortcut: 'Mod+Shift+i' }],
-    slots: [{ id: 'insert', slot: 'composer.actions', kind: 'action', title: 'Insert example', command: 'insert', order: 100, enabledWhen: ['composerReady'] }],
+    commands: [
+      { id: "insert", title: "Insert example", when: ["composerReady"], shortcut: "Mod+Shift+i" },
+    ],
+    slots: [
+      {
+        id: "insert",
+        slot: "composer.actions",
+        kind: "action",
+        title: "Insert example",
+        command: "insert",
+        order: 100,
+        enabledWhen: ["composerReady"],
+      },
+    ],
   },
-  handlers: { insert: (api) => api.insertText('Example text from the contribution demo. ') },
+  handlers: { insert: (api) => api.insertText("Example text from the contribution demo. ") },
 };
 
 const deactivate = registry.register(example);
@@ -51,7 +63,16 @@ Return a manifest from `RuntimeExtension::ui()`. These rendering and action name
 {
   "version": 1,
   "commands": [{ "id": "inspect", "title": "Inspect", "runtimeCommand": "tool.inspect" }],
-  "slots": [{ "id": "inspect", "slot": "message.actions", "kind": "action", "title": "Inspect", "command": "inspect", "enabledWhen": ["connected"] }],
+  "slots": [
+    {
+      "id": "inspect",
+      "slot": "message.actions",
+      "kind": "action",
+      "title": "Inspect",
+      "command": "inspect",
+      "enabledWhen": ["connected"]
+    }
+  ],
   "screens": [{ "id": "overview", "title": "Tool overview", "command": "tool.html" }],
   "panels": [{ "id": "inspector", "title": "Tool inspector", "command": "tool.html" }]
 }

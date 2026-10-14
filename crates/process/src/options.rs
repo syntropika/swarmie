@@ -1,6 +1,6 @@
 use crate::WireRecording;
-use swarmie::{Error, Result};
 use std::{collections::BTreeMap, time::Duration};
+use swarmie::{Error, Result};
 
 #[derive(Clone, Debug, Default)]
 pub struct ProcessOptions {

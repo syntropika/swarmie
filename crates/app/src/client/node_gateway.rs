@@ -1,8 +1,8 @@
 //! Local client gateway; remote credentials never cross the browser interface.
 use crate::node_connection::ConnectionManager;
-use swarmie::{Error, Result};
 use protocol::RuntimeService;
 use serde_json::{Value, json};
+use swarmie::{Error, Result};
 
 #[derive(Clone)]
 pub struct NodeGateway {
@@ -169,22 +169,41 @@ impl NodeGateway {
             Err(error) => protocol::rpc_error(id, -32001, &error.to_string()),
         }
     }
-    async fn prepare_ssh(&self, params: &Value, local_target: &swarmie::RuntimeIdentity) -> Result<Value> {
+    async fn prepare_ssh(
+        &self,
+        params: &Value,
+        local_target: &swarmie::RuntimeIdentity,
+    ) -> Result<Value> {
         let operation = async {
-            let name = params["name"].as_str().ok_or_else(|| Error::Invalid("connection name is required".into()))?;
+            let name = params["name"]
+                .as_str()
+                .ok_or_else(|| Error::Invalid("connection name is required".into()))?;
             crate::node_connection::validate_name(name)?;
             if self.manager.find(name).await?.is_some() {
                 return Err(Error::Invalid("connection name is already in use".into()));
             }
-            let host = params["host"].as_str().ok_or_else(|| Error::Invalid("SSH host is required".into()))?;
-            let action = params["action"].as_str().ok_or_else(|| Error::Invalid("preparation action is required".into()))?;
+            let host = params["host"]
+                .as_str()
+                .ok_or_else(|| Error::Invalid("SSH host is required".into()))?;
+            let action = params["action"]
+                .as_str()
+                .ok_or_else(|| Error::Invalid("preparation action is required".into()))?;
             let socket = params["socketPath"].as_str().unwrap_or("");
             let result = crate::client::ssh_preparation::prepare(host, socket, action).await?;
             if self.identity().await? != *local_target {
-                return Err(Error::Invalid("local runtime changed during preparation; check the connection again".into()));
+                return Err(Error::Invalid(
+                    "local runtime changed during preparation; check the connection again".into(),
+                ));
             }
             let target = serde_json::from_value(result["runtimeIdentity"].clone())?;
-            self.manager.pair_prepared(name.into(), crate::remote::ssh_endpoint(host, socket)?, None, &target).await?;
+            self.manager
+                .pair_prepared(
+                    name.into(),
+                    crate::remote::ssh_endpoint(host, socket)?,
+                    None,
+                    &target,
+                )
+                .await?;
             Ok(result)
         };
         tokio::time::timeout(std::time::Duration::from_secs(600), operation).await
@@ -230,7 +249,10 @@ impl NodeGateway {
 fn local_endpoint(endpoint: &crate::runtime_host::Endpoint) -> String {
     #[cfg(any(unix, windows))]
     if let Some(path) = &endpoint.local_socket {
-        return storage::NodeTransport::LocalSocket { path: path.to_string_lossy().into_owned() }.endpoint();
+        return storage::NodeTransport::LocalSocket {
+            path: path.to_string_lossy().into_owned(),
+        }
+        .endpoint();
     }
     endpoint.url.clone()
 }

@@ -50,10 +50,28 @@ class WindowsInstallation(unittest.TestCase):
         self.assertFalse(launcher.is_symlink())
         marker=json.loads((self.args.prefix/INSTALL.MARKER).read_text())
         self.assertEqual(marker['launcherSha256'],hashlib.sha256(launcher.read_bytes()).hexdigest())
+        hint = self.args.bin_dir / '.swarmie-runtime-location.json'
+        self.assertEqual(json.loads(hint.read_text())['agentToolsDirectory'], str(self.args.prefix / 'agent-tools'))
         user_file=self.args.prefix/'user-document';user_file.write_text('Keep user content')
         self.args.uninstall=True;INSTALL.install(self.args)
         self.assertEqual(user_file.read_text(),'Keep user content')
         self.assertFalse(launcher.exists())
+        self.assertFalse(hint.exists())
+
+    def test_unmanaged_or_modified_launcher_support_hint_is_preserved(self):
+        self.args.bin_dir.mkdir(parents=True)
+        hint = self.args.bin_dir / '.swarmie-runtime-location.json'
+        hint.write_text('user-owned hint')
+        with self.assertRaisesRegex(SystemExit, 'unmanaged runtime launcher support hint'):
+            INSTALL.install(self.args)
+        self.assertEqual(hint.read_text(), 'user-owned hint')
+        hint.unlink()
+        INSTALL.install(self.args)
+        hint.write_text('modified hint')
+        self.args.uninstall = True
+        with self.assertRaisesRegex(SystemExit, 'modified runtime launcher support hint'):
+            INSTALL.install(self.args)
+        self.assertEqual(hint.read_text(), 'modified hint')
 
     def test_modified_launcher_and_in_use_executable_refuse_updates(self):
         INSTALL.install(self.args)

@@ -194,6 +194,8 @@ pub struct Capabilities {
     pub queue: crate::Capability,
     pub commands: crate::Capability,
     pub quotas: crate::Capability,
+    #[serde(default)]
+    pub background_tasks: crate::Capability,
     pub ephemeral: crate::Capability,
     pub output_schema: crate::Capability,
     pub tools_disabled: crate::Capability,
@@ -231,6 +233,7 @@ impl Default for Capabilities {
             queue: queue_capability(),
             commands: Default::default(),
             quotas: Default::default(),
+            background_tasks: Default::default(),
             ephemeral: Default::default(),
             output_schema: Default::default(),
             tools_disabled: Default::default(),
@@ -588,10 +591,34 @@ impl std::fmt::Display for TurnOutcome {
         f.write_str(self.as_str())
     }
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentTaskStatus {
+    Running,
+    Completed,
+    Failed,
+    Stopped,
+    Unknown,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTask {
+    pub id: String,
+    pub description: String,
+    pub status: AgentTaskStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[serde(tag = "type", content = "data")]
 pub enum EventKind {
+    #[serde(rename = "task.updated")]
+    TaskUpdated(AgentTask),
     #[serde(rename = "session.started")]
     SessionStarted(Box<SessionSnapshot>),
     #[serde(rename = "session.updated")]

@@ -1,9 +1,9 @@
 import { defaultUrlTransform } from "react-markdown";
 
+import { hasText } from "./value-presence";
+
 export function markdownUrl(value: string, key: string): string {
-  return key === "href" && fileLocation(value)
-    ? value
-    : defaultUrlTransform(value);
+  return key === "href" && fileLocation(value) ? value : defaultUrlTransform(value);
 }
 
 export type ContextItem = {
@@ -25,56 +25,65 @@ export type FileLocation = {
 
 export function fileLocation(value: string): FileLocation | undefined {
   if (
-    /^(?!file:)[a-z][a-z\d+.-]*:\/\//i.test(value) ||
-    /^(data|mailto|javascript):/i.test(value)
-  )
-    return;
+    /^(?!file:)[a-z][a-z\d+.-]*:\/\//iu.test(value) ||
+    /^(?:data|mailto|javascript):/iu.test(value)
+  ) {
+    return undefined;
+  }
   let decoded: string;
   try {
-    decoded = decodeURIComponent(value.replace(/^file:\/\//, ""));
+    decoded = decodeURIComponent(value.replace(/^file:\/\//u, ""));
   } catch {
-    return;
+    return undefined;
   }
-  const match = /^(.*?)(?:#L(\d+)(?:-L?(\d+))?|:(\d+)(?:-(\d+))?)?$/.exec(
-    decoded,
-  );
-  if (!match?.[1] || (!match[1].includes("/") && !/\.[\w-]+$/.test(match[1])))
-    return;
-  const startLine = Number(match[2] ?? match[4]) || undefined;
+  const match =
+    /^(?<path>.*?)(?:#L(?<hashStart>\d+)(?:-L?(?<hashEnd>\d+))?|:(?<colonStart>\d+)(?:-(?<colonEnd>\d+))?)?$/u.exec(
+      decoded,
+    );
+  const groups = match?.groups;
   if (
-    [match[2], match[3], match[4], match[5]].some(
-      (n) =>
-        n !== undefined && (!Number.isSafeInteger(Number(n)) || Number(n) < 1),
+    !groups ||
+    !hasText(groups.path) ||
+    (!groups.path.includes("/") && !/\.[\w-]+$/u.test(groups.path))
+  ) {
+    return undefined;
+  }
+  const { path, hashStart, hashEnd, colonStart, colonEnd } = groups;
+  if (
+    [hashStart, hashEnd, colonStart, colonEnd].some(
+      (n) => n !== undefined && (!Number.isSafeInteger(Number(n)) || Number(n) < 1),
     )
-  )
-    return;
-  const endLine = Number(match[3] ?? match[5]) || startLine;
-  if (startLine && (startLine < 1 || endLine! < startLine)) return;
-  return { path: match[1], startLine, endLine };
+  ) {
+    return undefined;
+  }
+  const startText = hashStart ?? colonStart;
+  const endText = hashEnd ?? colonEnd;
+  const startLine = startText === undefined ? undefined : Number(startText);
+  const endLine = endText === undefined ? startLine : Number(endText);
+  if (startLine !== undefined && endLine !== undefined && endLine < startLine) {
+    return undefined;
+  }
+  return { path, startLine, endLine };
 }
 
 export function mentionAt(text: string, caret: number) {
   const before = text.slice(0, caret);
-  const match = /(?:^|\s)@([^\s@]*)$/.exec(before);
-  return match
-    ? { query: match[1], start: caret - match[1].length - 1, end: caret }
-    : undefined;
+  const match = /(?:^|\s)@(?<query>[^\s@]*)$/u.exec(before);
+  const query = match?.groups?.query;
+  return query === undefined ? undefined : { query, start: caret - query.length - 1, end: caret };
 }
 
 export function lineExcerpt(content: string, start = 1, end?: number): string {
   const lines = content.split("\n");
-  if (!Number.isInteger(start) || start < 1 || start > lines.length)
+  if (!Number.isInteger(start) || start < 1 || start > lines.length) {
     throw new Error("Choose a line inside the file.");
-  if (
-    end !== undefined &&
-    (!Number.isInteger(end) || end < start || end > lines.length)
-  )
+  }
+  if (end !== undefined && (!Number.isInteger(end) || end < start || end > lines.length)) {
     throw new Error("Choose an end line inside the file.");
+  }
   return lines.slice(start - 1, end).join("\n");
 }
 
 export function contextText(items: ContextItem[]) {
-  return items
-    .map((item) => `Context (${item.kind}): ${item.label}\n${item.text}`)
-    .join("\n\n");
+  return items.map((item) => `Context (${item.kind}): ${item.label}\n${item.text}`).join("\n\n");
 }

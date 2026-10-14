@@ -11,6 +11,26 @@ use std::{
 use tokio::sync::{Mutex, RwLock};
 
 pub struct AntigravityHarness;
+fn antigravity_env(options: &SpawnOptions) -> Result<BTreeMap<String, String>> {
+    let mut env = options.execution.env.clone();
+    if let Some(home) = &options.execution.config_home {
+        std::fs::create_dir_all(home)?;
+        let home = std::fs::canonicalize(home)?.to_string_lossy().into_owned();
+        for name in if cfg!(windows) {
+            &["HOME", "USERPROFILE"][..]
+        } else {
+            &["HOME"][..]
+        } {
+            if env.get(*name).is_some_and(|explicit| explicit != &home) {
+                return Err(Error::Invalid(
+                    "Antigravity private profile conflicts with its process environment".into(),
+                ));
+            }
+            env.insert((*name).into(), home.clone());
+        }
+    }
+    Ok(env)
+}
 fn capabilities() -> Capabilities {
     Capabilities {
         ephemeral: false.into(),
@@ -64,7 +84,7 @@ impl Harness for AntigravityHarness {
         if options.execution.ephemeral {
             return Err(Error::Unsupported("Antigravity ephemeral sessions".into()));
         }
-        let env = execution_env(options, None)?;
+        let env = antigravity_env(options)?;
         let (wire, frames, init, early) = start(options, saved.map(|s| s.id.as_str()), env).await?;
         let id = conversation(&init)?.to_owned();
         let state = Arc::new(Mutex::new(Live {
@@ -460,7 +480,7 @@ impl AgentBackend for AntigravityBackend {
         let restarted = start(
             &self.options,
             Some(&self.id),
-            execution_env(&self.options, None)?,
+            antigravity_env(&self.options)?,
         )
         .await;
         let (wire, frames, init, early) = match restarted {
@@ -531,7 +551,7 @@ impl AgentBackend for AntigravityBackend {
         command
             .args(args)
             .current_dir(&self.options.cwd)
-            .envs(execution_env(&self.options, None)?)
+            .envs(antigravity_env(&self.options)?)
             .kill_on_drop(true);
         let output = tokio::time::timeout(Duration::from_secs(15), command.output())
             .await
@@ -564,5 +584,41 @@ impl AgentBackend for AntigravityBackend {
             Some(wire) => wire.kill().await,
             None => Ok(()),
         }
+    }
+}
+
+#[cfg(test)]
+mod setup_tests {
+    use super::*;
+    #[test]
+    fn managed_gemini_profile_scopes_native_home_and_settings_without_secret_files() {
+        let root = std::env::temp_dir().join(format!("swarmie-agy-home-{}", uuid::Uuid::new_v4()));
+        let overlay = crate::setup::providers::credential_overlay(
+            "antigravity",
+            "google",
+            "fixture-gemini-key",
+            &root,
+        )
+        .unwrap();
+        let mut options = SpawnOptions::new("antigravity", &root);
+        options.execution.config_home = overlay.config_home;
+        options.execution.env = overlay.env;
+        let env = antigravity_env(&options).unwrap();
+        let home = PathBuf::from(&env["HOME"]);
+        assert_eq!(env["GEMINI_API_KEY"], "fixture-gemini-key");
+        assert!(!env.contains_key("GEMINI_HOME"));
+        let settings =
+            std::fs::read_to_string(home.join(".gemini/antigravity-cli/settings.json")).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&settings).unwrap()["modelProvider"],
+            "gemini"
+        );
+        assert!(!settings.contains("fixture-gemini-key"));
+        #[cfg(windows)]
+        assert_eq!(env["USERPROFILE"], env["HOME"]);
+        options.execution.config_home = None;
+        options.execution.env.clear();
+        assert!(!antigravity_env(&options).unwrap().contains_key("HOME"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

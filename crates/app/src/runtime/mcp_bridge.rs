@@ -1,6 +1,6 @@
-use swarmie::{Error, Result};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc};
+use swarmie::{Error, Result};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
 

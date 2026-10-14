@@ -1,6 +1,5 @@
 #![cfg(unix)]
 use adapters::OpenCodeHarness;
-use swarmie::*;
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -8,6 +7,7 @@ use std::{
     process::{Child, Command, Stdio},
     time::Duration,
 };
+use swarmie::*;
 
 struct Fixture {
     path: PathBuf,

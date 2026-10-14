@@ -1,12 +1,12 @@
 use async_trait::async_trait;
-use swarmie::{
-    mock::{MockHarness, MockScript, MockStep},
-    *,
-};
 use serde_json::{Value, json};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
+};
+use swarmie::{
+    mock::{MockHarness, MockScript, MockStep},
+    *,
 };
 use tokio::sync::{Mutex, RwLock, mpsc};
 

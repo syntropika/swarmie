@@ -6,7 +6,6 @@ mod usage;
 mod workflows;
 
 use async_trait::async_trait;
-use swarmie::*;
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -17,6 +16,7 @@ use std::{
     },
 };
 use store::*;
+use swarmie::*;
 use tokio::sync::Mutex as AsyncMutex;
 
 #[derive(Clone)]

@@ -1,11 +1,11 @@
 use futures_util::StreamExt;
+use serde_json::{Value, json};
+use std::time::Duration;
 use swarmie::{
     mock::{MockHarness, MockScript, MockStep},
     *,
 };
 use swarmie_permissions::{PermissionPolicyExtension, PolicyMode};
-use serde_json::{Value, json};
-use std::time::Duration;
 
 fn option(id: &str, kind: &str) -> PermissionOption {
     PermissionOption {

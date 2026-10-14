@@ -1,11 +1,4 @@
 {
   "title": "Extensions",
-  "pages": [
-    "index",
-    "contribution-contract",
-    "slots",
-    "visual-guide",
-    "frame-bridge",
-    "examples"
-  ]
+  "pages": ["index", "contribution-contract", "slots", "visual-guide", "frame-bridge", "examples"]
 }

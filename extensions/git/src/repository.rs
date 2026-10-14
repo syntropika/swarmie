@@ -1,9 +1,9 @@
-use swarmie::{Error, Result};
 use serde::Serialize;
 use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
+use swarmie::{Error, Result};
 use tokio::{io::AsyncReadExt, process::Command};
 
 const MAX_OUTPUT: u64 = 8 * 1024 * 1024;

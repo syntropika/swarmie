@@ -1,6 +1,9 @@
-import type { Event, Thread } from "./protocol";
 import type { LocalStoreIdentity } from "@swarmie/contracts";
-import { nodeKey } from "./nodeScope";
+
+import { isRecord } from "./checked-json";
+import { nodeKey } from "./node-scope";
+import type { Event, Thread } from "./protocol";
+
 export type NotificationPreferences = {
   enabled: boolean;
   completion: boolean;
@@ -18,10 +21,18 @@ export const defaultNotifications: NotificationPreferences = {
 };
 export function readNotificationPreferences(): NotificationPreferences {
   try {
-    return {
-      ...defaultNotifications,
-      ...JSON.parse(localStorage.getItem(key) ?? "{}"),
-    } as NotificationPreferences;
+    const saved: unknown = JSON.parse(localStorage.getItem(key) ?? "{}");
+    const result = { ...defaultNotifications };
+    if (isRecord(saved)) {
+      result.enabled = typeof saved.enabled === "boolean" ? saved.enabled : result.enabled;
+      result.completion =
+        typeof saved.completion === "boolean" ? saved.completion : result.completion;
+      result.input = typeof saved.input === "boolean" ? saved.input : result.input;
+      result.failure = typeof saved.failure === "boolean" ? saved.failure : result.failure;
+      result.backgroundOnly =
+        typeof saved.backgroundOnly === "boolean" ? saved.backgroundOnly : result.backgroundOnly;
+    }
+    return result;
   } catch {
     return defaultNotifications;
   }
@@ -32,16 +43,20 @@ export function notificationFor(
   preferences: NotificationPreferences,
   focused: boolean,
 ): { id: string; title: string; body: string } | undefined {
-  if (!preferences.enabled || (preferences.backgroundOnly && focused)) return;
-  const kind =
-    event.type === "permission.requested" && preferences.input
-      ? "Your agent needs an answer"
-      : event.type === "error" && preferences.failure
-        ? "Agent encountered an error"
-        : event.type === "turn.ended" && preferences.completion
-          ? "Agent finished"
-          : undefined;
-  if (!kind) return;
+  if (!preferences.enabled || (preferences.backgroundOnly && focused)) {
+    return undefined;
+  }
+  let kind: string | undefined;
+  if (event.type === "permission.requested" && preferences.input) {
+    kind = "Your agent needs an answer";
+  } else if (event.type === "error" && preferences.failure) {
+    kind = "Agent encountered an error";
+  } else if (event.type === "turn.ended" && preferences.completion) {
+    kind = "Agent finished";
+  }
+  if (kind === undefined) {
+    return undefined;
+  }
   return {
     id: `swarmie-${thread.sessionId}-${event.sequence}`,
     title: kind,
@@ -49,45 +64,56 @@ export function notificationFor(
   };
 }
 export class NotificationService {
-  private seen = new Set<string>();
-  async configure(preferences: NotificationPreferences) {
-    if (preferences.enabled && typeof Notification === "undefined")
-      throw new Error("Notifications are unavailable in this WebView.");
-    localStorage.setItem(key, JSON.stringify(preferences));
-    if (
-      preferences.enabled &&
-      typeof Notification !== "undefined" &&
-      Notification.permission === "default"
-    )
-      await Notification.requestPermission();
-  }
-  async events(
+  private readonly seen = new Set<string>();
+  private readonly visible = new Set<Notification>();
+  configure = configureNotifications;
+  events(
     thread: Thread,
     events: Event[],
     preferences: NotificationPreferences,
     node: LocalStoreIdentity,
   ) {
     for (const event of events) {
-      const payload = notificationFor(
-        thread,
-        event,
-        preferences,
-        document.hasFocus(),
-      );
-      if (!payload) continue;
+      const payload = notificationFor(thread, event, preferences, document.hasFocus());
+      if (!payload) {
+        continue;
+      }
       const id = JSON.stringify([nodeKey(node), payload.id]);
-      if (this.seen.has(id)) continue;
+      if (this.seen.has(id)) {
+        continue;
+      }
       this.seen.add(id);
-      if (this.seen.size > 512)
-        this.seen.delete(this.seen.values().next().value!);
-      if (
-        typeof Notification !== "undefined" &&
-        Notification.permission === "granted"
-      )
-        new Notification(payload.title, {
-          body: payload.body,
-          tag: id,
-        });
+      if (this.seen.size > 512) {
+        const oldest = this.seen.values().next();
+        if (oldest.done !== true) {
+          this.seen.delete(oldest.value);
+        }
+      }
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        const display = new Notification(payload.title, { body: payload.body, tag: id });
+        this.visible.add(display);
+        display.addEventListener(
+          "close",
+          () => {
+            this.visible.delete(display);
+          },
+          { once: true },
+        );
+      }
     }
+  }
+}
+
+async function configureNotifications(preferences: NotificationPreferences) {
+  if (preferences.enabled && typeof Notification === "undefined") {
+    throw new Error("Notifications are unavailable in this WebView.");
+  }
+  localStorage.setItem(key, JSON.stringify(preferences));
+  if (
+    preferences.enabled &&
+    typeof Notification !== "undefined" &&
+    Notification.permission === "default"
+  ) {
+    await Notification.requestPermission();
   }
 }

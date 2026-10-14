@@ -1,12 +1,12 @@
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use swarmie::*;
 use serde_json::{Value, json};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use std::time::Duration;
+use swarmie::*;
 use tokio::sync::{Mutex, Notify, mpsc};
 
 #[derive(Default)]

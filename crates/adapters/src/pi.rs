@@ -121,6 +121,22 @@ async fn connect_pi(
     }
     let args = vec!["--mode".into(), "rpc".into()];
     let (exe, mut args) = launch(o, "pi", args);
+    if let Some(provider) = o.config.get("provider") {
+        let provider = provider
+            .as_str()
+            .filter(|provider| !provider.is_empty())
+            .ok_or_else(|| Error::Invalid("Pi provider must be nonempty".into()))?;
+        if o.model
+            .as_deref()
+            .and_then(|model| model.split_once('/'))
+            .is_some_and(|(selected, _)| selected != provider)
+        {
+            return Err(Error::Invalid(
+                "The selected Pi model does not match the connected provider".into(),
+            ));
+        }
+        args.extend(["--provider".into(), provider.into()]);
+    }
     if let Some(m) = &o.model {
         args.extend(["--model".into(), m.clone()]);
     }
@@ -398,6 +414,7 @@ async fn connect_pi(
         },
         events,
         backend: Box::new(PiBackend {
+            provider: o.config["provider"].as_str().map(String::from),
             wire,
             tx: tx_backend,
             outcome,
@@ -423,6 +440,7 @@ fn native_context(value: &Value, fallback_window: u64) -> ContextUsage {
     }
 }
 struct PiBackend {
+    provider: Option<String>,
     wire: JsonProcess,
     tx: mpsc::Sender<BackendEvent>,
     outcome: Arc<RwLock<(TurnOutcome, Option<String>)>>,
@@ -520,6 +538,15 @@ impl AgentBackend for PiBackend {
             } else {
                 model.clone()
             };
+            if self
+                .provider
+                .as_deref()
+                .is_some_and(|provider| model["provider"].as_str() != Some(provider))
+            {
+                return Err(Error::Invalid(
+                    "The selected Pi model does not match the connected provider".into(),
+                ));
+            }
             self.wire.request("set_model", model).await?;
         }
         if let Some(level) = v.get("thinkingLevel") {
@@ -578,12 +605,12 @@ impl AgentBackend for PiBackend {
     }
     async fn models(&self) -> Result<Vec<ModelDescriptor>> {
         let models = self.wire.request("get_available_models", json!({})).await?;
-        settings::model_descriptors(Value::Array(settings::models(&models).iter().filter_map(|m| Some(json!({"id":format!("{}/{}",m["provider"].as_str()?,m["id"].as_str()?),"label":m["name"].as_str().or(m["id"].as_str()),"provider":m["provider"],"metadata":m}))).collect()))
+        settings::model_descriptors(Value::Array(settings::models(&models).iter().filter(|m| self.provider.as_deref().is_none_or(|provider| m["provider"].as_str() == Some(provider))).filter_map(|m| Some(json!({"id":format!("{}/{}",m["provider"].as_str()?,m["id"].as_str()?),"label":m["name"].as_str().or(m["id"].as_str()),"provider":m["provider"],"metadata":m}))).collect()))
     }
     async fn configuration(&self) -> Result<Vec<SettingDescriptor>> {
         let state = self.wire.request("get_state", json!({})).await?;
         let models = self.wire.request("get_available_models", json!({})).await?;
-        let choices = Value::Array(settings::models(&models).iter().filter_map(|m| Some(json!({"id":format!("{}/{}",m["provider"].as_str()?,m["id"].as_str()?),"label":m["name"].as_str().or(m["id"].as_str()),"provider":m["provider"],"metadata":m}))).collect());
+        let choices = Value::Array(settings::models(&models).iter().filter(|m| self.provider.as_deref().is_none_or(|provider| m["provider"].as_str() == Some(provider))).filter_map(|m| Some(json!({"id":format!("{}/{}",m["provider"].as_str()?,m["id"].as_str()?),"label":m["name"].as_str().or(m["id"].as_str()),"provider":m["provider"],"metadata":m}))).collect());
         let model = state["model"].clone();
         let mut descriptors = vec![settings::select(
             "model",

@@ -367,6 +367,17 @@ async fn entry() -> Result<()> {
                 _ => (),
             }
             let runtime = builder.build();
+            let setup_owner = uuid::Uuid::parse_str(
+                &runtime.identity().await?.identity.owner_scope_id,
+            )
+            .map_err(|_| Error::Invalid("Invalid retained runtime owner identity".into()))?;
+            let agent_tools = std::sync::Arc::new(adapters::setup::AgentToolSetup::new(
+                setup_owner,
+                &root,
+                std::sync::Arc::new(adapters::setup::native::NativeAgentTools::new()),
+                std::sync::Arc::new(adapters::setup::vault::PlatformVault::new(setup_owner)),
+            )?);
+            runtime.install_agent_tool_setup(agent_tools.clone());
             match command {
                 Commands::History {
                     harness,
@@ -395,7 +406,12 @@ async fn entry() -> Result<()> {
                 }
                 Commands::Discover => println!(
                     "{}",
-                    serde_json::to_string_pretty(&runtime.discover().await?)?
+                    serde_json::to_string_pretty(
+                        &RuntimeService::new(runtime.clone())
+                            .with_agent_tools(agent_tools.clone())
+                            .invoke("runtime/discover", Value::Null)
+                            .await?
+                    )?
                 ),
                 Commands::Sessions => println!(
                     "{}",
@@ -403,7 +419,12 @@ async fn entry() -> Result<()> {
                 ),
                 Commands::Probe { harness } => println!(
                     "{}",
-                    serde_json::to_string_pretty(&runtime.probe(&harness).await?)?
+                    serde_json::to_string_pretty(
+                        &RuntimeService::new(runtime.clone())
+                            .with_agent_tools(agent_tools.clone())
+                            .invoke("runtime/probe", serde_json::json!({"harness":harness}))
+                            .await?
+                    )?
                 ),
                 Commands::Quotas {
                     harness,
@@ -434,7 +455,7 @@ async fn entry() -> Result<()> {
                         }
                         token = Some(value.into());
                     }
-                    let service = RuntimeService::new(runtime);
+                    let service = RuntimeService::new(runtime).with_agent_tools(agent_tools);
                     let result = if let Some(addr) = websocket {
                         transport::websocket(service.clone(), addr, token).await
                     } else if let Some(addr) = http {

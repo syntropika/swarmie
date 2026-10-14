@@ -1,11 +1,11 @@
 use async_trait::async_trait;
-use swarmie::*;
 use serde_json::{Value, json};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
 use storage::SqliteSessionStore;
+use swarmie::*;
 use tokio::sync::{Mutex, mpsc};
 
 #[derive(Default)]

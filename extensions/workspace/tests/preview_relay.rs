@@ -1,7 +1,7 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
+use serde_json::{Value, json};
 use swarmie::{Runtime, RuntimeExtension};
 use swarmie_workspace::WorkspaceExtension;
-use serde_json::{Value, json};
 use tokio::net::TcpStream;
 
 async fn setup(extension: &WorkspaceExtension, project: &std::path::Path) -> Value {

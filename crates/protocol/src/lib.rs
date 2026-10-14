@@ -11,6 +11,7 @@ pub struct RuntimeService {
     runtime: Runtime,
     stop: tokio::sync::watch::Sender<bool>,
     agents: Arc<RwLock<BTreeMap<String, Agent>>>,
+    agent_tools: Option<Arc<dyn AgentToolSetupPort>>,
 }
 impl RuntimeService {
     pub fn new(runtime: Runtime) -> Self {
@@ -18,7 +19,18 @@ impl RuntimeService {
             runtime,
             stop: tokio::sync::watch::channel(false).0,
             agents: Arc::default(),
+            agent_tools: None,
         }
+    }
+    pub fn with_agent_tools(mut self, setup: Arc<dyn AgentToolSetupPort>) -> Self {
+        self.runtime.install_agent_tool_setup(setup.clone());
+        self.agent_tools = Some(setup);
+        self
+    }
+    fn agent_tools(&self) -> Result<&Arc<dyn AgentToolSetupPort>> {
+        self.agent_tools.as_ref().ok_or_else(|| {
+            Error::Unsupported("Agent tool setup is unavailable on this runtime".into())
+        })
     }
     pub fn runtime(&self) -> &Runtime {
         &self.runtime
@@ -115,15 +127,65 @@ impl RuntimeService {
                 json!({"name":"swarmie","version":env!("CARGO_PKG_VERSION"),"protocolVersion":PROTOCOL_VERSION,"methods":METHODS,"eventHistoryLimit":4096,"transcriptDurability":self.runtime.transcript_durability(),"runtimeIdentity":self.runtime.identity().await?}),
             ),
             "runtime/schema" => Ok(protocol_schema()),
-            "runtime/discover" => Ok(serde_json::to_value(self.runtime.discover().await?)?),
+            "runtime/agentToolsSetup" => {
+                self.agent_tools()?
+                    .descriptor(required(&p, "harness")?)
+                    .await
+            }
+            "runtime/agentToolsConnect" => self.agent_tools()?.start(p).await,
+            "runtime/agentToolsFlow" => self.agent_tools()?.flow(required(&p, "id")?).await,
+            "runtime/agentToolsInput" => {
+                self.agent_tools()?
+                    .input(
+                        required(&p, "id")?,
+                        p.get("values").cloned().ok_or_else(|| {
+                            Error::Invalid("Connection values are required".into())
+                        })?,
+                    )
+                    .await
+            }
+            "runtime/agentToolsCancel" => self.agent_tools()?.cancel(required(&p, "id")?).await,
+            "runtime/agentToolsDisconnect" => {
+                self.agent_tools()?
+                    .disconnect(required(&p, "harness")?)
+                    .await
+            }
+            "runtime/agentToolsInstall" => {
+                self.agent_tools()?.install(required(&p, "harness")?).await
+            }
+            "runtime/discover" => {
+                let mut tools = self.runtime.discover().await?;
+                if let Some(setup) = &self.agent_tools {
+                    for tool in &mut tools {
+                        let descriptor = setup.descriptor(&tool.harness).await?;
+                        if descriptor["manual"] != true {
+                            tool.available =
+                                descriptor["installed"].as_bool().unwrap_or(tool.available);
+                        }
+                    }
+                }
+                Ok(json!(tools))
+            }
             "runtime/configuration" => {
                 let options: SpawnOptions =
                     serde_json::from_value(p).map_err(|error| Error::Invalid(error.to_string()))?;
                 Ok(json!(self.runtime.preview_configuration(options).await?))
             }
-            "runtime/probe" => Ok(serde_json::to_value(
-                self.runtime.probe(required(&p, "harness")?).await?,
-            )?),
+            "runtime/probe" => {
+                let harness = required(&p, "harness")?;
+                let mut probe = self.runtime.probe(harness).await?;
+                if let Some(setup) = &self.agent_tools {
+                    let descriptor = setup.descriptor(harness).await?;
+                    if descriptor["manual"] != true {
+                        probe.available =
+                            descriptor["installed"].as_bool().unwrap_or(probe.available);
+                        probe.auth_state =
+                            descriptor["authState"].as_str().unwrap_or("unknown").into();
+                        probe.message = descriptor["message"].as_str().map(String::from);
+                    }
+                }
+                Ok(json!(probe))
+            }
             "runtime/history" => {
                 let query: NativeHistoryQuery =
                     serde_json::from_value(p).map_err(|error| Error::Invalid(error.to_string()))?;
@@ -387,6 +449,14 @@ impl RuntimeService {
             "agent/models" => Ok(json!(self.agent(&p).await?.models().await?)),
             "agent/configuration" => Ok(json!(self.agent(&p).await?.configuration().await?)),
             "agent/commands" => self.agent(&p).await?.slash_commands().await,
+            "session/tasks" => Ok(json!(self.agent(&p).await?.tasks().await?)),
+            "session/task/stop" => {
+                self.agent(&p)
+                    .await?
+                    .stop_task(required(&p, "taskId")?)
+                    .await?;
+                Ok(Value::Null)
+            }
             "agent/quotas" => self.agent(&p).await?.quotas().await,
             "session/rollback" => {
                 let n = p["turns"]
@@ -548,6 +618,13 @@ pub const METHODS: &[&str] = &[
     "runtime/shutdown",
     "runtime/schema",
     "runtime/discover",
+    "runtime/agentToolsSetup",
+    "runtime/agentToolsConnect",
+    "runtime/agentToolsFlow",
+    "runtime/agentToolsInput",
+    "runtime/agentToolsCancel",
+    "runtime/agentToolsDisconnect",
+    "runtime/agentToolsInstall",
     "runtime/configuration",
     "runtime/probe",
     "runtime/history",
@@ -583,6 +660,8 @@ pub const METHODS: &[&str] = &[
     "agent/models",
     "agent/configuration",
     "agent/commands",
+    "session/tasks",
+    "session/task/stop",
     "agent/quotas",
     "session/rollback",
     "session/compact",

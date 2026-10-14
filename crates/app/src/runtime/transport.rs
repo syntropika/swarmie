@@ -98,8 +98,16 @@ pub async fn http(
     };
     #[cfg(windows)]
     let mut local_socket_owner = if let Some(root) = registration_root.as_ref() {
-        Some(crate::runtime::windows_pipe::listen(service.clone(), crate::runtime_host::local_socket_path(root)?).await?)
-    } else { None };
+        Some(
+            crate::runtime::windows_pipe::listen(
+                service.clone(),
+                crate::runtime_host::local_socket_path(root)?,
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
     let _registration = if let Some(root) = registration_root.filter(|_| addr.ip().is_loopback()) {
         Some(
             crate::runtime_host::register(
@@ -605,12 +613,18 @@ async fn http_rpc(
             // Keep raw runtime batches, notifications and malformed envelopes
             // on the canonical JSON-RPC dispatcher.
             let application_intent = request["jsonrpc"] == "2.0"
-                && request.get("id").is_some_and(|id| id.is_null() || id.is_string() || id.is_number())
+                && request
+                    .get("id")
+                    .is_some_and(|id| id.is_null() || id.is_string() || id.is_number())
                 && request.get("params").is_none_or(Value::is_object)
                 && request["method"].as_str().is_some_and(|method| {
                     crate::client_operations::ClientOperations::handles(method)
                         || matches!(method, "client/submissions" | "client/sessionProjection")
-                        || (method == "session/prompt" && serde_json::from_value::<swarmie::RuntimeIdentity>(request["expectedRuntime"].clone()).is_ok())
+                        || (method == "session/prompt"
+                            && serde_json::from_value::<swarmie::RuntimeIdentity>(
+                                request["expectedRuntime"].clone(),
+                            )
+                            .is_ok())
                 });
             if application_intent
                 && let (Some(application), Some(nodes)) = (&state.application, &state.nodes)
@@ -829,7 +843,11 @@ pub(crate) async fn local_socket(
 
 // Tungstenite requires the concrete HTTP ErrorResponse in its handshake callback.
 #[allow(clippy::result_large_err)]
-pub(crate) async fn connection<S>(socket: S, service: RuntimeService, token: Option<String>) -> Result<()>
+pub(crate) async fn connection<S>(
+    socket: S,
+    service: RuntimeService,
+    token: Option<String>,
+) -> Result<()>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {

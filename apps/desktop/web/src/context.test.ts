@@ -1,22 +1,18 @@
 import { describe, expect, it } from "vitest";
-import {
-  contextText,
-  fileLocation,
-  lineExcerpt,
-  mentionAt,
-  markdownUrl,
-} from "./context";
+
+import { contextText, fileLocation, lineExcerpt, mentionAt, markdownUrl } from "./context";
 import { matchesShortcut, shortcutBinding } from "./shortcuts";
+
+// This URL is a rejection fixture and is never executed or assigned to the DOM.
+// oxlint-disable-next-line no-script-url
+const scriptUrl = "javascript:alert(1)";
+
 describe("file context and navigation", () => {
   it("keeps colon and file-scheme links for local navigation while sanitizing other URLs", () => {
     expect(markdownUrl("hello.txt:2-3", "href")).toBe("hello.txt:2-3");
-    expect(markdownUrl("file:///project/main.rs#L3", "href")).toBe(
-      "file:///project/main.rs#L3",
-    );
-    expect(markdownUrl("https://example.com", "href")).toBe(
-      "https://example.com",
-    );
-    expect(markdownUrl("javascript:alert(1)", "href")).toBe("");
+    expect(markdownUrl("file:///project/main.rs#L3", "href")).toBe("file:///project/main.rs#L3");
+    expect(markdownUrl("https://example.com", "href")).toBe("https://example.com");
+    expect(markdownUrl(scriptUrl, "href")).toBe("");
     expect(markdownUrl("file:///project/main.rs", "src")).toBe("");
   });
   it("preserves exact ranges and decodes file links", () => {
@@ -35,12 +31,13 @@ describe("file context and navigation", () => {
   it("does not reinterpret external URLs as local file references", () => {
     for (const value of [
       "https://example.com/src/file.ts:3",
-      "javascript:alert(1)",
+      scriptUrl,
       "mailto:a@b.com",
       "src/main.rs#L0",
       "src/main.rs:9-2",
-    ])
+    ]) {
       expect(fileLocation(value)).toBeUndefined();
+    }
   });
   it("bounds ranges without silently returning unrelated context", () => {
     expect(() => lineExcerpt("a\nb", 3)).toThrow();
@@ -76,16 +73,10 @@ describe("custom shortcuts", () => {
       metaKey: false,
       shiftKey: false,
       altKey: false,
-    } as KeyboardEvent;
+    };
     expect(matchesShortcut(event, "Mod+P")).toBe(true);
-    expect(
-      matchesShortcut({ ...event, ctrlKey: false } as KeyboardEvent, "Mod+P"),
-    ).toBe(false);
-    expect(
-      matchesShortcut({ ...event, shiftKey: true } as KeyboardEvent, "Mod+P"),
-    ).toBe(false);
-    expect(shortcutBinding({ ...event, key: "e", shiftKey: true })).toBe(
-      "Mod+Shift+E",
-    );
+    expect(matchesShortcut({ ...event, ctrlKey: false }, "Mod+P")).toBe(false);
+    expect(matchesShortcut({ ...event, shiftKey: true }, "Mod+P")).toBe(false);
+    expect(shortcutBinding({ ...event, key: "e", shiftKey: true })).toBe("Mod+Shift+E");
   });
 });

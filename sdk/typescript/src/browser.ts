@@ -85,9 +85,7 @@ export class Client {
         ({ sequence } = event);
         yield event;
       }
-      if (events.length < 256)
-      // oxlint-disable-next-line promise/avoid-new -- Browser timers require an explicit abortable promise.
-      {
+      if (events.length < 256) {
         // oxlint-disable-next-line no-await-in-loop, promise/avoid-new -- Polling waits are sequential and browser timers require an abortable promise.
         await new Promise<void>((resolve, reject) => {
           const timer = setTimeout(done, Math.min(interval, end - performance.now()));

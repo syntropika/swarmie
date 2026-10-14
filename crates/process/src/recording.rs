@@ -1,4 +1,3 @@
-use swarmie::{Error, Result};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -7,6 +6,7 @@ use std::{
     path::PathBuf,
     sync::Mutex,
 };
+use swarmie::{Error, Result};
 
 #[derive(Clone, Debug)]
 pub struct WireRecording {

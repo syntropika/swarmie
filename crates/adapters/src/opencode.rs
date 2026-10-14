@@ -201,6 +201,14 @@ async fn connect_opencode(
             let (p, m) = m
                 .split_once('/')
                 .ok_or_else(|| Error::Invalid("OpenCode model must be provider/model".into()))?;
+            if o.config["provider"]
+                .as_str()
+                .is_some_and(|provider| provider != p)
+            {
+                return Err(Error::Invalid(
+                    "The selected OpenCode model does not match the connected provider".into(),
+                ));
+            }
             json!({"providerID":p,"modelID":m})
         }
         None => Value::Null,
@@ -986,7 +994,15 @@ fn opencode_context(tokens: &Value, window: Option<u64>) -> ContextUsage {
 }
 fn opencode_env(options: &SpawnOptions) -> Result<BTreeMap<String, String>> {
     let mut env = execution_env(options, Some("OPENCODE_CONFIG_DIR"))?;
-    if options.execution.mcp_servers.is_empty() {
+    if let Some(home) = options.config["nativeAuthDataHome"].as_str() {
+        if env.get("XDG_DATA_HOME").is_some_and(|value| value != home) {
+            return Err(Error::Invalid(
+                "Conflicting OpenCode authentication data directory".into(),
+            ));
+        }
+        env.insert("XDG_DATA_HOME".into(), home.into());
+    }
+    if options.execution.mcp_servers.is_empty() && options.config["provider"].is_null() {
         return Ok(env);
     }
     let inherited = env
@@ -1000,6 +1016,51 @@ fn opencode_env(options: &SpawnOptions) -> Result<BTreeMap<String, String>> {
     let object = config
         .as_object_mut()
         .ok_or_else(|| Error::Invalid("OpenCode inline configuration must be an object".into()))?;
+    if let Some(provider) = options.config["provider"].as_str() {
+        object.insert("enabled_providers".into(), json!([provider]));
+        let variable = match provider {
+            "openai" => Some("OPENAI_API_KEY"),
+            "anthropic" => Some("ANTHROPIC_API_KEY"),
+            "google" => Some("GEMINI_API_KEY"),
+            "xai" => Some("XAI_API_KEY"),
+            "openrouter" => Some("OPENROUTER_API_KEY"),
+            "github-copilot" => None,
+            _ => {
+                return Err(Error::Unsupported(
+                    "Unsupported connected OpenCode provider".into(),
+                ));
+            }
+        };
+        if let Some(variable) = variable {
+            let providers = object
+                .entry("provider")
+                .or_insert(json!({}))
+                .as_object_mut()
+                .ok_or_else(|| {
+                    Error::Invalid("OpenCode providers configuration must be an object".into())
+                })?;
+            let provider_config = providers
+                .entry(provider)
+                .or_insert(json!({}))
+                .as_object_mut()
+                .ok_or_else(|| {
+                    Error::Invalid("OpenCode provider configuration must be an object".into())
+                })?;
+            let native_options = provider_config
+                .entry("options")
+                .or_insert(json!({}))
+                .as_object_mut()
+                .ok_or_else(|| {
+                    Error::Invalid("OpenCode provider options must be an object".into())
+                })?;
+            // Inline config overrides user/project defaults; administrator policy still applies.
+            // The provider expands
+            // this reference in memory instead of persisting a second API key.
+            if options.execution.env.contains_key(variable) {
+                native_options.insert("apiKey".into(), json!(format!("{{env:{variable}}}")));
+            }
+        }
+    }
     let mcp = object
         .entry("mcp")
         .or_insert(json!({}))
@@ -1529,4 +1590,79 @@ fn retained_aliases(
         aliases.insert(canonical.clone(), target.to_string());
     }
     Ok(aliases)
+}
+
+#[cfg(test)]
+mod setup_tests {
+    use super::*;
+    #[test]
+    fn managed_api_profile_selects_provider_and_isolates_native_auth_without_persisting_key() {
+        let root =
+            std::env::temp_dir().join(format!("swarmie-opencode-key-{}", uuid::Uuid::new_v4()));
+        let overlay = crate::setup::providers::credential_overlay(
+            "opencode",
+            "openai",
+            "fixture-openai-key",
+            &root,
+        )
+        .unwrap();
+        let mut options = SpawnOptions::new("opencode", &root);
+        options.execution.config_home = overlay.config_home;
+        options.execution.env = overlay.env;
+        options.config = overlay.config;
+        let env = opencode_env(&options).unwrap();
+        assert_eq!(env["OPENAI_API_KEY"], "fixture-openai-key");
+        assert!(env["XDG_DATA_HOME"].starts_with(&root.to_string_lossy().into_owned()));
+        assert!(env["OPENCODE_CONFIG_DIR"].starts_with(&root.to_string_lossy().into_owned()));
+        let config: Value = serde_json::from_str(&env["OPENCODE_CONFIG_CONTENT"]).unwrap();
+        assert_eq!(config["enabled_providers"], json!(["openai"]));
+        assert_eq!(
+            config["provider"]["openai"]["options"]["apiKey"],
+            "{env:OPENAI_API_KEY}"
+        );
+        assert!(!config.to_string().contains("fixture-openai-key"));
+        options
+            .execution
+            .env
+            .insert("XDG_DATA_HOME".into(), "/different-auth-home".into());
+        assert!(opencode_env(&options).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn existing_account_provider_selection_preserves_native_auth_and_api_configuration() {
+        let root = std::env::temp_dir();
+        let mut options = SpawnOptions::new("opencode", &root);
+        options.config = crate::setup::providers::existing_overlay("opencode", "anthropic")
+            .unwrap()
+            .config;
+        let env = opencode_env(&options).unwrap();
+        assert!(!env.contains_key("XDG_DATA_HOME"));
+        assert!(!env.contains_key("OPENCODE_CONFIG_DIR"));
+        let config: Value = serde_json::from_str(&env["OPENCODE_CONFIG_CONTENT"]).unwrap();
+        assert_eq!(config["enabled_providers"], json!(["anthropic"]));
+        assert!(config["provider"]["anthropic"]["options"]["apiKey"].is_null());
+    }
+    #[test]
+    fn native_copilot_profile_reaches_execution_without_an_api_key_override() {
+        let root =
+            std::env::temp_dir().join(format!("swarmie-opencode-copilot-{}", uuid::Uuid::new_v4()));
+        let data = root.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        let credential = data.join("auth.json");
+        std::fs::write(&credential, b"native-owned-fixture").unwrap();
+        let mut options = SpawnOptions::new("opencode", &root);
+        options.config = crate::setup::providers::existing_overlay("opencode", "github-copilot")
+            .unwrap()
+            .config;
+        options.config["nativeAuthDataHome"] = json!(data);
+        options.execution.config_home = Some(root.join("config"));
+        let env = opencode_env(&options).unwrap();
+        assert_eq!(env["XDG_DATA_HOME"], data.to_string_lossy());
+        let config: Value = serde_json::from_str(&env["OPENCODE_CONFIG_CONTENT"]).unwrap();
+        assert_eq!(config["enabled_providers"], json!(["github-copilot"]));
+        assert!(config["provider"]["github-copilot"]["options"]["apiKey"].is_null());
+        assert!(!env.contains_key("GITHUB_TOKEN"));
+        assert_eq!(std::fs::read(credential).unwrap(), b"native-owned-fixture");
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

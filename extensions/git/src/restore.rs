@@ -1,8 +1,8 @@
 //! Explicit restoration of a retained tree into a clean, managed checkout.
 use crate::{GitExtension, checkpoint, repository::git, required};
-use swarmie::{Error, Result};
 use serde_json::{Value, json};
 use std::path::{Component, Path};
+use swarmie::{Error, Result};
 
 pub async fn restore(extension: &GitExtension, root: &Path, p: &Value) -> Result<Value> {
     let tree = extension.tree(root, p).await?;

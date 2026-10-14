@@ -3,16 +3,16 @@ name: Validate public documentation
 on:
   pull_request:
     paths:
-      - 'apps/docs/**'
-      - 'packages/contracts/**'
-      - 'assets/brandkit/**'
-      - '.github/workflows/docs.yml'
+      - "apps/docs/**"
+      - "packages/contracts/**"
+      - "assets/brandkit/**"
+      - ".github/workflows/docs.yml"
   push:
     paths:
-      - 'apps/docs/**'
-      - 'packages/contracts/**'
-      - 'assets/brandkit/**'
-      - '.github/workflows/docs.yml'
+      - "apps/docs/**"
+      - "packages/contracts/**"
+      - "assets/brandkit/**"
+      - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 permissions:
@@ -28,7 +28,7 @@ jobs:
           submodules: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
           cache-dependency-path: apps/docs/package-lock.json
       - run: npm --prefix apps/docs ci

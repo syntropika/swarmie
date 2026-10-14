@@ -72,8 +72,9 @@ impl Fixture {
         }
     }
     async fn request(&self, method: &str, params: Value) -> Value {
-        self.operations.handle(&self.target.identity.environment_id,
-            json!({"jsonrpc":"2.0","id":1,"method":method,"params":params,"expectedRuntime":self.target})).await
+        // Keep the large dispatcher future off each scenario's stack while preserving real dispatch.
+        Box::pin(self.operations.handle(&self.target.identity.environment_id,
+            json!({"jsonrpc":"2.0","id":1,"method":method,"params":params,"expectedRuntime":self.target}))).await
     }
     async fn raw(&self, method: &str, params: Value) -> Value {
         self.nodes.forward(&self.target.identity.environment_id,

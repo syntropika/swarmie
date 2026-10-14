@@ -1,5 +1,5 @@
-use swarmie::{Error, Result};
 use serde_json::{Value, json};
+use swarmie::{Error, Result};
 
 pub fn validate(config: &Value, descriptors: &Value) -> Result<()> {
     let fields = config

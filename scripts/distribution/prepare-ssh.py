@@ -37,31 +37,43 @@ def extract(archive, directory):
         members = 0
         for member in bundle:
             members += 1
-            if members > 16:
+            if members > 100000:
                 raise ValueError('invalid-package')
             path = PurePosixPath(member.name)
-            if path.is_absolute() or '..' in path.parts or not path.parts:
+            if path.is_absolute() or '..' in path.parts or not path.parts or any('\\' in part or ':' in part for part in path.parts):
                 raise ValueError('invalid-package')
             if root is None:
                 root = path.parts[0]
             if path.parts[0] != root:
                 raise ValueError('invalid-package')
             relative = '/'.join(path.parts[1:])
-            if member.isdir() and relative in ('', 'bin'):
+            support = relative.startswith('agent-tools/')
+            if member.isdir() and (relative in ('', 'bin', 'agent-tools') or support):
                 continue
-            if not member.isfile() or relative not in FILES or relative in found:
+            if not member.isfile() or (relative not in FILES and not support) or relative in found:
                 raise ValueError('invalid-package')
             expanded += member.size
-            if member.size < 0 or expanded > LIMIT or (relative != 'bin/' + EXECUTABLE and member.size > 1024 * 1024):
+            if member.size < 0 or expanded > LIMIT or (relative != 'bin/' + EXECUTABLE and not support and member.size > 1024 * 1024):
                 raise ValueError('invalid-package')
             found.add(relative)
             target = directory / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             with bundle.extractfile(member) as source, target.open('xb') as output:
                 shutil.copyfileobj(source, output)
-            target.chmod(0o700 if relative in ('bin/' + EXECUTABLE, 'install.py') else 0o600)
-        if found != FILES:
+            target.chmod(0o700 if relative in ('bin/' + EXECUTABLE, 'install.py') or support and member.mode & 0o111 else 0o600)
+        if not FILES.issubset(found):
             raise ValueError('invalid-package')
+        metadata = json.loads((directory / 'runtime-package.json').read_text())
+        support_files = metadata.get('supportFiles', {})
+        if not isinstance(support_files, dict) or set(support_files) != found - FILES:
+            raise ValueError('invalid-package')
+        for relative, checksum in support_files.items():
+            with (directory / relative).open('rb') as source:
+                hasher = hashlib.sha256()
+                for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                    hasher.update(chunk)
+            if hasher.hexdigest() != checksum:
+                raise ValueError('invalid-package')
 
 
 def main():

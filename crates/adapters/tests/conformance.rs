@@ -1,8 +1,8 @@
 use adapters::*;
 use futures_util::StreamExt;
-use swarmie::*;
 use serde_json::json;
 use std::{path::PathBuf, time::Duration};
+use swarmie::*;
 fn options(provider: &str) -> SpawnOptions {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
@@ -278,7 +278,14 @@ async fn native_protocols_support_multiple_ordered_turns_and_raw_events() {
                     |e| matches!(&e.kind,EventKind::TextDelta { text,.. } if text.contains("Hello"))
                         && e.raw.is_some()
                 ),
-                "{provider}"
+                "{provider}: {:?}",
+                events
+                    .iter()
+                    .filter_map(|event| match &event.kind {
+                        EventKind::TextDelta { text, .. } => Some(text),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
             );
             for e in events {
                 assert!(e.sequence > sequence);

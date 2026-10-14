@@ -1,11 +1,110 @@
 use async_trait::async_trait;
-use swarmie::*;
 use protocol::RuntimeService;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use swarmie::*;
 use tokio::sync::{Mutex, mpsc};
 
 type Launch = (SessionExecutionOptions, Option<String>);
+#[derive(Default)]
+struct Setup(std::sync::atomic::AtomicBool);
+#[async_trait]
+impl AgentToolSetupPort for Setup {
+    async fn descriptor(&self, harness: &str) -> Result<Value> {
+        Ok(
+            json!({"harness":harness,"installed":true,"authState":"authenticated","storage":{"persistent":false,"description":"Session only"},"providers":[]}),
+        )
+    }
+    async fn start(&self, _: Value) -> Result<Value> {
+        Ok(json!({"id":"flow","status":"connected"}))
+    }
+    async fn flow(&self, _: &str) -> Result<Value> {
+        Ok(json!({"id":"flow","status":"connected"}))
+    }
+    async fn input(&self, _: &str, _: Value) -> Result<Value> {
+        self.flow("flow").await
+    }
+    async fn cancel(&self, _: &str) -> Result<Value> {
+        Ok(json!({"id":"flow","status":"cancelled"}))
+    }
+    async fn disconnect(&self, harness: &str) -> Result<Value> {
+        self.0.store(true, std::sync::atomic::Ordering::Release);
+        self.descriptor(harness).await
+    }
+    async fn execution(&self, _: &str) -> Result<AgentToolExecutionOverlay> {
+        if self.0.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(Error::Invalid("Agent tool is disconnected".into()));
+        }
+        Ok(AgentToolExecutionOverlay {
+            env: BTreeMap::from([("TOKEN".into(), "account-secret".into())]),
+            config: json!({"privateLaunchMarker":"runtime-only"}),
+            ..Default::default()
+        })
+    }
+    async fn shutdown(&self) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn setup_credentials_cover_spawn_resume_fork_and_quota_without_public_persistence() {
+    let peer = Peer::default();
+    let runtime = Runtime::builder().harness(peer.clone()).build();
+    let setup = Arc::new(Setup::default());
+    let service = RuntimeService::new(runtime.clone()).with_agent_tools(setup);
+    let created = call(
+        &service,
+        "session/create",
+        json!({"harness":"fork-peer","cwd":std::env::current_dir().unwrap()}),
+    )
+    .await;
+    assert!(created.get("error").is_none(), "{created}");
+    let id = created["result"]["id"].as_str().unwrap();
+    assert!(!created.to_string().contains("account-secret"));
+    assert!(!created.to_string().contains("runtime-only"));
+    let fork = call(&service, "session/fork", json!({"sessionId":id})).await;
+    assert!(fork.get("error").is_none(), "{fork}");
+    call(&service, "session/close", json!({"sessionId":id})).await;
+    let resumed = call(&service, "session/resume", json!({"sessionId":id})).await;
+    assert!(resumed.get("error").is_none(), "{resumed}");
+    let quota = call(
+        &service,
+        "runtime/quotas",
+        json!({"harness":"fork-peer","cwd":std::env::current_dir().unwrap()}),
+    )
+    .await;
+    assert_eq!(quota["result"]["windows"][0]["usedPercent"], 25);
+    assert_eq!(peer.0.lock().await.len(), 3);
+    for (execution, _) in peer.0.lock().await.iter() {
+        assert_eq!(execution.env["TOKEN"], "account-secret");
+    }
+    let conflict = call(&service,"session/create",json!({"harness":"fork-peer","cwd":std::env::current_dir().unwrap(),"execution":{"env":{"TOKEN":"other-private-secret"}}})).await;
+    assert!(conflict.get("error").is_some());
+    assert!(!conflict.to_string().contains("other-private-secret"));
+    call(
+        &service,
+        "runtime/agentToolsDisconnect",
+        json!({"harness":"fork-peer"}),
+    )
+    .await;
+    assert!(
+        call(&service, "session/resume", json!({"sessionId":id}))
+            .await
+            .get("error")
+            .is_none()
+    );
+    assert!(
+        call(&service, "session/fork", json!({"sessionId":id}))
+            .await
+            .get("error")
+            .is_some()
+    );
+    assert!(
+        !json!(runtime.sessions().await.unwrap())
+            .to_string()
+            .contains("account-secret")
+    );
+}
 #[derive(Clone, Default)]
 struct Peer(Arc<Mutex<Vec<Launch>>>);
 struct Backend(mpsc::Sender<BackendEvent>);

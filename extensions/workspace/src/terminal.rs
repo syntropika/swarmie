@@ -1,4 +1,3 @@
-use swarmie::{Error, Result};
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use serde_json::{Value, json};
 use std::{
@@ -7,6 +6,7 @@ use std::{
     path::Path,
     sync::{Arc, Mutex},
 };
+use swarmie::{Error, Result};
 
 const MAX_OUTPUT: usize = 1024 * 1024;
 #[derive(Default)]

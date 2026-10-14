@@ -1,20 +1,29 @@
 import { expect, it, vi } from "vitest";
+
 import { createTerminalInput } from "./terminal-input";
+import { deferred } from "./test-fixtures";
 
 it("waits for each acknowledged terminal write before sending typed or pasted input", async () => {
-  let acknowledge!: () => void;
-  const send = vi.fn().mockImplementationOnce(
-    () => new Promise<void>((resolve) => { acknowledge = resolve; }),
-  ).mockResolvedValue(undefined);
-  const failed = vi.fn();
+  const acknowledgement = deferred<undefined>();
+  const send = vi
+    .fn<(data: string) => Promise<unknown>>()
+    .mockImplementationOnce(async () => {
+      await acknowledgement.promise;
+    })
+    .mockResolvedValue(undefined);
+  const failed = vi.fn<(error: unknown) => void>();
   const input = createTerminalInput(send, failed);
   input.write("h");
   input.write("e");
   input.write("llo.txt\n");
-  await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+  await vi.waitFor(() => {
+    expect(send).toHaveBeenCalledTimes(1);
+  });
   expect(send.mock.calls).toEqual([["h"]]);
-  acknowledge();
-  await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(3));
+  acknowledgement.resolve(undefined);
+  await vi.waitFor(() => {
+    expect(send).toHaveBeenCalledTimes(3);
+  });
   expect(send.mock.calls).toEqual([["h"], ["e"], ["llo.txt\n"]]);
   expect(failed).not.toHaveBeenCalled();
 });
@@ -22,11 +31,13 @@ it("waits for each acknowledged terminal write before sending typed or pasted in
 it("drops pending input after a failed write or terminal disposal", async () => {
   const error = new Error("Disconnected");
   const send = vi.fn().mockRejectedValue(error);
-  const failed = vi.fn();
+  const failed = vi.fn<(error: unknown) => void>();
   const input = createTerminalInput(send, failed);
   input.write("command");
   input.write("\n");
-  await vi.waitFor(() => expect(failed).toHaveBeenCalledWith(error));
+  await vi.waitFor(() => {
+    expect(failed).toHaveBeenCalledWith(error);
+  });
   input.write("later");
   await Promise.resolve();
   expect(send).toHaveBeenCalledTimes(1);

@@ -48,7 +48,9 @@ impl NodeTransport {
                 {
                     return Err(Error::Invalid("invalid SSH host".into()));
                 }
-                if !socket_path.is_empty() { validate_socket_path(socket_path)?; }
+                if !socket_path.is_empty() {
+                    validate_socket_path(socket_path)?;
+                }
             }
         }
         Ok(())
@@ -77,7 +79,9 @@ impl NodeTransport {
     }
 }
 fn validate_socket_path(path: &str) -> Result<()> {
-    if !(std::path::Path::new(path).is_absolute() || path.starts_with('/') || path.starts_with(r"\\.\pipe\swarmie-"))
+    if !(std::path::Path::new(path).is_absolute()
+        || path.starts_with('/')
+        || path.starts_with(r"\\.\pipe\swarmie-"))
         || path.len() > 8192
         || path.chars().any(char::is_control)
     {

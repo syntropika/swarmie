@@ -33,6 +33,7 @@ pub fn protocol_schema() -> Value {
     let queued = schema::<QueuedPrompt>(&mut output);
     let queue = schema::<PromptQueue>(&mut output);
     let models = schema::<Vec<ModelDescriptor>>(&mut output);
+    let tasks = schema::<Vec<AgentTask>>(&mut output);
     let configuration = schema::<Vec<SettingDescriptor>>(&mut output);
     let receipt = schema::<ConfigurationReceipt>(&mut output);
     let submission = schema::<SubmissionReceipt>(&mut output);
@@ -105,6 +106,47 @@ pub fn protocol_schema() -> Value {
             "runtime/shutdown" => (object(&[], []), unit.clone()),
             "runtime/schema" => (object(&[], []), json!({"type":"object"})),
             "runtime/discover" => (object(&[], []), discovery.clone()),
+            "runtime/agentToolsSetup" | "runtime/agentToolsDisconnect" => (
+                object(&["harness"], [("harness", json!({"type":"string"}))]),
+                agent_tool_descriptor_schema(),
+            ),
+            "runtime/agentToolsInstall" => (
+                object(&["harness"], [("harness", json!({"type":"string"}))]),
+                agent_tool_flow_schema(),
+            ),
+            "runtime/agentToolsConnect" => (
+                object(
+                    &["harness", "provider", "method", "storage", "values"],
+                    [
+                        ("harness", json!({"type":"string"})),
+                        ("provider", json!({"type":"string"})),
+                        ("method", json!({"type":"string"})),
+                        ("storage", json!({"enum":["secure","session"]})),
+                        (
+                            "values",
+                            json!({"type":"object","additionalProperties":{"type":"string","maxLength":16384}}),
+                        ),
+                    ],
+                ),
+                agent_tool_flow_schema(),
+            ),
+            "runtime/agentToolsFlow" | "runtime/agentToolsCancel" => (
+                object(&["id"], [("id", json!({"type":"string"}))]),
+                agent_tool_flow_schema(),
+            ),
+            "runtime/agentToolsInput" => (
+                object(
+                    &["id", "values"],
+                    [
+                        ("id", json!({"type":"string"})),
+                        (
+                            "values",
+                            json!({"type":"object","additionalProperties":{"type":"string","maxLength":16384}}),
+                        ),
+                    ],
+                ),
+                agent_tool_flow_schema(),
+            ),
             "runtime/configuration" => (spawn.clone(), preview.clone()),
             "runtime/probe" => (
                 object(&["harness"], [("harness", json!({"type":"string"}))]),
@@ -201,6 +243,11 @@ pub fn protocol_schema() -> Value {
             "agent/models" => (session(), models.clone()),
             "agent/configuration" => (session(), configuration.clone()),
             "agent/commands" | "agent/quotas" => (session(), json!(true)),
+            "session/tasks" => (session(), tasks.clone()),
+            "session/task/stop" => (
+                json!({"allOf":[session(),object(&["taskId"],[("taskId",json!({"type":"string","minLength":1,"maxLength":4096}))])]}),
+                unit.clone(),
+            ),
             "session/rollback" => (
                 json!({"allOf":[session(),object(&["turns"],[("turns",json!({"type":"integer","minimum":1})),("scope",rollback_scope.clone()),("expectedSequence",json!({"type":"integer","minimum":0}))])]}),
                 unit.clone(),
@@ -216,6 +263,111 @@ pub fn protocol_schema() -> Value {
         definitions.insert(format!("Input{name}"), value);
     }
     json!({"$schema":"https://json-schema.org/draft/2020-12/schema","title":"swarmie runtime protocol","$defs":definitions,"x-protocolVersion":PROTOCOL_VERSION,"x-methods":methods,"x-event":event,"x-requestTarget":request_target})
+}
+fn agent_tool_field_schema() -> Value {
+    object(
+        &["id", "label"],
+        [
+            ("id", json!({"type":"string"})),
+            ("label", json!({"type":"string"})),
+            ("secret", json!({"type":"boolean"})),
+            ("placeholder", json!({"type":"string"})),
+        ],
+    )
+}
+fn agent_tool_flow_schema() -> Value {
+    object(
+        &["id", "status"],
+        [
+            ("id", json!({"type":"string"})),
+            (
+                "status",
+                json!({"enum":["pending","connected","completed","failed","cancelled"]}),
+            ),
+            ("operation", json!({"enum":["install","connect"]})),
+            ("message", json!({"type":"string"})),
+            ("authorizationUrl", json!({"type":"string"})),
+            ("userCode", json!({"type":"string"})),
+            ("expiresAt", json!({"type":"string"})),
+            (
+                "inputFields",
+                json!({"type":"array","items":agent_tool_field_schema()}),
+            ),
+        ],
+    )
+}
+fn agent_tool_descriptor_schema() -> Value {
+    let method = object(
+        &["id", "label", "kind"],
+        [
+            ("id", json!({"type":"string"})),
+            ("label", json!({"type":"string"})),
+            (
+                "kind",
+                json!({"enum":["api_key","browser","device","existing"]}),
+            ),
+            ("help", json!({"type":"string"})),
+            (
+                "fields",
+                json!({"type":"array","items":agent_tool_field_schema()}),
+            ),
+        ],
+    );
+    let provider = object(
+        &["id", "label", "methods"],
+        [
+            ("id", json!({"type":"string"})),
+            ("label", json!({"type":"string"})),
+            ("methods", json!({"type":"array","items":method})),
+        ],
+    );
+    object(
+        &["harness", "installed", "authState", "storage", "providers"],
+        [
+            ("harness", json!({"type":"string"})),
+            ("installed", json!({"type":"boolean"})),
+            ("manual", json!({"type":"boolean"})),
+            (
+                "authState",
+                json!({"enum":["authenticated","unauthenticated","unknown"]}),
+            ),
+            (
+                "storage",
+                object(
+                    &["persistent", "description"],
+                    [
+                        ("persistent", json!({"type":"boolean"})),
+                        ("description", json!({"type":"string"})),
+                    ],
+                ),
+            ),
+            ("providers", json!({"type":"array","items":provider})),
+            ("message", json!({"type":"string"})),
+            ("flow", agent_tool_flow_schema()),
+            (
+                "connection",
+                object(
+                    &["provider", "method", "storage", "verified"],
+                    [
+                        ("provider", json!({"type":"string"})),
+                        ("method", json!({"type":"string"})),
+                        ("storage", json!({"enum":["native","secure","session"]})),
+                        ("verified", json!({"type":"boolean"})),
+                    ],
+                ),
+            ),
+            (
+                "installation",
+                object(
+                    &["supported"],
+                    [
+                        ("supported", json!({"type":"boolean"})),
+                        ("message", json!({"type":"string"})),
+                    ],
+                ),
+            ),
+        ],
+    )
 }
 fn schema<T: JsonSchema>(generator: &mut SchemaGenerator) -> Value {
     generator.subschema_for::<T>().to_value()

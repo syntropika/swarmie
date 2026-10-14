@@ -2,6 +2,7 @@ use super::*;
 use async_trait::async_trait;
 use std::{collections::BTreeMap, sync::Arc};
 use tokio::sync::RwLock;
+mod grok;
 
 pub struct AcpHarness {
     id: String,
@@ -64,7 +65,7 @@ impl Harness for AcpHarness {
         if o.execution.output_schema.is_some() {
             return Err(Error::Unsupported("ACP structured output schema".into()));
         }
-        let environment = execution_env(o, None)?;
+        let environment = execution_env(o, (self.id == "grok").then_some("GROK_HOME"))?;
         let (exe, args) = launch(o, &self.executable, self.args.clone());
         let (wire, mut frames) =
             spawn_json(o, &exe, &args, WireStyle::JsonRpc, environment).await?;
@@ -99,6 +100,12 @@ impl Harness for AcpHarness {
             transports.push("sse");
         }
         capabilities.metadata = BTreeMap::from([("mcpTransports".into(), json!(transports))]);
+        let grok_extensions = grok::Extensions::negotiate(&self.id, &init);
+        if let Some(extensions) = &grok_extensions {
+            extensions.capabilities(&mut capabilities);
+        } else if self.id == "grok" {
+            grok::unqualified(&mut capabilities);
+        }
         let mut params = json!({"cwd":o.cwd,"mcpServers":mcp_servers});
         let method = if let Some(s) = saved {
             if !capabilities.resume.is_available() {
@@ -110,6 +117,9 @@ impl Harness for AcpHarness {
             "session/new"
         };
         let mut result = wire.request(method, params).await?;
+        if grok_extensions.is_some() && init["_meta"]["availableCommands"].is_array() {
+            result["availableCommands"] = init["_meta"]["availableCommands"].clone();
+        }
         capabilities.models = Capability::negotiated(
             result["models"]["availableModels"].is_array() || model_option(&result).is_some(),
         );
@@ -170,6 +180,7 @@ impl Harness for AcpHarness {
                 .as_array()
                 .is_some_and(|methods| methods.iter().any(|m| m["id"] == "cursor_login"));
         let grok = self.id == "grok";
+        let grok_events = grok_extensions.is_some();
         let kiro = self.id == "kiro"
             || init["agentInfo"]["name"]
                 .as_str()
@@ -230,6 +241,12 @@ impl Harness for AcpHarness {
                 if p["sessionId"].as_str().is_some_and(|s| s != session_task) {
                     let _ = tx.send(BackendEvent::content(EventKind::Raw, f)).await;
                     continue;
+                }
+                if grok_events && m == "_x.ai/session_notification" {
+                    let native_active = active_task.read().await.is_some();
+                    for kind in grok::events(p, &session_task, native_active) {
+                        let _ = tx.send(BackendEvent::content(kind, f.clone())).await;
+                    }
                 }
                 if f.get("id").is_some() && f.get("method").is_some() {
                     if (cursor && matches!(m, "cursor/ask_question" | "cursor/create_plan"))
@@ -480,6 +497,7 @@ impl Harness for AcpHarness {
                 configuration,
                 images,
                 tx: backend_tx,
+                grok: grok_extensions,
             }),
         })
     }
@@ -492,9 +510,59 @@ struct AcpBackend {
     configuration: Arc<RwLock<Value>>,
     tx: mpsc::Sender<BackendEvent>,
     images: bool,
+    grok: Option<grok::Extensions>,
 }
 #[async_trait]
 impl AgentBackend for AcpBackend {
+    async fn rollback(&self, turns: u64) -> Result<()> {
+        self.rollback_with(turns, RollbackScope::ConversationOnly)
+            .await
+    }
+    async fn steer(&self, prompt: &Prompt) -> Result<()> {
+        let extensions = self
+            .grok
+            .as_ref()
+            .ok_or_else(|| Error::Unsupported("ACP steering".into()))?;
+        if self.active.read().await.is_none() {
+            return Err(Error::Invalid(
+                "Grok steering requires an active turn".into(),
+            ));
+        }
+        extensions.steer(&self.wire, &self.session, prompt).await
+    }
+    async fn rollback_with(&self, turns: u64, scope: RollbackScope) -> Result<()> {
+        if self.active.read().await.is_some() {
+            return Err(Error::Busy);
+        }
+        self.grok
+            .as_ref()
+            .ok_or_else(|| Error::Unsupported("ACP rollback".into()))?
+            .rollback(&self.wire, &self.session, turns, scope)
+            .await
+    }
+    async fn tasks(&self) -> Result<Vec<AgentTask>> {
+        self.grok
+            .as_ref()
+            .ok_or_else(|| Error::Unsupported("ACP background tasks".into()))?
+            .tasks(&self.wire, &self.session)
+            .await
+    }
+    async fn stop_task(&self, id: &str) -> Result<()> {
+        let extensions = self
+            .grok
+            .as_ref()
+            .ok_or_else(|| Error::Unsupported("ACP background task stop".into()))?;
+        if let Some(task) = extensions.stop_task(&self.wire, &self.session, id).await? {
+            let _ = self
+                .tx
+                .send(BackendEvent::content(
+                    EventKind::TaskUpdated(task),
+                    json!({"provider":"grok","operation":"task/kill"}),
+                ))
+                .await;
+        }
+        Ok(())
+    }
     async fn prompt(&self, p: &Prompt) -> Result<()> {
         let content = p
             .content

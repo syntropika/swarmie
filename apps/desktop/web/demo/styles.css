@@ -1,2 +1,13 @@
-.contribution-demo-notice { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; height: 28px; padding: 5px 12px; font-size: 12px; background: #26362e; color: #dbf4e5; }
-body:has(.contribution-demo-notice) .app-shell { height: calc(100dvh - 28px); }
+.contribution-demo-notice {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  height: 28px;
+  padding: 5px 12px;
+  font-size: 12px;
+  background: #26362e;
+  color: #dbf4e5;
+}
+body:has(.contribution-demo-notice) .app-shell {
+  height: calc(100dvh - 28px);
+}

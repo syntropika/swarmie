@@ -63,12 +63,7 @@
   },
   "typography": {
     "brand_family": "Manrope",
-    "brand_weights": [
-      400,
-      500,
-      600,
-      700
-    ],
+    "brand_weights": [400, 500, 600, 700],
     "source": "https://www.sharanda.com/manrope",
     "wordmark": "custom Swarmie lettering retained from the approved mark",
     "interface": "platform sans serif",

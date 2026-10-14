@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Build a native host, runtime, frontend and verifiable release archive on the current platform."""
 import argparse, hashlib, json, pathlib, platform, shutil, subprocess, tarfile, tempfile, urllib.parse, zipfile
+from agent_tools import copy_agent_tools
 PROJECT=pathlib.Path(__file__).resolve().parents[2]
 def run(command,cwd=PROJECT):subprocess.run([str(x) for x in command],cwd=cwd,check=True)
-def package_native(command, desktop, assets, system):
+def package_native(command, desktop, assets, system, agent_tools=None, host_platform=None):
     if system != 'macos':
         run(command, desktop)
         return
@@ -16,6 +17,8 @@ def package_native(command, desktop, assets, system):
         licenses.mkdir(parents=True, exist_ok=True)
         for filename in ('LICENSE', 'NOTICE'):
             shutil.copy2(PROJECT/filename, licenses/filename)
+        if agent_tools:
+            copy_agent_tools(agent_tools, staged/'agent-tools', host_platform)
         command = list(command)
         command[command.index('--assets')+1] = staged
         run(command, desktop)
@@ -28,6 +31,7 @@ def main():
     parser.add_argument('--identity')
     parser.add_argument('--notary-profile')
     parser.add_argument('--release-base-url',help='HTTPS directory for a generated updater manifest')
+    parser.add_argument('--agent-tools',type=pathlib.Path,help='Include explicitly staged SDK support assets from stage-agent-tools.py')
     args=parser.parse_args()
     system={'Darwin':'macos','Linux':'linux','Windows':'windows'}.get(platform.system())
     if system is None:raise SystemExit('Packaging supports Linux, macOS and Windows.')
@@ -59,7 +63,12 @@ def main():
         command += ['--signing',args.signing]
         if args.identity:command += ['--identity',args.identity]
         if args.notary_profile:command += ['--notarize','--notary-profile',args.notary_profile]
-    package_native(command,desktop,assets,system)
+    if args.agent_tools:
+        package_native(command,desktop,assets,system,args.agent_tools,system+'-'+architecture)
+    else:
+        package_native(command,desktop,assets,system)
+    if args.agent_tools and system in ('linux','windows'):
+        copy_agent_tools(args.agent_tools,bundle/'agent-tools',system+'-'+architecture)
     if system in ('linux','windows'):
         # Project documentation is kept separately from public distribution packages.
         generated_readme=bundle/'README.txt'

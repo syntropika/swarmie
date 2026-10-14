@@ -9,6 +9,7 @@
   "files": [
     "bin",
     "native",
+    "agent-tools",
     "LICENSE",
     "NOTICE"
   ],

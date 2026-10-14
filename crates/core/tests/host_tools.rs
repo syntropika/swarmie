@@ -1,9 +1,5 @@
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use swarmie::{
-    mock::{MockHarness, MockScript, MockStep},
-    *,
-};
 use serde_json::{Value, json};
 use std::{
     path::PathBuf,
@@ -12,6 +8,10 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
+};
+use swarmie::{
+    mock::{MockHarness, MockScript, MockStep},
+    *,
 };
 use tokio::sync::{Mutex, Notify, mpsc};
 
