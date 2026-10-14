@@ -24,13 +24,22 @@ pub enum AccountCommand {
     Cancel { login_id: uuid::Uuid },
     /// Clear local credentials and attempt remote grant revocation.
     Logout,
+    /// List this account's active native sessions, with bounded pagination.
+    Sessions {
+        #[arg(long)]
+        after: Option<uuid::Uuid>,
+    },
+    /// Revoke one native session belonging to the current account.
+    RevokeSession { session_id: uuid::Uuid },
+    /// Revoke every native session, including this installation and pending approved codes.
+    LogoutAll,
     /// Save an app-owned profile name with revision and receipt checks.
     Profile {
         name: String,
         #[arg(long)]
         revision: i64,
         #[arg(long)]
-        request_id: uuid::Uuid,
+        request_id: Option<uuid::Uuid>,
     },
     /// Upload or remove your app-owned profile image.
     Avatar {
@@ -41,7 +50,7 @@ pub enum AccountCommand {
         #[arg(long)]
         revision: i64,
         #[arg(long)]
-        request_id: uuid::Uuid,
+        request_id: Option<uuid::Uuid>,
     },
     /// Stop the account owner; secure grants can be restored and revalidated on restart.
     Stop,
@@ -64,6 +73,27 @@ pub async fn run(root: &Path, command: AccountCommand) -> Result<()> {
             ("account/login/cancel", json!({"loginId":login_id}))
         }
         AccountCommand::Logout => ("account/logout", json!({})),
+        AccountCommand::Sessions { after } => {
+            let account = account_id(root).await?;
+            (
+                "account/sessions/read",
+                json!({"expectedAccountId":account,"after":after}),
+            )
+        }
+        AccountCommand::RevokeSession { session_id } => {
+            let account = account_id(root).await?;
+            (
+                "account/sessions/revoke",
+                json!({"expectedAccountId":account,"sessionId":session_id}),
+            )
+        }
+        AccountCommand::LogoutAll => {
+            let account = account_id(root).await?;
+            (
+                "account/sessions/revoke-all",
+                json!({"expectedAccountId":account}),
+            )
+        }
         AccountCommand::Profile {
             name,
             revision,
@@ -76,7 +106,7 @@ pub async fn run(root: &Path, command: AccountCommand) -> Result<()> {
             .await?;
             (
                 "account/profile/update",
-                json!({"accountId":current["result"]["profile"]["id"],"displayName":name,"expectedRevision":revision,"requestId":request_id}),
+                json!({"accountId":current["result"]["profile"]["id"],"displayName":name,"expectedRevision":revision,"requestId":request_id.unwrap_or_else(uuid::Uuid::now_v7)}),
             )
         }
         AccountCommand::Avatar {
@@ -108,7 +138,7 @@ pub async fn run(root: &Path, command: AccountCommand) -> Result<()> {
             .await?;
             (
                 "account/profile/avatar/update",
-                json!({"accountId":current["result"]["profile"]["id"],"imageBase64":image,"expectedRevision":revision,"requestId":request_id}),
+                json!({"accountId":current["result"]["profile"]["id"],"imageBase64":image,"expectedRevision":revision,"requestId":request_id.unwrap_or_else(uuid::Uuid::now_v7)}),
             )
         }
         AccountCommand::Stop => ("account/owner/stop", json!({})),
@@ -129,4 +159,15 @@ pub async fn run(root: &Path, command: AccountCommand) -> Result<()> {
     }
     println!("{}", serde_json::to_string_pretty(&response["result"])?);
     Ok(())
+}
+async fn account_id(root: &Path) -> Result<uuid::Uuid> {
+    let current = call(
+        root,
+        json!({"jsonrpc":"2.0","id":2,"method":"account/read","params":{}}),
+    )
+    .await?;
+    current["result"]["profile"]["id"]
+        .as_str()
+        .and_then(|value| uuid::Uuid::parse_str(value).ok())
+        .ok_or_else(|| Error::Invalid("sign in before managing account sessions".into()))
 }

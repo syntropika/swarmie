@@ -11,7 +11,6 @@ import {
   GitBranch,
   PanelLeft,
   Settings,
-  UserRound,
   Search,
   Plus,
   Folder,
@@ -57,6 +56,7 @@ import { RequestCard } from "./RequestCard";
 import { SessionControls } from "./SessionControls";
 import { ContextUsage } from "./ContextUsage";
 import { SettingsPage } from "./SettingsPage";
+import { AccountMenu } from "./AccountMenu";
 import { HarnessSelect } from "./HarnessSelect";
 const ExtensionPanel = lazy(() =>
   import("./ExtensionPanel").then((module) => ({
@@ -143,7 +143,7 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
     }
   });
   const [panel, setPanel] = useState<Panel>(null);
-  const [settingsSection, setSettingsSection] = useState<"general" | "account">("general");
+  const [settingsSection, setSettingsSection] = useState<"general" | "account" | "security">("general");
   const [palette, setPalette] = useState(false);
   const [finder, setFinder] = useState(false);
   const [shortcuts, setShortcuts] = useState(readShortcuts);
@@ -561,7 +561,7 @@ function NodeWorkspace({ store, nodes, client }: { store: WorkspaceStore; nodes:
         <IconButton label="Review changes" active={panel === "review"} disabled={!project?.git} onClick={() => { setPanel(panel === "review" ? null : "review"); void perform(() => store.review()); }}><GitBranch size={18} /></IconButton>
         <IconButton label="Workspace tools" active={panel === "extensions"} disabled={!state.extensions.some((e) => e.views?.length)} onClick={() => setPanel(panel === "extensions" ? null : "extensions")}><Layers size={18} /></IconButton>
         <div className="rail-spacer" />
-        <IconButton label="Account" active={panel === "settings" && settingsSection === "account"} onClick={() => { setSettingsSection("account"); setPanel("settings"); }}><UserRound size={18} /></IconButton>
+        <AccountMenu onOpen={(section) => { setSettingsSection(section); setPanel("settings"); }} onNotice={(message) => store.setError(message)} />
         <IconButton label="Settings" active={panel === "settings"} onClick={() => { setSettingsSection("general"); setPanel(panel === "settings" ? null : "settings"); }}><Settings size={18} /></IconButton>
       </nav>
       <aside className="sidebar" aria-label="Projects and chats">

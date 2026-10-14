@@ -4,6 +4,7 @@
 mod cli;
 mod client;
 mod files;
+mod observation;
 use axum::{
     Json,
     extract::{Query, State},
@@ -76,6 +77,7 @@ struct Owner {
     config: Mutex<Configuration>,
     manager: Mutex<Option<Arc<AccountManager>>>,
     stop: tokio_util::sync::CancellationToken,
+    observations: observation::Observations,
 }
 fn account_error(error: swarmie_accounts::Error) -> Error {
     Error::Provider(error.to_string())
@@ -85,6 +87,31 @@ fn unconfigured() -> Value {
 }
 impl Owner {
     async fn invoke(&self, method: &str, params: Value) -> Result<Value> {
+        if method.starts_with("account/owner/") {
+            return self.command(method, params).await;
+        }
+        if method == "account/observe" {
+            return self.observations.observe(params, &self.stop).await;
+        }
+        let result = self.command(method, params).await;
+        self.publish().await;
+        result
+    }
+    async fn publish(&self) {
+        // Keep publication ordered with configuration and all other account commands.
+        let slot = self.manager.lock().await;
+        let value = match slot.as_ref() {
+            Some(manager) => {
+                let mut value = serde_json::to_value(manager.retained_snapshot().await)
+                    .expect("serializable account snapshot");
+                value["configured"] = json!(true);
+                value
+            }
+            None => unconfigured(),
+        };
+        self.observations.publish(value);
+    }
+    async fn command(&self, method: &str, params: Value) -> Result<Value> {
         if method == "account/owner/read" {
             return Ok(json!({"installation":self.endpoint.installation}));
         }
@@ -122,7 +149,9 @@ impl Owner {
             config.origin = Some(origin);
             files::write(&self.directory.join("configuration.json"), &*config)?;
             *slot = Some(manager);
-            return Ok(unconfigured_with(true));
+            let mut value = serde_json::to_value(slot.as_ref().unwrap().retained_snapshot().await)?;
+            value["configured"] = json!(true);
+            return Ok(value);
         }
         let Some(manager) = slot.as_ref() else {
             if method == "account/read" || method == "account/profile/read" {
@@ -133,6 +162,33 @@ impl Owner {
             ));
         };
         match method {
+            "account/sessions/read" => {
+                let request: SessionRead = serde_json::from_value(params)?;
+                Ok(serde_json::to_value(
+                    manager
+                        .sessions(request.expected_account_id, request.after)
+                        .await
+                        .map_err(account_error)?,
+                )?)
+            }
+            "account/sessions/revoke" => {
+                let request: SessionRevoke = serde_json::from_value(params)?;
+                Ok(serde_json::to_value(
+                    manager
+                        .revoke_sessions(request.expected_account_id, Some(request.session_id))
+                        .await
+                        .map_err(account_error)?,
+                )?)
+            }
+            "account/sessions/revoke-all" => {
+                let request: AccountIntent = serde_json::from_value(params)?;
+                Ok(serde_json::to_value(
+                    manager
+                        .revoke_sessions(request.expected_account_id, None)
+                        .await
+                        .map_err(account_error)?,
+                )?)
+            }
             "account/read" | "account/profile/read" => Ok(serde_json::to_value(
                 manager.read().await.map_err(account_error)?,
             )?),
@@ -179,10 +235,22 @@ impl Owner {
         }
     }
 }
-fn unconfigured_with(configured: bool) -> Value {
-    let mut value = unconfigured();
-    value["configured"] = json!(configured);
-    value
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SessionRead {
+    expected_account_id: uuid::Uuid,
+    after: Option<uuid::Uuid>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SessionRevoke {
+    expected_account_id: uuid::Uuid,
+    session_id: uuid::Uuid,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AccountIntent {
+    expected_account_id: uuid::Uuid,
 }
 async fn rpc(
     State(owner): State<Arc<Owner>>,
@@ -234,6 +302,8 @@ async fn callback(
     } else {
         Err(swarmie_accounts::Error::Unauthenticated)
     };
+    drop(slot);
+    owner.publish().await;
     let mut response=match result {Ok(())=>Html("<!doctype html><html lang=\"en\"><title>Swarmie connected</title><h1>You are signed in</h1><p>You can close this browser tab and return to Swarmie.</p></html>").into_response(),Err(_)=>(StatusCode::BAD_REQUEST,"Sign-in could not complete. Start a new sign-in from Swarmie.").into_response()};
     for (name, value) in [
         ("cache-control", "no-store"),
@@ -288,7 +358,9 @@ pub async fn serve(root: &Path) -> Result<()> {
         config: Mutex::new(config),
         manager: Mutex::new(manager),
         stop: stop.clone(),
+        observations: observation::Observations::new(unconfigured()),
     });
+    owner.publish().await;
     let router = axum::Router::new()
         .route("/rpc", post(rpc))
         .route("/account/callback", get(callback))
@@ -299,7 +371,12 @@ pub async fn serve(root: &Path) -> Result<()> {
     let tick_stop = stop.clone();
     let tick = tokio::spawn(async move {
         loop {
-            tokio::select! {_ = tick_stop.cancelled()=>break,_ = tokio::time::sleep(Duration::from_secs(30))=>{let slot=tick_owner.manager.lock().await;if let Some(manager)=slot.as_ref(){manager.tick().await;}}}
+            tokio::select! {_ = tick_stop.cancelled()=>break,_ = tokio::time::sleep(Duration::from_secs(30))=>{
+                let slot=tick_owner.manager.lock().await;
+                if let Some(manager)=slot.as_ref(){manager.tick().await;}
+                drop(slot);
+                tick_owner.publish().await;
+            }}
         }
     });
     let signal = stop.clone();

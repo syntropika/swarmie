@@ -21,6 +21,8 @@ use vault::Vault;
 pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("The account service is busy. Try again in {0} seconds")]
+    RateLimited(u64),
     #[error("Invalid account request or response")]
     Invalid,
     #[error("Account service is unavailable; the request was not replayed")]
@@ -55,6 +57,25 @@ pub struct Snapshot {
     pub profile: Option<AccountProfile>,
     pub persistence: String,
     pub login_id: Option<uuid::Uuid>,
+    pub authorization_url: Option<String>,
+}
+/// Public metadata never includes bearer values, provider references or credential hashes.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountSession {
+    pub id: uuid::Uuid,
+    pub installation_id: uuid::Uuid,
+    pub authenticated_at: String,
+    pub created_at: String,
+    pub last_used_at: String,
+    pub expires_at: String,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionPage {
+    pub current: AccountSession,
+    pub others: Vec<AccountSession>,
+    pub next_cursor: Option<uuid::Uuid>,
 }
 struct Pending {
     id: uuid::Uuid,
@@ -63,6 +84,7 @@ struct Pending {
     callback: String,
     expires: Instant,
     session_only: bool,
+    authorization_url: String,
 }
 struct State {
     blocked: bool,
@@ -72,6 +94,7 @@ struct State {
     generation: u64,
     session_only: bool,
     last_used: Instant,
+    renewal_after: Option<Instant>,
 }
 /// Serializes code redemption, renewal, profile writes and logout under one credential owner.
 pub struct AccountManager {
@@ -124,6 +147,7 @@ impl AccountManager {
             generation: 0,
             session_only: false,
             last_used: Instant::now(),
+            renewal_after: None,
         };
         let manager = Self {
             cloud,
@@ -157,6 +181,7 @@ impl AccountManager {
             }
             .into(),
             login_id: state.pending.as_ref().map(|p| p.id),
+            authorization_url: state.pending.as_ref().map(|p| p.authorization_url.clone()),
         }
     }
     fn expire(state: &mut State) {
@@ -192,6 +217,13 @@ impl AccountManager {
         if credentials.expires_at > now() + 60 {
             return Ok(());
         }
+        if let Some(deadline) = state.renewal_after
+            && deadline > Instant::now()
+        {
+            return Err(Error::RateLimited(
+                deadline.saturating_duration_since(Instant::now()).as_secs() + 1,
+            ));
+        }
         let token = credentials.refresh_token.clone();
         state.blocked = true;
         let result = self
@@ -204,6 +236,12 @@ impl AccountManager {
             )
             .await;
         match result {
+            Err(Error::RateLimited(seconds)) => {
+                // An explicit rejection precedes rotation; preserve the current one-use credential.
+                state.blocked = false;
+                state.renewal_after = Some(Instant::now() + Duration::from_secs(seconds));
+                Err(Error::RateLimited(seconds))
+            }
             Ok(value) => {
                 let credentials: Credentials = match serde_json::from_value(value) {
                     Ok(value) => value,
@@ -219,6 +257,7 @@ impl AccountManager {
                     return Err(error);
                 }
                 state.blocked = false;
+                state.renewal_after = None;
                 Ok(())
             }
             // A renewal's outcome can be uncertain. Never replay its rotating token automatically.
@@ -238,6 +277,7 @@ impl AccountManager {
         state.generation += 1;
         state.vault_unavailable = false;
         state.blocked = false;
+        state.renewal_after = None;
         Ok(())
     }
     pub async fn read(&self) -> Result<Snapshot> {
@@ -287,6 +327,10 @@ impl AccountManager {
         }
         Ok(Self::snapshot(&state))
     }
+    /// Observers receive only retained presentation state; observation never renews credentials.
+    pub async fn retained_snapshot(&self) -> Snapshot {
+        Self::snapshot(&*self.state.lock().await)
+    }
     pub async fn start(&self, callback: String, session_only: bool) -> Result<Value> {
         let mut state = self.state.lock().await;
         Self::expire(&mut state);
@@ -314,6 +358,7 @@ impl AccountManager {
             callback,
             expires: Instant::now() + Duration::from_secs(600),
             session_only,
+            authorization_url: url.clone(),
         });
         state.generation += 1;
         Ok(
@@ -396,6 +441,79 @@ impl AccountManager {
     pub async fn avatar(&self, body: Value) -> Result<Snapshot> {
         self.edit(Method::POST, "/api/native/profile/avatar", body)
             .await
+    }
+    fn expect_account(state: &State, expected: uuid::Uuid) -> Result<()> {
+        if state
+            .credentials
+            .as_ref()
+            .and_then(|credentials| credentials.profile.as_ref())
+            .map(|profile| profile.id)
+            != Some(expected)
+        {
+            return Err(Error::Unauthenticated);
+        }
+        Ok(())
+    }
+    /// Explicit security reads are independent of observation and execution-node state.
+    pub async fn sessions(
+        &self,
+        expected: uuid::Uuid,
+        after: Option<uuid::Uuid>,
+    ) -> Result<SessionPage> {
+        let mut state = self.state.lock().await;
+        Self::expect_account(&state, expected)?;
+        self.ensure(&mut state).await?;
+        let path = after.map_or_else(
+            || "/api/native/sessions".to_owned(),
+            |id| format!("/api/native/sessions?after={id}"),
+        );
+        let token = &state.credentials.as_ref().unwrap().access_token;
+        match self
+            .cloud
+            .request(Method::GET, &path, None, Some(token))
+            .await
+        {
+            Ok(value) => serde_json::from_value(value).map_err(|_| Error::Invalid),
+            Err(Error::Unauthenticated) => {
+                self.clear(&mut state).await?;
+                Err(Error::Unauthenticated)
+            }
+            Err(error) => Err(error),
+        }
+    }
+    /// Revoke one session or all native sessions. An uncertain response is never retried.
+    pub async fn revoke_sessions(
+        &self,
+        expected: uuid::Uuid,
+        session: Option<uuid::Uuid>,
+    ) -> Result<Snapshot> {
+        let mut state = self.state.lock().await;
+        Self::expect_account(&state, expected)?;
+        self.ensure(&mut state).await?;
+        let path = session.map_or_else(
+            || "/api/native/sessions".to_owned(),
+            |id| format!("/api/native/sessions/{id}"),
+        );
+        let token = &state.credentials.as_ref().unwrap().access_token;
+        let value = match self
+            .cloud
+            .request(Method::DELETE, &path, None, Some(token))
+            .await
+        {
+            Ok(value) => value,
+            Err(Error::Unauthenticated) => {
+                self.clear(&mut state).await?;
+                return Err(Error::Unauthenticated);
+            }
+            Err(error) => return Err(error),
+        };
+        let current = value["currentSessionRevoked"]
+            .as_bool()
+            .ok_or(Error::Invalid)?;
+        if current {
+            self.clear(&mut state).await?;
+        }
+        Ok(Self::snapshot(&state))
     }
     async fn edit(&self, method: Method, path: &str, body: Value) -> Result<Snapshot> {
         let mut state = self.state.lock().await;

@@ -1,9 +1,10 @@
 import { AccountSettings } from "./AccountSettings";
+import { AccountSecurity } from "./AccountSecurity";
 import { useState, useEffect } from "react";
 import { NodeSettings } from "./NodeSettings";
 import type { NodeClient, NodesState } from "./nodes";
 import { InputGroup } from "@/components/ui/input-group";
-import { Settings, Bell, Keyboard, Download, Plug, Search, X, UserRound } from "lucide-react";
+import { Settings, Bell, Keyboard, Download, Plug, Search, X, UserRound, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -14,6 +15,7 @@ import type { WorkspaceStore, Workspace } from "./workspace";
 
 const sections = [
   { id: "account", title: "Account", icon: UserRound },
+  { id: "security", title: "Account security", icon: ShieldCheck },
   { id: "general", title: "General", icon: Settings },
   { id: "notifications", title: "Notifications", icon: Bell },
   { id: "import", title: "Import", icon: Download },
@@ -22,7 +24,7 @@ const sections = [
 ] as const;
 
 export function SettingsPage({ store, state, shortcuts, setShortcuts, onClose, client, nodes, initialSection = "general" }: {
-  initialSection?: "general" | "account";
+  initialSection?: "general" | "account" | "security";
   client: NodeClient;
   nodes: NodesState;
   store: WorkspaceStore;
@@ -53,6 +55,7 @@ export function SettingsPage({ store, state, shortcuts, setShortcuts, onClose, c
         <h1>{sections.find((entry) => entry.id === section)?.title}</h1>
         {state.error && <div className="settings-error" role="alert"><p>{state.error}</p><Button variant="ghost" size="icon" aria-label="Dismiss settings error" onClick={() => store.dismissError()}><X size={14} /></Button></div>}
         {section === "account" && <div className="settings-section"><AccountSettings /></div>}
+        {section === "security" && <div className="settings-section"><AccountSecurity onProfile={() => setSection("account")} /></div>}
         {section === "general" && <div className="settings-section"><ChatDirectorySettings store={store} directory={state.chatDirectory} custom={!!state.customChatDirectory} connected={state.connected} /></div>}
         {section === "notifications" && <div className="settings-section settings-notifications">
               {(
