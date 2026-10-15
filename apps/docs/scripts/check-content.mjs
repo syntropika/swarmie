@@ -86,7 +86,7 @@ await Promise.all(
       }
     }),
 );
-const guide = JSON.parse(await readFile(path.join(root, "src/lib/extension-guide.json"), "utf-8"));
+const guide = JSON.parse(await readFile(path.join(root, "lib/extension-guide.json"), "utf-8"));
 const ids = new Set(guide.slots.map((slot) => slot.id));
 const schema = JSON.parse(
   await readFile(path.join(root, "public/contracts/protocol.json"), "utf-8"),

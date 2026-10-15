@@ -1,7 +1,0 @@
-{
-  "extends": "@swarmie/config/ts/native.json",
-  "compilerOptions": {
-    "types": ["react", "react-native", "bun", "vite/client", "uniwind/types"]
-  },
-  "include": ["src", ".storybook"]
-}

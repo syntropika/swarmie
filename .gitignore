@@ -42,15 +42,3 @@
 
 # Editor-specific local configuration.
 /.vscode/
-
-# Generated mobile native projects and staged SDK libraries.
-/apps/mobile/.expo/
-/apps/mobile/ios/
-/apps/mobile/android/
-/sdk/react-native/native/
-/sdk/react-native/android/src/main/jniLibs/
-
-# Local website Worker variables.
-.dev.vars
-.dev.vars.*
-!.dev.vars.example

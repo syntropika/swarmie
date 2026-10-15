@@ -66,21 +66,7 @@ pub struct Schedule {
     pub last_run_at_ms: Option<u64>,
     pub last_result: Option<Value>,
     pub error: Option<String>,
-    #[serde(default)]
-    pub attempts: Vec<ScheduleAttempt>,
 }
-
-/// Delivery history records dispatch facts, never verified task completion.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ScheduleAttempt {
-    pub id: String,
-    pub started_at_ms: u64,
-    pub finished_at_ms: Option<u64>,
-    pub status: String,
-    pub result: Option<Value>,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TargetResult {

@@ -107,9 +107,6 @@ impl ResourcesExtension {
             schedule.status = "interrupted".into();
             schedule.error =
                 Some("Daemon stopped during delivery; inspect before enabling again".into());
-            if let Some(attempt) = schedule.attempts.last_mut() {
-                attempt.status = "interrupted".into();
-            }
         }
         for job in restored
             .jobs
@@ -172,8 +169,6 @@ const COMMANDS: &[(&str, &str, bool)] = &[
     ("schedules.put", "Save schedule", true),
     ("schedules.remove", "Remove schedule", true),
     ("schedules.run", "Run schedule", true),
-    ("schedules.enabled", "Pause or resume schedule", true),
-    ("schedules.cancel", "Cancel future routine deliveries", true),
     ("peers.list", "Peer sessions", false),
     ("peers.spawn", "Spawn peer", true),
     ("peers.read", "Read peer", false),
@@ -233,9 +228,6 @@ impl RuntimeExtension for ResourcesExtension {
         {
             schedule.enabled = false;
             schedule.status = "interrupted".into();
-            if let Some(attempt) = schedule.attempts.last_mut() {
-                attempt.status = "interrupted".into();
-            }
         }
         if let Err(e) = self.persist(&state).await {
             self.record_error(e);
@@ -284,9 +276,10 @@ impl RuntimeExtension for ResourcesExtension {
             }
             "session.create" | "session.resume" | "account.quotas" | "text.generate"
             | "schedules.list" | "schedules.put" | "schedules.remove" | "schedules.run"
-            | "schedules.enabled" | "schedules.cancel" | "peers.list" | "peers.spawn"
-            | "peers.read" | "peers.send" | "fanout.start" | "fanout.status" | "fanout.cancel"
-            | "fanout.list" | "fanout.remove" => self.workflow_command(command, &params).await,
+            | "peers.list" | "peers.spawn" | "peers.read" | "peers.send" | "fanout.start"
+            | "fanout.status" | "fanout.cancel" | "fanout.list" | "fanout.remove" => {
+                self.workflow_command(command, &params).await
+            }
             "usage.dashboard" => self.dashboard(&params).await,
             "tools.list" => Ok(json!({"tools":Self::tool_definitions()})),
             _ => Err(Error::Unsupported(format!("resource command {command}"))),

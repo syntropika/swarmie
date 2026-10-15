@@ -183,7 +183,7 @@ impl ResourcesExtension {
                 let next = p["nextRunAtMs"]
                     .as_u64()
                     .ok_or_else(|| Error::Invalid("nextRunAtMs is required".into()))?;
-                let mut schedule = Schedule {
+                let schedule = Schedule {
                     id: id.clone(),
                     session_id,
                     text: text(p, "text")?.into(),
@@ -191,7 +191,6 @@ impl ResourcesExtension {
                     interval_seconds: interval,
                     enabled: p["enabled"].as_bool().unwrap_or(true),
                     status: "scheduled".into(),
-                    attempts: Vec::new(),
                     last_run_at_ms: None,
                     last_result: None,
                     error: None,
@@ -205,11 +204,6 @@ impl ResourcesExtension {
                     return Err(Error::Busy);
                 }
                 capacity(state.schedules.contains_key(&id), state.schedules.len())?;
-                if let Some(existing) = state.schedules.get(&id) {
-                    schedule.attempts = existing.attempts.clone();
-                    schedule.last_run_at_ms = existing.last_run_at_ms;
-                    schedule.last_result = existing.last_result.clone();
-                }
                 state.schedules.insert(id, schedule.clone());
                 self.persist(&state).await?;
                 Ok(serde_json::to_value(schedule)?)
@@ -229,34 +223,6 @@ impl ResourcesExtension {
                 Ok(json!({"removed":true}))
             }
             "schedules.run" => self.run_schedule(text(p, "id")?).await,
-            "schedules.enabled" | "schedules.cancel" => {
-                let mut state = self.0.state.lock().await;
-                let schedule = state
-                    .schedules
-                    .get_mut(text(p, "id")?)
-                    .ok_or_else(|| Error::Invalid("unknown schedule".into()))?;
-                if schedule.status == "running" {
-                    return Err(Error::Busy);
-                }
-                let enabled = if command == "schedules.cancel" {
-                    false
-                } else {
-                    p["enabled"]
-                        .as_bool()
-                        .ok_or_else(|| Error::Invalid("enabled must be boolean".into()))?
-                };
-                if enabled && matches!(schedule.status.as_str(), "interrupted" | "cancelled") {
-                    return Err(Error::Invalid(
-                        "inspect delivery and create an explicit new schedule".into(),
-                    ));
-                }
-                schedule.enabled = enabled;
-                if command == "schedules.cancel" {
-                    schedule.status = "cancelled".into();
-                }
-                self.persist(&state).await?;
-                Ok(json!({"enabled":enabled}))
-            }
             "fanout.start" => self.start_fanout(p).await,
             "fanout.status" => {
                 let state = self.0.state.lock().await;
@@ -372,16 +338,6 @@ impl ResourcesExtension {
             }
             schedule.status = "running".into();
             schedule.error = None;
-            if schedule.attempts.len() == 64 {
-                schedule.attempts.remove(0);
-            }
-            schedule.attempts.push(ScheduleAttempt {
-                id: uuid::Uuid::new_v4().to_string(),
-                started_at_ms: now(),
-                finished_at_ms: None,
-                status: "dispatching".into(),
-                result: None,
-            });
             let schedule = schedule.clone();
             self.persist(&state).await?;
             schedule
@@ -398,11 +354,6 @@ impl ResourcesExtension {
             .expect("running schedule cannot be removed");
         current.last_run_at_ms = Some(now());
         current.status = if result.is_ok() { "delivered" } else { "error" }.into();
-        if let Some(attempt) = current.attempts.last_mut() {
-            attempt.finished_at_ms = Some(now());
-            attempt.status = current.status.clone();
-            attempt.result = result.as_ref().ok().cloned();
-        }
         match &result {
             Ok(value) => current.last_result = Some(value.clone()),
             Err(error) => current.error = Some(error.to_string()),

@@ -41,13 +41,13 @@ deactivate();
 
 ## Run the implemented demo
 
-The demo lives in `apps/desktop/src/demo`, outside the production application sources. From a checkout:
+The demo lives in `apps/desktop/web/demo`, outside the production application sources. From a checkout:
 
 ```sh
-bun run --cwd apps/desktop dev:demo
+npm --prefix apps/desktop run dev:demo
 ```
 
-Open `/demo/index.html` on that server. To create its separate static distribution, run `bun run --cwd apps/desktop build:demo`; the output is `apps/desktop/demo-dist`. The regular `build:web` command builds the production application only.
+Open `/demo/index.html` on that server. To create its separate static distribution, run `npm --prefix apps/desktop run build:demo`; the output is `apps/desktop/demo-dist`. The regular `build:web` command builds the production application only.
 
 The demo reuses real Swarmie components through client contribution and transcription-provider interfaces, with fixture projects, messages, connection data, and simulated dictation. It never captures microphone audio or contacts a transcription service. Its fixture stores, renderers, and banner styles are excluded from the production build.
 

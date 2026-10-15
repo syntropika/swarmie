@@ -17,7 +17,7 @@ for (const asset of ["public/contracts/protocol.json", "public/brand/swarmie-mon
     try {
       await mkdir(target, { recursive: true });
       await Promise.all(
-        ["scripts", "content", "public", "src"].map((folder) =>
+        ["scripts", "content", "public", "lib", "app"].map((folder) =>
           cp(path.join(docs, folder), path.join(target, folder), { recursive: true }),
         ),
       );

@@ -9,8 +9,6 @@ export default defineConfig({
     ...ultracite.ignorePatterns,
     "**/target/**",
     "docs/**",
-    ".agents/skills/heroui-native/**",
-    ".agents/skills/heroui-react/**",
     "tests/fixtures/**",
     "**/storybook-static/**",
     "**/dist/**",
@@ -23,6 +21,6 @@ export default defineConfig({
   ],
   sortTailwindcss: {
     functions: ["clsx", "cva", "tw", "twMerge", "cn", "twJoin", "tv"],
-    stylesheet: "./packages/config/tailwind/tooling-tokens.css",
+    stylesheet: "./packages/ui/src/styles.css",
   },
 });

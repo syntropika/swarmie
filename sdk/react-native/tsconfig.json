@@ -1,7 +1,0 @@
-{
-  "extends": "@swarmie/config/ts/native.json",
-  "compilerOptions": {
-    "types": ["bun"]
-  },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
-}
