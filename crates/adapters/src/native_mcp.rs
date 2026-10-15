@@ -218,6 +218,9 @@ pub(super) async fn mutate(harness: &str, mutation: &McpMutation) -> Result<Opti
                 .ok_or_else(|| Error::Rejected("Native MCP entry no longer exists".into()))
         })
         .transpose()?;
+    if selected.is_none() && mutation.action != "install" {
+        return Err(Error::Invalid("Choose an existing MCP server".into()));
+    }
     if let Some(entry) = selected {
         if mutation.expected_revision.as_deref() != Some(&entry.revision) {
             return Err(Error::Rejected(

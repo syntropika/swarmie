@@ -92,6 +92,76 @@ async fn native_install_toggle_update_remove_preserve_unrelated_configuration() 
 }
 
 #[tokio::test]
+async fn native_non_install_actions_require_an_id_without_writing_configuration() {
+    let runtime = Runtime::builder()
+        .harness(CodexHarness)
+        .harness(ClaudeHarness)
+        .harness(OpenCodeHarness)
+        .harness(PiHarness)
+        .build();
+    for harness in [
+        Box::new(CodexHarness) as Box<dyn Harness>,
+        Box::new(ClaudeHarness),
+        Box::new(OpenCodeHarness),
+        Box::new(PiHarness),
+    ] {
+        for existing in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let project = temp.path().join("project");
+            fs::create_dir(&project).unwrap();
+            let (filename, contents) = match harness.id() {
+                "codex" => ("config.toml", "[mcp_servers.fixture]\ncommand = 'server'\n"),
+                "claude" => (
+                    ".claude.json",
+                    "{\"mcpServers\":{\"fixture\":{\"command\":\"server\"}}}",
+                ),
+                "pi" => (
+                    "mcp.json",
+                    "{\"mcpServers\":{\"fixture\":{\"command\":\"server\"}}}",
+                ),
+                _ => (
+                    "opencode.json",
+                    "{\"mcp\":{\"fixture\":{\"type\":\"local\",\"command\":[\"server\"]}}}",
+                ),
+            };
+            let path = temp.path().join(filename);
+            if existing {
+                fs::write(&path, contents).unwrap();
+            }
+            let original = fs::read(&path).ok();
+            let files = fs::read_dir(temp.path()).unwrap().count();
+            let query = McpQuery {
+                harness: Some(harness.id().into()),
+                config_home: Some(temp.path().into()),
+                cwd: Some(project.clone()),
+                ..Default::default()
+            };
+            for action in ["enable", "disable", "update", "uninstall", "authenticate"] {
+                let mut request = mutation(&query, action, None);
+                request.origin = Some("native".into());
+                request.name = Some("fixture".into());
+                request.definition = Some(definition());
+                let direct = harness.mcp_mutate(&request).await;
+                assert!(
+                    matches!(direct, Err(Error::Invalid(_))),
+                    "{} {action}: {direct:?}",
+                    harness.id()
+                );
+                let routed = runtime.mcp_mutate(request).await;
+                assert!(
+                    matches!(routed, Err(Error::Invalid(_))),
+                    "{} {action}: {routed:?}",
+                    harness.id()
+                );
+                assert_eq!(fs::read(&path).ok(), original);
+                assert_eq!(fs::read_dir(temp.path()).unwrap().count(), files);
+                assert_eq!(fs::read_dir(&project).unwrap().count(), 0);
+            }
+        }
+    }
+}
+
+#[tokio::test]
 async fn native_credentials_are_hidden_and_preserved_on_edit() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("opencode.jsonc");
