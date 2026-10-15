@@ -194,6 +194,9 @@ export class AgentSession {
       case "rewind_files": {
         return this.query.rewindFiles(params.user_message_id, { dryRun: params.dry_run });
       }
+      case "mcp_status": {
+        return { mcpServers: await this.query.mcpServerStatus() };
+      }
       case "mcp_set_servers": {
         return this.query.setMcpServers(params.servers);
       }

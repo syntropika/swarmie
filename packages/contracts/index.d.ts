@@ -228,6 +228,31 @@ export type InputLocalStoreIdentity = {
   ownerScopeId: string;
   storeId: string;
 };
+export type InputMcpDefinition = {
+  args?: Array<string>;
+  bearerTokenEnvVar?: string | null;
+  command?: string | null;
+  envVars?: Array<string>;
+  headerEnvVars?: {} & Record<string, string>;
+  transport: string;
+  url?: string | null;
+};
+export type InputMcpMutation = {
+  action: string;
+  definition?: InputMcpDefinition | null;
+  expectedRevision?: string | null;
+  id?: string | null;
+  name?: string | null;
+  origin?: string | null;
+  query?: InputMcpQuery;
+  scope?: string | null;
+};
+export type InputMcpQuery = {
+  configHome?: string | null;
+  cwd?: string | null;
+  harness?: string | null;
+  sessionId?: string | null;
+};
 export type InputMcpServer = { name: string; transport: InputMcpTransport };
 export type InputMcpTransport =
   | { args?: Array<string>; command: string; env?: {} & Record<string, string>; type: "stdio" }
@@ -293,6 +318,46 @@ export type InputSpawnOptions = {
 };
 export type InputToolPolicy = "enabled" | "disabled";
 export type LocalStoreIdentity = { environmentId: string; ownerScopeId: string; storeId: string };
+export type McpCatalog = {
+  entries: Array<McpEntry>;
+  limitations: Array<string>;
+  restartSessions: Array<string>;
+};
+export type McpDefinition = {
+  args: Array<string>;
+  bearerTokenEnvVar: string | null;
+  command: string | null;
+  envVars: Array<string>;
+  headerEnvVars: {} & Record<string, string>;
+  transport: string;
+  url: string | null;
+};
+export type McpEntry = {
+  actions: Array<string>;
+  authStatus: string;
+  credentialFields: Array<string>;
+  definition: McpDefinition;
+  enabled: boolean;
+  harness: string | null;
+  id: string;
+  name: string;
+  nativeName: string;
+  origin: string;
+  projectPath: string | null;
+  readOnlyReason: string | null;
+  requiresRestart: boolean;
+  revision: string;
+  runtimeStatus: string;
+  scope: string;
+  source: string | null;
+  tools: Array<string>;
+};
+export type McpReceipt = {
+  action: string;
+  authorizationUrl: string | null;
+  entry: McpEntry | null;
+  restartSessions: Array<string>;
+};
 export type McpServer = { name: string; transport: McpTransport };
 export type McpTransport =
   | { args: Array<string>; command: string; type: "stdio" }
@@ -660,6 +725,9 @@ export interface Methods {
     result: JsonValue;
   };
   "extension/list": { params: Record<string, JsonValue>; result: Array<ExtensionInfo> };
+  "mcp/list": { params: InputMcpQuery; result: McpCatalog };
+  "mcp/mutate": { params: InputMcpMutation; result: McpReceipt };
+  "mcp/reopen": { params: { sessionId: string }; result: SessionSnapshot };
   "permission/respond": { params: { sessionId: string } & InputPermissionResponse; result: null };
   "project/create": { params: InputProjectCreate; result: ProjectRecord };
   "project/get": { params: { projectId: string }; result: ProjectRecord };
@@ -1001,6 +1069,9 @@ export type ContractDefinitions = {
   InputDirectoryRegistration: InputDirectoryRegistration;
   InputHostToolGrant: InputHostToolGrant;
   InputLocalStoreIdentity: InputLocalStoreIdentity;
+  InputMcpDefinition: InputMcpDefinition;
+  InputMcpMutation: InputMcpMutation;
+  InputMcpQuery: InputMcpQuery;
   InputMcpServer: InputMcpServer;
   InputMcpTransport: InputMcpTransport;
   InputNativeHistoryQuery: InputNativeHistoryQuery;
@@ -1017,6 +1088,10 @@ export type ContractDefinitions = {
   InputSpawnOptions: InputSpawnOptions;
   InputToolPolicy: InputToolPolicy;
   LocalStoreIdentity: LocalStoreIdentity;
+  McpCatalog: McpCatalog;
+  McpDefinition: McpDefinition;
+  McpEntry: McpEntry;
+  McpReceipt: McpReceipt;
   McpServer: McpServer;
   McpTransport: McpTransport;
   ModelDescriptor: ModelDescriptor;

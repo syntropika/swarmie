@@ -320,6 +320,15 @@ fn capabilities() -> Capabilities {
 }
 #[async_trait]
 impl Harness for CodexHarness {
+    fn mcp_source_applies(&self, query: &McpQuery, entry: &McpEntry) -> Result<bool> {
+        super::native_mcp::applies("codex", query, entry)
+    }
+    async fn mcp_catalog(&self, query: &McpQuery) -> Result<Vec<McpEntry>> {
+        super::native_mcp::catalog(self.id(), query).await
+    }
+    async fn mcp_mutate(&self, mutation: &McpMutation) -> Result<Option<McpEntry>> {
+        super::native_mcp::mutate(self.id(), mutation).await
+    }
     fn id(&self) -> &str {
         "codex"
     }
@@ -872,6 +881,48 @@ struct CodexBackend {
 }
 #[async_trait]
 impl AgentBackend for CodexBackend {
+    async fn mcp_control(&self, request: Value) -> Result<Value> {
+        match request["action"].as_str() {
+            Some("inspect") => {
+                let mut cursor = Value::Null;
+                let mut rows = vec![];
+                for _ in 0..50 {
+                    let result = self.wire.request("mcpServerStatus/list", json!({"cursor":cursor,"limit":100,"detail":"toolsAndAuthOnly","threadId":self.thread})).await?;
+                    for entry in result["data"].as_array().into_iter().flatten() {
+                        let Some(name) = entry["name"].as_str() else {
+                            continue;
+                        };
+                        let tools: Vec<_> = entry["tools"]
+                            .as_object()
+                            .into_iter()
+                            .flatten()
+                            .map(|(name, _)| name.clone())
+                            .collect();
+                        rows.push(json!({"name":name,"runtimeStatus":entry["runtimeStatus"].as_str().unwrap_or("unknown"),"authStatus":entry["authStatus"].as_str().unwrap_or("unknown"),"tools":tools,"canAuthenticate":entry["authStatus"] == "notLoggedIn"}));
+                    }
+                    let next = result["nextCursor"].clone();
+                    if next.is_null() {
+                        return Ok(json!(rows));
+                    }
+                    if next == cursor {
+                        return Err(Error::Provider(
+                            "Native MCP pagination did not advance".into(),
+                        ));
+                    }
+                    cursor = next;
+                }
+                Err(Error::Provider(
+                    "Native MCP catalog exceeds the supported size".into(),
+                ))
+            }
+            Some("authenticate") => {
+                self.wire
+                    .request("mcpServer/oauth/login", json!({"name":request["name"]}))
+                    .await
+            }
+            _ => Err(Error::Unsupported("Native MCP operation".into())),
+        }
+    }
     async fn prompt(&self, p: &Prompt) -> Result<()> {
         self.submit_native(None, p).await
     }

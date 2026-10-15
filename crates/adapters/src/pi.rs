@@ -48,7 +48,7 @@ fn capabilities() -> Capabilities {
                 "nativeUserEntryFork".into(),
                 json!({"position":"before_user_message","target":"user_entry_id","api":"PiHarness::fork_before_user"}),
             ),
-            ("mcpTransports".into(), json!([])),
+            ("mcpTransports".into(), json!(["stdio", "http"])),
         ]),
         ..Default::default()
     }
@@ -57,6 +57,15 @@ fn capabilities() -> Capabilities {
 impl Harness for PiHarness {
     fn id(&self) -> &str {
         "pi"
+    }
+    fn mcp_source_applies(&self, query: &McpQuery, entry: &McpEntry) -> Result<bool> {
+        super::native_mcp::applies("pi", query, entry)
+    }
+    async fn mcp_catalog(&self, query: &McpQuery) -> Result<Vec<McpEntry>> {
+        super::native_mcp::catalog("pi", query).await
+    }
+    async fn mcp_mutate(&self, mutation: &McpMutation) -> Result<Option<McpEntry>> {
+        super::native_mcp::mutate("pi", mutation).await
     }
     async fn detect(&self) -> Result<Detection> {
         Ok(detection("pi", "pi", capabilities()))
@@ -110,9 +119,6 @@ async fn connect_pi(
     fork: bool,
     entry: Option<&str>,
 ) -> Result<BackendConnection> {
-    if !o.execution.mcp_servers.is_empty() {
-        return Err(Error::Unsupported("Pi native MCP servers".into()));
-    }
     if o.execution.output_schema.is_some() {
         return Err(Error::Unsupported("Pi structured output schema".into()));
     }
@@ -170,7 +176,8 @@ async fn connect_pi(
         args.push("--no-session".into());
     }
     let skills = super::skills::shared(o).skills;
-    let env = execution_env(o, Some("PI_CODING_AGENT_DIR"))?;
+    let mut env = execution_env(o, Some("PI_CODING_AGENT_DIR"))?;
+    let mcp_bridge = super::pi_mcp::prepare(o, &mut args, &mut env).await?;
     let (wire, mut frames) = spawn_json(o, &exe, &args, WireStyle::Pi, env).await?;
     let fork_receipt = if fork {
         let result = match entry {
@@ -185,6 +192,10 @@ async fn connect_pi(
         None
     };
     let state = wire.request("get_state", json!({})).await?;
+    if let Err(error) = super::pi_mcp::inspect(&mcp_bridge) {
+        let _ = wire.kill().await;
+        return Err(error);
+    }
     let id = state["sessionFile"]
         .as_str()
         .or_else(|| state["sessionId"].as_str())
@@ -438,6 +449,7 @@ async fn connect_pi(
         backend: Box::new(PiBackend {
             provider: o.config["provider"].as_str().map(String::from),
             wire,
+            _mcp_bridge: mcp_bridge,
             tx: tx_backend,
             outcome,
             dialogs,
@@ -465,6 +477,7 @@ fn native_context(value: &Value, fallback_window: u64) -> ContextUsage {
 }
 struct PiBackend {
     provider: Option<String>,
+    _mcp_bridge: Option<tempfile::TempDir>,
     wire: JsonProcess,
     tx: mpsc::Sender<BackendEvent>,
     outcome: Arc<RwLock<(TurnOutcome, Option<String>)>>,
@@ -522,6 +535,12 @@ fn params(p: &Prompt, command: Option<&str>) -> Result<Value> {
 }
 #[async_trait]
 impl AgentBackend for PiBackend {
+    async fn mcp_control(&self, request: Value) -> Result<Value> {
+        if request["action"] != "inspect" {
+            return Err(Error::Unsupported("Pi MCP authentication".into()));
+        }
+        super::pi_mcp::inspect(&self._mcp_bridge)
+    }
     async fn prompt(&self, p: &Prompt) -> Result<()> {
         let command = self.skill_command(p).await?;
         let params = params(p, command.as_deref())?;

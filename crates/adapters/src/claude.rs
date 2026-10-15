@@ -271,6 +271,15 @@ fn capabilities() -> Capabilities {
 }
 #[async_trait]
 impl Harness for ClaudeHarness {
+    fn mcp_source_applies(&self, query: &McpQuery, entry: &McpEntry) -> Result<bool> {
+        super::native_mcp::applies("claude", query, entry)
+    }
+    async fn mcp_catalog(&self, query: &McpQuery) -> Result<Vec<McpEntry>> {
+        super::native_mcp::catalog(self.id(), query).await
+    }
+    async fn mcp_mutate(&self, mutation: &McpMutation) -> Result<Option<McpEntry>> {
+        super::native_mcp::mutate(self.id(), mutation).await
+    }
     fn id(&self) -> &str {
         "claude"
     }
@@ -1347,6 +1356,21 @@ impl AgentBackend for ClaudeBackend {
         let connection = self.current.read().await;
         connection.wire.request("prompt", json!({"type":"user","uuid":uuid::Uuid::new_v4().to_string(),"priority":"now","session_id":*connection.id.read().await,"message":{"role":"user","content":content},"parent_tool_use_id":null})).await?;
         Ok(())
+    }
+    async fn mcp_control(&self, request: Value) -> Result<Value> {
+        if request["action"] != "inspect" {
+            return Err(Error::Unsupported(
+                "Claude browser authentication is not qualified through this control channel"
+                    .into(),
+            ));
+        }
+        let wire = self.current.read().await.wire.clone();
+        let result = wire.request("mcp_status", json!({})).await?;
+        Ok(json!(result["mcpServers"].as_array().into_iter().flatten().filter_map(|entry| {
+            let name = entry["name"].as_str()?;
+            let tools: Vec<_> = entry["tools"].as_array().into_iter().flatten().filter_map(|tool| tool["name"].as_str().map(String::from)).collect();
+            Some(json!({"name":name,"runtimeStatus":entry["status"].as_str().unwrap_or("unknown"),"authStatus":if entry["status"] == "needs-auth" {"notLoggedIn"} else {"unknown"},"tools":tools,"canAuthenticate":false}))
+        }).collect::<Vec<_>>()))
     }
     async fn prompt(&self, p: &Prompt) -> Result<()> {
         let _operation = self.operation.lock().await;

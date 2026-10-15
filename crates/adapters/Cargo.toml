@@ -16,6 +16,9 @@ uuid.workspace = true
 futures-util.workspace = true
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 time = { version = "0.3", features = ["parsing"] }
+toml_edit = { version = "0.25", features = ["serde"] }
+jsonc-parser = { version = "0.34", features = ["cst", "serde"] }
+url = "2"
 serde.workspace = true
 keyring-core = "1.0.1"
 sha2 = "0.10"
@@ -30,6 +33,9 @@ apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-native-keyring-store = "1.1.0"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 storage = { path = "../storage" }

@@ -131,7 +131,13 @@ async fn unsupported_execution_options_never_silently_start_a_provider() {
         },
     };
     let mut pi = fixture.options("pi");
-    pi.execution.mcp_servers.push(server.clone());
+    pi.execution.mcp_servers.push(McpServer {
+        name: server.name.clone(),
+        transport: McpTransport::Sse {
+            url: "http://127.0.0.1:1234/sse".into(),
+            headers: BTreeMap::new(),
+        },
+    });
     assert!(matches!(
         PiHarness.connect(&pi, None, false).await,
         Err(Error::Unsupported(_))

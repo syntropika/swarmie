@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useId, useRef } from "react";
+import { useEffect, useState, useCallback, useId } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Disclosure } from "@/components/ui/disclosure";
@@ -16,7 +16,8 @@ let nextResourceOwner = 0;
 function resourceOwner(store: WorkspaceStore) {
   let owner = resourceOwners.get(store);
   if (owner === undefined) {
-    owner = ++nextResourceOwner;
+    nextResourceOwner += 1;
+    owner = nextResourceOwner;
     resourceOwners.set(store, owner);
   }
   return owner;
@@ -110,16 +111,19 @@ export type NativeSkillCommand = {
 function selectNativeSkill(store: WorkspaceStore, thread: Thread, command: NativeSkillCommand) {
   if (
     command.source !== "skill" ||
-    !command.path ||
+    !hasText(command.path) ||
     command.enabled === false ||
     command.userInvocable === false ||
-    (command.availability && command.availability !== "advertised") ||
+    (hasText(command.availability) && command.availability !== "advertised") ||
     thread.capabilities?.nativeSkillInputs?.availability !== "available"
-  )
+  ) {
     return;
-  const skill = { name: command.name.replace(/^[/$]/, ""), path: command.path };
+  }
+  const skill = { name: command.name.replace(/^[/$]/u, ""), path: command.path };
   const current = store.getSnapshot().threads.find((item) => item.id === thread.id);
-  if (!current) return;
+  if (!current) {
+    return;
+  }
   const multiple = thread.harness === "codex";
   store.updateThread(thread.id, {
     contextItems: [
@@ -152,7 +156,97 @@ type Resource = {
   conflicts?: string[];
   diagnostics?: string[];
 };
-export function ResourceLibrary({ store, thread }: { store: WorkspaceStore; thread: Thread }) {
+export function ResourceLibrary(props: { store: WorkspaceStore; thread: Thread }) {
+  const { store, thread } = props;
+  const key = JSON.stringify([
+    resourceOwner(store),
+    thread.id,
+    thread.worktreeId,
+    thread.sessionId,
+    thread.harness,
+    thread.commandsRevision,
+  ]);
+  return <ResourceLibraryContent key={key} {...props} />;
+}
+
+function ResourcePreview({
+  read,
+  store,
+  thread,
+}: {
+  read: { path: string; text: string; resource: Resource };
+  store: WorkspaceStore;
+  thread: Thread;
+}) {
+  return (
+    <Disclosure defaultOpen>
+      <Disclosure.Summary>{read.path}</Disclosure.Summary>
+      <pre className="action-output">{read.text}</pre>
+      {read.resource.diagnostics?.map((message) => (
+        <p key={message} className="panel-note">
+          {message}
+        </p>
+      ))}
+      {(read.resource.conflicts?.length ?? 0) > 0 && (
+        <p className="panel-note">
+          Other skills share this name. Inspect their paths before choosing a native skill.
+        </p>
+      )}
+      {read.resource.kind === "skill" && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={
+            read.resource.availability !== "advertised" ||
+            read.resource.userInvocable === false ||
+            thread.capabilities?.nativeSkillInputs?.availability !== "available"
+          }
+          onClick={() => {
+            selectNativeSkill(store, thread, {
+              ...read.resource,
+              ...read.resource.selection,
+              source: "skill",
+            });
+            const current = store.getSnapshot().threads.find((item) => item.id === thread.id);
+            if (current && !hasText(current.draft?.trim())) {
+              store.updateThread(thread.id, {
+                draft: read.resource.invocation ?? `$${read.resource.name} `,
+              });
+            }
+            window.dispatchEvent(
+              new CustomEvent("swarmie:composer-text", { detail: { threadId: thread.id } }),
+            );
+          }}
+        >
+          Use native skill
+        </Button>
+      )}
+      <Button
+        size="sm"
+        type="button"
+        variant="ghost"
+
+        onClick={() => {
+          try {
+            store.addContext(thread.id, {
+              kind: "resource",
+              label: read.path.split("/").at(-1) ?? read.path,
+              text: read.text,
+              path: read.path,
+            });
+          } catch (error) {
+            store.setError(error);
+          }
+        }}
+      >
+        Attach instructions as text
+      </Button>
+    </Disclosure>
+  );
+}
+
+function ResourceLibraryContent({ store, thread }: { store: WorkspaceStore; thread: Thread }) {
   const fieldPrefix = useId();
 
   const [name, setName] = useState("");
@@ -186,18 +280,6 @@ export function ResourceLibrary({ store, thread }: { store: WorkspaceStore; thre
     },
     [store],
   );
-  const discoveryRevision = useRef(0);
-  const scope = JSON.stringify([
-    thread.id,
-    thread.worktreeId,
-    thread.sessionId,
-    thread.harness,
-    thread.commandsRevision,
-  ]);
-  useEffect(() => {
-    discoveryRevision.current++;
-    setRead(undefined);
-  }, [store, scope]);
   const fetchCatalog = useCallback(async () => {
     const [saved, found] = await Promise.all([
       store.invokeExtension<{ templates: Template[] }>(
@@ -261,7 +343,7 @@ export function ResourceLibrary({ store, thread }: { store: WorkspaceStore; thre
       resources: found.resources,
       limitations: found.limitations,
     };
-  }, [store, thread.harness, thread.worktreeId, thread.sessionId, thread.commandsRevision]);
+  }, [store, thread.harness, thread.worktreeId, thread.sessionId]);
   const catalog = useExtensionQuery(
     store,
     [
@@ -345,8 +427,7 @@ export function ResourceLibrary({ store, thread }: { store: WorkspaceStore; thre
 
             title={r.path}
             onClick={() => {
-              void run(async () => {
-                const revision = discoveryRevision.current;
+              run(async () => {
                 const value = await store.invokeExtension(
                   "resources",
                   "resources.read",
@@ -361,9 +442,8 @@ export function ResourceLibrary({ store, thread }: { store: WorkspaceStore; thre
                     required: ["path", "text"],
                   }),
                 );
-                if (revision === discoveryRevision.current)
-                  setRead({ ...value, resource: r, owner: store, scope });
-              });
+                setRead({ ...value, resource: r, owner: store, scope: "" });
+              }).catch(store.setError.bind(store));
             }}
           >
             {r.name}
@@ -372,71 +452,7 @@ export function ResourceLibrary({ store, thread }: { store: WorkspaceStore; thre
             </span>
           </Button>
         ))}
-      {read && read.owner === store && read.scope === scope && (
-        <Disclosure defaultOpen>
-          <Disclosure.Summary>{read.path}</Disclosure.Summary>
-          <pre className="action-output">{read.text}</pre>
-          {read.resource.diagnostics?.map((message) => (
-            <p key={message} className="panel-note">
-              {message}
-            </p>
-          ))}
-          {!!read.resource.conflicts?.length && (
-            <p className="panel-note">
-              Other skills share this name. Inspect their paths before choosing a native skill.
-            </p>
-          )}
-          {read.resource.kind === "skill" && (
-            <Button
-              type="button"
-              variant="ghost"
-              className="small-button"
-              disabled={
-                read.resource.availability !== "advertised" ||
-                read.resource.userInvocable === false ||
-                thread.capabilities?.nativeSkillInputs?.availability !== "available"
-              }
-              onClick={() => {
-                selectNativeSkill(store, thread, {
-                  ...read.resource,
-                  ...read.resource.selection,
-                  source: "skill",
-                });
-                const current = store.getSnapshot().threads.find((item) => item.id === thread.id);
-                if (current && !current.draft?.trim())
-                  store.updateThread(thread.id, {
-                    draft: read.resource.invocation ?? `$${read.resource.name} `,
-                  });
-                window.dispatchEvent(
-                  new CustomEvent("swarmie:composer-text", { detail: { threadId: thread.id } }),
-                );
-              }}
-            >
-              Use native skill
-            </Button>
-          )}
-          <Button
-            size="sm"
-            type="button"
-            variant="ghost"
-
-            onClick={() => {
-              try {
-                store.addContext(thread.id, {
-                  kind: "resource",
-                  label: read.path.split("/").at(-1) ?? read.path,
-                  text: read.text,
-                  path: read.path,
-                });
-              } catch (error) {
-                store.setError(error);
-              }
-            }}
-          >
-            Attach instructions as text
-          </Button>
-        </Disclosure>
-      )}
+      {read !== undefined && <ResourcePreview read={read} store={store} thread={thread} />}
       {limitations.map((message) => (
         <p key={message} className="panel-note">
           {message}
@@ -792,7 +808,7 @@ function SlashCommandsContent({
       cancelled = true;
       window.removeEventListener("swarmie:templates", refresh);
     };
-  }, [queryEnabled, scope, store]);
+  }, [queryEnabled, scope, store, thread.sessionId]);
 
   if (query === undefined) {
     return null;
@@ -874,18 +890,18 @@ function SlashCommandsContent({
             title={command.path ?? command.availability}
             disabled={
               command.source === "skill" &&
-              (!command.path ||
+              (!hasText(command.path) ||
                 thread.capabilities?.nativeSkillInputs?.availability !== "available" ||
                 (command.availability !== undefined && command.availability !== "advertised"))
             }
             onClick={() => {
               selectNativeSkill(store, thread, command);
-              choose(command.invocation ?? `/${command.name.replace(/^[/$]/, "")} `);
+              choose(command.invocation ?? `/${command.name.replace(/^[/$]/u, "")} `);
             }}
           >
             {command.source === "skill"
               ? `$${command.name}`
-              : (command.invocation ?? `/${command.name.replace(/^[/$]/, "")}`).trim()}
+              : (command.invocation ?? `/${command.name.replace(/^[/$]/u, "")}`).trim()}
             <span className="muted">
               {command.source === "skill"
                 ? `Native skill · ${command.scope ?? command.path ?? "session"}`

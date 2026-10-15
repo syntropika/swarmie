@@ -195,6 +195,31 @@ class InputLocalStoreIdentity(TypedDict):
     ownerScopeId: str
     storeId: str
 
+class InputMcpDefinition(TypedDict):
+    args: NotRequired[list[str]]
+    bearerTokenEnvVar: NotRequired[Union[str, None]]
+    command: NotRequired[Union[str, None]]
+    envVars: NotRequired[list[str]]
+    headerEnvVars: NotRequired[dict[str, str]]
+    transport: str
+    url: NotRequired[Union[str, None]]
+
+class InputMcpMutation(TypedDict):
+    action: str
+    definition: NotRequired[Union[InputMcpDefinition, None]]
+    expectedRevision: NotRequired[Union[str, None]]
+    id: NotRequired[Union[str, None]]
+    name: NotRequired[Union[str, None]]
+    origin: NotRequired[Union[str, None]]
+    query: NotRequired[InputMcpQuery]
+    scope: NotRequired[Union[str, None]]
+
+class InputMcpQuery(TypedDict):
+    configHome: NotRequired[Union[str, None]]
+    cwd: NotRequired[Union[str, None]]
+    harness: NotRequired[Union[str, None]]
+    sessionId: NotRequired[Union[str, None]]
+
 class InputMcpServer(TypedDict):
     name: str
     transport: InputMcpTransport
@@ -260,6 +285,46 @@ class LocalStoreIdentity(TypedDict):
     environmentId: str
     ownerScopeId: str
     storeId: str
+
+class McpCatalog(TypedDict):
+    entries: list[McpEntry]
+    limitations: list[str]
+    restartSessions: list[str]
+
+class McpDefinition(TypedDict):
+    args: list[str]
+    bearerTokenEnvVar: Union[str, None]
+    command: Union[str, None]
+    envVars: list[str]
+    headerEnvVars: dict[str, str]
+    transport: str
+    url: Union[str, None]
+
+class McpEntry(TypedDict):
+    actions: list[str]
+    authStatus: str
+    credentialFields: list[str]
+    definition: McpDefinition
+    enabled: bool
+    harness: Union[str, None]
+    id: str
+    name: str
+    nativeName: str
+    origin: str
+    projectPath: Union[str, None]
+    readOnlyReason: Union[str, None]
+    requiresRestart: bool
+    revision: str
+    runtimeStatus: str
+    scope: str
+    source: Union[str, None]
+    tools: list[str]
+
+class McpReceipt(TypedDict):
+    action: str
+    authorizationUrl: Union[str, None]
+    entry: Union[McpEntry, None]
+    restartSessions: list[str]
 
 class McpServer(TypedDict):
     name: str
@@ -582,4 +647,4 @@ UiCondition = Literal['connected', 'conversation', 'project', 'message', 'panel'
 UiContributionKind = Literal['action', 'text', 'section']
 UiIcon = Literal['microphone', 'stop', 'spinner', 'extension']
 UiSlot = Literal['sidebar.primary', 'sidebar.footer', 'app.header.actions', 'conversation.header.actions', 'composer.actions', 'composer.context', 'composer.status', 'message.actions', 'message.details', 'project.actions', 'project.contextMenu', 'conversation.contextMenu', 'panel.toolbar', 'panel.status', 'settings.sections']
-METHODS = ('agent/commands', 'agent/configuration', 'agent/configure', 'agent/kill', 'agent/models', 'agent/quotas', 'agent/spawn', 'directory/get', 'directory/register', 'extension/invoke', 'extension/list', 'permission/respond', 'project/create', 'project/get', 'project/list', 'project/update', 'runtime/agentToolsCancel', 'runtime/agentToolsConnect', 'runtime/agentToolsDisconnect', 'runtime/agentToolsFlow', 'runtime/agentToolsInput', 'runtime/agentToolsInstall', 'runtime/agentToolsSetup', 'runtime/configuration', 'runtime/discover', 'runtime/generate', 'runtime/history', 'runtime/history/read', 'runtime/initialize', 'runtime/probe', 'runtime/quotas', 'runtime/quotas/all', 'runtime/schema', 'runtime/shutdown', 'session/cancel', 'session/close', 'session/compact', 'session/context', 'session/create', 'session/events', 'session/fork', 'session/get', 'session/import', 'session/list', 'session/metadata', 'session/prompt', 'session/queue', 'session/queue/list', 'session/queue/pause', 'session/queue/remove', 'session/queue/update', 'session/resume', 'session/rollback', 'session/steer', 'session/submission', 'session/submission/reconcile', 'session/task/stop', 'session/tasks', 'session/transcript', 'session/tree', 'settings/directory', 'settings/setDirectory')
+METHODS = ('agent/commands', 'agent/configuration', 'agent/configure', 'agent/kill', 'agent/models', 'agent/quotas', 'agent/spawn', 'directory/get', 'directory/register', 'extension/invoke', 'extension/list', 'mcp/list', 'mcp/mutate', 'mcp/reopen', 'permission/respond', 'project/create', 'project/get', 'project/list', 'project/update', 'runtime/agentToolsCancel', 'runtime/agentToolsConnect', 'runtime/agentToolsDisconnect', 'runtime/agentToolsFlow', 'runtime/agentToolsInput', 'runtime/agentToolsInstall', 'runtime/agentToolsSetup', 'runtime/configuration', 'runtime/discover', 'runtime/generate', 'runtime/history', 'runtime/history/read', 'runtime/initialize', 'runtime/probe', 'runtime/quotas', 'runtime/quotas/all', 'runtime/schema', 'runtime/shutdown', 'session/cancel', 'session/close', 'session/compact', 'session/context', 'session/create', 'session/events', 'session/fork', 'session/get', 'session/import', 'session/list', 'session/metadata', 'session/prompt', 'session/queue', 'session/queue/list', 'session/queue/pause', 'session/queue/remove', 'session/queue/update', 'session/resume', 'session/rollback', 'session/steer', 'session/submission', 'session/submission/reconcile', 'session/task/stop', 'session/tasks', 'session/transcript', 'session/tree', 'settings/directory', 'settings/setDirectory')

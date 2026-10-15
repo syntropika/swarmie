@@ -1215,7 +1215,12 @@ async fn session_skill_discovery_uses_the_execution_owner_home() {
         .insert("HOME".into(), home.path().to_string_lossy().into_owned());
     let agent = runtime.spawn(options).await.unwrap();
     assert!(agent.snapshot().await.options.execution.env.is_empty());
-    let discovered = call(&runtime, "resources.list", json!({"sessionId":agent.snapshot().await.id})).await;
+    let discovered = call(
+        &runtime,
+        "resources.list",
+        json!({"sessionId":agent.snapshot().await.id}),
+    )
+    .await;
     let resource = discovered["resources"]
         .as_array()
         .unwrap()

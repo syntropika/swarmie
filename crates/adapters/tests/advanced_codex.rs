@@ -81,8 +81,15 @@ async fn execution_maps_mcp_credentials_and_native_turn_policy() {
     options.config["approvalsReviewer"] = json!("auto_review");
     let selected_skill = fixture.0.join("second/SKILL.md");
     std::fs::create_dir_all(selected_skill.parent().unwrap()).unwrap();
-    std::fs::write(&selected_skill, "---\nname: same-name\ndescription: Test native selected input.\n---\nRun the fixture.\n").unwrap();
-    options.execution.env.insert("SWARMIE_SELECTED_SKILL".into(), selected_skill.to_string_lossy().into_owned());
+    std::fs::write(
+        &selected_skill,
+        "---\nname: same-name\ndescription: Test native selected input.\n---\nRun the fixture.\n",
+    )
+    .unwrap();
+    options.execution.env.insert(
+        "SWARMIE_SELECTED_SKILL".into(),
+        selected_skill.to_string_lossy().into_owned(),
+    );
     let mut connection = CodexHarness.connect(&options, None, false).await.unwrap();
     connection
         .backend

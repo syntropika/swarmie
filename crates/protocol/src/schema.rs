@@ -13,6 +13,10 @@ pub fn protocol_schema() -> Value {
         .into_generator();
     let spawn = input_schema::<SpawnOptions>(&mut input);
     let execution = input_schema::<SessionExecutionOptions>(&mut input);
+    let mcp_query = input_schema::<McpQuery>(&mut input);
+    let mcp_mutation = input_schema::<McpMutation>(&mut input);
+    let mcp_catalog = schema::<McpCatalog>(&mut output);
+    let mcp_receipt = schema::<McpReceipt>(&mut output);
     let permission = input_schema::<PermissionResponse>(&mut input);
     let history_query = input_schema::<NativeHistoryQuery>(&mut input);
     let history_sessions = schema::<Vec<NativeHistorySession>>(&mut output);
@@ -105,6 +109,9 @@ pub fn protocol_schema() -> Value {
             ),
             "runtime/shutdown" => (object(&[], []), unit.clone()),
             "runtime/schema" => (object(&[], []), json!({"type":"object"})),
+            "mcp/reopen" => (session(), snapshot.clone()),
+            "mcp/list" => (mcp_query.clone(), mcp_catalog.clone()),
+            "mcp/mutate" => (mcp_mutation.clone(), mcp_receipt.clone()),
             "runtime/discover" => (object(&[], []), discovery.clone()),
             "runtime/agentToolsSetup" | "runtime/agentToolsDisconnect" => (
                 object(&["harness"], [("harness", json!({"type":"string"}))]),

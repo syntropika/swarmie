@@ -72,6 +72,17 @@ for line in sys.stdin:
             ledger[thread] = history if method == "thread/fork" else []
             save(ledger)
         response(request, {"thread": {"id": thread}, "model": params.get("model") or "reasoning", "approvalPolicy": "on-request", "approvalsReviewer": params.get("approvalsReviewer", "user"), "sandbox": {"type": "readOnly"}, "reasoningEffort": "medium"})
+    elif method == "mcpServerStatus/list":
+        assert params["threadId"] == thread
+        assert params["detail"] == "toolsAndAuthOnly"
+        assert params["limit"] == 100
+        if params.get("cursor"):
+            response(request, {"data": [{"name": "plugin-server", "pluginId": "fixture-plugin", "runtimeStatus": "connected", "authStatus": "unsupported", "tools": {"plugin_read": {"inputSchema": {"privateMetadata": "hidden-tool-schema"}}}}], "nextCursor": None})
+        else:
+            response(request, {"data": [{"name": "fixture", "runtimeStatus": "authenticationRequired", "authStatus": "notLoggedIn", "tools": {"fixture_read": {"inputSchema": {"privateMetadata": "hidden-tool-schema"}}}}], "nextCursor": "second"})
+    elif method == "mcpServer/oauth/login":
+        assert params["name"] == "fixture"
+        response(request, {"authorizationUrl": "https://auth.example.test/authorize"})
     elif method == "thread/read":
         response(request, {"thread": {"id": params["threadId"], "turns": load()[params["threadId"]]}})
     elif method == "model/list":

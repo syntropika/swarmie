@@ -5,9 +5,12 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 
+import { newThread } from "./protocol";
 import type { Thread } from "./protocol";
 import { ResourceLibrary, SlashCommands } from "./resource-library";
-import type { WorkspaceStore } from "./workspace";
+import { deferred } from "./test-fixtures";
+import { WorkspaceStore } from "./workspace";
+
 function render(ui: ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   return testingRender(ui, {
@@ -19,26 +22,38 @@ function render(ui: ReactNode) {
 afterEach(cleanup);
 
 function fixture(harness = "codex") {
-  let thread = {
+  let thread: Thread = {
+    ...newThread("project", "/project", harness),
     id: "thread",
     sessionId: "session",
-    worktreeId: "/project",
-    harness,
     draft: "/check",
-    capabilities: { nativeSkillInputs: { availability: "available" } },
+    capabilities: {
+      nativeSkillInputs: { availability: "available", source: "harness", evidence: "negotiated" },
+    },
     contextItems: [],
-  } as unknown as Thread;
-  const store = {
-    getSnapshot: () => ({ threads: [thread], extensions: [] }),
-    updateThread: vi.fn((_id, update) => {
-      thread = { ...thread, ...update };
-    }),
-    rpc: vi.fn(),
-    invokeExtension: vi.fn(),
-    setError: vi.fn(),
-    addContext: vi.fn(),
   };
-  return { store: store as unknown as WorkspaceStore, api: store, thread, current: () => thread };
+  const store = new WorkspaceStore();
+  const initial = store.getSnapshot();
+  vi.spyOn(store, "getSnapshot").mockImplementation(() => ({
+    ...initial,
+    threads: [thread],
+    extensions: [],
+  }));
+  const updateThread = vi.spyOn(store, "updateThread").mockImplementation((_id, update) => {
+    thread = { ...thread, ...update };
+  });
+  const rpc = vi.fn();
+  const invokeExtension = vi.fn();
+  vi.spyOn(store, "rpc").mockImplementation(rpc);
+  vi.spyOn(store, "invokeExtension").mockImplementation(invokeExtension);
+  const setError = vi.spyOn(store, "setError").mockImplementation(() => {});
+  const addContext = vi.spyOn(store, "addContext").mockImplementation(() => {});
+  return {
+    store,
+    api: { rpc, invokeExtension, updateThread, setError, addContext },
+    thread,
+    current: () => thread,
+  };
 }
 
 it("keeps two same-name native origins selectable and preserves the chosen exact path", async () => {
@@ -61,7 +76,7 @@ it("keeps two same-name native origins selectable and preserves the chosen exact
       availability: "advertised",
     },
   ]);
-  const setText = vi.fn();
+  const setText = vi.fn<(value: string) => void>();
   render(<SlashCommands thread={f.thread} store={f.store} setText={setText} />);
   const user = userEvent.setup();
   await user.click(await screen.findByRole("button", { name: "$check Native skill · user" }));
@@ -83,11 +98,11 @@ it("uses the advertised Claude alias while retaining the original skill name and
       availability: "advertised",
     },
   ]);
-  const setText = vi.fn();
+  const setText = vi.fn<(value: string) => void>();
   render(<SlashCommands thread={f.thread} store={f.store} setText={setText} />);
   await userEvent
     .setup()
-    .click(await screen.findByRole("button", { name: /\$check Native skill/ }));
+    .click(await screen.findByRole("button", { name: /\$check Native skill/u }));
   expect(f.current().contextItems?.[0].skill).toEqual({
     name: "check",
     path: "/canonical/check/SKILL.md",
@@ -102,15 +117,15 @@ it("does not offer stale or model-only skills and disables origins without a pat
     { name: "check-model", source: "skill", path: "/model", userInvocable: false },
     { name: "check-unknown", source: "skill", availability: "origin-unverified" },
   ]);
-  render(<SlashCommands thread={f.thread} store={f.store} setText={vi.fn()} />);
-  const unknown = await screen.findByRole("button", { name: /check-unknown/ });
-  expect((unknown as HTMLButtonElement).disabled).toBe(true);
-  expect(screen.queryByRole("button", { name: /check-stale|check-model/ })).toBeNull();
+  render(<SlashCommands thread={f.thread} store={f.store} setText={() => {}} />);
+  const unknown = await screen.findByRole("button", { name: /check-unknown/u });
+  expect(unknown.hasAttribute("disabled")).toBe(true);
+  expect(screen.queryByRole("button", { name: /check-stale|check-model/u })).toBeNull();
 });
 
 it("hides the previous node's catalog while an identical session identity reloads on another store", async () => {
-  const first = fixture(),
-    second = fixture();
+  const first = fixture();
+  const second = fixture();
   first.api.rpc.mockResolvedValue([
     {
       name: "check-first",
@@ -119,23 +134,18 @@ it("hides the previous node's catalog while an identical session identity reload
       availability: "advertised",
     },
   ]);
-  let resolve!: (value: unknown) => void;
-  second.api.rpc.mockImplementation(
-    () =>
-      new Promise((done) => {
-        resolve = done;
-      }),
-  );
+  const pending = deferred<unknown>();
+  second.api.rpc.mockImplementation(async () => await pending.promise);
   const view = render(
-    <SlashCommands thread={first.thread} store={first.store} setText={vi.fn()} />,
+    <SlashCommands thread={first.thread} store={first.store} setText={() => {}} />,
   );
-  await screen.findByRole("button", { name: /check-first/ });
-  view.rerender(<SlashCommands thread={second.thread} store={second.store} setText={vi.fn()} />);
-  expect(screen.queryByRole("button", { name: /check-first/ })).toBeNull();
-  await waitFor(() =>
-    expect(second.api.rpc).toHaveBeenCalledWith("agent/commands", { sessionId: "session" }),
-  );
-  resolve([
+  await screen.findByRole("button", { name: /check-first/u });
+  view.rerender(<SlashCommands thread={second.thread} store={second.store} setText={() => {}} />);
+  expect(screen.queryByRole("button", { name: /check-first/u })).toBeNull();
+  await waitFor(() => {
+    expect(second.api.rpc).toHaveBeenCalledWith("agent/commands", { sessionId: "session" });
+  });
+  pending.resolve([
     {
       name: "check-second",
       source: "skill",
@@ -143,7 +153,7 @@ it("hides the previous node's catalog while an identical session identity reload
       availability: "advertised",
     },
   ]);
-  await userEvent.setup().click(await screen.findByRole("button", { name: /check-second/ }));
+  await userEvent.setup().click(await screen.findByRole("button", { name: /check-second/u }));
   expect(second.current().contextItems?.[0].skill?.name).toBe("check-second");
   expect(first.current().contextItems).toEqual([]);
 });
@@ -151,8 +161,10 @@ it("hides the previous node's catalog while an identical session identity reload
 it("distinguishes attaching discovered instructions from invoking an advertised native skill", async () => {
   const f = fixture("claude");
   f.api.invokeExtension.mockImplementation(async (_extension, command) => {
-    if (command === "templates.list") return { templates: [] };
-    if (command === "resources.list")
+    if (command === "templates.list") {
+      return { templates: [] };
+    }
+    if (command === "resources.list") {
       return {
         resources: [
           {
@@ -167,19 +179,22 @@ it("distinguishes attaching discovered instructions from invoking an advertised 
         ],
         limitations: [],
       };
-    if (command === "resources.read")
+    }
+    if (command === "resources.read") {
       return { path: "/canonical/SKILL.md", text: "Shared instructions" };
+    }
+    throw new Error("Unexpected extension command");
   });
   render(<ResourceLibrary thread={f.thread} store={f.store} />);
   const user = userEvent.setup();
   await user.click(
-    await screen.findByRole("button", { name: /check skill · project · discovered/ }),
+    await screen.findByRole("button", { name: /check skill · project · discovered/u }),
   );
-  await waitFor(() =>
-    expect(
-      (screen.getByRole("button", { name: "Use native skill" }) as HTMLButtonElement).disabled,
-    ).toBe(true),
-  );
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: "Use native skill" }).hasAttribute("disabled")).toBe(
+      true,
+    );
+  });
   await user.click(screen.getByRole("button", { name: "Attach instructions as text" }));
   expect(f.api.addContext).toHaveBeenCalledWith(
     "thread",
@@ -191,8 +206,10 @@ it("distinguishes attaching discovered instructions from invoking an advertised 
 it("uses the advertised native binding when its name and path differ from the canonical preview", async () => {
   const f = fixture();
   f.api.invokeExtension.mockImplementation(async (_extension, command) => {
-    if (command === "templates.list") return { templates: [] };
-    if (command === "resources.list")
+    if (command === "templates.list") {
+      return { templates: [] };
+    }
+    if (command === "resources.list") {
       return {
         resources: [
           {
@@ -209,12 +226,15 @@ it("uses the advertised native binding when its name and path differ from the ca
         ],
         limitations: [],
       };
-    if (command === "resources.read")
+    }
+    if (command === "resources.read") {
       return { path: "/canonical/SKILL.md", text: "Shared instructions" };
+    }
+    throw new Error("Unexpected extension command");
   });
   render(<ResourceLibrary thread={f.thread} store={f.store} />);
   const user = userEvent.setup();
-  await user.click(await screen.findByRole("button", { name: /check skill · user · advertised/ }));
+  await user.click(await screen.findByRole("button", { name: /check skill · user · advertised/u }));
   await user.click(await screen.findByRole("button", { name: "Use native skill" }));
   expect(f.current().contextItems?.[0].skill).toEqual({
     name: "plugin:check",

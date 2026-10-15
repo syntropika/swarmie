@@ -152,6 +152,7 @@ impl Runtime {
             ));
         }
         verify_context(&context).await?;
+        self.compile_mcp(&mut options).await?;
         Ok(options)
     }
     pub(super) async fn resolve_new_selection(

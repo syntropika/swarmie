@@ -368,8 +368,13 @@ struct FailingBackend {
 #[async_trait::async_trait]
 impl swarmie::AgentBackend for FailingBackend {
     async fn commands(&self) -> swarmie::Result<Value> {
-        if self.commands.is_array() { Ok(self.commands.clone()) }
-        else { Err(swarmie::Error::Unsupported("Fixture has no native skill catalog".into())) }
+        if self.commands.is_array() {
+            Ok(self.commands.clone())
+        } else {
+            Err(swarmie::Error::Unsupported(
+                "Fixture has no native skill catalog".into(),
+            ))
+        }
     }
     async fn prompt(&self, prompt: &swarmie::Prompt) -> swarmie::Result<()> {
         self.inner.prompt(prompt).await
@@ -755,7 +760,12 @@ async fn fork_retains_authored_context_and_attachments_for_later_native_editing(
 #[tokio::test]
 async fn selected_native_skills_are_validated_against_this_session_before_asset_writes() {
     let root = tempfile::tempdir().unwrap();
-    let f = Fixture::build(root.path(), false, Some(Arc::new(std::sync::atomic::AtomicUsize::new(0)))).await;
+    let f = Fixture::build(
+        root.path(),
+        false,
+        Some(Arc::new(std::sync::atomic::AtomicUsize::new(0))),
+    )
+    .await;
     let created = f.request("client/sessionCreate", json!({"harness":"mock","config":{"fixtureSkills":[
         {"name":"check","path":"/node/shared/SKILL.md","source":"skill","enabled":true,"availability":"advertised"},
         {"name":"off","path":"/node/off/SKILL.md","source":"skill","enabled":false},
@@ -770,11 +780,17 @@ async fn selected_native_skills_are_validated_against_this_session_before_asset_
         json!({"name":"off","path":"/node/off/SKILL.md"}),
         json!({"name":"stale","path":"/node/stale/SKILL.md"}),
         json!({"name":"model","path":"/node/model/SKILL.md"}),
-    ].into_iter().enumerate() {
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let response = f.request("client/sessionInput", json!({"sessionId":session,"text":"Use selected instructions","idempotencyKey":format!("skill-{index}"),
             "attachments":[{"id":"asset","name":"file.pdf","mime":"application/pdf","image":false,"binary":true,"data":"ZmlsZQ=="}],
             "contextItems":[{"id":"skill","skill":skill}]})).await;
-        assert_eq!(response["error"]["data"]["effectKnowledge"], "none", "{response}");
+        assert_eq!(
+            response["error"]["data"]["effectKnowledge"], "none",
+            "{response}"
+        );
     }
     assert!(!root.path().join("workspace/assets").exists());
     assert!(f.harness.prompts().await.is_empty());

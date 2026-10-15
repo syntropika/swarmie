@@ -28,6 +28,7 @@ function fixture() {
       return { canRewind: true };
     },
     usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET: async () => ({ rate_limits: null }),
+    mcpServerStatus: async () => [{ name: "fixture", status: "disabled" }],
     setMcpServers: async (value) => ({ added: Object.keys(value), errors: {} }),
     stopTask: async (id) => calls.push(["stop", id]),
     close: () => {
@@ -534,5 +535,14 @@ test("bounded task text keeps the complete cached list within the runtime IPC re
   assert.equal(tasks[0].summary.length, 2048);
   assert.equal(tasks[0].kind.length, 256);
   assert.ok(Buffer.byteLength(JSON.stringify(tasks)) < 8 * 1024 * 1024);
+  f.session.close();
+});
+
+test("MCP inventory uses the SDK status API", async () => {
+  const f = fixture();
+  await f.session.initialize({ options: {} });
+  assert.deepEqual(await f.session.call("mcp_status", {}), {
+    mcpServers: [{ name: "fixture", status: "disabled" }],
+  });
   f.session.close();
 });
