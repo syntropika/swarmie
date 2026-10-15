@@ -56,6 +56,8 @@ jobs:
           bun-version: "1.4.3"
       - name: Install locked dependencies
         run: bun install --frozen-lockfile
+      - name: Install public documentation dependencies for root lint
+        run: npm --prefix apps/docs ci
       - name: Verify shared policy and TypeScript contracts
         run: |
           bun run check:ui

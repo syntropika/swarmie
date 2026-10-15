@@ -224,7 +224,10 @@ reports, screenshots, traces, and browser profiles outside the repositories.
 
 The root shared-UI workflow installs the frozen dependency graph, verifies shared
 formatting and lint, checks TypeScript projects, runs frontend and SDK behavior tests,
-and compiles both Storybooks. Root type checks include both UI compiler projects;
+and compiles both Storybooks. Its root lint also analyzes the public documentation site,
+so CI installs that application's existing locked dependencies before linting; a root Bun
+install alone does not install the documentation site's separate dependency graph.
+Root type checks include both UI compiler projects;
 `bun run storybook` starts the web catalog and `bun run storybook:native` starts the native
 catalog. `bun run build:storybook` builds both. This does not initialize another source repository or deploy a
 hosted service. Runtime release jobs also install dependencies from the root with Bun.
