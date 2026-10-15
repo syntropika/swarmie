@@ -1,4 +1,5 @@
 import { createGetUrl } from "fumadocs-core/source";
+import type { Page } from "fumadocs-core/source";
 
 export const appName = "Swarmie";
 export const docsRoute = "/docs";
@@ -14,7 +15,7 @@ export const gitConfig = {
 
 const getContentUrl = createGetUrl(docsContentRoute);
 
-export function getPageMarkdownUrl(page: { slugs: string[]; locale?: string }) {
+export function getPageMarkdownUrl(page: Pick<Page, "slugs" | "locale">) {
   const segments = [...page.slugs, "content.md"];
 
   return { segments, url: getContentUrl(segments, page.locale) };
@@ -22,7 +23,7 @@ export function getPageMarkdownUrl(page: { slugs: string[]; locale?: string }) {
 
 const getImageUrl = createGetUrl(docsImageRoute);
 
-export function getPageImageUrl(page: { slugs: string[]; locale?: string }) {
+export function getPageImageUrl(page: Pick<Page, "slugs" | "locale">) {
   const segments = [...page.slugs, "image.png"];
 
   return { segments, url: getImageUrl(segments, page.locale) };

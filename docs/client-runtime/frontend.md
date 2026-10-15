@@ -25,7 +25,8 @@ Use the pinned Bun 1.4.3 with the root `bunfig.toml` isolated linker and
 theme tokens belong in `packages/config`. Neutral components, presentation contracts,
 and stories belong in the separate `packages/ui/web` (`@swarmie/ui-web`) and
 `packages/ui/native` (`@swarmie/ui-native`) workspace packages. Their dependency graphs,
-compiler projects, and Storybooks remain independent. Runtime wire contracts remain in
+compiler projects, and Storybooks remain platform-specific within the same root workspace
+and lockfile. Runtime wire contracts remain in
 `packages/contracts`. Language SDKs and their generation
 and packaging tools belong in `sdk/`; the executable npm runtime package belongs in
 `packages/runtime`. The TypeScript SDK joins the root Bun workspace from `sdk/typescript`.
@@ -33,7 +34,11 @@ and packaging tools belong in `sdk/`; the executable npm runtime package belongs
 This repository owns all TypeScript source: desktop, mobile, the product website in
 `apps/web`, the public documentation site in `apps/docs`, browser account presentation
 in `packages/auth`, and the account HTTP client in `packages/api`. All consume the root
-Bun workspace, lockfile, compiler references, and lint/format policy. Each application
+Bun workspace, lockfile, compiler references, and lint/format policy. A package manifest
+declares its own direct dependencies for the isolated linker; it does not create a separate
+installation or lockfile. Internal dependencies use `workspace:*`. New application compiler
+projects inherit the shared presets and retain only their framework-specific settings.
+Application lint and formatting aliases delegate to the root commands. Each application
 has one `src` tree; framework routes live in `src/app` for mobile and documentation.
 Desktop React code, its isolated demo, and native shell entries share `apps/desktop/src`.
 

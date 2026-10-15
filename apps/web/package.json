@@ -10,9 +10,9 @@
     "cf-typegen": "mkdir -p .wrangler && wrangler types .wrangler/worker-configuration.d.ts",
     "generate:routes": "bun -e 'import { Generator, getConfig } from \"@tanstack/router-generator\"; await new Generator({ config: getConfig({ generatedRouteTree: \".tanstack/routeTree.gen.ts\" }), root: process.cwd() }).run()'",
     "typecheck": "bun run generate:routes && bun run cf-typegen && tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
-    "format": "node ../../node_modules/oxfmt/bin/oxfmt --config ../../oxfmt.config.ts .",
-    "format:check": "node ../../node_modules/oxfmt/bin/oxfmt --config ../../oxfmt.config.ts --check .",
-    "lint": "bun run generate:routes && bun run cf-typegen && oxlint --config ../../oxlint.config.ts --deny-warnings ."
+    "format": "bun run --cwd ../.. format",
+    "format:check": "bun run --cwd ../.. format:check",
+    "lint": "bun run --cwd ../.. lint"
   },
   "dependencies": {
     "@swarmie/ui-web": "workspace:*",

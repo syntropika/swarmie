@@ -26,6 +26,7 @@
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@swarmie/config": "workspace:*",
     "@swarmie/contracts": "workspace:*",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/mdx": "^2.0.14",
