@@ -1,0 +1,25 @@
+{
+  "name": "@swarmie/react-native",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@swarmie/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@swarmie/config": "workspace:*"
+  },
+  "peerDependencies": {
+    "expo": "^57.0.0",
+    "expo-modules-core": "^57.0.0",
+    "react-native": "^0.86.0"
+  }
+}

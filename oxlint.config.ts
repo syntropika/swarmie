@@ -5,11 +5,15 @@ import react from "ultracite/oxlint/react";
 import shadcn from "ultracite/oxlint/shadcn";
 import tanstack from "ultracite/oxlint/tanstack";
 
-const frontendSources = ["packages/ui/src/**/*.{ts,tsx}", "apps/desktop/web/src/**/*.{ts,tsx}"];
+const frontendSources = [
+  "packages/ui/{web,native}/src/**/*.{ts,tsx}",
+  "apps/desktop/web/src/**/*.{ts,tsx}",
+];
 
 const forbiddenStyleProps = ["style", "css"].map((propName) => ({
   propName,
-  message: "Use Tailwind className utilities. Shared tokens belong in packages/ui/src/styles.css.",
+  message:
+    "Use Tailwind className utilities. Shared tokens belong in packages/ui/web/src/styles.css.",
 }));
 const stylingImportPatterns = [
   {
@@ -48,8 +52,14 @@ export default defineConfig({
     ...core.ignorePatterns,
     "**/target/**",
     "**/.tanstack/**",
+    "**/.expo/**",
     "**/.nitro/**",
     "docs/**",
+    // Installed upstream skills retain their own source conventions.
+    ".agents/skills/heroui-native/**",
+    ".agents/skills/heroui-react/**",
+    // The hosted repository owns its own root configuration and dependency graph.
+    "cloud/**",
     "tests/fixtures/**",
     "**/storybook-static/**",
     "**/dist/**",
@@ -58,11 +68,11 @@ export default defineConfig({
   options: { typeAware: true },
   settings: {
     shadcn: {
-      ui: "@swarmie/ui",
+      ui: "@swarmie/ui-web",
       note: "Use shared Swarmie components, semantic theme tokens, and Tailwind utilities. Use the shared component contracts.",
     },
     "better-tailwindcss": {
-      entryPoint: "./packages/ui/src/styles.css",
+      entryPoint: "./packages/ui/web/src/styles.css",
     },
   },
   rules: {
@@ -123,6 +133,21 @@ export default defineConfig({
     "no-restricted-imports": ["error", { patterns: stylingImportPatterns }],
   },
   overrides: [
+    {
+      // The native Router root owns its single Tailwind stylesheet.
+      files: ["apps/mobile/app/_layout.tsx"],
+      rules: {
+        "no-restricted-imports": [
+          "error",
+          {
+            patterns: stylingImportPatterns.map((pattern) => ({
+              ...pattern,
+              group: [...pattern.group, "!../global.css"],
+            })),
+          },
+        ],
+      },
+    },
     {
       files: ["apps/desktop/web/src/main.tsx", "apps/desktop/web/src/extension-panel.tsx"],
       rules: {
@@ -198,7 +223,7 @@ export default defineConfig({
     },
     {
       // Primitive implementations own variants and compose class factories themselves.
-      files: ["packages/ui/src/**/*.{ts,tsx}"],
+      files: ["packages/ui/{web,native}/src/**/*.{ts,tsx}"],
       rules: { "shadcn/no-restyle": "off", "shadcn/require-static-classes": "off" },
     },
     {
@@ -210,7 +235,14 @@ export default defineConfig({
             patterns: [
               ...stylingImportPatterns,
               {
-                group: ["react", "react-dom", "react-dom/*", "@swarmie/ui", "swarmie-desktop"],
+                group: [
+                  "react",
+                  "react-dom",
+                  "react-dom/*",
+                  "@swarmie/ui-web",
+                  "@swarmie/ui-native",
+                  "swarmie-desktop",
+                ],
                 message:
                   "Shared HTTP contracts must remain React-free. Compose UI and workflows in the consuming capability.",
               },
@@ -220,7 +252,7 @@ export default defineConfig({
       },
     },
     {
-      files: ["packages/ui/src/**/*.{ts,tsx}"],
+      files: ["packages/ui/{web,native}/src/**/*.{ts,tsx}"],
       rules: {
         "no-restricted-imports": [
           "error",
@@ -246,7 +278,7 @@ export default defineConfig({
       },
     },
     {
-      files: ["packages/ui/.storybook/preview.tsx"],
+      files: ["packages/ui/*/.storybook/preview.tsx"],
       rules: {
         "no-restricted-imports": [
           "error",

@@ -233,7 +233,8 @@ remote diagnostic uploader or purchasing SDK is added to the mobile dependency g
 For the current library trial, `bun run check` passes formatting, TypeScript, lint, and
 the complete root test suite. `just mobile-check`, Expo dependency validation, all-platform
 Expo export, the desktop web build, and both independent Storybook builds also pass.
-Native Storybook interaction-play qualification remains pending.
+Native Storybook's Primary, Fields (email and verification code), and IconAction play
+functions pass in the browser; this does not establish native device interaction behavior.
 
 Browser-preview fidelity received an independent ship disposition for six account states
 at 390 × 844, narrow-phone top and bottom views at 320 × 568, and a tablet view at

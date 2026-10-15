@@ -8,7 +8,16 @@
       "path": "./sdk/typescript/tsconfig.json"
     },
     {
-      "path": "./packages/ui/tsconfig.json"
+      "path": "./packages/ui/web/tsconfig.json"
+    },
+    {
+      "path": "./packages/ui/native/tsconfig.json"
+    },
+    {
+      "path": "./apps/mobile/tsconfig.json"
+    },
+    {
+      "path": "./sdk/react-native/tsconfig.json"
     }
   ]
 }

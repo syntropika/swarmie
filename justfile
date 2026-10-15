@@ -60,3 +60,28 @@ sdk-package binary output:
 # macOS builds run on a configured macOS host.
 sdk-build-apple:
     python3 sdk/tools/build_native.py --apple
+
+# Mobile commands run from this workspace and use local native tooling.
+dev-mobile:
+    EXPO_NO_TELEMETRY=1 bun run dev:mobile
+
+mobile-prebuild platform:
+    EXPO_NO_TELEMETRY=1 bun run --cwd apps/mobile prebuild --platform {{platform}}
+
+sdk-build-mobile platform:
+    python3 sdk/tools/build_mobile.py {{platform}}
+
+mobile-run platform:
+    EXPO_NO_TELEMETRY=1 bun run --cwd apps/mobile {{platform}}
+
+mobile-export:
+    EXPO_NO_TELEMETRY=1 bun run --cwd apps/mobile export
+
+mobile-check:
+    bun run check:mobile
+
+resources-check:
+    cargo fmt -p swarmie-resources -- --check
+    cargo clippy --locked -p swarmie-resources --all-targets -- -D warnings
+    cargo test --locked -p swarmie-resources
+    RUSTDOCFLAGS="-D warnings" cargo doc --locked -p swarmie-resources --no-deps --document-private-items

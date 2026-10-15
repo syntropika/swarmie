@@ -1,0 +1,11 @@
+@import "@swarmie/ui-native/styles.css";
+@import "@swarmie/config/tailwind/web-tokens.css";
+
+@source "./app";
+@source "./src";
+@source "../../packages/ui/native/src";
+
+/* Native body text follows the platform font and user text scale. */
+@theme {
+  --font-sans: system-ui;
+}
