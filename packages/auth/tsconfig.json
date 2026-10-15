@@ -1,0 +1,10 @@
+{
+  "extends": "@swarmie/config/ts/react.json",
+  "compilerOptions": {
+    "paths": {
+      "~/*": ["./*"]
+    },
+    "types": ["bun"]
+  },
+  "include": ["src"]
+}

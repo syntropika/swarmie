@@ -1,0 +1,7 @@
+{
+  "extends": "@swarmie/config/ts/base.json",
+  "compilerOptions": {
+    "types": ["bun"]
+  },
+  "include": ["src/**/*.ts"]
+}

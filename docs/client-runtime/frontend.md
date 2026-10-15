@@ -30,16 +30,20 @@ compiler projects, and Storybooks remain independent. Runtime wire contracts rem
 and packaging tools belong in `sdk/`; the executable npm runtime package belongs in
 `packages/runtime`. The TypeScript SDK joins the root Bun workspace from `sdk/typescript`.
 
-`swarmie-cloud` is an independent source repository with its own configuration,
-dependency lock, UI source, hosted workflows, and release lifecycle. It is not a Git
-submodule or Bun/Cargo workspace member of this repository. Neither source repository
-needs the other's checkout to install, verify, or build. Do not use relative filesystem
-package dependencies or commands that change into the other repository.
+This repository owns all TypeScript source: desktop, mobile, the product website in
+`apps/web`, the public documentation site in `apps/docs`, browser account presentation
+in `packages/auth`, and the account HTTP client in `packages/api`. All consume the root
+Bun workspace, lockfile, compiler references, and lint/format policy. Each application
+has one `src` tree; framework routes live in `src/app` for mobile and documentation.
+Desktop React code, its isolated demo, and native shell entries share `apps/desktop/src`.
 
-The public client and runtime must also work without `docs/` or hosted credentials.
-Do not move account authority, billing, hosted synchronization, or authorization into
-shared UI or public runtime packages. Future cross-repository sharing requires explicitly
-versioned distribution packages; this relocation does not publish packages.
+`swarmie-cloud` is an independent Rust backend repository with its own toolchain,
+service tests, deployment configuration, and release lifecycle. It contains no TypeScript
+workspace, frontend copies, or frontend lint/format configuration. Neither source repository
+needs the other's checkout to install, verify, or build. Keep backend authority, session
+verification, billing, and commercial entitlements in hosted services. The TypeScript
+account client and account presentation do not implement those server responsibilities.
+The public runtime and its SDK remain independent of account UI and hosted credentials.
 
 ## Project-local imports
 
@@ -48,10 +52,10 @@ Use `~/` for application source imports, resolved from the owning project's root
 | Project | Root-relative examples |
 | --- | --- |
 | Mobile (`apps/mobile`) | `~/src`, `~/assets` |
-| Desktop (`apps/desktop`) | `~/web/src`, `~/web/demo` |
-| Documentation site (`apps/docs`) | Paths relative to that application root |
-| Hosted web (`packages/web` in the independent hosted repository) | Paths relative to that package root |
-| Hosted auth (`packages/auth` in the independent hosted repository) | Paths relative to that package root |
+| Desktop (`apps/desktop`) | `~/src`, `~/src/demo` |
+| Documentation site (`apps/docs`) | `~/src/app`, `~/src/components`, `~/src/lib` |
+| Website (`apps/web`) | `~/src` |
+| Account presentation (`packages/auth`) | `~/src` |
 
 There is no monorepo-wide `~` root. Vite 8 uses `resolve.tsconfigPaths: true` to resolve
 each importer against its owning compiler project; Expo and Next consume their project's
@@ -59,7 +63,7 @@ TypeScript paths. The desktop compiler includes both main and demo source, and i
 generator configuration follows the same aliases. Keep public `@swarmie/*` package imports.
 Node configuration and runtime filesystem references retain appropriate relative paths,
 including Expo's configuration import of `locales.json`. Do not blanket-rewrite vendored
-internal imports. Hosted changes stay in their independent repository; builds require
+internal imports. Backend changes stay in their independent repository; builds require
 neither another source checkout nor documentation contents.
 
 ## TypeScript and lint policy
@@ -224,11 +228,12 @@ reports, screenshots, traces, and browser profiles outside the repositories.
 
 The root shared-UI workflow installs the frozen dependency graph, verifies shared
 formatting and lint, checks TypeScript projects, runs frontend and SDK behavior tests,
-and compiles both Storybooks. Its root lint also analyzes the public documentation site,
-so CI installs that application's existing locked dependencies before linting; a root Bun
-install alone does not install the documentation site's separate dependency graph.
+and compiles the application frontends and both Storybooks. The website, account client,
+account presentation, and documentation site share that root install; there is no separate
+documentation dependency lock or npm install step.
 Root type checks include both UI compiler projects;
 `bun run storybook` starts the web catalog and `bun run storybook:native` starts the native
 catalog. `bun run build:storybook` builds both. This does not initialize another source repository or deploy a
 hosted service. Runtime release jobs also install dependencies from the root with Bun.
-The hosted repository owns its own CI and publishing credentials.
+The hosted repository owns its backend CI and publishing credentials. Frontend relocation
+does not restore the retired hosted frontend deployment workflows or transfer secrets.

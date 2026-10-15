@@ -18,6 +18,21 @@
     },
     {
       "path": "./sdk/react-native/tsconfig.json"
+    },
+    {
+      "path": "./packages/api/tsconfig.json"
+    },
+    {
+      "path": "./packages/auth/tsconfig.json"
+    },
+    {
+      "path": "./apps/web/tsconfig.json"
+    },
+    {
+      "path": "./apps/web/tsconfig.test.json"
+    },
+    {
+      "path": "./apps/docs/tsconfig.json"
     }
   ]
 }

@@ -278,7 +278,7 @@ The user sees the confirmed saved profile; failed or conflicting writes retain a
 
 Primary implementation seams are core account interfaces and storage, a persistent account host
 in the native runtime/service layer, forwarding in `crates/app/src/client/client_host.rs`, the
-desktop bridge and `apps/desktop/web/src/`, public contracts, and the private identity, HTTP and
+desktop bridge and `apps/desktop/src/`, public contracts, and the private identity, HTTP and
 profile modules under `cloud/crates/`. The browser surface consumes
 `cloud/packages/auth`; public native clients do not.
 

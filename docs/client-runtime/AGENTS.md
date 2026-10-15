@@ -18,7 +18,8 @@ The parent repository contains clients, the independently installable runtime, H
 local persistence, extension interfaces, public wire contracts, tests, and distribution tools.
 It must build and run without the hosted-service repository, documentation contents, or hosted credentials.
 
-The independent `swarmie-cloud` repository contains the private website and hosted services.
+This repository owns the TypeScript website, account client and presentation, shared UI,
+and Storybooks. The independent `swarmie-cloud` repository contains the Rust hosted services.
 It is not a submodule or workspace member of this repository. Account identity,
 account-linked enrollment, hosted relay routing, cloud allocation, collaboration authorization,
 hosted synchronization, billing, and commercial entitlements belong to that repository.
@@ -67,8 +68,9 @@ Shared compiler settings, fonts, Tailwind setup, and theme tokens belong in `pac
 Neutral web components and stories belong in `packages/ui/web` (`@swarmie/ui-web`);
 native components and stories belong in `packages/ui/native` (`@swarmie/ui-native`).
 Keep their dependencies, compiler projects, and Storybooks separate. Reuse their public
-exports before adding another implementation. Hosted HTTP transport, identity workflows, and website
-capabilities remain in the independent hosted-service repository.
+exports before adding another implementation. Account HTTP contracts and client workflows
+belong in `packages/api` and `packages/auth`; the website belongs in `apps/web`. Hosted
+authority and server implementation remain in the independent hosted-service repository.
 Do not recreate package-local lint or formatting configurations or application lockfiles.
 Each source repository owns its dependency graph and root checks. Do not add relative
 filesystem dependencies, parent-root wrappers, or automatic hosted-repository checkouts.

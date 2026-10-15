@@ -4,6 +4,11 @@ on:
   pull_request:
     paths:
       - "apps/mobile/**"
+      - "apps/desktop/**"
+      - "apps/web/**"
+      - "apps/docs/**"
+      - "packages/auth/**"
+      - "packages/api/**"
       - "sdk/react-native/**"
       - "packages/config/**"
       - "packages/ui/**"
@@ -19,6 +24,11 @@ on:
     branches: [main]
     paths:
       - "apps/mobile/**"
+      - "apps/desktop/**"
+      - "apps/web/**"
+      - "apps/docs/**"
+      - "packages/auth/**"
+      - "packages/api/**"
       - "sdk/react-native/**"
       - "packages/config/**"
       - "packages/ui/**"
@@ -56,8 +66,6 @@ jobs:
           bun-version: "1.4.3"
       - name: Install locked dependencies
         run: bun install --frozen-lockfile
-      - name: Install public documentation dependencies for root lint
-        run: npm --prefix apps/docs ci
       - name: Verify shared policy and TypeScript contracts
         run: |
           bun run check:ui
@@ -68,5 +76,11 @@ jobs:
         run: |
           bun run check:mobile
           bun run build:mobile
+      - name: Build application frontends
+        run: |
+          bun run --cwd apps/desktop build:web
+          bun run --cwd apps/desktop build:demo
+          bun run build:web
+          bun run --cwd apps/docs build
       - name: Build Storybook
         run: bun run build:storybook

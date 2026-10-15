@@ -26,9 +26,8 @@ Direct development windows without managed IPC configuration use the browser HTT
 Build the frontend first:
 
 ```sh
-cd apps/desktop
-npm ci
-npm run build:web
+bun install --frozen-lockfile
+bun run --cwd apps/desktop build:web
 ```
 
 From the workspace root, start the daemon:
@@ -44,8 +43,7 @@ cargo build -p app
 In another terminal, open the native window:
 
 ```sh
-cd apps/desktop
-npm run dev -- --yes
+bun run --cwd apps/desktop dev -- --yes
 ```
 
 Node.js 24+ installs the pinned development CLI. The CLI downloads Zig 0.16.0 when needed. Linux builds require GTK4 and WebKitGTK development libraries (`libgtk-4-dev` and `libwebkitgtk-6.0-dev` on Ubuntu). macOS builds use WKWebView and require Apple's command-line tools. Run macOS operations on the configured macOS host. Release binaries run without Node.js; the managed client gateway needs built frontend assets, while the execution daemon does not.
@@ -123,7 +121,7 @@ Buttons default to 32px height, with 28px small and 40px large variants. Small t
 
 Popovers, menus, and tooltips share #212121 material, 12px round fallback or supported 15px superellipse(1.5) corners, and the shared boundary/shadow. Popover padding is 16px; catalog frames use 6px padding. Dialogs use the shared material/shadow with a 20px round corner and 20px padding. File finder and context views retain accessible names, bounded scrolling, keyboard dismissal, and focus restoration. The command palette uses a transparent, unpadded Radix Dialog wrapper around the Elements frame, capped at 384px with a 20px round corner and the global dark popover surface; its list scrolls within 288px. Review base combines typed references with cmdk suggestions. Harness choices retain icons, selected indicators, and Escape behavior; absent harnesses remain omitted.
 
-The official [assistant-ui Elements](https://github.com/assistant-ui/assistant-ui/tree/main/packages/ui/src/components/react/assistant-ui/elements) command-palette, message-actions, and surface modules are vendored under `web/src/components/assistant-ui/elements` with the [upstream MIT license](../../../../../apps/desktop/web/src/components/assistant-ui/elements/LICENSE). The palette uses controlled `PaletteCommand`, query, active selection, and run callbacks; response-action callbacks are optional so the host exposes only implemented capabilities. Elements retains its surface classes, while secondary palette text uses the shared muted token. cmdk remains the free-text ComboBox implementation.
+The official [assistant-ui Elements](https://github.com/assistant-ui/assistant-ui/tree/main/packages/ui/src/components/react/assistant-ui/elements) command-palette, message-actions, and surface modules are vendored under `src/components/assistant-ui/elements` with the [upstream MIT license](../../../../../apps/desktop/src/components/assistant-ui/elements/LICENSE). The palette uses controlled `PaletteCommand`, query, active selection, and run callbacks; response-action callbacks are optional so the host exposes only implemented capabilities. Elements retains its surface classes, while secondary palette text uses the shared muted token. cmdk remains the free-text ComboBox implementation.
 
 Sidebar controls are independently implemented in `SidebarSection.tsx` and `SidebarChatActions.tsx` using shared Radix/Tailwind components and Lucide icons, informed by source inspection of the installed desktop reference. The shared `workspaceInstance.ts` singleton owns the node coordinator and retained state instances.
 
@@ -135,9 +133,9 @@ The specialized draft keeps its 56px minimum height, 16px 16px 8px padding, 20px
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cd apps/desktop
-npm test
-npm run check
-npm run build
+bun run --cwd apps/desktop test
+bun run --cwd apps/desktop check
+bun run --cwd apps/desktop build
 ```
 
 Frontend tests cover ordered replay, native text item boundaries, concurrent requests, provider errors, native resume, refusal to replace unsupported saved sessions, preserving newer drafts, explicit queue versus steering, historical close events, and rollback turn groups. Native tests verify local URL restrictions. Rust tests verify the backing session, Git, workspace and transport contracts.

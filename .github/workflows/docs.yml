@@ -35,17 +35,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-          cache: npm
-          cache-dependency-path: apps/docs/package-lock.json
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.3"
       - name: Install workspace tooling
         run: bun install --frozen-lockfile --ignore-scripts
-      - run: npm --prefix apps/docs ci
-      - run: npm --prefix apps/docs run test:generated
-      - run: npm --prefix apps/docs run check
-      - run: npm --prefix apps/docs run build
+      - run: bun run --cwd apps/docs test:generated
+      - run: bun run --cwd apps/docs check
+      - run: bun run --cwd apps/docs build
       - uses: actions/upload-artifact@v4
         with:
           name: public-documentation

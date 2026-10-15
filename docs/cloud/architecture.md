@@ -6,17 +6,20 @@ Hosted services own account authority and explicitly authorized hosted capabilit
 does not upload local files, projects or conversations, and local or SSH execution requires no
 hosted account.
 
-## Retained private components
+## Source ownership
 
 | Component | Responsibility | Integration status |
 | --- | --- | --- |
-| `packages/ui` | Reusable primitives, assistant renderers, design tokens and component examples | Preserved; the public application has no private package dependency |
-| `packages/auth` | Account presentation and credential workflows | Reusable library; requires an explicitly supplied host |
-| `packages/api` | Account, passkey, membership and invitation HTTP contracts | Private account-service client, separate from the public runtime protocol |
-| `packages/web` | Product website and newsletter | Preserved, with retired browser-application launch links removed |
-| `packages/config` | Shared frontend tooling, fonts and styles | Preserved |
+| `packages/ui/web` in `swarmie` | Reusable primitives, assistant renderers, design tokens and component examples | Preserved; the public application has no private package dependency |
+| `packages/auth` in `swarmie` | Account presentation and credential workflows | Reusable library; requires an explicitly supplied host |
+| `packages/api` in `swarmie` | Account, passkey, membership and invitation HTTP contracts | Account-service HTTP client, separate from the runtime protocol |
+| `apps/web` in `swarmie` | Product website and newsletter | Preserved, with retired browser-application launch links removed |
+| `packages/config` in `swarmie` | Shared frontend tooling, fonts and styles | Preserved |
 | `crates/core` | Account identity, membership authority and attributed domain facts | Preserved foundation for later collaboration |
 | `crates/server` | Account sessions, credential verification, transactional email, memberships and invitations | Preserved private service; does not execute Harnesses or assistant turns |
+
+The TypeScript applications, shared packages, and Storybooks share the `swarmie` root
+workspace, lockfile, and checks. Cloud retains Rust services and backend operations.
 
 The authentication host supplies an HTTP client, a dedicated query cache, a website origin,
 navigation and navigation-error reporting. No client is created from build-time environment

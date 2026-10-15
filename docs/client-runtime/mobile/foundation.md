@@ -279,8 +279,8 @@ account/passkey support.
 Localization and project-alias checks also pass: the root check, a frozen dependency install,
 `just mobile-check` (22 tests and 3,777 assertions, plus dependency validation), all three
 Expo exports, the native Storybook build, desktop main/demo builds, and the documentation
-site's static Next build. The independent hosted repository passes its own check and web
-build; source-build independence is preserved.
+site's static Next build. The website and account packages now participate in the same
+root checks after frontend consolidation; the Rust hosted backend remains independent.
 
 An independent localization review accepted 17 browser captures: all eight email-entry
 languages, Spanish passkey/create/verify/enrollment screens, a French password error,
