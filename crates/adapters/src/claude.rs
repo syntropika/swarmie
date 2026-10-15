@@ -176,9 +176,6 @@ fn result_error(frame: &Value) -> String {
     "Claude failed without an error message. Check its authentication and provider configuration."
         .into()
 }
-fn command_catalog(value: &Value) -> Value {
-    value.as_array().map_or(Value::Null, |commands| json!(commands.iter().filter_map(|command| Some(json!({"name":command["name"].as_str().or_else(||command.as_str())?,"description":command["description"],"source":"native","metadata":command}))).collect::<Vec<_>>()))
-}
 fn unix_time(value: &Value) -> Option<i64> {
     time::OffsetDateTime::parse(
         value.as_str()?,
@@ -274,6 +271,15 @@ fn capabilities() -> Capabilities {
 }
 #[async_trait]
 impl Harness for ClaudeHarness {
+    fn mcp_source_applies(&self, query: &McpQuery, entry: &McpEntry) -> Result<bool> {
+        super::native_mcp::applies("claude", query, entry)
+    }
+    async fn mcp_catalog(&self, query: &McpQuery) -> Result<Vec<McpEntry>> {
+        super::native_mcp::catalog(self.id(), query).await
+    }
+    async fn mcp_mutate(&self, mutation: &McpMutation) -> Result<Option<McpEntry>> {
+        super::native_mcp::mutate(self.id(), mutation).await
+    }
     fn id(&self) -> &str {
         "claude"
     }
@@ -399,7 +405,9 @@ impl Harness for ClaudeHarness {
                     )
                 }),
         ));
-        let commands = Arc::new(RwLock::new(command_catalog(&launched.init["commands"])));
+        let commands = Arc::new(RwLock::new(
+            launched.skills.catalog(&launched.init["commands"]),
+        ));
         let history: History = Arc::default();
         let compaction: Compaction = Arc::default();
         let (tx, events) = mpsc::channel(512);
@@ -416,6 +424,14 @@ impl Harness for ClaudeHarness {
             policy_observation.clone(),
         );
         let mut capabilities = capabilities();
+        capabilities
+            .metadata
+            .insert("maxNativeSkillsPerMessage".into(), json!(1));
+        capabilities.native_skill_inputs = if o.execution.tools == ToolPolicy::Disabled {
+            Capability::unavailable("Skills are disabled by execution policy")
+        } else {
+            true.into()
+        };
         if o.config.get("nativeHistory").is_some_and(Value::is_object) {
             capabilities
                 .metadata
@@ -472,6 +488,7 @@ struct Launched {
     frames: mpsc::Receiver<Value>,
     id: String,
     init: Value,
+    skills: Arc<super::skills::ClaudeSkills>,
 }
 async fn launch_connection(
     o: &SpawnOptions,
@@ -485,7 +502,7 @@ async fn launch_connection(
             .map(|s| s.id.clone())
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
     };
-    let (cli, cli_args) = launch(o, "claude", vec![]);
+    let (cli, mut cli_args) = launch(o, "claude", vec![]);
     let cli = process::find_executable(&cli.to_string_lossy()).ok_or_else(|| {
         Error::Provider("Claude Code executable is unavailable on this runtime node".into())
     })?;
@@ -512,6 +529,7 @@ async fn launch_connection(
     if o.config["resumeAtMessage"].is_string() && !fork {
         return Err(Error::Invalid("resumeAtMessage requires a fork".into()));
     }
+    let skills = Arc::new(super::skills::ClaudeSkills::prepare(o, &mut cli_args)?);
     let mut env = execution_env(o, Some("CLAUDE_CONFIG_DIR"))?;
     env.entry("CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING".into())
         .or_insert_with(|| "true".into());
@@ -567,6 +585,7 @@ async fn launch_connection(
             json!({"cliExecutable":cli,"cliArgs":cli_args,"options":sdk_options}),
         )
         .await?;
+    skills.bind_native(init["pid"].as_u64())?;
     if !o.execution.mcp_servers.is_empty() {
         let receipt = wire
             .request(
@@ -607,6 +626,7 @@ async fn launch_connection(
         frames,
         id,
         init,
+        skills,
     })
 }
 
@@ -615,6 +635,7 @@ struct LiveConnection {
     id: Arc<RwLock<String>>,
     init: Value,
     decoder: tokio::task::AbortHandle,
+    skills: Arc<super::skills::ClaudeSkills>,
 }
 impl Drop for LiveConnection {
     fn drop(&mut self) {
@@ -655,6 +676,7 @@ fn attach_decoder(
         frames,
         id,
         init,
+        skills,
     } = launched;
     let id = Arc::new(RwLock::new(id));
     let decoder = decode(
@@ -669,6 +691,7 @@ fn attach_decoder(
         tx,
         schema_enabled,
         policy_observation,
+        skills.clone(),
     )
     .abort_handle();
     LiveConnection {
@@ -676,6 +699,7 @@ fn attach_decoder(
         id,
         init,
         decoder,
+        skills,
     }
 }
 #[allow(clippy::too_many_arguments)]
@@ -691,6 +715,7 @@ fn decode(
     tx: mpsc::Sender<BackendEvent>,
     schema_enabled: bool,
     policy_observation: Arc<RwLock<Option<PolicyObservation>>>,
+    skills: Arc<super::skills::ClaudeSkills>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut message_id = None;
@@ -890,7 +915,7 @@ fn decode(
             if f["type"] == "system" {
                 match f["subtype"].as_str() {
                     Some("commands_changed") => {
-                        let catalog = command_catalog(&f["commands"]);
+                        let catalog = skills.catalog(&f["commands"]);
                         if !catalog.is_null() {
                             *commands.write().await = catalog.clone();
                             let _ = tx
@@ -1332,6 +1357,21 @@ impl AgentBackend for ClaudeBackend {
         connection.wire.request("prompt", json!({"type":"user","uuid":uuid::Uuid::new_v4().to_string(),"priority":"now","session_id":*connection.id.read().await,"message":{"role":"user","content":content},"parent_tool_use_id":null})).await?;
         Ok(())
     }
+    async fn mcp_control(&self, request: Value) -> Result<Value> {
+        if request["action"] != "inspect" {
+            return Err(Error::Unsupported(
+                "Claude browser authentication is not qualified through this control channel"
+                    .into(),
+            ));
+        }
+        let wire = self.current.read().await.wire.clone();
+        let result = wire.request("mcp_status", json!({})).await?;
+        Ok(json!(result["mcpServers"].as_array().into_iter().flatten().filter_map(|entry| {
+            let name = entry["name"].as_str()?;
+            let tools: Vec<_> = entry["tools"].as_array().into_iter().flatten().filter_map(|tool| tool["name"].as_str().map(String::from)).collect();
+            Some(json!({"name":name,"runtimeStatus":entry["status"].as_str().unwrap_or("unknown"),"authStatus":if entry["status"] == "needs-auth" {"notLoggedIn"} else {"unknown"},"tools":tools,"canAuthenticate":false}))
+        }).collect::<Vec<_>>()))
+    }
     async fn prompt(&self, p: &Prompt) -> Result<()> {
         let _operation = self.operation.lock().await;
         if self.history.lock().unwrap().user.is_some() || self.compaction.lock().unwrap().is_some()
@@ -1339,7 +1379,16 @@ impl AgentBackend for ClaudeBackend {
             return Err(Error::Busy);
         }
         let connection = self.current.read().await;
-        let content = prompt_content(p)?;
+        let commands = connection.skills.refresh(&*self.commands.read().await);
+        let command = super::skills::native_command(p, &commands)?;
+        let mut content = p.content.iter().filter(|c| !matches!(c, PromptContent::Skill { .. }) && (command.is_none() || !matches!(c, PromptContent::Text(_)))).map(|c| match c {
+            PromptContent::Text(t) => Ok(json!({"type":"text","text":t})),
+            PromptContent::Image { data,mime_type } => Ok(json!({"type":"image","source":{"type":"base64","data":data,"media_type":mime_type}})),
+            _ => Err(Error::Unsupported("Claude resource content".into())),
+        }).collect::<Result<Vec<_>>>()?;
+        if let Some(command) = command {
+            content.push(json!({"type":"text","text":super::skills::command_text(p, &command)}));
+        }
         let uuid = uuid::Uuid::new_v4().to_string();
         {
             let mut history = self.history.lock().unwrap();
@@ -1548,7 +1597,8 @@ impl AgentBackend for ClaudeBackend {
         ))
     }
     async fn commands(&self) -> Result<Value> {
-        let commands = self.commands.read().await.clone();
+        let connection = self.current.read().await;
+        let commands = connection.skills.refresh(&*self.commands.read().await);
         if commands.is_null() {
             return Err(Error::Unsupported(
                 "Claude command catalog was not advertised".into(),
@@ -1690,7 +1740,7 @@ impl AgentBackend for ClaudeBackend {
             return Err(error);
         }
         let id = replacement.id.clone();
-        *self.commands.write().await = command_catalog(&replacement.init["commands"]);
+        *self.commands.write().await = replacement.skills.catalog(&replacement.init["commands"]);
         current.decoder.abort();
         let old_wire = current.wire.clone();
         *self.policy_observation.write().await = None;
@@ -1722,11 +1772,19 @@ impl AgentBackend for ClaudeBackend {
     }
     async fn close(&self) -> Result<()> {
         let connection = self.current.read().await;
-        close_worker(&connection.wire).await
+        let result = close_worker(&connection.wire).await;
+        if result.is_ok() {
+            connection.skills.cleanup();
+        }
+        result
     }
     async fn kill(&self) -> Result<()> {
         let connection = self.current.read().await;
-        connection.wire.kill().await
+        let result = connection.wire.kill().await;
+        if result.is_ok() {
+            connection.skills.cleanup();
+        }
+        result
     }
 }
 

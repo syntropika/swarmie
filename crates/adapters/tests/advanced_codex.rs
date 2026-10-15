@@ -79,6 +79,17 @@ async fn execution_maps_mcp_credentials_and_native_turn_policy() {
     options.config["fast"] = json!(true);
     options.config["sandbox"] = json!("workspace-write");
     options.config["approvalsReviewer"] = json!("auto_review");
+    let selected_skill = fixture.0.join("second/SKILL.md");
+    std::fs::create_dir_all(selected_skill.parent().unwrap()).unwrap();
+    std::fs::write(
+        &selected_skill,
+        "---\nname: same-name\ndescription: Test native selected input.\n---\nRun the fixture.\n",
+    )
+    .unwrap();
+    options.execution.env.insert(
+        "SWARMIE_SELECTED_SKILL".into(),
+        selected_skill.to_string_lossy().into_owned(),
+    );
     let mut connection = CodexHarness.connect(&options, None, false).await.unwrap();
     connection
         .backend
@@ -185,15 +196,18 @@ async fn model_changes_validate_against_the_new_catalog_and_reset_incompatible_s
 }
 
 #[tokio::test]
-async fn commands_and_quotas_use_enabled_native_resources_and_the_correct_limit_bucket() {
+async fn commands_and_quotas_retain_native_enablement_and_the_correct_limit_bucket() {
     let fixture = Fixture::new();
     let connection = CodexHarness
         .connect(&fixture.options(), None, false)
         .await
         .unwrap();
     let commands = connection.backend.commands().await.unwrap();
-    assert_eq!(commands.as_array().unwrap().len(), 1);
+    assert_eq!(commands.as_array().unwrap().len(), 2);
     assert_eq!(commands[0]["name"], "review");
+    assert_eq!(commands[0]["enabled"], true);
+    assert_eq!(commands[1]["enabled"], false);
+    assert_eq!(commands[1]["availability"], "blocked-by-native");
     let quotas = connection.backend.quotas().await.unwrap();
     assert_eq!(quotas["windows"][0]["remainingPercent"], 75.0);
     assert_eq!(quotas["windows"][0]["durationMinutes"], 300);

@@ -1195,3 +1195,88 @@ async fn session_scoped_generation_keeps_original_directory_and_controls_after_p
     assert_eq!(runtime.sessions().await.unwrap().len(), 1);
     runtime.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn session_skill_discovery_uses_the_execution_owner_home() {
+    let root = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let skill = home.path().join(".agents/skills/isolated-owner");
+    std::fs::create_dir_all(&skill).unwrap();
+    std::fs::write(skill.join("SKILL.md"), "---\nname: isolated-owner\ndescription: Inspect the execution owner fixture.\n---\nRead the fixture.\n").unwrap();
+    let runtime = Runtime::builder()
+        .harness(MockHarness::new(MockScript::default()))
+        .extension(ResourcesExtension::open(root.path()).unwrap())
+        .build();
+    let mut options = SpawnOptions::new("mock", project.path());
+    options
+        .execution
+        .env
+        .insert("HOME".into(), home.path().to_string_lossy().into_owned());
+    let agent = runtime.spawn(options).await.unwrap();
+    assert!(agent.snapshot().await.options.execution.env.is_empty());
+    let discovered = call(
+        &runtime,
+        "resources.list",
+        json!({"sessionId":agent.snapshot().await.id}),
+    )
+    .await;
+    let resource = discovered["resources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|resource| resource["name"] == "isolated-owner")
+        .unwrap();
+    assert_eq!(
+        resource["path"],
+        json!(skill.join("SKILL.md").canonicalize().unwrap())
+    );
+    assert_eq!(resource["source"], "user");
+    assert_eq!(resource["availability"], "discovered");
+    runtime.shutdown().await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn canonical_skill_aliases_are_discovered_once_without_claiming_native_availability() {
+    let root = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let shared = project.path().join(".agents/skills/check");
+    std::fs::create_dir_all(shared.join("references")).unwrap();
+    std::fs::write(shared.join("SKILL.md"), "---\nname: check\ndescription: Inspect a shared folder.\n---\nRead references/detail.txt.\n").unwrap();
+    std::fs::write(shared.join("references/detail.txt"), "preserved").unwrap();
+    std::fs::create_dir_all(project.path().join(".claude/skills")).unwrap();
+    std::os::unix::fs::symlink(&shared, project.path().join(".claude/skills/check")).unwrap();
+    let runtime = Runtime::builder()
+        .extension(ResourcesExtension::open(root.path()).unwrap())
+        .build();
+    let discovered = call(&runtime, "resources.list", json!({"cwd":project.path()})).await;
+    let skills: Vec<_> = discovered["resources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|resource| resource["name"] == "check")
+        .collect();
+    assert_eq!(skills.len(), 1);
+    assert_eq!(skills[0]["native"], false);
+    assert_eq!(skills[0]["availability"], "discovered");
+    assert_eq!(skills[0]["origins"].as_array().unwrap().len(), 2);
+    let read = call(
+        &runtime,
+        "resources.read",
+        json!({"cwd":project.path(),"path":skills[0]["path"]}),
+    )
+    .await;
+    assert!(
+        read["text"]
+            .as_str()
+            .unwrap()
+            .contains("Inspect a shared folder")
+    );
+    assert!(
+        std::fs::read_to_string(shared.join("references/detail.txt"))
+            .unwrap()
+            .contains("preserved")
+    );
+    runtime.shutdown().await.unwrap();
+}

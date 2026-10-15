@@ -33,12 +33,15 @@ pub(crate) enum Command {
     Tasks(Reply<Vec<AgentTask>>),
     StopTask(String, Reply<()>),
     Quotas(Reply<Value>),
+    McpControl(Value, Reply<Value>),
     Models(Reply<Vec<ModelDescriptor>>),
     Rollback(u64, RollbackScope, Option<u64>, Reply<()>),
     Compact(Reply<()>),
     Close(bool, Reply<()>),
+    CloseIdle(Reply<()>),
 }
 pub(crate) struct AgentInner {
+    pub mcp_restart: Arc<AtomicBool>,
     pub commands: mpsc::UnboundedSender<Command>,
     pub events: broadcast::Sender<RuntimeEvent>,
     pub snapshot: Arc<RwLock<SessionSnapshot>>,
@@ -56,6 +59,45 @@ impl Drop for AgentInner {
 #[derive(Clone)]
 pub struct Agent(pub(crate) Arc<AgentInner>);
 impl Agent {
+    pub async fn mcp_control(&self, request: Value) -> Result<Value> {
+        self.request(|reply| Command::McpControl(request, reply))
+            .await
+    }
+    /// The live owner's home override, without exposing launch credentials or other environment values.
+    pub fn execution_home(&self) -> Option<std::path::PathBuf> {
+        let execution = self.0.execution.lock().unwrap();
+        let execution = execution.as_ref()?;
+        execution
+            .env
+            .get("HOME")
+            .or_else(|| execution.env.get("USERPROFILE"))
+            .map(std::path::PathBuf::from)
+    }
+
+    pub(crate) fn mcp_environment(&self) -> std::collections::BTreeMap<String, String> {
+        let execution = self.0.execution.lock().unwrap();
+        execution
+            .as_ref()
+            .map(|execution| {
+                execution
+                    .env
+                    .iter()
+                    .filter(|(key, _)| {
+                        matches!(
+                            key.as_str(),
+                            "CODEX_HOME"
+                                | "CLAUDE_CONFIG_DIR"
+                                | "OPENCODE_CONFIG_DIR"
+                                | "OPENCODE_CONFIG"
+                                | "XDG_CONFIG_HOME"
+                                | "PI_CODING_AGENT_DIR"
+                        )
+                    })
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
     pub async fn snapshot(&self) -> SessionSnapshot {
         self.0.snapshot.read().await.clone()
     }
@@ -222,6 +264,9 @@ impl Agent {
     pub async fn compact(&self) -> Result<()> {
         self.request(Command::Compact).await
     }
+    pub(crate) async fn close_idle(&self) -> Result<()> {
+        self.request(Command::CloseIdle).await
+    }
     pub async fn close(&self) -> Result<()> {
         self.request(|r| Command::Close(false, r)).await
     }
@@ -230,6 +275,7 @@ impl Agent {
     }
 }
 pub(crate) struct Engine {
+    pub mcp_restart: Arc<AtomicBool>,
     pub host_tools: Option<Arc<crate::tools::HostToolScope>>,
     pub submissions: BTreeMap<String, SubmissionRecord>,
     pub recovered_turn: Option<String>,
@@ -538,7 +584,8 @@ impl Engine {
         }
     }
     async fn promote_queue(&mut self) {
-        if self.dispatch_blocked()
+        if self.mcp_restart.load(Ordering::SeqCst)
+            || self.dispatch_blocked()
             || self.snapshot.turn.is_some()
             || !self.permissions.is_empty()
             || self.snapshot.queue.paused
@@ -913,6 +960,8 @@ impl Engine {
                     Some(Command::Configuration(r)) => { let _ = r.send(Err(Error::Busy)); }
                     Some(Command::Configure(_,r)) => { let _ = r.send(Err(Error::Busy)); }
                     Some(Command::SlashCommands(r) | Command::Quotas(r)) => { let _ = r.send(Err(Error::Busy)); }
+                    Some(Command::CloseIdle(r)) => { let _ = r.send(Err(Error::Busy)); }
+                    Some(Command::McpControl(_,r)) => { let _ = r.send(Err(Error::Busy)); }
                     Some(command @ (Command::QueueAdd(..) | Command::QueueUpdate(..) | Command::QueueRemove(..) | Command::QueuePause(..) | Command::Metadata(..))) => self.queue_command(command).await,
                 },
                 _ = &mut cancel_deadline, if !cancel_replies.is_empty() => {
@@ -987,6 +1036,7 @@ impl Engine {
                         Command::ReconcileSubmission(key,reply) => { let result = self.reconcile_retained_submission(&key).await; let _ = reply.send(result); }
                         Command::Steer(mut p, reply) => {
                             let result = async {
+                                if self.mcp_restart.load(Ordering::SeqCst) { return Err(Error::Rejected("Reopen this native session after MCP changes".into())); }
                                 if self.dispatch_blocked() { return Err(Error::Busy); }
                                 if !self.snapshot.capabilities.steering.is_available() { return Err(Error::Unsupported("steering".into())); }
                                 if self.snapshot.turn.is_none() { return Err(Error::Invalid("steering requires an active turn".into())); }
@@ -1024,6 +1074,7 @@ impl Engine {
                         Command::SlashCommands(reply) => { let backend = self.backend.clone(); let result = self.controlled(Box::pin(async move { backend.commands().await }),false).await; let _ = reply.send(result); }
                         Command::Tasks(reply) => { let backend = self.backend.clone(); let capability = self.snapshot.capabilities.background_tasks.clone(); let result = self.controlled(Box::pin(async move { capability.require("background tasks")?; backend.tasks().await }),false).await; let _ = reply.send(result); }
                         Command::StopTask(task_id, reply) => { let backend = self.backend.clone(); let capability = self.snapshot.capabilities.background_tasks.clone(); let result = self.controlled(Box::pin(async move { capability.require("background task control")?; backend.stop_task(&task_id).await }),false).await; let _ = reply.send(result); }
+                        Command::McpControl(request,reply) => { let backend = self.backend.clone(); let result = self.controlled(Box::pin(async move { backend.mcp_control(request).await }),false).await; let _ = reply.send(result); }
                         Command::Quotas(reply) => { let backend = self.backend.clone(); let result = self.controlled(Box::pin(async move { backend.quotas().await }),false).await; let _ = reply.send(result); }
                         Command::Configure(v, reply) => {
                             let result = self.apply_configuration(v).await;
@@ -1048,7 +1099,15 @@ impl Engine {
                             let _ = reply.send(result);
                         }
                         Command::Compact(reply) => { let result = if self.dispatch_blocked() || self.snapshot.turn.is_some() || !self.permissions.is_empty() { Err(Error::Busy) } else { { let backend = self.backend.clone(); self.controlled(Box::pin(async move { backend.compact().await }),false).await } }; let _ = reply.send(result); }
-                        Command::Close(kill, reply) => {
+                        command @ (Command::Close(..) | Command::CloseIdle(..)) => {
+                            let (kill, reply) = match command {
+                                Command::Close(kill,reply) => (kill,reply),
+                                Command::CloseIdle(reply) => {
+                                    if self.snapshot.state != SessionState::Idle || self.snapshot.turn.is_some() || !self.permissions.is_empty() { let _ = reply.send(Err(Error::Busy)); continue; }
+                                    (false,reply)
+                                }
+                                _ => unreachable!(),
+                            };
                             if let Some(tools) = &self.host_tools { tools.revoke(); }
                             self.stop_task_controls().await;
                             // Native teardown settles control requests without waiting for an

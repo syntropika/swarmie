@@ -244,6 +244,34 @@ type InputLocalStoreIdentity struct {
 	StoreId       string `json:"storeId"`
 }
 
+type InputMcpDefinition struct {
+	Args              []string          `json:"args,omitempty"`
+	BearerTokenEnvVar *string           `json:"bearerTokenEnvVar,omitempty"`
+	Command           *string           `json:"command,omitempty"`
+	EnvVars           []string          `json:"envVars,omitempty"`
+	HeaderEnvVars     map[string]string `json:"headerEnvVars,omitempty"`
+	Transport         string            `json:"transport"`
+	Url               *string           `json:"url,omitempty"`
+}
+
+type InputMcpMutation struct {
+	Action           string          `json:"action"`
+	Definition       json.RawMessage `json:"definition,omitempty"`
+	ExpectedRevision *string         `json:"expectedRevision,omitempty"`
+	Id               *string         `json:"id,omitempty"`
+	Name             *string         `json:"name,omitempty"`
+	Origin           *string         `json:"origin,omitempty"`
+	Query            *InputMcpQuery  `json:"query,omitempty"`
+	Scope            *string         `json:"scope,omitempty"`
+}
+
+type InputMcpQuery struct {
+	ConfigHome *string `json:"configHome,omitempty"`
+	Cwd        *string `json:"cwd,omitempty"`
+	Harness    *string `json:"harness,omitempty"`
+	SessionId  *string `json:"sessionId,omitempty"`
+}
+
 type InputMcpServer struct {
 	Name      string            `json:"name"`
 	Transport InputMcpTransport `json:"transport"`
@@ -329,6 +357,50 @@ type LocalStoreIdentity struct {
 	EnvironmentId string `json:"environmentId"`
 	OwnerScopeId  string `json:"ownerScopeId"`
 	StoreId       string `json:"storeId"`
+}
+
+type McpCatalog struct {
+	Entries         []McpEntry `json:"entries"`
+	Limitations     []string   `json:"limitations"`
+	RestartSessions []string   `json:"restartSessions"`
+}
+
+type McpDefinition struct {
+	Args              []string          `json:"args"`
+	BearerTokenEnvVar *string           `json:"bearerTokenEnvVar"`
+	Command           *string           `json:"command"`
+	EnvVars           []string          `json:"envVars"`
+	HeaderEnvVars     map[string]string `json:"headerEnvVars"`
+	Transport         string            `json:"transport"`
+	Url               *string           `json:"url"`
+}
+
+type McpEntry struct {
+	Actions          []string      `json:"actions"`
+	AuthStatus       string        `json:"authStatus"`
+	CredentialFields []string      `json:"credentialFields"`
+	Definition       McpDefinition `json:"definition"`
+	Enabled          bool          `json:"enabled"`
+	Harness          *string       `json:"harness"`
+	Id               string        `json:"id"`
+	Name             string        `json:"name"`
+	NativeName       string        `json:"nativeName"`
+	Origin           string        `json:"origin"`
+	ProjectPath      *string       `json:"projectPath"`
+	ReadOnlyReason   *string       `json:"readOnlyReason"`
+	RequiresRestart  bool          `json:"requiresRestart"`
+	Revision         string        `json:"revision"`
+	RuntimeStatus    string        `json:"runtimeStatus"`
+	Scope            string        `json:"scope"`
+	Source           *string       `json:"source"`
+	Tools            []string      `json:"tools"`
+}
+
+type McpReceipt struct {
+	Action           string          `json:"action"`
+	AuthorizationUrl *string         `json:"authorizationUrl"`
+	Entry            json.RawMessage `json:"entry"`
+	RestartSessions  []string        `json:"restartSessions"`
 }
 
 type McpServer struct {
@@ -691,4 +763,4 @@ type WorkingContext struct {
 	Source        ContextSource     `json:"source"`
 }
 
-var Methods = []string{"agent/commands", "agent/configuration", "agent/configure", "agent/kill", "agent/models", "agent/quotas", "agent/spawn", "directory/get", "directory/register", "extension/invoke", "extension/list", "permission/respond", "project/create", "project/get", "project/list", "project/update", "runtime/agentToolsCancel", "runtime/agentToolsConnect", "runtime/agentToolsDisconnect", "runtime/agentToolsFlow", "runtime/agentToolsInput", "runtime/agentToolsInstall", "runtime/agentToolsSetup", "runtime/configuration", "runtime/discover", "runtime/generate", "runtime/history", "runtime/history/read", "runtime/initialize", "runtime/probe", "runtime/quotas", "runtime/quotas/all", "runtime/schema", "runtime/shutdown", "session/cancel", "session/close", "session/compact", "session/context", "session/create", "session/events", "session/fork", "session/get", "session/import", "session/list", "session/metadata", "session/prompt", "session/queue", "session/queue/list", "session/queue/pause", "session/queue/remove", "session/queue/update", "session/resume", "session/rollback", "session/steer", "session/submission", "session/submission/reconcile", "session/task/stop", "session/tasks", "session/transcript", "session/tree", "settings/directory", "settings/setDirectory"}
+var Methods = []string{"agent/commands", "agent/configuration", "agent/configure", "agent/kill", "agent/models", "agent/quotas", "agent/spawn", "directory/get", "directory/register", "extension/invoke", "extension/list", "mcp/list", "mcp/mutate", "mcp/reopen", "permission/respond", "project/create", "project/get", "project/list", "project/update", "runtime/agentToolsCancel", "runtime/agentToolsConnect", "runtime/agentToolsDisconnect", "runtime/agentToolsFlow", "runtime/agentToolsInput", "runtime/agentToolsInstall", "runtime/agentToolsSetup", "runtime/configuration", "runtime/discover", "runtime/generate", "runtime/history", "runtime/history/read", "runtime/initialize", "runtime/probe", "runtime/quotas", "runtime/quotas/all", "runtime/schema", "runtime/shutdown", "session/cancel", "session/close", "session/compact", "session/context", "session/create", "session/events", "session/fork", "session/get", "session/import", "session/list", "session/metadata", "session/prompt", "session/queue", "session/queue/list", "session/queue/pause", "session/queue/remove", "session/queue/update", "session/resume", "session/rollback", "session/steer", "session/submission", "session/submission/reconcile", "session/task/stop", "session/tasks", "session/transcript", "session/tree", "settings/directory", "settings/setDirectory"}

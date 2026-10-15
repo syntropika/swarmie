@@ -449,6 +449,9 @@ function localDecoder<M extends keyof ConnectionResults>(
   };
 }
 const decoders: DecoderMap = {
+  "mcp/list": (value) => decodeRuntimeResult("mcp/list", value),
+  "mcp/mutate": (value) => decodeRuntimeResult("mcp/mutate", value),
+  "mcp/reopen": (value) => decodeRuntimeResult("mcp/reopen", value),
   "nodes/list": localDecoder("nodes/list"),
   "nodes/select": localDecoder("nodes/select"),
   "nodes/pair": localDecoder("nodes/pair"),

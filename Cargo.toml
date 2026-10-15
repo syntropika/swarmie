@@ -29,3 +29,4 @@ swarmie-git = { path = "extensions/git" }
 swarmie-workspace = { path = "extensions/workspace" }
 swarmie-permissions = { path = "extensions/permissions" }
 swarmie-resources = { path = "extensions/resources" }
+swarmie-skills = { path = "crates/skills" }

@@ -61,8 +61,30 @@ impl RuntimeService {
         self.agents.write().await.insert(snapshot.id.clone(), a);
         Ok(serde_json::to_value(snapshot)?)
     }
+    // Keep native reconnection and catalog futures out of the common RPC dispatch frame.
+    async fn invoke_mcp(&self, method: &str, p: Value) -> Result<Value> {
+        match method {
+            "mcp/reopen" => {
+                self.retain(self.runtime.mcp_reopen(required(&p, "sessionId")?).await?)
+                    .await
+            }
+            "mcp/list" => {
+                let query: McpQuery = serde_json::from_value(p)
+                    .map_err(|_| Error::Invalid("Invalid MCP catalog query".into()))?;
+                Ok(json!(self.runtime.mcp_catalog(query).await?))
+            }
+            "mcp/mutate" => {
+                let mutation: McpMutation = serde_json::from_value(p)
+                    .map_err(|_| Error::Invalid("Invalid MCP operation".into()))?;
+                Ok(json!(self.runtime.mcp_mutate(mutation).await?))
+            }
+            _ => Err(Error::Invalid("Unknown MCP operation".into())),
+        }
+    }
+
     pub async fn invoke(&self, method: &str, p: Value) -> Result<Value> {
         match method {
+            "mcp/reopen" | "mcp/list" | "mcp/mutate" => Box::pin(self.invoke_mcp(method, p)).await,
             "runtime/shutdown" => {
                 self.stop.send_replace(true);
                 Ok(Value::Null)
@@ -605,6 +627,9 @@ impl RuntimeService {
     }
 }
 pub const METHODS: &[&str] = &[
+    "mcp/reopen",
+    "mcp/list",
+    "mcp/mutate",
     "directory/get",
     "directory/register",
     "project/create",

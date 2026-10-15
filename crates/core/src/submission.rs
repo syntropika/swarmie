@@ -179,6 +179,9 @@ impl crate::session::Engine {
         if let Some(receipt) = self.retained_submission(&key, &authored)? {
             return Ok(receipt);
         }
+        if self.mcp_restart.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(Error::Rejected("MCP configuration changed; close and reopen this native session before sending another message".into()));
+        }
         if self.dispatch_blocked() || self.snapshot.turn.is_some() || !self.permissions.is_empty() {
             return Err(Error::Busy);
         }

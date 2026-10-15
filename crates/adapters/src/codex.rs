@@ -320,6 +320,15 @@ fn capabilities() -> Capabilities {
 }
 #[async_trait]
 impl Harness for CodexHarness {
+    fn mcp_source_applies(&self, query: &McpQuery, entry: &McpEntry) -> Result<bool> {
+        super::native_mcp::applies("codex", query, entry)
+    }
+    async fn mcp_catalog(&self, query: &McpQuery) -> Result<Vec<McpEntry>> {
+        super::native_mcp::catalog(self.id(), query).await
+    }
+    async fn mcp_mutate(&self, mutation: &McpMutation) -> Result<Option<McpEntry>> {
+        super::native_mcp::mutate(self.id(), mutation).await
+    }
     fn id(&self) -> &str {
         "codex"
     }
@@ -872,6 +881,48 @@ struct CodexBackend {
 }
 #[async_trait]
 impl AgentBackend for CodexBackend {
+    async fn mcp_control(&self, request: Value) -> Result<Value> {
+        match request["action"].as_str() {
+            Some("inspect") => {
+                let mut cursor = Value::Null;
+                let mut rows = vec![];
+                for _ in 0..50 {
+                    let result = self.wire.request("mcpServerStatus/list", json!({"cursor":cursor,"limit":100,"detail":"toolsAndAuthOnly","threadId":self.thread})).await?;
+                    for entry in result["data"].as_array().into_iter().flatten() {
+                        let Some(name) = entry["name"].as_str() else {
+                            continue;
+                        };
+                        let tools: Vec<_> = entry["tools"]
+                            .as_object()
+                            .into_iter()
+                            .flatten()
+                            .map(|(name, _)| name.clone())
+                            .collect();
+                        rows.push(json!({"name":name,"runtimeStatus":entry["runtimeStatus"].as_str().unwrap_or("unknown"),"authStatus":entry["authStatus"].as_str().unwrap_or("unknown"),"tools":tools,"canAuthenticate":entry["authStatus"] == "notLoggedIn"}));
+                    }
+                    let next = result["nextCursor"].clone();
+                    if next.is_null() {
+                        return Ok(json!(rows));
+                    }
+                    if next == cursor {
+                        return Err(Error::Provider(
+                            "Native MCP pagination did not advance".into(),
+                        ));
+                    }
+                    cursor = next;
+                }
+                Err(Error::Provider(
+                    "Native MCP catalog exceeds the supported size".into(),
+                ))
+            }
+            Some("authenticate") => {
+                self.wire
+                    .request("mcpServer/oauth/login", json!({"name":request["name"]}))
+                    .await
+            }
+            _ => Err(Error::Unsupported("Native MCP operation".into())),
+        }
+    }
     async fn prompt(&self, p: &Prompt) -> Result<()> {
         self.submit_native(None, p).await
     }
@@ -1122,13 +1173,10 @@ impl AgentBackend for CodexBackend {
     async fn commands(&self) -> Result<Value> {
         let response = self
             .wire
-            .request(
-                "skills/list",
-                json!({"cwds":[self.cwd],"forceReload":false}),
-            )
+            .request("skills/list", json!({"cwds":[self.cwd],"forceReload":true}))
             .await?;
-        let commands:Vec<_> = response["data"].as_array().into_iter().flatten().flat_map(|entry|entry["skills"].as_array().into_iter().flatten()).filter(|skill|skill["enabled"] != false).filter_map(|skill| {
-            Some(json!({"name":skill["name"].as_str()?,"description":skill["description"],"source":"skill","path":skill["path"],"invocation":format!("${} ",skill["name"].as_str()?)}))
+        let commands:Vec<_> = response["data"].as_array().into_iter().flatten().flat_map(|entry|entry["skills"].as_array().into_iter().flatten()).filter_map(|skill| {
+            Some(json!({"name":skill["name"].as_str()?,"description":skill["description"],"source":"skill","path":skill["path"],"scope":skill["scope"],"enabled":skill["enabled"] != false,"availability":if skill["enabled"] == false {"blocked-by-native"} else {"advertised"},"metadata":skill,"invocation":format!("${} ",skill["name"].as_str()?)}))
         }).collect();
         Ok(json!(commands))
     }
@@ -1268,6 +1316,12 @@ impl CodexBackend {
         let mut active = self.turn.write().await;
         if active.is_some() || self.compact_receipt.lock().await.is_some() {
             return Err(Error::Busy);
+        }
+        if p.content
+            .iter()
+            .any(|content| matches!(content, PromptContent::Skill { .. }))
+        {
+            super::skills::selected(p, &self.commands().await?)?;
         }
         let mut params = json!({"threadId":self.thread,"input":input(p)?});
         if let Some(id) = submission_id {

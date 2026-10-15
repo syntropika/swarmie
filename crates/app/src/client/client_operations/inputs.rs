@@ -97,6 +97,49 @@ async fn prepare_with(call: &mut Calls<'_>, params: &Value) -> Outcome {
             ));
         }
     }
+    if !skills.is_empty() {
+        if input.delivery == "steer" && caps["metadata"]["nativeSkillSteering"] == false {
+            return Err(invalid(
+                "native skill invocation requires a new turn; queue this message",
+            ));
+        }
+        if caps["metadata"]["maxNativeSkillsPerMessage"]
+            .as_u64()
+            .is_some_and(|limit| skills.len() as u64 > limit)
+        {
+            return Err(invalid(
+                "this harness accepts one selected native skill per message",
+            ));
+        }
+        let commands = call
+            .call(
+                "agent/commands",
+                json!({"sessionId":input.session_id}),
+                false,
+            )
+            .await?;
+        for skill in &skills {
+            let choices = commands
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|command| {
+                    command["source"] == "skill"
+                        && command["name"] == skill["data"]["name"]
+                        && command["path"] == skill["data"]["path"]
+                        && command["enabled"] != false
+                        && command["userInvocable"] != false
+                        && (command["availability"].is_null()
+                            || command["availability"] == "advertised")
+                })
+                .count();
+            if choices != 1 {
+                return Err(invalid(
+                    "selected skill is not uniquely available in this session; reload its catalog",
+                ));
+            }
+        }
+    }
     let context = contexts.join("\n\n");
     if context.len() > 1024 * 1024 {
         return Err(invalid("keep selected context under 1 MB"));

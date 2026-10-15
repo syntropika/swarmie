@@ -80,10 +80,11 @@ async fn pi_applies_native_execution_flags_environment_and_authoritative_context
         assert!(receipt["args"].as_array().unwrap().contains(&json!(flag)));
     }
     assert!(events.iter().any(|event| matches!(event, EventKind::ContextUpdated(c) if c.used_tokens == Some(240) && c.context_window_tokens == Some(1000))));
-    assert_eq!(
-        connection.backend.commands().await.unwrap()[0]["name"],
-        "skill:review"
-    );
+    let commands = connection.backend.commands().await.unwrap();
+    assert_eq!(commands[0]["name"], "review");
+    assert_eq!(commands[0]["nativeName"], "skill:review");
+    assert_eq!(commands[0]["enabled"], false);
+    assert_eq!(commands[0]["availability"], "blocked-by-policy");
     assert_eq!(
         connection.backend.commands().await.unwrap()[0]["invocation"],
         "/skill:review "
@@ -130,7 +131,13 @@ async fn unsupported_execution_options_never_silently_start_a_provider() {
         },
     };
     let mut pi = fixture.options("pi");
-    pi.execution.mcp_servers.push(server.clone());
+    pi.execution.mcp_servers.push(McpServer {
+        name: server.name.clone(),
+        transport: McpTransport::Sse {
+            url: "http://127.0.0.1:1234/sse".into(),
+            headers: BTreeMap::new(),
+        },
+    });
     assert!(matches!(
         PiHarness.connect(&pi, None, false).await,
         Err(Error::Unsupported(_))

@@ -23,6 +23,7 @@ import { startAction } from "./action-boundary";
 import { ChatDirectorySettings } from "./chat-directory-settings";
 import { CodingAgentsPanel } from "./coding-agents-panel";
 import { ContributionSlot } from "./contribution-host";
+import { McpSettings } from "./mcp-settings";
 import { NativeHistory } from "./native-history";
 import { NodeSettings } from "./node-settings";
 import type { NodeClient, NodesState } from "./nodes";
@@ -39,6 +40,7 @@ const sections = [
   { id: "notifications", title: "Notifications", icon: Bell },
   { id: "import", title: "Import", icon: Download },
   { id: "shortcuts", title: "Keyboard shortcuts", icon: Keyboard },
+  { id: "mcps", title: "MCP servers", icon: Plug },
   { id: "extensions", title: "Extensions", icon: Plug },
   { id: "connections", title: "Nodes", icon: Plug },
 ] as const;
@@ -150,6 +152,11 @@ function SettingsContent({
               >
                 <X size={14} />
               </Button>
+            </div>
+          )}
+          {section === "mcps" && (
+            <div className="settings-section">
+              <McpSettings store={store} state={state} />
             </div>
           )}
           {section === "account" && (

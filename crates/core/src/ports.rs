@@ -13,6 +13,24 @@ pub struct BackendConnection {
 #[async_trait]
 pub trait Harness: Send + Sync {
     fn id(&self) -> &str;
+    /// Qualify MCP injection and configuration ownership for a specific launch context.
+    async fn mcp_capabilities(&self, _options: &SpawnOptions) -> Result<Capabilities> {
+        Ok(self.detect().await?.capabilities)
+    }
+    /// Match a native configuration origin against an execution context, including its owner home.
+    fn mcp_source_applies(&self, _query: &McpQuery, _entry: &McpEntry) -> Result<bool> {
+        Ok(false)
+    }
+    async fn mcp_catalog(&self, _query: &McpQuery) -> Result<Vec<McpEntry>> {
+        Err(Error::Unsupported(
+            "Native MCP configuration management".into(),
+        ))
+    }
+    async fn mcp_mutate(&self, _mutation: &McpMutation) -> Result<Option<McpEntry>> {
+        Err(Error::Unsupported(
+            "Native MCP configuration management".into(),
+        ))
+    }
     async fn detect(&self) -> Result<Detection>;
     /// A probe must not create or mutate a conversational session.
     async fn probe(&self) -> Result<HarnessProbe> {
@@ -102,6 +120,9 @@ pub trait Harness: Send + Sync {
 }
 #[async_trait]
 pub trait AgentBackend: Send + Sync {
+    async fn mcp_control(&self, _request: Value) -> Result<Value> {
+        Err(Error::Unsupported("Live MCP control".into()))
+    }
     /// Return when accepted, never wait for the model to finish.
     /// Only Error::Rejected certifies no native effects. Other errors retain uncertainty.
     async fn prompt(&self, prompt: &Prompt) -> Result<()>;

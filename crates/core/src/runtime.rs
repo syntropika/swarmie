@@ -1,5 +1,7 @@
 #[path = "local_runtime.rs"]
 mod local_runtime;
+#[path = "mcp_runtime.rs"]
+mod mcp_runtime;
 use crate::session::{AgentInner, Engine};
 use crate::*;
 use futures_util::{StreamExt, stream};
@@ -47,6 +49,7 @@ impl RuntimeBuilder {
             extensions: self.extensions,
             agents: RwLock::new(BTreeMap::new()),
             open_lock: Mutex::new(()),
+            mcp_lock: Mutex::new(()),
             events,
             host_tools: Default::default(),
             agent_tools: Default::default(),
@@ -66,6 +69,7 @@ struct RuntimeInner {
     extensions: Vec<Arc<dyn RuntimeExtension>>,
     agents: RwLock<BTreeMap<String, Weak<AgentInner>>>,
     open_lock: Mutex<()>,
+    mcp_lock: Mutex<()>,
     events: broadcast::Sender<RuntimeEvent>,
 }
 #[derive(Clone)]
@@ -551,6 +555,7 @@ impl Runtime {
         let (events, _) = broadcast::channel(4096);
         let isolated = Runtime(Arc::new(RuntimeInner {
             agent_tools: std::sync::RwLock::new(self.0.agent_tools.read().unwrap().clone()),
+            mcp_lock: Mutex::new(()),
             incarnation_id: uuid::Uuid::new_v4().to_string(),
             host_tools: Default::default(),
             harnesses: self.0.harnesses.clone(),
@@ -811,6 +816,7 @@ impl Runtime {
             ));
         }
         verify_context(&context).await?;
+        self.compile_mcp(&mut options).await?;
         let h =
             self.0.harnesses.get(&options.harness).ok_or_else(|| {
                 Error::Invalid(format!("unregistered harness: {}", options.harness))
@@ -1195,7 +1201,9 @@ impl Runtime {
         let shared = Arc::new(RwLock::new(snapshot.clone()));
         let history = Arc::new(RwLock::new(retained));
         let closed = Arc::new(AtomicBool::new(false));
+        let mcp_restart = Arc::new(AtomicBool::new(false));
         let inner = Arc::new(AgentInner {
+            mcp_restart: mcp_restart.clone(),
             execution: execution.clone(),
             closed: closed.clone(),
             commands: tx,
@@ -1212,6 +1220,7 @@ impl Runtime {
             ext.after_spawn(&snapshot).await;
         }
         let engine = Engine {
+            mcp_restart,
             host_tools,
             submissions,
             execution,

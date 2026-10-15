@@ -395,6 +395,56 @@ public struct InputLocalStoreIdentity: Codable, Sendable {
         self.storeId = storeId
     }
 }
+public struct InputMcpDefinition: Codable, Sendable {
+    public var args: [String]?
+    public var bearerTokenEnvVar: String?
+    public var command: String?
+    public var envVars: [String]?
+    public var headerEnvVars: [String: String]?
+    public var transport: String
+    public var url: String?
+    public init(args: [String]? = nil, bearerTokenEnvVar: String? = nil, command: String? = nil, envVars: [String]? = nil, headerEnvVars: [String: String]? = nil, transport: String, url: String? = nil) {
+        self.args = args
+        self.bearerTokenEnvVar = bearerTokenEnvVar
+        self.command = command
+        self.envVars = envVars
+        self.headerEnvVars = headerEnvVars
+        self.transport = transport
+        self.url = url
+    }
+}
+public struct InputMcpMutation: Codable, Sendable {
+    public var action: String
+    public var definition: JSONValue?
+    public var expectedRevision: String?
+    public var id: String?
+    public var name: String?
+    public var origin: String?
+    public var query: InputMcpQuery?
+    public var scope: String?
+    public init(action: String, definition: JSONValue? = nil, expectedRevision: String? = nil, id: String? = nil, name: String? = nil, origin: String? = nil, query: InputMcpQuery? = nil, scope: String? = nil) {
+        self.action = action
+        self.definition = definition
+        self.expectedRevision = expectedRevision
+        self.id = id
+        self.name = name
+        self.origin = origin
+        self.query = query
+        self.scope = scope
+    }
+}
+public struct InputMcpQuery: Codable, Sendable {
+    public var configHome: String?
+    public var cwd: String?
+    public var harness: String?
+    public var sessionId: String?
+    public init(configHome: String? = nil, cwd: String? = nil, harness: String? = nil, sessionId: String? = nil) {
+        self.configHome = configHome
+        self.cwd = cwd
+        self.harness = harness
+        self.sessionId = sessionId
+    }
+}
 public struct InputMcpServer: Codable, Sendable {
     public var name: String
     public var transport: InputMcpTransport
@@ -530,6 +580,86 @@ public struct LocalStoreIdentity: Codable, Sendable {
         self.environmentId = environmentId
         self.ownerScopeId = ownerScopeId
         self.storeId = storeId
+    }
+}
+public struct McpCatalog: Codable, Sendable {
+    public var entries: [McpEntry]
+    public var limitations: [String]
+    public var restartSessions: [String]
+    public init(entries: [McpEntry], limitations: [String], restartSessions: [String]) {
+        self.entries = entries
+        self.limitations = limitations
+        self.restartSessions = restartSessions
+    }
+}
+public struct McpDefinition: Codable, Sendable {
+    public var args: [String]
+    public var bearerTokenEnvVar: String?
+    public var command: String?
+    public var envVars: [String]
+    public var headerEnvVars: [String: String]
+    public var transport: String
+    public var url: String?
+    public init(args: [String], bearerTokenEnvVar: String? = nil, command: String? = nil, envVars: [String], headerEnvVars: [String: String], transport: String, url: String? = nil) {
+        self.args = args
+        self.bearerTokenEnvVar = bearerTokenEnvVar
+        self.command = command
+        self.envVars = envVars
+        self.headerEnvVars = headerEnvVars
+        self.transport = transport
+        self.url = url
+    }
+}
+public struct McpEntry: Codable, Sendable {
+    public var actions: [String]
+    public var authStatus: String
+    public var credentialFields: [String]
+    public var definition: McpDefinition
+    public var enabled: Bool
+    public var harness: String?
+    public var id: String
+    public var name: String
+    public var nativeName: String
+    public var origin: String
+    public var projectPath: String?
+    public var readOnlyReason: String?
+    public var requiresRestart: Bool
+    public var revision: String
+    public var runtimeStatus: String
+    public var scope: String
+    public var source: String?
+    public var tools: [String]
+    public init(actions: [String], authStatus: String, credentialFields: [String], definition: McpDefinition, enabled: Bool, harness: String? = nil, id: String, name: String, nativeName: String, origin: String, projectPath: String? = nil, readOnlyReason: String? = nil, requiresRestart: Bool, revision: String, runtimeStatus: String, scope: String, source: String? = nil, tools: [String]) {
+        self.actions = actions
+        self.authStatus = authStatus
+        self.credentialFields = credentialFields
+        self.definition = definition
+        self.enabled = enabled
+        self.harness = harness
+        self.id = id
+        self.name = name
+        self.nativeName = nativeName
+        self.origin = origin
+        self.projectPath = projectPath
+        self.readOnlyReason = readOnlyReason
+        self.requiresRestart = requiresRestart
+        self.revision = revision
+        self.runtimeStatus = runtimeStatus
+        self.scope = scope
+        self.source = source
+        self.tools = tools
+    }
+}
+public struct McpReceipt: Codable, Sendable {
+    public var action: String
+    public var authorizationUrl: String?
+    public var entry: JSONValue
+    public var restartSessions: [String]
+    public init(action: String, authorizationUrl: String? = nil, entry: JSONValue, restartSessions: [String]) {
+        self.action = action
+        self.authorizationUrl = authorizationUrl
+        self.entry = entry
+        self.restartSessions = restartSessions
     }
 }
 public struct McpServer: Codable, Sendable {
@@ -1129,4 +1259,4 @@ public struct WorkingContext: Codable, Sendable {
         self.source = source
     }
 }
-public let protocolMethods: [String] = ["agent/commands","agent/configuration","agent/configure","agent/kill","agent/models","agent/quotas","agent/spawn","directory/get","directory/register","extension/invoke","extension/list","permission/respond","project/create","project/get","project/list","project/update","runtime/agentToolsCancel","runtime/agentToolsConnect","runtime/agentToolsDisconnect","runtime/agentToolsFlow","runtime/agentToolsInput","runtime/agentToolsInstall","runtime/agentToolsSetup","runtime/configuration","runtime/discover","runtime/generate","runtime/history","runtime/history/read","runtime/initialize","runtime/probe","runtime/quotas","runtime/quotas/all","runtime/schema","runtime/shutdown","session/cancel","session/close","session/compact","session/context","session/create","session/events","session/fork","session/get","session/import","session/list","session/metadata","session/prompt","session/queue","session/queue/list","session/queue/pause","session/queue/remove","session/queue/update","session/resume","session/rollback","session/steer","session/submission","session/submission/reconcile","session/task/stop","session/tasks","session/transcript","session/tree","settings/directory","settings/setDirectory"]
+public let protocolMethods: [String] = ["agent/commands","agent/configuration","agent/configure","agent/kill","agent/models","agent/quotas","agent/spawn","directory/get","directory/register","extension/invoke","extension/list","mcp/list","mcp/mutate","mcp/reopen","permission/respond","project/create","project/get","project/list","project/update","runtime/agentToolsCancel","runtime/agentToolsConnect","runtime/agentToolsDisconnect","runtime/agentToolsFlow","runtime/agentToolsInput","runtime/agentToolsInstall","runtime/agentToolsSetup","runtime/configuration","runtime/discover","runtime/generate","runtime/history","runtime/history/read","runtime/initialize","runtime/probe","runtime/quotas","runtime/quotas/all","runtime/schema","runtime/shutdown","session/cancel","session/close","session/compact","session/context","session/create","session/events","session/fork","session/get","session/import","session/list","session/metadata","session/prompt","session/queue","session/queue/list","session/queue/pause","session/queue/remove","session/queue/update","session/resume","session/rollback","session/steer","session/submission","session/submission/reconcile","session/task/stop","session/tasks","session/transcript","session/tree","settings/directory","settings/setDirectory"]

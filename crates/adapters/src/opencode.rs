@@ -43,6 +43,18 @@ fn capabilities() -> Capabilities {
         ..Default::default()
     }
 }
+fn context_capabilities(options: &SpawnOptions) -> Capabilities {
+    let mut capabilities = capabilities();
+    if options.config["url"].is_string() {
+        capabilities
+            .metadata
+            .insert("mcpTransports".into(), json!([]));
+        capabilities
+            .metadata
+            .insert("mcpConfigurationScope".into(), json!("external"));
+    }
+    capabilities
+}
 struct Http {
     client: reqwest::Client,
     url: reqwest::Url,
@@ -144,6 +156,18 @@ impl Http {
 }
 #[async_trait]
 impl Harness for OpenCodeHarness {
+    async fn mcp_capabilities(&self, options: &SpawnOptions) -> Result<Capabilities> {
+        Ok(context_capabilities(options))
+    }
+    fn mcp_source_applies(&self, query: &McpQuery, entry: &McpEntry) -> Result<bool> {
+        super::native_mcp::applies("opencode", query, entry)
+    }
+    async fn mcp_catalog(&self, query: &McpQuery) -> Result<Vec<McpEntry>> {
+        super::native_mcp::catalog(self.id(), query).await
+    }
+    async fn mcp_mutate(&self, mutation: &McpMutation) -> Result<Option<McpEntry>> {
+        super::native_mcp::mutate(self.id(), mutation).await
+    }
     fn id(&self) -> &str {
         "opencode"
     }
@@ -377,7 +401,7 @@ async fn connect_opencode(
         .as_str()
         .ok_or_else(|| Error::Provider("OpenCode omitted session id".into()))?
         .to_string();
-    let mut connection_capabilities = capabilities();
+    let mut connection_capabilities = context_capabilities(o);
     if let Some(history) = fork_history {
         let cloned = http.get(&format!("/session/{id}/message")).await?;
         let aliases = fork_aliases(
@@ -1117,6 +1141,13 @@ impl Drop for OpenCodeBackend {
 }
 #[async_trait]
 impl AgentBackend for OpenCodeBackend {
+    async fn mcp_control(&self, request: Value) -> Result<Value> {
+        if request["action"] != "inspect" {
+            return Err(Error::Unsupported("OpenCode MCP authentication".into()));
+        }
+        let status = self.http.get("/mcp").await?;
+        Ok(json!(status.as_object().into_iter().flatten().map(|(name,value)| json!({"name":name,"runtimeStatus":value["status"].as_str().unwrap_or("unknown"),"authStatus":if value["status"] == "needs_auth" { "notLoggedIn" } else { "unknown" },"tools":[],"canAuthenticate":false})).collect::<Vec<_>>()))
+    }
     async fn prompt(&self, p: &Prompt) -> Result<()> {
         if p.content
             .iter()
