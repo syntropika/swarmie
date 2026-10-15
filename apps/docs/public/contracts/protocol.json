@@ -1355,6 +1355,112 @@
       "required": ["storeId", "environmentId", "ownerScopeId"],
       "type": "object"
     },
+    "InputMcpDefinition": {
+      "additionalProperties": false,
+      "description": "Persisted connection settings contain environment references, never credentials.",
+      "properties": {
+        "args": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "bearerTokenEnvVar": {
+          "default": null,
+          "type": ["string", "null"]
+        },
+        "command": {
+          "default": null,
+          "type": ["string", "null"]
+        },
+        "envVars": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "headerEnvVars": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "transport": {
+          "type": "string"
+        },
+        "url": {
+          "default": null,
+          "type": ["string", "null"]
+        }
+      },
+      "required": ["transport"],
+      "type": "object"
+    },
+    "InputMcpMutation": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "type": "string"
+        },
+        "definition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InputMcpDefinition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expectedRevision": {
+          "type": ["string", "null"]
+        },
+        "id": {
+          "type": ["string", "null"]
+        },
+        "name": {
+          "type": ["string", "null"]
+        },
+        "origin": {
+          "type": ["string", "null"]
+        },
+        "query": {
+          "$ref": "#/$defs/InputMcpQuery",
+          "default": {
+            "configHome": null,
+            "cwd": null,
+            "harness": null,
+            "sessionId": null
+          }
+        },
+        "scope": {
+          "type": ["string", "null"]
+        }
+      },
+      "required": ["action"],
+      "type": "object"
+    },
+    "InputMcpQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "configHome": {
+          "type": ["string", "null"]
+        },
+        "cwd": {
+          "type": ["string", "null"]
+        },
+        "harness": {
+          "type": ["string", "null"]
+        },
+        "sessionId": {
+          "type": ["string", "null"]
+        }
+      },
+      "type": "object"
+    },
     "InputMcpServer": {
       "properties": {
         "name": {
@@ -1796,6 +1902,198 @@
         }
       },
       "required": ["storeId", "environmentId", "ownerScopeId"],
+      "type": "object"
+    },
+    "McpCatalog": {
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/McpEntry"
+          },
+          "type": "array"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "restartSessions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": ["entries", "limitations", "restartSessions"],
+      "type": "object"
+    },
+    "McpDefinition": {
+      "additionalProperties": false,
+      "description": "Persisted connection settings contain environment references, never credentials.",
+      "properties": {
+        "args": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "bearerTokenEnvVar": {
+          "default": null,
+          "type": ["string", "null"]
+        },
+        "command": {
+          "default": null,
+          "type": ["string", "null"]
+        },
+        "envVars": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "headerEnvVars": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "transport": {
+          "type": "string"
+        },
+        "url": {
+          "default": null,
+          "type": ["string", "null"]
+        }
+      },
+      "required": [
+        "transport",
+        "command",
+        "args",
+        "url",
+        "envVars",
+        "headerEnvVars",
+        "bearerTokenEnvVar"
+      ],
+      "type": "object"
+    },
+    "McpEntry": {
+      "properties": {
+        "actions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "authStatus": {
+          "type": "string"
+        },
+        "credentialFields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "definition": {
+          "$ref": "#/$defs/McpDefinition"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "harness": {
+          "type": ["string", "null"]
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "nativeName": {
+          "type": "string"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "projectPath": {
+          "type": ["string", "null"]
+        },
+        "readOnlyReason": {
+          "type": ["string", "null"]
+        },
+        "requiresRestart": {
+          "type": "boolean"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "runtimeStatus": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "source": {
+          "type": ["string", "null"]
+        },
+        "tools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "name",
+        "nativeName",
+        "origin",
+        "harness",
+        "scope",
+        "source",
+        "projectPath",
+        "enabled",
+        "definition",
+        "actions",
+        "credentialFields",
+        "readOnlyReason",
+        "runtimeStatus",
+        "authStatus",
+        "tools",
+        "requiresRestart"
+      ],
+      "type": "object"
+    },
+    "McpReceipt": {
+      "properties": {
+        "action": {
+          "type": "string"
+        },
+        "authorizationUrl": {
+          "type": ["string", "null"]
+        },
+        "entry": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/McpEntry"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "restartSessions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": ["action", "entry", "restartSessions", "authorizationUrl"],
       "type": "object"
     },
     "McpServer": {
@@ -3783,6 +4081,36 @@
           "$ref": "#/$defs/ExtensionInfo"
         },
         "type": "array"
+      }
+    },
+    "mcp/list": {
+      "params": {
+        "$ref": "#/$defs/InputMcpQuery"
+      },
+      "result": {
+        "$ref": "#/$defs/McpCatalog"
+      }
+    },
+    "mcp/mutate": {
+      "params": {
+        "$ref": "#/$defs/InputMcpMutation"
+      },
+      "result": {
+        "$ref": "#/$defs/McpReceipt"
+      }
+    },
+    "mcp/reopen": {
+      "params": {
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          }
+        },
+        "required": ["sessionId"],
+        "type": "object"
+      },
+      "result": {
+        "$ref": "#/$defs/SessionSnapshot"
       }
     },
     "permission/respond": {
