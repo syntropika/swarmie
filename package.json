@@ -4,29 +4,46 @@
   "workspaces": [
     "apps/desktop",
     "packages/*",
-    "sdk/typescript"
+    "sdk/typescript",
+    "apps/mobile",
+    "sdk/react-native",
+    "packages/ui/web",
+    "packages/ui/native",
+    "apps/web",
+    "apps/docs"
   ],
   "type": "module",
   "scripts": {
     "dev:desktop": "bun run --cwd apps/desktop dev",
     "build:desktop": "bun run --cwd apps/desktop build",
-    "storybook": "bun run --filter @swarmie/ui storybook",
-    "build:storybook": "bun run --filter @swarmie/ui build-storybook",
-    "typecheck": "bun run --filter swarmie-desktop typecheck && bun run --filter @swarmie/client typecheck && bun run --filter @swarmie/ui typecheck",
-    "lint": "bun run lint:code",
-    "lint:code": "oxlint --deny-warnings --report-unused-disable-directives",
-    "lint:design": "oxlint --deny-warnings apps/desktop/web/src packages/ui/src",
-    "lint:fix": "oxlint --fix --deny-warnings",
+    "storybook": "bun run --filter @swarmie/ui-web storybook",
+    "build:storybook": "bun run --filter @swarmie/ui-web build-storybook && bun run --filter @swarmie/ui-native build-storybook",
+    "typecheck": "bun run --filter swarmie-desktop typecheck && bun run --filter @swarmie/client typecheck && bun run --filter @swarmie/ui-web typecheck && bun run --filter @swarmie/ui-native typecheck && bun run --filter swarmie-mobile typecheck && bun run --filter @swarmie/react-native typecheck && bun run --filter @swarmie/api typecheck && bun run --filter @swarmie/auth typecheck && bun run --filter @swarmie/web typecheck && bun run --cwd apps/docs types:check",
+    "lint": "bun run typegen && bun run lint:code",
+    "lint:code": "oxlint --disable-nested-config --deny-warnings --report-unused-disable-directives",
+    "lint:design": "oxlint --disable-nested-config --deny-warnings apps/desktop/src packages/ui/web/src packages/ui/native/src packages/auth/src apps/web/src",
+    "lint:fix": "oxlint --disable-nested-config --fix --deny-warnings",
     "lint:doctor": "ultracite doctor",
     "format": "node node_modules/oxfmt/bin/oxfmt .",
     "format:check": "node node_modules/oxfmt/bin/oxfmt --check .",
-    "test": "bun run test:contracts && bun run test:ui && bun run --cwd apps/desktop test:web && bun run --cwd sdk/typescript test",
-    "check": "bun run format:check && bun run typecheck && bun run lint:code && bun run test",
-    "lint:shared": "oxlint --deny-warnings --report-unused-disable-directives oxlint.config.ts oxfmt.config.ts packages/config packages/ui",
+    "test": "bun run test:contracts && bun run test:ui && bun run --cwd apps/desktop test:web && bun run --cwd sdk/typescript test && bun run test:mobile && bun run test:hosted && bun run test:docs",
+    "check": "bun run format:check && bun run typecheck && bun run lint && bun run test",
+    "lint:shared": "oxlint --disable-nested-config --deny-warnings --report-unused-disable-directives oxlint.config.ts oxfmt.config.ts packages/config packages/ui",
     "format:shared:check": "node node_modules/oxfmt/bin/oxfmt --check oxlint.config.ts oxfmt.config.ts package.json tsconfig.json packages/config packages/ui",
-    "check:ui": "bun run format:shared:check && bun run --filter @swarmie/ui typecheck && bun run lint:shared",
-    "test:ui": "bun test packages/ui",
-    "test:contracts": "tsc --noEmit -p packages/contracts/tsconfig.json && bun test packages/contracts"
+    "check:ui": "bun run format:shared:check && bun run --filter @swarmie/ui-web typecheck && bun run --filter @swarmie/ui-native typecheck && bun run lint:shared",
+    "test:ui": "bun test ./packages/ui",
+    "test:contracts": "tsc --noEmit -p packages/contracts/tsconfig.json && bun test ./packages/contracts",
+    "test:mobile": "bun test ./apps/mobile/test ./sdk/react-native/test",
+    "dev:mobile": "EXPO_NO_TELEMETRY=1 bun run --cwd apps/mobile start",
+    "check:mobile": "bun run --filter swarmie-mobile typecheck && bun run --filter @swarmie/react-native typecheck && bun run test:mobile && EXPO_NO_TELEMETRY=1 bun run --cwd apps/mobile check:dependencies",
+    "build:mobile": "EXPO_NO_TELEMETRY=1 bun run --cwd apps/mobile export",
+    "storybook:native": "bun run --filter @swarmie/ui-native storybook",
+    "dev:web": "bun run --filter @swarmie/web dev",
+    "build:web": "bun run --filter @swarmie/web build",
+    "preview:web": "bun run --filter @swarmie/web preview",
+    "test:hosted": "bun test ./packages/api ./packages/auth ./apps/web/src",
+    "test:docs": "bun run --cwd apps/docs test:generated",
+    "typegen": "bun run --filter @swarmie/web generate:routes && bun run --filter @swarmie/web cf-typegen"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "1.2.0",
@@ -35,6 +52,8 @@
     "@swarmie/config": "workspace:*",
     "@types/bun": "1.3.10",
     "@types/node": "24.13.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
     "eslint-plugin-better-tailwindcss": "4.7.0",
     "oxfmt": "0.70.0",
     "oxlint": "1.85.0",
@@ -46,5 +65,5 @@
   "overrides": {
     "@types/node": "24.13.6"
   },
-  "packageManager": "bun@1.3.10"
+  "packageManager": "bun@1.4.3"
 }

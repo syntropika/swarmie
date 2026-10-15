@@ -1,0 +1,12 @@
+{
+  "extends": "@swarmie/config/ts/start.json",
+  "compilerOptions": { "paths": { "~/*": ["./*"] } },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "config/**/*.ts",
+    "vite.config.ts",
+    ".wrangler/worker-configuration.d.ts"
+  ],
+  "exclude": ["src/**/*.test.ts", "config/**/*.test.ts"]
+}

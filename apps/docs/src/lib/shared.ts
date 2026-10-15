@@ -1,0 +1,30 @@
+import { createGetUrl } from "fumadocs-core/source";
+import type { Page } from "fumadocs-core/source";
+
+export const appName = "Swarmie";
+export const docsRoute = "/docs";
+export const docsImageRoute = "/og/docs";
+export const docsContentRoute = "/llms.mdx/docs";
+
+// Source links refer to the public documentation tree.
+export const gitConfig = {
+  user: "syntropika",
+  repo: "swarmie",
+  branch: "main",
+};
+
+const getContentUrl = createGetUrl(docsContentRoute);
+
+export function getPageMarkdownUrl(page: Pick<Page, "slugs" | "locale">) {
+  const segments = [...page.slugs, "content.md"];
+
+  return { segments, url: getContentUrl(segments, page.locale) };
+}
+
+const getImageUrl = createGetUrl(docsImageRoute);
+
+export function getPageImageUrl(page: Pick<Page, "slugs" | "locale">) {
+  const segments = [...page.slugs, "image.png"];
+
+  return { segments, url: getImageUrl(segments, page.locale) };
+}

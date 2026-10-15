@@ -11,7 +11,7 @@ const assets = [
   ["logos/swarmie-mono-white.svg", "public/brand/swarmie-mono-white.svg"],
   ["marks/swarmie-mark-mono-ink.svg", "public/brand/swarmie-mark-mono-ink.svg"],
   ["marks/swarmie-mark-mono-white.svg", "public/brand/swarmie-mark-mono-white.svg"],
-  ["tokens/colors.css", "app/brand-tokens.css"],
+  ["tokens/colors.css", "src/app/brand-tokens.css"],
 ];
 
 if (!check) {

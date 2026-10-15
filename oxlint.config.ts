@@ -5,11 +5,17 @@ import react from "ultracite/oxlint/react";
 import shadcn from "ultracite/oxlint/shadcn";
 import tanstack from "ultracite/oxlint/tanstack";
 
-const frontendSources = ["packages/ui/src/**/*.{ts,tsx}", "apps/desktop/web/src/**/*.{ts,tsx}"];
+const frontendSources = [
+  "packages/ui/{web,native}/src/**/*.{ts,tsx}",
+  "apps/desktop/src/**/*.{ts,tsx}",
+  "apps/web/src/**/*.{ts,tsx}",
+  "packages/auth/src/**/*.{ts,tsx}",
+];
 
 const forbiddenStyleProps = ["style", "css"].map((propName) => ({
   propName,
-  message: "Use Tailwind className utilities. Shared tokens belong in packages/ui/src/styles.css.",
+  message:
+    "Use Tailwind className utilities. Shared tokens belong in packages/ui/web/src/styles.css.",
 }));
 const stylingImportPatterns = [
   {
@@ -48,8 +54,15 @@ export default defineConfig({
     ...core.ignorePatterns,
     "**/target/**",
     "**/.tanstack/**",
+    "**/.expo/**",
+    "**/.wrangler/**",
     "**/.nitro/**",
     "docs/**",
+    // Installed upstream skills retain their own source conventions.
+    ".agents/skills/heroui-native/**",
+    ".agents/skills/heroui-react/**",
+    // The hosted repository owns its own root configuration and dependency graph.
+    "cloud/**",
     "tests/fixtures/**",
     "**/storybook-static/**",
     "**/dist/**",
@@ -58,11 +71,11 @@ export default defineConfig({
   options: { typeAware: true },
   settings: {
     shadcn: {
-      ui: "@swarmie/ui",
+      ui: "@swarmie/ui-web",
       note: "Use shared Swarmie components, semantic theme tokens, and Tailwind utilities. Use the shared component contracts.",
     },
     "better-tailwindcss": {
-      entryPoint: "./packages/ui/src/styles.css",
+      entryPoint: "./packages/ui/web/src/styles.css",
     },
   },
   rules: {
@@ -124,14 +137,29 @@ export default defineConfig({
   },
   overrides: [
     {
-      files: ["apps/desktop/web/src/main.tsx", "apps/desktop/web/src/extension-panel.tsx"],
+      // The native Router root owns its single Tailwind stylesheet.
+      files: ["apps/mobile/src/app/_layout.tsx"],
       rules: {
         "no-restricted-imports": [
           "error",
           {
             patterns: stylingImportPatterns.map((pattern) => ({
               ...pattern,
-              group: [...pattern.group, "!./styles.css", "!@xterm/xterm/css/xterm.css"],
+              group: [...pattern.group, "!~/src/global.css"],
+            })),
+          },
+        ],
+      },
+    },
+    {
+      files: ["apps/desktop/src/main.tsx", "apps/desktop/src/extension-panel.tsx"],
+      rules: {
+        "no-restricted-imports": [
+          "error",
+          {
+            patterns: stylingImportPatterns.map((pattern) => ({
+              ...pattern,
+              group: [...pattern.group, "!~/src/styles.css", "!@xterm/xterm/css/xterm.css"],
             })),
           },
         ],
@@ -139,14 +167,14 @@ export default defineConfig({
     },
     {
       // Application entry points own the stylesheets loaded once for their frontend.
-      files: ["apps/docs/app/layout.tsx"],
+      files: ["apps/docs/src/app/layout.tsx"],
       rules: {
         "no-restricted-imports": [
           "error",
           {
             patterns: stylingImportPatterns.map((pattern) => ({
               ...pattern,
-              group: [...pattern.group, "!./global.css"],
+              group: [...pattern.group, "!~/src/app/global.css"],
             })),
           },
         ],
@@ -154,14 +182,14 @@ export default defineConfig({
     },
     {
       // The isolated desktop demo is also a frontend root, not a component stylesheet.
-      files: ["apps/desktop/web/demo/main.tsx"],
+      files: ["apps/desktop/src/demo/main.tsx"],
       rules: {
         "no-restricted-imports": [
           "error",
           {
             patterns: stylingImportPatterns.map((pattern) => ({
               ...pattern,
-              group: [...pattern.group, "!../src/styles.css", "!./styles.css"],
+              group: [...pattern.group, "!~/src/styles.css", "!~/src/demo/styles.css"],
             })),
           },
         ],
@@ -198,11 +226,15 @@ export default defineConfig({
     },
     {
       // Primitive implementations own variants and compose class factories themselves.
-      files: ["packages/ui/src/**/*.{ts,tsx}"],
+      files: ["packages/ui/{web,native}/src/**/*.{ts,tsx}"],
       rules: { "shadcn/no-restyle": "off", "shadcn/require-static-classes": "off" },
     },
     {
-      files: ["packages/contracts/**/*.{ts,tsx}", "sdk/typescript/src/**/*.{ts,tsx}"],
+      files: [
+        "packages/contracts/**/*.{ts,tsx}",
+        "sdk/typescript/src/**/*.{ts,tsx}",
+        "packages/api/src/**/*.{ts,tsx}",
+      ],
       rules: {
         "no-restricted-imports": [
           "error",
@@ -210,7 +242,16 @@ export default defineConfig({
             patterns: [
               ...stylingImportPatterns,
               {
-                group: ["react", "react-dom", "react-dom/*", "@swarmie/ui", "swarmie-desktop"],
+                group: [
+                  "react",
+                  "react-dom",
+                  "react-dom/*",
+                  "@swarmie/ui-web",
+                  "@swarmie/ui-native",
+                  "@swarmie/auth",
+                  "@swarmie/web",
+                  "swarmie-desktop",
+                ],
                 message:
                   "Shared HTTP contracts must remain React-free. Compose UI and workflows in the consuming capability.",
               },
@@ -220,7 +261,7 @@ export default defineConfig({
       },
     },
     {
-      files: ["packages/ui/src/**/*.{ts,tsx}"],
+      files: ["packages/ui/{web,native}/src/**/*.{ts,tsx}"],
       rules: {
         "no-restricted-imports": [
           "error",
@@ -229,8 +270,16 @@ export default defineConfig({
               ...stylingImportPatterns,
               {
                 group: [
+                  "@swarmie/auth",
+                  "@swarmie/web",
                   "swarmie-desktop",
                   "swarmie-desktop/*",
+                  "@swarmie/api",
+                  "@swarmie/api/*",
+                  "@swarmie/auth",
+                  "@swarmie/auth/*",
+                  "@swarmie/web",
+                  "@swarmie/web/*",
                   "@swarmie/client",
                   "@swarmie/client/*",
                   "@tanstack/react-router",
@@ -246,7 +295,29 @@ export default defineConfig({
       },
     },
     {
-      files: ["packages/ui/.storybook/preview.tsx"],
+      // TanStack Router uses Fetch Responses for redirects and route control flow.
+      files: ["apps/web/src/**/*.{ts,tsx}", "packages/auth/src/**/*.{ts,tsx}"],
+      rules: {
+        "typescript/only-throw-error": ["error", { allow: [{ from: "lib", name: "Response" }] }],
+      },
+    },
+    {
+      // The website document entry owns its single stylesheet.
+      files: ["apps/web/src/routes/__root.tsx"],
+      rules: {
+        "no-restricted-imports": [
+          "error",
+          {
+            patterns: stylingImportPatterns.map((pattern) => ({
+              ...pattern,
+              group: [...pattern.group, "!~/src/styles.css[?]url"],
+            })),
+          },
+        ],
+      },
+    },
+    {
+      files: ["packages/ui/*/.storybook/preview.tsx"],
       rules: {
         "no-restricted-imports": [
           "error",
