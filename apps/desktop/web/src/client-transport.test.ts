@@ -1,8 +1,8 @@
 import { afterEach, expect, it, vi } from "vitest";
 
-import { record, responseResult } from "./checked-json";
-import { clientRequest, nativeClient, observeClient } from "./client-transport";
-import { fixtureText } from "./test-fixtures";
+import { record, responseResult } from "~/web/src/checked-json";
+import { clientRequest, nativeClient, observeClient } from "~/web/src/client-transport";
+import { fixtureText } from "~/web/src/test-fixtures";
 
 afterEach(() => vi.unstubAllGlobals());
 function native(invoke: (command: string, payload: Record<string, unknown>) => Promise<unknown>) {

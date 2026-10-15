@@ -1,5 +1,5 @@
-import { isRecord } from "./checked-json";
-import { hasText } from "./value-presence";
+import { isRecord } from "~/web/src/checked-json";
+import { hasText } from "~/web/src/value-presence";
 
 type Recognition = EventTarget & {
   lang: string;

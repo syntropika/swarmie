@@ -1,8 +1,8 @@
 import type { LocalStoreIdentity } from "@swarmie/contracts";
 
-import { isRecord } from "./checked-json";
-import { nodeKey } from "./node-scope";
-import type { Event, Thread } from "./protocol";
+import { isRecord } from "~/web/src/checked-json";
+import { nodeKey } from "~/web/src/node-scope";
+import type { Event, Thread } from "~/web/src/protocol";
 
 export type NotificationPreferences = {
   enabled: boolean;

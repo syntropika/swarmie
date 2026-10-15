@@ -2,9 +2,9 @@ import "fake-indexeddb/auto";
 import type { LocalStoreIdentity, RuntimeIdentity } from "@swarmie/contracts";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { record } from "./checked-json";
-import { nodeKey, routeTargetKey, workspaceStorageKey } from "./node-scope";
-import type { fixtureRequest } from "./test-fixtures";
+import { record } from "~/web/src/checked-json";
+import { nodeKey, routeTargetKey, workspaceStorageKey } from "~/web/src/node-scope";
+import type { fixtureRequest } from "~/web/src/test-fixtures";
 import {
   deferred,
   fixtureRequestBody,
@@ -12,8 +12,8 @@ import {
   fixtureEvent,
   fixtureReceipt,
   fixtureInput,
-} from "./test-fixtures";
-import { WorkspaceStore } from "./workspace";
+} from "~/web/src/test-fixtures";
+import { WorkspaceStore } from "~/web/src/workspace";
 
 const a: LocalStoreIdentity = {
   environmentId: "node-a",

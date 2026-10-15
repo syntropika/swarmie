@@ -2,18 +2,17 @@ import { useQueries } from "@tanstack/react-query";
 import { Check, Copy, ExternalLink, Info, Monitor, RefreshCw } from "lucide-react";
 import { useState, useSyncExternalStore } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-
-import { startAction, errorMessage } from "./action-boundary";
-import { AgentToolConnection } from "./agent-tool-connection";
-import { sortedCopy } from "./collection-order";
-import { HarnessIcon } from "./harness-select";
-import { harnessGuide, harnessReadiness, primaryAgentTools } from "./harness-setup";
-import { nodeKey } from "./node-scope";
-import { copyText } from "./protocol";
-import { hasText } from "./value-presence";
-import type { WorkspaceStore } from "./workspace";
+import { startAction, errorMessage } from "~/web/src/action-boundary";
+import { AgentToolConnection } from "~/web/src/agent-tool-connection";
+import { sortedCopy } from "~/web/src/collection-order";
+import { Button } from "~/web/src/components/ui/button";
+import { Switch } from "~/web/src/components/ui/switch";
+import { HarnessIcon } from "~/web/src/harness-select";
+import { harnessGuide, harnessReadiness, primaryAgentTools } from "~/web/src/harness-setup";
+import { nodeKey } from "~/web/src/node-scope";
+import { copyText } from "~/web/src/protocol";
+import { hasText } from "~/web/src/value-presence";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 export function CodingAgentsPanel(props: { store: WorkspaceStore; nodeName: string }) {
   const state = useSyncExternalStore(props.store.subscribe, props.store.getSnapshot);

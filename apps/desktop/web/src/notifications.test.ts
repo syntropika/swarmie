@@ -1,7 +1,11 @@
 import { expect, it, vi } from "vitest";
 
-import { defaultNotifications, notificationFor, NotificationService } from "./notifications";
-import { newThread } from "./protocol";
+import {
+  defaultNotifications,
+  notificationFor,
+  NotificationService,
+} from "~/web/src/notifications";
+import { newThread } from "~/web/src/protocol";
 
 it("notification preferences suppress foreground, disabled and unrelated events", () => {
   const thread = {

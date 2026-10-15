@@ -17,19 +17,18 @@ import {
   Command,
 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { Dropdown } from "@/components/ui/dropdown";
-import { Input } from "@/components/ui/input";
-
 // Copyright 2026 Syntropika
 // SPDX-License-Identifier: Apache-2.0
-import { startAction } from "./action-boundary";
-import { BackgroundTasks } from "./background-tasks";
-import { ContributionSlot, ContributionNavigation } from "./contribution-host";
-import { hasNumber } from "./value-presence";
-import { IconButton } from "./workspace-icon-button";
-import type { WorkspaceViewState } from "./workspace-state";
-import { blank } from "./workspace-state";
+import { startAction } from "~/web/src/action-boundary";
+import { BackgroundTasks } from "~/web/src/background-tasks";
+import { Button } from "~/web/src/components/ui/button";
+import { Dropdown } from "~/web/src/components/ui/dropdown";
+import { Input } from "~/web/src/components/ui/input";
+import { ContributionSlot, ContributionNavigation } from "~/web/src/contribution-host";
+import { hasNumber } from "~/web/src/value-presence";
+import { IconButton } from "~/web/src/workspace-icon-button";
+import type { WorkspaceViewState } from "~/web/src/workspace-state";
+import { blank } from "~/web/src/workspace-state";
 
 export function WorkspaceHeader({
   view,

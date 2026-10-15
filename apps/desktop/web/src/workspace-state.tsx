@@ -4,26 +4,25 @@ import { Monitor } from "lucide-react";
 // SPDX-License-Identifier: Apache-2.0
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { Select } from "@/components/ui/select";
-
-import { startAction } from "./action-boundary";
-import { sortedCopy } from "./collection-order";
-import { ContextUsage } from "./context-usage";
-import type { ClientContribution } from "./contribution-host";
-import type { ContributionContext } from "./contributions";
-import type { TranscriptionProvider } from "./dictation";
-import { HarnessSelect } from "./harness-select";
-import { completeHarnessSetup, defaultHarness, readHarnessSetup } from "./harness-setup";
-import type { NodeClient, NodesState } from "./nodes";
-import { hasConversation } from "./protocol";
-import type { Thread } from "./protocol";
-import { SessionControls } from "./session-controls";
-import { readShortcuts, matchesShortcut } from "./shortcuts";
-import { readSidebarSorting, sortThreads, projectActivity } from "./sidebar-preferences";
-import type { SidebarSorting } from "./sidebar-preferences";
-import { watchThreadTimes } from "./thread-clock";
-import { hasText, hasNumber } from "./value-presence";
-import type { WorkspaceStore } from "./workspace";
+import { startAction } from "~/web/src/action-boundary";
+import { sortedCopy } from "~/web/src/collection-order";
+import { Select } from "~/web/src/components/ui/select";
+import { ContextUsage } from "~/web/src/context-usage";
+import type { ClientContribution } from "~/web/src/contribution-host";
+import type { ContributionContext } from "~/web/src/contributions";
+import type { TranscriptionProvider } from "~/web/src/dictation";
+import { HarnessSelect } from "~/web/src/harness-select";
+import { completeHarnessSetup, defaultHarness, readHarnessSetup } from "~/web/src/harness-setup";
+import type { NodeClient, NodesState } from "~/web/src/nodes";
+import { hasConversation } from "~/web/src/protocol";
+import type { Thread } from "~/web/src/protocol";
+import { SessionControls } from "~/web/src/session-controls";
+import { readShortcuts, matchesShortcut } from "~/web/src/shortcuts";
+import { readSidebarSorting, sortThreads, projectActivity } from "~/web/src/sidebar-preferences";
+import type { SidebarSorting } from "~/web/src/sidebar-preferences";
+import { watchThreadTimes } from "~/web/src/thread-clock";
+import { hasText, hasNumber } from "~/web/src/value-presence";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 export type Panel = "project" | "settings" | "review" | "extensions" | "client" | null;
 

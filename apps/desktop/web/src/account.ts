@@ -1,10 +1,10 @@
 import type { AccountMethods } from "@swarmie/contracts";
 
-import { decodeAccountResult } from "./account-wire";
-import { responseResult } from "./checked-json";
+import { decodeAccountResult } from "~/web/src/account-wire";
+import { responseResult } from "~/web/src/checked-json";
 // Copyright 2026 Syntropika
 // SPDX-License-Identifier: Apache-2.0
-import { clientRequest, nativeClient } from "./client-transport";
+import { clientRequest, nativeClient } from "~/web/src/client-transport";
 
 let sequence = 0;
 /** UUIDv7 binds receipt issuance time so expired writes cannot be replayed after server cleanup. */

@@ -1,4 +1,4 @@
-import type { Attachment } from "./protocol";
+import type { Attachment } from "~/web/src/protocol";
 
 export const attachmentLimit = 8 * 1024 * 1024;
 export function attachmentBytes(attachment: Attachment): number {

@@ -3,10 +3,10 @@ import userEvent from "@testing-library/user-event";
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from "vitest";
 
-import { CommandPalette } from "./command-palette";
-import { Conversation } from "./conversation";
-import { renderWithQuery as render } from "./test-fixtures";
-import { WorkspaceStore } from "./workspace";
+import { CommandPalette } from "~/web/src/command-palette";
+import { Conversation } from "~/web/src/conversation";
+import { renderWithQuery as render } from "~/web/src/test-fixtures";
+import { WorkspaceStore } from "~/web/src/workspace";
 
 afterEach(() => {
   cleanup();

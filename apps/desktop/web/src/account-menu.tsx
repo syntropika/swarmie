@@ -3,13 +3,12 @@ import { LogOut, Settings, UserRound, ShieldCheck } from "lucide-react";
 // SPDX-License-Identifier: Apache-2.0
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Dropdown } from "@/components/ui/dropdown";
-import { TooltipContent } from "@/components/ui/tooltip";
-
-import { useAccountService, useAccount } from "./account-state";
-import { startAction, errorMessage, errorReporter } from "./action-boundary";
-import { hasText, nonEmptyText } from "./value-presence";
+import { useAccountService, useAccount } from "~/web/src/account-state";
+import { startAction, errorMessage, errorReporter } from "~/web/src/action-boundary";
+import { Button } from "~/web/src/components/ui/button";
+import { Dropdown } from "~/web/src/components/ui/dropdown";
+import { TooltipContent } from "~/web/src/components/ui/tooltip";
+import { hasText, nonEmptyText } from "~/web/src/value-presence";
 
 export function AccountMenu({
   onOpen,

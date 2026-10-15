@@ -1,7 +1,7 @@
 import { cn } from "cn";
 import type { ComponentProps } from "react";
 
-import { fieldClasses } from "./input";
+import { fieldClasses } from "~/web/src/components/ui/input";
 
 export function Textarea({
   className,

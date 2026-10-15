@@ -1,4 +1,4 @@
-import { Disclosure } from "@/components/ui/disclosure";
+import { Disclosure } from "~/web/src/components/ui/disclosure";
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

@@ -1,15 +1,14 @@
 import { useEffect, useState, useCallback, useId } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Disclosure } from "@/components/ui/disclosure";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-
-import { useExtensionQuery } from "./components/extension-query";
-import { extensionResult } from "./components/extension-result";
-import { hasCount, hasText } from "./components/presentation-values";
-import type { Thread } from "./protocol";
-import type { WorkspaceStore } from "./workspace";
+import { useExtensionQuery } from "~/web/src/components/extension-query";
+import { extensionResult } from "~/web/src/components/extension-result";
+import { hasCount, hasText } from "~/web/src/components/presentation-values";
+import { Button } from "~/web/src/components/ui/button";
+import { Disclosure } from "~/web/src/components/ui/disclosure";
+import { Input } from "~/web/src/components/ui/input";
+import { Textarea } from "~/web/src/components/ui/textarea";
+import type { Thread } from "~/web/src/protocol";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 const resourceOwners = new WeakMap<WorkspaceStore, number>();
 let nextResourceOwner = 0;

@@ -3,7 +3,7 @@
   "compilerOptions": {
     "types": ["react", "react-native", "bun"],
     "paths": {
-      "@/*": ["./src/*"]
+      "~/*": ["./*"]
     }
   },
   "include": [

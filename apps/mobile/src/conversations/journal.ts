@@ -22,6 +22,13 @@ export function appendEvents(current: RuntimeEvent[], next: RuntimeEvent[]): Run
 }
 
 export type TranscriptRow = { id: string; role: string; text: string };
+export type TranscriptCopy = {
+  user: string;
+  agent: string;
+  runtime: string;
+  attachment: string;
+  agentError: string;
+};
 
 const presentedEvents = [
   "message.assistant",
@@ -42,7 +49,7 @@ function isPresented(event: RuntimeEvent): event is PresentedEvent {
 }
 
 /** Project canonical events; repeated snapshots must not duplicate streamed text. */
-export function projectTranscript(events: RuntimeEvent[]) {
+export function projectTranscript(events: RuntimeEvent[], copy: TranscriptCopy) {
   const rows: TranscriptRow[] = [];
   const pending = new Map<string, PermissionRequest>();
   let response: TranscriptRow | undefined;
@@ -61,15 +68,15 @@ export function projectTranscript(events: RuntimeEvent[]) {
         response = undefined;
         streamed = false;
         const text = event.data.content
-          .map((part) => (part.type === "text" ? part.data : "[Attachment]"))
+          .map((part) => (part.type === "text" ? part.data : copy.attachment))
           .join("\n");
-        rows.push({ id: String(event.sequence), role: "You", text });
+        rows.push({ id: String(event.sequence), role: copy.user, text });
         break;
       }
       case "text.delta": {
         streamed = true;
         if (!response) {
-          response = { id: String(event.sequence), role: "Agent", text: "" };
+          response = { id: String(event.sequence), role: copy.agent, text: "" };
           rows.push(response);
         }
         response.text += event.data.text;
@@ -78,7 +85,7 @@ export function projectTranscript(events: RuntimeEvent[]) {
       case "message.assistant": {
         const snapshot = assistantText(event.data);
         if (snapshot !== null && !streamed) {
-          rows.push({ id: String(event.sequence), role: "Agent", text: snapshot });
+          rows.push({ id: String(event.sequence), role: copy.agent, text: snapshot });
         }
         break;
       }
@@ -102,8 +109,8 @@ export function projectTranscript(events: RuntimeEvent[]) {
       case "error": {
         rows.push({
           id: String(event.sequence),
-          role: "Runtime",
-          text: "The agent reported an error. Inspect the runtime before retrying.",
+          role: copy.runtime,
+          text: copy.agentError,
         });
         break;
       }

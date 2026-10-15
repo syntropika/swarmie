@@ -2,7 +2,7 @@ import * as Primitive from "@radix-ui/react-popover";
 import { cn } from "cn";
 import type { ComponentProps } from "react";
 
-import { floatingClasses } from "./floating";
+import { floatingClasses } from "~/web/src/components/ui/floating";
 
 export const Popover = Primitive.Root;
 export const PopoverTrigger = Primitive.Trigger;

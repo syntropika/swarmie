@@ -4,9 +4,8 @@ import type { PDFDocumentProxy, PDFDocumentLoadingTask, RenderTask } from "pdfjs
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import { useEffect, useRef, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-
-import { startAction, errorMessage } from "./action-boundary";
+import { startAction, errorMessage } from "~/web/src/action-boundary";
+import { Button } from "~/web/src/components/ui/button";
 
 export function PdfPreview(props: { data: string; name: string }) {
   return <PdfDocument key={props.data} {...props} />;

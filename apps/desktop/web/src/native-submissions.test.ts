@@ -1,8 +1,8 @@
 import type { RuntimeIdentity, SubmissionReceipt } from "@swarmie/contracts";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { WorkspaceCache } from "./cache";
-import { isRecord } from "./protocol";
+import { WorkspaceCache } from "~/web/src/cache";
+import { isRecord } from "~/web/src/protocol";
 import {
   fixtureRequest,
   fixtureReceipt,
@@ -10,8 +10,8 @@ import {
   fixtureCapabilities,
   fixturePolicy,
   fixtureOptions,
-} from "./test-fixtures";
-import { WorkspaceStore } from "./workspace";
+} from "~/web/src/test-fixtures";
+import { WorkspaceStore } from "~/web/src/workspace";
 
 const identity: RuntimeIdentity = {
   identity: {

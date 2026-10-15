@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { useMutation } from "@tanstack/react-query";
 
-import { errorMessage, errorReporter, startAction } from "./action-boundary";
+import { errorMessage, errorReporter, startAction } from "~/web/src/action-boundary";
 
 /** Account mutations have no automatic retry: a receipt is replayed only on a user's request. */
 export function useAccountAction(onNotice: (message: string) => void) {

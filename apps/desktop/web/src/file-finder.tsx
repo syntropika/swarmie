@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Dialog } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-
-import { startAction, errorMessage } from "./action-boundary";
-import type { WorkspaceStore } from "./workspace";
+import { startAction, errorMessage } from "~/web/src/action-boundary";
+import { Button } from "~/web/src/components/ui/button";
+import { Dialog } from "~/web/src/components/ui/dialog";
+import { Input } from "~/web/src/components/ui/input";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 export function FileFinder({ store, onClose }: { store: WorkspaceStore; onClose: () => void }) {
   const [query, setQuery] = useState("");

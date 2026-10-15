@@ -8,10 +8,10 @@ import type {
 // SPDX-License-Identifier: Apache-2.0
 import { createContext, useContext, useSyncExternalStore } from "react";
 
-import { accountTransport } from "./account";
-import { decodeAccountResult } from "./account-wire";
-import { startAction, errorMessage } from "./action-boundary";
-import { nativeClient } from "./client-transport";
+import { accountTransport } from "~/web/src/account";
+import { decodeAccountResult } from "~/web/src/account-wire";
+import { startAction, errorMessage } from "~/web/src/action-boundary";
+import { nativeClient } from "~/web/src/client-transport";
 
 export type AccountIO = {
   request: (method: keyof AccountMethods, params: unknown) => Promise<unknown>;

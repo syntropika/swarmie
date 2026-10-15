@@ -10,11 +10,11 @@ import { decodeRuntimeResult, decodeContract } from "@swarmie/contracts/validati
 import type { SchemaObject } from "ajv";
 import Ajv from "ajv/dist/2020.js";
 
-import type { CachedWorkspace } from "./cache";
-import type { ClientNode } from "./nodes";
-import { isRecord } from "./protocol";
-import type { Detection, ExtensionInfo, Review, Thread, Project } from "./protocol";
-import type { AgentToolFlow, AgentToolSetup } from "./provider-setup";
+import type { CachedWorkspace } from "~/web/src/cache";
+import type { ClientNode } from "~/web/src/nodes";
+import { isRecord } from "~/web/src/protocol";
+import type { Detection, ExtensionInfo, Review, Thread, Project } from "~/web/src/protocol";
+import type { AgentToolFlow, AgentToolSetup } from "~/web/src/provider-setup";
 
 type NativeResults = { [M in keyof NativeClientMethods]: NativeClientMethods[M]["result"] };
 type ConnectionResults = NativeResults & {

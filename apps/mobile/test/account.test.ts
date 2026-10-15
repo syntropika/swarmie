@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { rejects } from "node:assert/strict";
 
-import { AccountAccessError, unavailableAccountAccess } from "../src/account/contracts";
-import { accountErrorMessage, emailSchema, emailStep, oneUseTask } from "../src/account/flow";
-import { createPreviewAccess } from "../src/account/preview-access";
+import { AccountAccessError, unavailableAccountAccess } from "~/src/account/contracts";
+import { accountErrorKey, emailSchema, emailStep, oneUseTask } from "~/src/account/flow";
+import { createPreviewAccess } from "~/src/account/preview-access";
 
 describe("native account presentation boundaries", () => {
   test("only trusted lookup results choose signup or available sign-in methods", () => {
@@ -61,8 +61,8 @@ describe("native account presentation boundaries", () => {
 
   test("raw service errors never become visible copy", () => {
     const privateMarker = "private-response-credential";
-    expect(accountErrorMessage(new Error(privateMarker))).not.toContain(privateMarker);
-    expect(accountErrorMessage(new AccountAccessError("cancelled"))).toContain("cancelled");
+    expect(accountErrorKey(new Error(privateMarker))).not.toContain(privateMarker);
+    expect(accountErrorKey(new AccountAccessError("cancelled"))).toContain("cancelled");
   });
 
   test("preview verification requires a pending challenge and consumes it once", async () => {

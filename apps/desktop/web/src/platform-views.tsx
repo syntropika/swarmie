@@ -1,15 +1,14 @@
 import { useEffect, useRef, useState, useCallback, useId } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-
-import { MediaPreview } from "./asset-preview";
-import { attachmentBytes, attachmentLimit } from "./attachments";
-import { useExtensionQuery } from "./components/extension-query";
-import { extensionResult } from "./components/extension-result";
-import { hasText } from "./components/presentation-values";
-import type { Thread, Attachment } from "./protocol";
-import type { WorkspaceStore } from "./workspace";
+import { MediaPreview } from "~/web/src/asset-preview";
+import { attachmentBytes, attachmentLimit } from "~/web/src/attachments";
+import { useExtensionQuery } from "~/web/src/components/extension-query";
+import { extensionResult } from "~/web/src/components/extension-result";
+import { hasText } from "~/web/src/components/presentation-values";
+import { Button } from "~/web/src/components/ui/button";
+import { Input } from "~/web/src/components/ui/input";
+import type { Thread, Attachment } from "~/web/src/protocol";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 type Host = { store: WorkspaceStore; thread: Thread };
 type Asset = {

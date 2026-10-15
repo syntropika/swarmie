@@ -156,10 +156,12 @@ export function NativeCodeField({
   value,
   onChangeText,
   disabled = false,
+  accessibilityLabel,
 }: {
   value: string;
   onChangeText: (value: string) => void;
   disabled?: boolean;
+  accessibilityLabel: string;
 }) {
   const [focused, setFocused] = useState(false);
   const input = useRef<TextInput>(null);
@@ -191,7 +193,7 @@ export function NativeCodeField({
         onChangeText={(text) => {
           onChangeText(text.replaceAll(/\D/gu, "").slice(0, 6));
         }}
-        accessibilityLabel="Six-digit verification code"
+        accessibilityLabel={accessibilityLabel}
         autoComplete="one-time-code"
         textContentType="oneTimeCode"
         keyboardType="number-pad"

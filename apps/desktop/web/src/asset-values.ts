@@ -1,4 +1,4 @@
-import { record } from "./checked-json";
+import { record } from "~/web/src/checked-json";
 
 export type PreviewAsset = {
   name: string;

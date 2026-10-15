@@ -2,10 +2,10 @@ import * as Radio from "@radix-ui/react-radio-group";
 import { Check, Hand, ShieldCheck, ShieldAlert } from "lucide-react";
 import { useId, useState } from "react";
 
-import { startAction, errorReporter } from "./action-boundary";
-import type { Thread } from "./protocol";
-import { sessionPermissions } from "./session-permissions";
-import { hasText } from "./value-presence";
+import { startAction, errorReporter } from "~/web/src/action-boundary";
+import type { Thread } from "~/web/src/protocol";
+import { sessionPermissions } from "~/web/src/session-permissions";
+import { hasText } from "~/web/src/value-presence";
 
 export function PermissionPicker({
   thread,

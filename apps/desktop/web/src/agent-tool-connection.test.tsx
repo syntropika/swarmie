@@ -3,14 +3,14 @@ import userEvent from "@testing-library/user-event";
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from "vitest";
 
-import { AgentToolConnection } from "./agent-tool-connection";
-import { CodingAgentsPanel } from "./coding-agents-panel";
-import { decodeObjectResult } from "./connections";
-import { primaryAgentTools } from "./harness-setup";
-import { setupAuthorizationUrl } from "./provider-setup";
-import type { AgentToolSetup } from "./provider-setup";
-import { deferred, fixtureControl, renderWithQuery as render } from "./test-fixtures";
-import { WorkspaceStore } from "./workspace";
+import { AgentToolConnection } from "~/web/src/agent-tool-connection";
+import { CodingAgentsPanel } from "~/web/src/coding-agents-panel";
+import { decodeObjectResult } from "~/web/src/connections";
+import { primaryAgentTools } from "~/web/src/harness-setup";
+import { setupAuthorizationUrl } from "~/web/src/provider-setup";
+import type { AgentToolSetup } from "~/web/src/provider-setup";
+import { deferred, fixtureControl, renderWithQuery as render } from "~/web/src/test-fixtures";
+import { WorkspaceStore } from "~/web/src/workspace";
 
 const node = {
   environmentId: "node",

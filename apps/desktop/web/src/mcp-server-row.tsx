@@ -1,10 +1,9 @@
 import type { McpEntry } from "@swarmie/contracts";
 import { Settings2, Trash2 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-
-import { hasText } from "./value-presence";
+import { Button } from "~/web/src/components/ui/button";
+import { Switch } from "~/web/src/components/ui/switch";
+import { hasText } from "~/web/src/value-presence";
 
 const statusLabels = new Map<string, string>([
   ["notLoggedIn", "Sign-in required"],

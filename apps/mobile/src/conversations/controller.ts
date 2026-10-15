@@ -3,19 +3,27 @@ import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
 import { useState } from "react";
 
-import { useRuntime } from "../connection/provider";
-import { projectTranscript } from "./journal";
-import { clearPending, inputContent, loadPending, prepareInput } from "./outbox";
-import type { PendingInput } from "./outbox";
-import { useTranscript } from "./stream";
+import { useRuntime } from "~/src/connection/provider";
+import { projectTranscript } from "~/src/conversations/journal";
+import { clearPending, inputContent, loadPending, prepareInput } from "~/src/conversations/outbox";
+import type { PendingInput } from "~/src/conversations/outbox";
+import { useTranscript } from "~/src/conversations/stream";
+import { useLocale } from "~/src/platform/i18n/provider";
 
 export function useConversation(id: string) {
+  const { t } = useLocale();
   const connection = useRuntime();
   const cache = useQueryClient();
   const [text, setText] = useState("");
   const [images, setImages] = useState<PendingInput["images"]>([]);
   const transcript = useTranscript(id);
-  const projected = projectTranscript(transcript.data ?? []);
+  const projected = projectTranscript(transcript.data ?? [], {
+    user: t("conversation.user"),
+    agent: t("conversation.agent"),
+    runtime: t("conversation.runtime"),
+    attachment: t("conversation.attachment"),
+    agentError: t("conversation.agentError"),
+  });
   const session = useQuery({
     queryKey: ["sessions", connection.scope, id],
     queryFn: async ({ signal }) =>

@@ -5,7 +5,7 @@ import { Check, ChevronDown } from "lucide-react";
 import { useId } from "react";
 import type { ReactNode } from "react";
 
-import { floatingClasses, itemClasses } from "./floating";
+import { floatingClasses, itemClasses } from "~/web/src/components/ui/floating";
 
 const selectVariants = cva(
   "workspace-select text-foreground focus-visible:ring-focus flex h-8 min-w-0 items-center justify-between gap-2 rounded-lg px-2.5 text-sm outline-none focus-visible:ring-2 disabled:opacity-40",

@@ -1,9 +1,9 @@
-import { isRecord } from "./checked-json";
-import { sortedCopy } from "./collection-order";
-import type { Thread } from "./protocol";
+import { isRecord } from "~/web/src/checked-json";
+import { sortedCopy } from "~/web/src/collection-order";
+import type { Thread } from "~/web/src/protocol";
 // Copyright 2026 Syntropika
 // SPDX-License-Identifier: Apache-2.0
-import type { SidebarSort } from "./sidebar-section";
+import type { SidebarSort } from "~/web/src/sidebar-section";
 
 export type SidebarSorting = Record<"projects" | "recents" | "pinned", SidebarSort>;
 function sortPreference(value: unknown, fallback: SidebarSort): SidebarSort {

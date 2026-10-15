@@ -1,14 +1,13 @@
 import { useEffect, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Dialog } from "@/components/ui/dialog";
-
-import { startAction } from "./action-boundary";
-import { fileLocation, mentionAt } from "./context";
-import type { ContextItem } from "./context";
-import type { Thread } from "./protocol";
-import { hasText, hasNumber } from "./value-presence";
-import type { WorkspaceStore } from "./workspace";
+import { startAction } from "~/web/src/action-boundary";
+import { Button } from "~/web/src/components/ui/button";
+import { Dialog } from "~/web/src/components/ui/dialog";
+import { fileLocation, mentionAt } from "~/web/src/context";
+import type { ContextItem } from "~/web/src/context";
+import type { Thread } from "~/web/src/protocol";
+import { hasText, hasNumber } from "~/web/src/value-presence";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 export function ComposerContext({
   thread,

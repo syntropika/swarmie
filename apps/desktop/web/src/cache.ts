@@ -1,10 +1,10 @@
 import type { LocalStoreIdentity } from "@swarmie/contracts";
 
-import { responseResult } from "./checked-json";
-import { clientRequest, nativeClient } from "./client-transport";
-import { decodeCachedWorkspace } from "./connections";
-import { nodeKey, retainNode, sameNode, validNodeIdentity } from "./node-scope";
-import type { Project, Thread } from "./protocol";
+import { responseResult } from "~/web/src/checked-json";
+import { clientRequest, nativeClient } from "~/web/src/client-transport";
+import { decodeCachedWorkspace } from "~/web/src/connections";
+import { nodeKey, retainNode, sameNode, validNodeIdentity } from "~/web/src/node-scope";
+import type { Project, Thread } from "~/web/src/protocol";
 
 export type CachedWorkspace = {
   threads: Thread[];

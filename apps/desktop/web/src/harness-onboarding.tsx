@@ -1,10 +1,9 @@
 import { X } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { Dialog } from "@/components/ui/dialog";
-
-import { CodingAgentsPanel } from "./coding-agents-panel";
-import type { WorkspaceStore } from "./workspace";
+import { CodingAgentsPanel } from "~/web/src/coding-agents-panel";
+import { Button } from "~/web/src/components/ui/button";
+import { Dialog } from "~/web/src/components/ui/dialog";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 export function HarnessOnboarding({
   store,

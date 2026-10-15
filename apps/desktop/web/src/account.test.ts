@@ -3,10 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 
-import { accountRequest, accountReceiptId } from "./account";
-import { accountSnapshot } from "./account-test-fixture";
-import { record } from "./checked-json";
-import { nativeRequestFixture } from "./test-fixtures";
+import { accountRequest, accountReceiptId } from "~/web/src/account";
+import { accountSnapshot } from "~/web/src/account-test-fixture";
+import { record } from "~/web/src/checked-json";
+import { nativeRequestFixture } from "~/web/src/test-fixtures";
 
 let native: ReturnType<typeof nativeRequestFixture> | undefined;
 const request = vi.fn<(method: string, params: unknown) => Promise<unknown>>();

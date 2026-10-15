@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { QueryKey } from "@tanstack/react-query";
 import { useEffect } from "react";
 
-import type { WorkspaceStore } from "../workspace";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 /** Cache extension reads by their complete conversation and parameter identity. */
 export function useExtensionQuery<T>(

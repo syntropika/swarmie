@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 
-import { questionAnswers } from "./questions";
+import { questionAnswers } from "~/web/src/questions";
 
 it("combines multiple choices with a written answer without changing its portable type", () => {
   expect(

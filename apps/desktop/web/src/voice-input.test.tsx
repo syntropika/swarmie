@@ -3,8 +3,8 @@ import userEvent from "@testing-library/user-event";
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from "vitest";
 
-import { renderWithQuery as render } from "./test-fixtures";
-import { VoiceInput } from "./voice-input";
+import { renderWithQuery as render } from "~/web/src/test-fixtures";
+import { VoiceInput } from "~/web/src/voice-input";
 
 class RecognitionMock extends EventTarget {
   static current: RecognitionMock | undefined;

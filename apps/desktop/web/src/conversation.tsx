@@ -38,23 +38,22 @@ import {
 } from "react";
 import remarkGfm from "remark-gfm";
 
-import { MessageActions } from "@/components/assistant-ui/elements/message-actions";
-import { Button } from "@/components/ui/button";
-import { Disclosure } from "@/components/ui/disclosure";
-import { Tooltip, TooltipContent } from "@/components/ui/tooltip";
-
-import { MediaPreview, OutputAssets } from "./asset-preview";
-import { attachmentBytes, readAttachment } from "./attachments";
-import { hasCount, hasText, scalarLabel } from "./components/presentation-values";
-import { ComposerContext } from "./composer-context";
-import { fileLocation, markdownUrl } from "./context";
-import { ContributionSlot, useContributions } from "./contribution-host";
-import { Plan } from "./plan";
-import type { Thread, Tool } from "./protocol";
-import { copyText, errorMessage } from "./protocol";
-import { Queue } from "./queue";
-import { SlashCommands } from "./resource-library";
-import type { WorkspaceStore } from "./workspace";
+import { MediaPreview, OutputAssets } from "~/web/src/asset-preview";
+import { attachmentBytes, readAttachment } from "~/web/src/attachments";
+import { MessageActions } from "~/web/src/components/assistant-ui/elements/message-actions";
+import { hasCount, hasText, scalarLabel } from "~/web/src/components/presentation-values";
+import { Button } from "~/web/src/components/ui/button";
+import { Disclosure } from "~/web/src/components/ui/disclosure";
+import { Tooltip, TooltipContent } from "~/web/src/components/ui/tooltip";
+import { ComposerContext } from "~/web/src/composer-context";
+import { fileLocation, markdownUrl } from "~/web/src/context";
+import { ContributionSlot, useContributions } from "~/web/src/contribution-host";
+import { Plan } from "~/web/src/plan";
+import type { Thread, Tool } from "~/web/src/protocol";
+import { copyText, errorMessage } from "~/web/src/protocol";
+import { Queue } from "~/web/src/queue";
+import { SlashCommands } from "~/web/src/resource-library";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 const ActivityContext = createContext<{ tools: Tool[]; running: boolean }>({
   tools: [],

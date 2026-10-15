@@ -1,9 +1,8 @@
 import { resolveLinkItems } from "fumadocs-ui/layouts/shared";
 import type { BaseLayoutProps } from "fumadocs-ui/layouts/shared";
 
-import { SwarmieLogo } from "@/components/brand";
-
-import { gitConfig } from "./shared";
+import { SwarmieLogo } from "~/components/brand";
+import { gitConfig } from "~/lib/shared";
 
 export function baseOptions(): BaseLayoutProps {
   const links = resolveLinkItems({

@@ -4,11 +4,10 @@ import { QueryClient, useInfiniteQuery, useMutation } from "@tanstack/react-quer
 // SPDX-License-Identifier: Apache-2.0
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-
-import { useAccount, useAccountService } from "./account-state";
-import { startAction, errorMessage, errorReporter } from "./action-boundary";
-import { hasText } from "./value-presence";
+import { useAccount, useAccountService } from "~/web/src/account-state";
+import { startAction, errorMessage, errorReporter } from "~/web/src/action-boundary";
+import { Button } from "~/web/src/components/ui/button";
+import { hasText } from "~/web/src/value-presence";
 
 export function AccountSecurity({ onProfile }: { onProfile: () => void }) {
   const { account, error: observationError } = useAccount();

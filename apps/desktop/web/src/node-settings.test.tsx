@@ -3,16 +3,16 @@ import userEvent from "@testing-library/user-event";
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from "vitest";
 
-import { NodeSettings } from "./node-settings";
-import { NodeClient } from "./nodes";
-import type { SshReadiness, NodesState } from "./nodes";
+import { NodeSettings } from "~/web/src/node-settings";
+import { NodeClient } from "~/web/src/nodes";
+import type { SshReadiness, NodesState } from "~/web/src/nodes";
 import {
   fixtureControl,
   renderWithQuery as render,
   fixtureWorkspace,
   deferred,
-} from "./test-fixtures";
-import { WorkspaceStore } from "./workspace";
+} from "~/web/src/test-fixtures";
+import { WorkspaceStore } from "~/web/src/workspace";
 
 afterEach(cleanup);
 function setup(fail = false) {

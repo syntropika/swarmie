@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef } from "react";
 import type { ReactNode } from "react";
 
-import { startAction } from "./action-boundary";
+import { startAction } from "~/web/src/action-boundary";
 
 async function disposeClient(client: QueryClient) {
   try {

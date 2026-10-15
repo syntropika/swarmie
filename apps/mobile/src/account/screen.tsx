@@ -8,40 +8,39 @@ import {
 import { useEffect, useState } from "react";
 import { BackHandler, Platform, Text, View } from "react-native";
 
-import type { AccountAccess } from "./contracts";
-import { emailSchema, stepEmail } from "./flow";
-import { AccountFrame } from "./frame";
-import { PasswordField } from "./password-field";
-import { useAccountFlow } from "./use-account-flow";
-import type { AccountFlow } from "./use-account-flow";
-
-const unlockCopy =
-  "Sign in to Swarmie the same way you unlock your device, with Face ID, your fingerprint or a PIN.";
+import type { AccountAccess } from "~/src/account/contracts";
+import { emailSchema, stepEmail } from "~/src/account/flow";
+import { AccountFrame } from "~/src/account/frame";
+import { PasswordField } from "~/src/account/password-field";
+import { useAccountFlow } from "~/src/account/use-account-flow";
+import type { AccountFlow } from "~/src/account/use-account-flow";
+import { useLocale } from "~/src/platform/i18n/provider";
 
 function Body({ children }: { children: string }) {
   return <Text className="font-native text-base leading-6 text-native-muted">{children}</Text>;
 }
 
 function Legal({ creating = false }: { creating?: boolean }) {
+  const { t } = useLocale();
   return (
     <Text className="text-center font-native text-xs leading-5 text-native-muted">
-      {creating
-        ? "By creating an account, you agree to our Terms and Privacy Policy."
-        : "By continuing, you agree to our Terms and Privacy Policy."}
+      {creating ? t("account.signupLegal") : t("account.legal")}
     </Text>
   );
 }
 
 function Feedback({ flow }: { flow: AccountFlow }) {
+  const { t } = useLocale();
   return (
     <>
-      {flow.error === undefined ? null : <NativeNotice>{flow.error}</NativeNotice>}
-      {flow.notice === undefined ? null : <NativeNotice>{flow.notice}</NativeNotice>}
+      {flow.error === undefined ? null : <NativeNotice>{t(flow.error)}</NativeNotice>}
+      {flow.notice === undefined ? null : <NativeNotice>{t(flow.notice)}</NativeNotice>}
     </>
   );
 }
 
 function EmailScreen({ flow }: { flow: AccountFlow }) {
+  const { t } = useLocale();
   const [email, setEmail] = useState(stepEmail(flow.step));
   const normalized = email.trim();
   const valid = emailSchema.safeParse(normalized).success;
@@ -52,12 +51,12 @@ function EmailScreen({ flow }: { flow: AccountFlow }) {
   }
   return (
     <AccountFrame
-      title={"Your space.\nYour way."}
-      subtitle="Sign in or create your account."
+      title={t("account.welcome")}
+      subtitle={t("account.intro")}
       footer={
         <>
           <NativeButton
-            label={flow.pending ? "Continuing…" : "Continue"}
+            label={flow.pending ? t("account.continuing") : t("account.continue")}
             loading={flow.pending}
             disabled={!valid}
             onPress={submit}
@@ -67,10 +66,10 @@ function EmailScreen({ flow }: { flow: AccountFlow }) {
       }
     >
       <NativeField
-        label="Email address"
+        label={t("account.email")}
         value={email}
         onChangeText={setEmail}
-        placeholder="you@example.com"
+        placeholder={t("account.emailPlaceholder")}
         autoCapitalize="none"
         autoCorrect={false}
         keyboardType="email-address"
@@ -87,6 +86,7 @@ function EmailScreen({ flow }: { flow: AccountFlow }) {
 }
 
 function CredentialScreen({ flow }: { flow: AccountFlow }) {
+  const { t } = useLocale();
   const [password, setPassword] = useState("");
   const { step, pending } = flow;
   if (step.kind !== "passkey" && step.kind !== "password" && step.kind !== "signup") {
@@ -102,24 +102,24 @@ function CredentialScreen({ flow }: { flow: AccountFlow }) {
       setPassword("");
     }
   }
-  const credentialLabel = passkey ? "Sign in with passkey" : "Sign in";
-  const mainLabel = creating ? "Create account" : credentialLabel;
+  const credentialLabel = passkey ? t("account.passkeySignIn") : t("account.signIn");
+  const mainLabel = creating ? t("account.create") : credentialLabel;
   return (
     <AccountFrame
-      title={creating ? "Create your\naccount." : "Welcome back."}
+      title={creating ? t("account.signupTitle") : t("account.returning")}
       email={step.email}
       onChangeEmail={flow.changeEmail}
       footer={
         <>
           <NativeButton
-            label={pending ? "Please wait…" : mainLabel}
+            label={pending ? t("account.wait") : mainLabel}
             loading={pending}
             disabled={!passkey && !canSubmit}
             onPress={passkey ? flow.passkey : submitPassword}
           />
           {!creating && (passkey ? step.methods.password : step.methods.passkey) ? (
             <NativeButton
-              label={passkey ? "Use a password" : "Use a passkey"}
+              label={passkey ? t("account.usePassword") : t("account.usePasskey")}
               tone="secondary"
               onPress={() => {
                 flow.navigate({ ...step, kind: passkey ? "password" : "passkey" });
@@ -131,7 +131,7 @@ function CredentialScreen({ flow }: { flow: AccountFlow }) {
       }
     >
       {passkey ? (
-        <Body>{unlockCopy}</Body>
+        <Body>{t("account.unlock")}</Body>
       ) : (
         <>
           <PasswordField
@@ -144,7 +144,7 @@ function CredentialScreen({ flow }: { flow: AccountFlow }) {
           {creating ? null : (
             <View className="items-end">
               <NativeTextAction
-                label="Forgot password?"
+                label={t("account.forgot")}
                 onPress={() => {
                   flow.navigate({ kind: "reset", email: step.email });
                 }}
@@ -159,19 +159,20 @@ function CredentialScreen({ flow }: { flow: AccountFlow }) {
 }
 
 function VerificationScreen({ flow }: { flow: AccountFlow }) {
+  const { t } = useLocale();
   const [code, setCode] = useState("");
   if (flow.step.kind !== "verify") {
     return null;
   }
   return (
     <AccountFrame
-      title="Verify your email."
+      title={t("account.verifyTitle")}
       email={flow.step.email}
       onChangeEmail={flow.changeEmail}
       footer={
         <>
           <NativeButton
-            label={flow.pending ? "Verifying…" : "Verify email"}
+            label={flow.pending ? t("account.verifying") : t("account.verify")}
             loading={flow.pending}
             disabled={code.length !== 6}
             onPress={() => {
@@ -181,7 +182,7 @@ function VerificationScreen({ flow }: { flow: AccountFlow }) {
           />
           <View className="items-center">
             <NativeTextAction
-              label="Resend code"
+              label={t("account.resend")}
               disabled={flow.pending}
               onPress={() => {
                 flow.resend();
@@ -192,31 +193,37 @@ function VerificationScreen({ flow }: { flow: AccountFlow }) {
         </>
       }
     >
-      <Body>Enter the code we sent to your email.</Body>
-      <NativeCodeField value={code} onChangeText={setCode} disabled={flow.pending} />
+      <Body>{t("account.codeIntro")}</Body>
+      <NativeCodeField
+        value={code}
+        onChangeText={setCode}
+        disabled={flow.pending}
+        accessibilityLabel={t("account.codeLabel")}
+      />
       <Feedback flow={flow} />
     </AccountFrame>
   );
 }
 
 function EnrollmentScreen({ flow }: { flow: AccountFlow }) {
+  const { t } = useLocale();
   if (flow.step.kind !== "add-passkey") {
     return null;
   }
   const { account } = flow.step;
   return (
     <AccountFrame
-      title={"Make next time\neasier."}
+      title={t("account.enrollTitle")}
       email={account.email}
       footer={
         <>
           <NativeButton
-            label={flow.pending ? "Creating passkey…" : "Create a passkey"}
+            label={flow.pending ? t("account.creatingPasskey") : t("account.createPasskey")}
             loading={flow.pending}
             onPress={flow.addPasskey}
           />
           <NativeButton
-            label="Not now"
+            label={t("account.notNow")}
             tone="secondary"
             disabled={flow.pending}
             onPress={() => {
@@ -226,33 +233,30 @@ function EnrollmentScreen({ flow }: { flow: AccountFlow }) {
         </>
       }
     >
-      <Body>Add a passkey to sign in with Face ID, your fingerprint or a PIN.</Body>
-      <Body>You can also set this up later.</Body>
+      <Body>{t("account.enrollIntro")}</Body>
+      <Body>{t("account.enrollLater")}</Body>
       <Feedback flow={flow} />
     </AccountFrame>
   );
 }
 
 function ResetScreen({ flow }: { flow: AccountFlow }) {
+  const { t } = useLocale();
   const sent = flow.step.kind === "reset-sent";
   return (
     <AccountFrame
-      title={sent ? "Check your email." : "Reset your password."}
+      title={sent ? t("account.checkEmail") : t("account.resetTitle")}
       email={stepEmail(flow.step)}
       onChangeEmail={flow.changeEmail}
       footer={
         <NativeButton
-          label={sent ? "Back to sign in" : "Send reset instructions"}
+          label={sent ? t("account.backSignIn") : t("account.sendReset")}
           loading={flow.pending}
           onPress={sent ? flow.changeEmail : flow.requestReset}
         />
       }
     >
-      <Body>
-        {sent
-          ? "If that email has an account, you'll receive instructions to reset your password."
-          : "We'll email you instructions to reset your password."}
-      </Body>
+      <Body>{sent ? t("account.resetSent") : t("account.resetIntro")}</Body>
       <Feedback flow={flow} />
     </AccountFrame>
   );
@@ -265,6 +269,7 @@ export function AccountScreen({
   access: AccountAccess;
   preview?: boolean;
 }) {
+  const { t } = useLocale();
   const flow = useAccountFlow(access);
   useEffect(() => {
     if (Platform.OS !== "android") {
@@ -304,22 +309,18 @@ export function AccountScreen({
     case "complete": {
       return (
         <AccountFrame
-          title="You're all set."
+          title={t("account.complete")}
           email={flow.step.account.email}
           footer={
             <NativeButton
-              label="Back to start"
+              label={t("account.backStart")}
               onPress={() => {
                 flow.navigate({ kind: "email", email: "" });
               }}
             />
           }
         >
-          <Body>
-            {preview
-              ? "Preview complete. No account or device credential was created."
-              : "Your account is ready. Provider connections will be available soon."}
-          </Body>
+          <Body>{preview ? t("account.previewComplete") : t("account.ready")}</Body>
         </AccountFrame>
       );
     }

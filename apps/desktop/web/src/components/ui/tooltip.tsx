@@ -2,7 +2,7 @@ import * as Primitive from "@radix-ui/react-tooltip";
 import { cn } from "cn";
 import type { ReactElement, ReactNode } from "react";
 
-import { floatingClasses } from "./floating";
+import { floatingClasses } from "~/web/src/components/ui/floating";
 
 export function Tooltip({
   children,

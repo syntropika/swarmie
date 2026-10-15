@@ -2,11 +2,11 @@ import type { RuntimeIdentity } from "@swarmie/contracts";
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { WorkspaceCache } from "./cache";
-import { NodeClient } from "./nodes";
-import type { SshReadiness } from "./nodes";
-import { fixtureRequestBody } from "./test-fixtures";
-import { WorkspaceStore } from "./workspace";
+import { WorkspaceCache } from "~/web/src/cache";
+import { NodeClient } from "~/web/src/nodes";
+import type { SshReadiness } from "~/web/src/nodes";
+import { fixtureRequestBody } from "~/web/src/test-fixtures";
+import { WorkspaceStore } from "~/web/src/workspace";
 
 const local: RuntimeIdentity = {
   identity: {

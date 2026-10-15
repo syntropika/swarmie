@@ -1,17 +1,16 @@
 import { ShieldCheck, MessageCircleQuestion } from "lucide-react";
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Disclosure } from "@/components/ui/disclosure";
-import { Input } from "@/components/ui/input";
-import { RadioGroup, RadioOption } from "@/components/ui/radio-group";
-import { Textarea } from "@/components/ui/textarea";
-
-import { startAction, errorReporter } from "./action-boundary";
-import type { Permission } from "./protocol";
-import { questionAnswers } from "./questions";
-import { hasText } from "./value-presence";
+import { startAction, errorReporter } from "~/web/src/action-boundary";
+import { Button } from "~/web/src/components/ui/button";
+import { Checkbox } from "~/web/src/components/ui/checkbox";
+import { Disclosure } from "~/web/src/components/ui/disclosure";
+import { Input } from "~/web/src/components/ui/input";
+import { RadioGroup, RadioOption } from "~/web/src/components/ui/radio-group";
+import { Textarea } from "~/web/src/components/ui/textarea";
+import type { Permission } from "~/web/src/protocol";
+import { questionAnswers } from "~/web/src/questions";
+import { hasText } from "~/web/src/value-presence";
 
 export function RequestCard({
   permission,

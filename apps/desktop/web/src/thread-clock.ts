@@ -1,4 +1,4 @@
-import type { Thread } from "./protocol";
+import type { Thread } from "~/web/src/protocol";
 
 export function watchThreadTimes(threads: Thread[], update: (now: number) => void) {
   let timer: ReturnType<typeof setTimeout> | undefined;

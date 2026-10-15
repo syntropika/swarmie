@@ -5,11 +5,11 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 
-import { newThread } from "./protocol";
-import type { Thread } from "./protocol";
-import { ResourceLibrary, SlashCommands } from "./resource-library";
-import { deferred } from "./test-fixtures";
-import { WorkspaceStore } from "./workspace";
+import { newThread } from "~/web/src/protocol";
+import type { Thread } from "~/web/src/protocol";
+import { ResourceLibrary, SlashCommands } from "~/web/src/resource-library";
+import { deferred } from "~/web/src/test-fixtures";
+import { WorkspaceStore } from "~/web/src/workspace";
 
 function render(ui: ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });

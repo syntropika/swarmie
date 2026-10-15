@@ -1,13 +1,12 @@
 import { Pencil, X, Pause, Play, Check } from "lucide-react";
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-
-import { startAction } from "./action-boundary";
-import type { Thread, Queued } from "./protocol";
-import { hasNumber } from "./value-presence";
-import type { WorkspaceStore } from "./workspace";
+import { startAction } from "~/web/src/action-boundary";
+import { Button } from "~/web/src/components/ui/button";
+import { Textarea } from "~/web/src/components/ui/textarea";
+import type { Thread, Queued } from "~/web/src/protocol";
+import { hasNumber } from "~/web/src/value-presence";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 function QueueItem({
   item,

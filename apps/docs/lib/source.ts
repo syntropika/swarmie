@@ -2,7 +2,7 @@ import { llms, loader } from "fumadocs-core/source";
 import { metaSchema, pageSchema } from "fumadocs-core/source/schema";
 import { defineDocs } from "fumadocs-mdx/macro";
 
-import { docsRoute } from "./shared";
+import { docsRoute } from "~/lib/shared";
 
 const docs = defineDocs({
   dir: "content/docs",

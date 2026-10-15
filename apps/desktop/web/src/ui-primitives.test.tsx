@@ -4,22 +4,22 @@ import userEvent from "@testing-library/user-event";
 import { createRef, useState } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 
-import { useConfirmation } from "./components/confirmation";
-import { Button } from "./components/ui/button";
-import { Checkbox } from "./components/ui/checkbox";
-import { ComboBox } from "./components/ui/combobox";
-import { Dialog } from "./components/ui/dialog";
-import { Disclosure } from "./components/ui/disclosure";
-import { Input } from "./components/ui/input";
-import { Select } from "./components/ui/select";
-import { Switch } from "./components/ui/switch";
-import { Textarea } from "./components/ui/textarea";
-import { Conversation } from "./conversation";
-import { HarnessSelect } from "./harness-select";
-import { ReasoningEffort } from "./reasoning-effort";
-import { RequestCard } from "./request-card";
-import { renderWithQuery as render } from "./test-fixtures";
-import { WorkspaceStore } from "./workspace";
+import { useConfirmation } from "~/web/src/components/confirmation";
+import { Button } from "~/web/src/components/ui/button";
+import { Checkbox } from "~/web/src/components/ui/checkbox";
+import { ComboBox } from "~/web/src/components/ui/combobox";
+import { Dialog } from "~/web/src/components/ui/dialog";
+import { Disclosure } from "~/web/src/components/ui/disclosure";
+import { Input } from "~/web/src/components/ui/input";
+import { Select } from "~/web/src/components/ui/select";
+import { Switch } from "~/web/src/components/ui/switch";
+import { Textarea } from "~/web/src/components/ui/textarea";
+import { Conversation } from "~/web/src/conversation";
+import { HarnessSelect } from "~/web/src/harness-select";
+import { ReasoningEffort } from "~/web/src/reasoning-effort";
+import { RequestCard } from "~/web/src/request-card";
+import { renderWithQuery as render } from "~/web/src/test-fixtures";
+import { WorkspaceStore } from "~/web/src/workspace";
 
 function renderEffortLabel(label: string) {
   return <span>{label}</span>;
@@ -617,7 +617,7 @@ it("selects an installed agent from the composer menu and restores focus on dism
   expect(document.activeElement).toBe(trigger);
 });
 it("shows the effective model and configures only advertised models and effort levels", async () => {
-  const { SessionControls } = await import("./session-controls");
+  const { SessionControls } = await import("~/web/src/session-controls");
   localStorage.clear();
   const store = new WorkspaceStore();
   await store.ready();
@@ -778,7 +778,7 @@ it("restores the effort selection without giving the lightning a minimum-effort 
   ).toBeNull();
 });
 it("uses server permission profiles and keeps selected and observed permissions separate", async () => {
-  const { SessionControls } = await import("./session-controls");
+  const { SessionControls } = await import("~/web/src/session-controls");
   localStorage.clear();
   const store = new WorkspaceStore();
   await store.ready();

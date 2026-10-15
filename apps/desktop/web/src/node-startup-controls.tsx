@@ -1,11 +1,10 @@
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-
-import { startAction } from "./action-boundary";
-import type { ClientNode, NodeClient, NodeStartup } from "./nodes";
-import { hasText } from "./value-presence";
+import { startAction } from "~/web/src/action-boundary";
+import { Button } from "~/web/src/components/ui/button";
+import { Switch } from "~/web/src/components/ui/switch";
+import type { ClientNode, NodeClient, NodeStartup } from "~/web/src/nodes";
+import { hasText } from "~/web/src/value-presence";
 
 export function NodeStartupControls({
   node,

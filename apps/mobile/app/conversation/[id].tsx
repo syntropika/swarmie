@@ -3,14 +3,17 @@ import { FlatList, Text, View } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { withUniwind } from "uniwind";
 
-import { Approval } from "../../src/conversations/approval";
-import { Composer } from "../../src/conversations/composer";
-import { useConversation } from "../../src/conversations/controller";
-import { Notice, Page } from "../../src/ui/controls";
+import { Approval } from "~/src/conversations/approval";
+import { Composer } from "~/src/conversations/composer";
+import { useConversation } from "~/src/conversations/controller";
+import { useLocale } from "~/src/platform/i18n/provider";
+import { statusLabel } from "~/src/platform/i18n/translate";
+import { Notice, Page } from "~/src/ui/controls";
 
 const KeyboardView = withUniwind(KeyboardAvoidingView);
 
 export default function ConversationScreen() {
+  const { t } = useLocale();
   const { id } = useLocalSearchParams<{ id: string }>();
   const conversation = useConversation(id);
   const { projected, transcript, session } = conversation;
@@ -25,20 +28,14 @@ export default function ConversationScreen() {
           ListHeaderComponent={
             <View className="gap-2">
               <Text className="text-base font-semibold text-text-muted">
-                {session.data?.options.harness} · {session.data?.state.replaceAll("_", " ")}
+                {session.data?.options.harness} · {statusLabel(t, session.data?.state)}
               </Text>
-              {transcript.isError ? (
-                <Notice>
-                  Could not read the transcript. Reopen this conversation to reconnect.
-                </Notice>
-              ) : null}
+              {transcript.isError ? <Notice>{t("conversation.readError")}</Notice> : null}
             </View>
           }
           ListEmptyComponent={
             <Notice>
-              {transcript.isPending
-                ? "Loading conversation…"
-                : "Send a message to start this conversation."}
+              {transcript.isPending ? t("conversation.loading") : t("conversation.empty")}
             </Notice>
           }
           renderItem={({ item }) => (

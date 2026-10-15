@@ -1,6 +1,6 @@
 import { defaultUrlTransform } from "react-markdown";
 
-import { hasText } from "./value-presence";
+import { hasText } from "~/web/src/value-presence";
 
 export function markdownUrl(value: string, key: string): string {
   return key === "href" && fileLocation(value) ? value : defaultUrlTransform(value);

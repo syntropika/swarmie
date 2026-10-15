@@ -8,17 +8,16 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Plus, RefreshCw } from "lucide-react";
 import { useId, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-
-import { errorMessage } from "./action-boundary";
-import { McpServerEditor, editor, definition } from "./mcp-server-editor";
-import type { Editor } from "./mcp-server-editor";
-import { McpServerRow } from "./mcp-server-row";
-import { nodeKey } from "./node-scope";
-import { hasText } from "./value-presence";
-import type { Workspace, WorkspaceStore } from "./workspace";
+import { errorMessage } from "~/web/src/action-boundary";
+import { Button } from "~/web/src/components/ui/button";
+import { Input } from "~/web/src/components/ui/input";
+import { Select } from "~/web/src/components/ui/select";
+import { McpServerEditor, editor, definition } from "~/web/src/mcp-server-editor";
+import type { Editor } from "~/web/src/mcp-server-editor";
+import { McpServerRow } from "~/web/src/mcp-server-row";
+import { nodeKey } from "~/web/src/node-scope";
+import { hasText } from "~/web/src/value-presence";
+import type { Workspace, WorkspaceStore } from "~/web/src/workspace";
 
 function savedMessage(operation: string, restartSessions: string[]) {
   if (restartSessions.length > 0) {

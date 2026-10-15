@@ -12,25 +12,24 @@ import {
 } from "lucide-react";
 import { useState, useId } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { InputGroup } from "@/components/ui/input-group";
-import { Switch } from "@/components/ui/switch";
-
-import { AccountSecurity } from "./account-security";
-import { AccountSettings } from "./account-settings";
-import { startAction } from "./action-boundary";
-import { ChatDirectorySettings } from "./chat-directory-settings";
-import { CodingAgentsPanel } from "./coding-agents-panel";
-import { ContributionSlot } from "./contribution-host";
-import { McpSettings } from "./mcp-settings";
-import { NativeHistory } from "./native-history";
-import { NodeSettings } from "./node-settings";
-import type { NodeClient, NodesState } from "./nodes";
-import { shortcutBinding, defaultShortcuts } from "./shortcuts";
-import type { Shortcuts } from "./shortcuts";
-import { hasText } from "./value-presence";
-import type { WorkspaceStore, Workspace } from "./workspace";
+import { AccountSecurity } from "~/web/src/account-security";
+import { AccountSettings } from "~/web/src/account-settings";
+import { startAction } from "~/web/src/action-boundary";
+import { ChatDirectorySettings } from "~/web/src/chat-directory-settings";
+import { CodingAgentsPanel } from "~/web/src/coding-agents-panel";
+import { Button } from "~/web/src/components/ui/button";
+import { Input } from "~/web/src/components/ui/input";
+import { InputGroup } from "~/web/src/components/ui/input-group";
+import { Switch } from "~/web/src/components/ui/switch";
+import { ContributionSlot } from "~/web/src/contribution-host";
+import { McpSettings } from "~/web/src/mcp-settings";
+import { NativeHistory } from "~/web/src/native-history";
+import { NodeSettings } from "~/web/src/node-settings";
+import type { NodeClient, NodesState } from "~/web/src/nodes";
+import { shortcutBinding, defaultShortcuts } from "~/web/src/shortcuts";
+import type { Shortcuts } from "~/web/src/shortcuts";
+import { hasText } from "~/web/src/value-presence";
+import type { WorkspaceStore, Workspace } from "~/web/src/workspace";
 
 const sections = [
   { id: "account", title: "Account", icon: UserRound },

@@ -3,24 +3,23 @@ import { X, RefreshCw, Check, Plus, Trash2 } from "lucide-react";
 // SPDX-License-Identifier: Apache-2.0
 import { useId, lazy, Suspense } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { ResizeHandle } from "@/components/ui/resize-handle";
-import { Select } from "@/components/ui/select";
-
-import { startAction } from "./action-boundary";
-import { ContributionSurface, ContributionSlot } from "./contribution-host";
-import { Conversation, PatchCopy } from "./conversation";
-import { ProjectActions } from "./project-actions";
-import { RequestCard } from "./request-card";
-import { SessionControls } from "./session-controls";
-import { hasText } from "./value-presence";
-import { IconButton } from "./workspace-icon-button";
-import type { WorkspaceViewState } from "./workspace-state";
+import { startAction } from "~/web/src/action-boundary";
+import { Button } from "~/web/src/components/ui/button";
+import { Input } from "~/web/src/components/ui/input";
+import { ResizeHandle } from "~/web/src/components/ui/resize-handle";
+import { Select } from "~/web/src/components/ui/select";
+import { ContributionSurface, ContributionSlot } from "~/web/src/contribution-host";
+import { Conversation, PatchCopy } from "~/web/src/conversation";
+import { ProjectActions } from "~/web/src/project-actions";
+import { RequestCard } from "~/web/src/request-card";
+import { SessionControls } from "~/web/src/session-controls";
+import { hasText } from "~/web/src/value-presence";
+import { IconButton } from "~/web/src/workspace-icon-button";
+import type { WorkspaceViewState } from "~/web/src/workspace-state";
 
 const ExtensionPanel = lazy(
   async () =>
-    await import("./extension-panel").then((module) => ({
+    await import("~/web/src/extension-panel").then((module) => ({
       default: module.ExtensionPanel,
     })),
 );

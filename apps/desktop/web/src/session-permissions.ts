@@ -3,8 +3,8 @@ import type { ExecutionPolicy, ExecutionProfile } from "@swarmie/contracts";
 // SPDX-License-Identifier: Apache-2.0
 import { decodeContract } from "@swarmie/contracts/validation";
 
-import type { Thread } from "./protocol";
-import { hasText } from "./value-presence";
+import type { Thread } from "~/web/src/protocol";
+import { hasText } from "~/web/src/value-presence";
 
 const unavailable = [
   { profile: "ask", label: "Ask for approval" },

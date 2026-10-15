@@ -13,7 +13,7 @@ import type {
 } from "@swarmie/contracts";
 import { decodeContract } from "@swarmie/contracts/validation";
 
-import type { ContextItem, FileLocation } from "./context";
+import type { ContextItem, FileLocation } from "~/web/src/context";
 
 export type {
   ConfigurationReceipt,

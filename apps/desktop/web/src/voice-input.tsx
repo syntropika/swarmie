@@ -1,10 +1,9 @@
 import { Mic, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-
-import { browserTranscription } from "./dictation";
-import type { DictationSession } from "./dictation";
+import { Button } from "~/web/src/components/ui/button";
+import { browserTranscription } from "~/web/src/dictation";
+import type { DictationSession } from "~/web/src/dictation";
 
 type VoiceProps = {
   disabled?: boolean;

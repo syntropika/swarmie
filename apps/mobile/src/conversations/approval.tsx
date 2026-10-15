@@ -3,8 +3,9 @@ import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { Text, View } from "react-native";
 
-import { useRuntime } from "../connection/provider";
-import { Action, Field, Notice } from "../ui/controls";
+import { useRuntime } from "~/src/connection/provider";
+import { useLocale } from "~/src/platform/i18n/provider";
+import { Action, Field, Notice } from "~/src/ui/controls";
 
 export function Approval({
   request,
@@ -13,6 +14,7 @@ export function Approval({
   request: PermissionRequest;
   sessionId: string;
 }) {
+  const { t } = useLocale();
   const connection = useRuntime();
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const response = useMutation({
@@ -54,7 +56,7 @@ export function Approval({
           ))}
           {question.allowText ? (
             <Field
-              label="Your answer"
+              label={t("approval.answer")}
               value={answers[question.id] ?? ""}
               secureTextEntry={question.secret}
               onChangeText={(value) => {
@@ -76,13 +78,9 @@ export function Approval({
           />
         ))
       ) : (
-        <Notice>
-          This request needs a richer input control. Answer it from another connected client.
-        </Notice>
+        <Notice>{t("approval.unsupported")}</Notice>
       )}
-      {response.isError ? (
-        <Notice>Could not send your decision. Refresh the conversation before trying again.</Notice>
-      ) : null}
+      {response.isError ? <Notice>{t("approval.error")}</Notice> : null}
     </View>
   );
 }

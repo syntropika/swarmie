@@ -4,8 +4,8 @@ import { Check } from "lucide-react";
 import { createContext, useContext, useMemo } from "react";
 import type { ReactElement, ReactNode } from "react";
 
-import { floatingClasses, itemClasses } from "./floating";
-import { Tooltip } from "./tooltip";
+import { floatingClasses, itemClasses } from "~/web/src/components/ui/floating";
+import { Tooltip } from "~/web/src/components/ui/tooltip";
 
 type MenuProps = {
   children: ReactNode;

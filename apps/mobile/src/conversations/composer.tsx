@@ -1,21 +1,21 @@
 import { View } from "react-native";
 
-import { Action, Field, Notice } from "../ui/controls";
-import type { useConversation } from "./controller";
+import type { useConversation } from "~/src/conversations/controller";
+import { useLocale } from "~/src/platform/i18n/provider";
+import { Action, Field, Notice } from "~/src/ui/controls";
 
 type Props = { conversation: ReturnType<typeof useConversation> };
 export function Composer({ conversation }: Props) {
+  const { t } = useLocale();
   const { session, outbox, send, reconcile, attach, text, setText, images, setImages } =
     conversation;
   return (
     <View className="gap-3 border-t border-border bg-surface p-4">
       {outbox.data ? (
         <View className="gap-2">
-          <Notice>
-            A message has unresolved delivery. Check its receipt before sending another.
-          </Notice>
+          <Notice>{t("composer.unresolved")}</Notice>
           <Action
-            label={reconcile.isPending ? "Checking…" : "Check delivery"}
+            label={reconcile.isPending ? t("composer.checking") : t("composer.check")}
             disabled={reconcile.isPending}
             onPress={() => {
               reconcile.mutate();
@@ -24,7 +24,7 @@ export function Composer({ conversation }: Props) {
         </View>
       ) : null}
       <Field
-        label="Message"
+        label={t("composer.message")}
         multiline
         value={outbox.data?.text ?? text}
         onChangeText={setText}
@@ -32,7 +32,7 @@ export function Composer({ conversation }: Props) {
       />
       {images.length ? (
         <Action
-          label="Remove attached image"
+          label={t("composer.removeImage")}
           onPress={() => {
             setImages([]);
           }}
@@ -41,7 +41,7 @@ export function Composer({ conversation }: Props) {
       <View className="flex-row flex-wrap gap-3">
         {session.data?.capabilities.images.availability === "available" ? (
           <Action
-            label={attach.isPending ? "Attaching…" : "Attach image"}
+            label={attach.isPending ? t("composer.attaching") : t("composer.attach")}
             disabled={attach.isPending || Boolean(outbox.data)}
             onPress={() => {
               attach.mutate();
@@ -49,7 +49,7 @@ export function Composer({ conversation }: Props) {
           />
         ) : null}
         <Action
-          label={send.isPending ? "Sending…" : "Send message"}
+          label={send.isPending ? t("composer.sending") : t("composer.send")}
           selected
           disabled={
             !text.trim() ||
@@ -69,6 +69,7 @@ export function Composer({ conversation }: Props) {
   );
 }
 function ComposerNotices({ conversation }: Props) {
+  const { t } = useLocale();
   const { send, reconcile, cancel, resume, attach } = conversation;
   return (
     <>
@@ -77,21 +78,18 @@ function ComposerNotices({ conversation }: Props) {
       reconcile.isError ||
       cancel.isError ||
       resume.isError ? (
-        <Notice>The operation did not finish. Check delivery before retrying.</Notice>
+        <Notice>{t("composer.operationError")}</Notice>
       ) : null}
       {reconcile.isSuccess && (!reconcile.data || reconcile.data.recoveryRequired) ? (
-        <Notice>
-          Delivery remains unresolved. Inspect this session from the runtime before retrying.
-        </Notice>
+        <Notice>{t("composer.deliveryError")}</Notice>
       ) : null}
-      {attach.isError ? (
-        <Notice>Could not attach the image. Choose a PNG, JPEG or WebP smaller than 1 MiB.</Notice>
-      ) : null}
+      {attach.isError ? <Notice>{t("composer.imageError")}</Notice> : null}
     </>
   );
 }
 
 function SessionLifecycle({ conversation }: Props) {
+  const { t } = useLocale();
   const { session, cancel, resume } = conversation;
   const snapshot = session.data;
   if (!snapshot) {
@@ -100,7 +98,7 @@ function SessionLifecycle({ conversation }: Props) {
   if (snapshot.state === "running" && snapshot.capabilities.cancel.availability === "available") {
     return (
       <Action
-        label="Stop response"
+        label={t("composer.stop")}
         disabled={cancel.isPending}
         onPress={() => {
           cancel.mutate();
@@ -114,7 +112,7 @@ function SessionLifecycle({ conversation }: Props) {
   ) {
     return (
       <Action
-        label={resume.isPending ? "Resuming…" : "Resume conversation"}
+        label={resume.isPending ? t("composer.resuming") : t("composer.resume")}
         disabled={resume.isPending}
         onPress={() => {
           resume.mutate();

@@ -2,15 +2,14 @@ import { KeyRound, Monitor, Trash2, X } from "lucide-react";
 import { useState, useId } from "react";
 import type { ReactNode } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Dialog } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-
-import { startAction, errorReporter } from "./action-boundary";
-import { HarnessIcon } from "./harness-select";
-import { NodeStartupControls } from "./node-startup-controls";
-import type { ClientNode, NodeClient, NodeRoute, SshReadiness } from "./nodes";
-import { hasText, nonEmptyText } from "./value-presence";
+import { startAction, errorReporter } from "~/web/src/action-boundary";
+import { Button } from "~/web/src/components/ui/button";
+import { Dialog } from "~/web/src/components/ui/dialog";
+import { Input } from "~/web/src/components/ui/input";
+import { HarnessIcon } from "~/web/src/harness-select";
+import { NodeStartupControls } from "~/web/src/node-startup-controls";
+import type { ClientNode, NodeClient, NodeRoute, SshReadiness } from "~/web/src/nodes";
+import { hasText, nonEmptyText } from "~/web/src/value-presence";
 
 export function routeAddress(route: NodeRoute): string {
   if (route.transport.kind === "ssh") {

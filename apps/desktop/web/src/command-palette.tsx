@@ -1,13 +1,12 @@
 import { useState, useSyncExternalStore } from "react";
 
-import { CommandPalette as Palette } from "@/components/assistant-ui/elements/command-palette";
-import type { PaletteCommand } from "@/components/assistant-ui/elements/command-palette";
-import { Dialog } from "@/components/ui/dialog";
-
-import { startAction } from "./action-boundary";
-import { useContributions } from "./contribution-host";
-import { hasConversation } from "./protocol";
-import type { WorkspaceStore } from "./workspace";
+import { startAction } from "~/web/src/action-boundary";
+import { CommandPalette as Palette } from "~/web/src/components/assistant-ui/elements/command-palette";
+import type { PaletteCommand } from "~/web/src/components/assistant-ui/elements/command-palette";
+import { Dialog } from "~/web/src/components/ui/dialog";
+import { useContributions } from "~/web/src/contribution-host";
+import { hasConversation } from "~/web/src/protocol";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 export function CommandPalette({
   store,

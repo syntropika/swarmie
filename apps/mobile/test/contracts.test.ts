@@ -3,10 +3,18 @@ import { rejects } from "node:assert/strict";
 
 import type { RuntimeEvent } from "@swarmie/contracts";
 
-import { connectionSchema } from "../src/connection/settings";
-import { appendEvents, projectTranscript } from "../src/conversations/journal";
-import { createOutbox } from "../src/conversations/pending-input";
-import { scheduleInstant } from "../src/routines/contracts";
+import { connectionSchema } from "~/src/connection/settings";
+import { appendEvents, projectTranscript } from "~/src/conversations/journal";
+import { createOutbox } from "~/src/conversations/pending-input";
+import { scheduleInstant } from "~/src/routines/contracts";
+
+const transcriptCopy = {
+  user: "You",
+  agent: "Agent",
+  runtime: "Runtime",
+  attachment: "[Attachment]",
+  agentError: "Agent error",
+};
 
 function delta(sequence: number, text: string, sessionId = "session-a"): RuntimeEvent {
   return {
@@ -40,7 +48,7 @@ describe("mobile trust boundaries", () => {
 
   test("journal replay deduplicates without duplicating streamed text", () => {
     const events = appendEvents([delta(1, "Hello")], [delta(1, "Hello"), delta(2, " world")]);
-    expect(projectTranscript(events).rows).toEqual([
+    expect(projectTranscript(events, transcriptCopy).rows).toEqual([
       { id: "1", role: "Agent", text: "Hello world" },
     ]);
     expect(() => appendEvents(events, [delta(2, "other")])).toThrow("Conflicting");
@@ -61,8 +69,10 @@ describe("mobile trust boundaries", () => {
       type: "message.assistant",
       data: { content: [{ type: "text", text: "Final answer" }] },
     };
-    expect(projectTranscript([snapshot]).rows[0]?.text).toBe("Final answer");
-    expect(projectTranscript([delta(1, "Final answer"), snapshot]).rows).toHaveLength(1);
+    expect(projectTranscript([snapshot], transcriptCopy).rows[0]?.text).toBe("Final answer");
+    expect(
+      projectTranscript([delta(1, "Final answer"), snapshot], transcriptCopy).rows,
+    ).toHaveLength(1);
   });
 
   test("unresolved input survives a new outbox owner and prevents silent resubmission", async () => {

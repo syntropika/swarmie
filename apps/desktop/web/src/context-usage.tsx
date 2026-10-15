@@ -1,6 +1,5 @@
-import { Tooltip, TooltipContent } from "@/components/ui/tooltip";
-
-import type { Thread } from "./protocol";
+import { Tooltip, TooltipContent } from "~/web/src/components/ui/tooltip";
+import type { Thread } from "~/web/src/protocol";
 
 const formatTokens = (value: number) =>
   new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 })

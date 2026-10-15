@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { contextText, fileLocation, lineExcerpt, mentionAt, markdownUrl } from "./context";
-import { matchesShortcut, shortcutBinding } from "./shortcuts";
+import { contextText, fileLocation, lineExcerpt, mentionAt, markdownUrl } from "~/web/src/context";
+import { matchesShortcut, shortcutBinding } from "~/web/src/shortcuts";
 
 // This URL is a rejection fixture and is never executed or assigned to the DOM.
 // oxlint-disable-next-line no-script-url

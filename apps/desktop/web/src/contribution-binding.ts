@@ -1,4 +1,8 @@
-import type { ContributionContext, ScopedClientApi, ContributionRegistry } from "./contributions";
+import type {
+  ContributionContext,
+  ScopedClientApi,
+  ContributionRegistry,
+} from "~/web/src/contributions";
 
 /** API scopes start on subscription and are always disposed before a view leaves its lifetime. */
 export class ContributionBinding {

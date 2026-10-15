@@ -5,15 +5,15 @@ import { act, screen, waitFor, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it } from "vitest";
 
-import { AccountSettings } from "./account-settings";
+import { AccountSettings } from "~/web/src/account-settings";
 import {
   AccountFixture,
   accountSnapshot,
   accountProfile,
   renderAccount,
   accountFixtureValue,
-} from "./account-test-fixture";
-import { deferred } from "./test-fixtures";
+} from "~/web/src/account-test-fixture";
+import { deferred } from "~/web/src/test-fixtures";
 
 afterEach(cleanup);
 it("requires an explicit choice for session-only sign-in and does not cancel on unmount", async () => {

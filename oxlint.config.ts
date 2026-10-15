@@ -142,7 +142,7 @@ export default defineConfig({
           {
             patterns: stylingImportPatterns.map((pattern) => ({
               ...pattern,
-              group: [...pattern.group, "!../global.css"],
+              group: [...pattern.group, "!~/global.css"],
             })),
           },
         ],
@@ -156,7 +156,7 @@ export default defineConfig({
           {
             patterns: stylingImportPatterns.map((pattern) => ({
               ...pattern,
-              group: [...pattern.group, "!./styles.css", "!@xterm/xterm/css/xterm.css"],
+              group: [...pattern.group, "!~/web/src/styles.css", "!@xterm/xterm/css/xterm.css"],
             })),
           },
         ],
@@ -171,7 +171,7 @@ export default defineConfig({
           {
             patterns: stylingImportPatterns.map((pattern) => ({
               ...pattern,
-              group: [...pattern.group, "!./global.css"],
+              group: [...pattern.group, "!~/app/global.css"],
             })),
           },
         ],
@@ -186,7 +186,7 @@ export default defineConfig({
           {
             patterns: stylingImportPatterns.map((pattern) => ({
               ...pattern,
-              group: [...pattern.group, "!../src/styles.css", "!./styles.css"],
+              group: [...pattern.group, "!~/web/src/styles.css", "!~/web/demo/styles.css"],
             })),
           },
         ],

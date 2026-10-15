@@ -11,12 +11,12 @@ import { render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { vi } from "vitest";
 
-import { AccountProvider } from "./account-provider";
-import { AccountStore } from "./account-state";
-import type { AccountIO } from "./account-state";
-import { isRecord } from "./checked-json";
-import { NodeQueryBoundary } from "./query-boundary";
-import { deferred } from "./test-fixtures";
+import { AccountProvider } from "~/web/src/account-provider";
+import { AccountStore } from "~/web/src/account-state";
+import type { AccountIO } from "~/web/src/account-state";
+import { isRecord } from "~/web/src/checked-json";
+import { NodeQueryBoundary } from "~/web/src/query-boundary";
+import { deferred } from "~/web/src/test-fixtures";
 
 type Method = keyof AccountMethods;
 export function accountSnapshot(patch: Partial<AccountSnapshot> = {}): AccountSnapshot {

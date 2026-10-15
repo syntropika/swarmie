@@ -3,10 +3,13 @@ import { Link, router } from "expo-router";
 import { useState } from "react";
 import { FlatList, Pressable, Text, View } from "react-native";
 
-import { useRuntime } from "../../src/connection/provider";
-import { Action, Field, Notice, Page } from "../../src/ui/controls";
+import { useRuntime } from "~/src/connection/provider";
+import { useLocale } from "~/src/platform/i18n/provider";
+import { statusLabel } from "~/src/platform/i18n/translate";
+import { Action, Field, Notice, Page } from "~/src/ui/controls";
 
 export default function ConversationsScreen() {
+  const { t } = useLocale();
   const connection = useRuntime();
   const cache = useQueryClient();
   const [creating, setCreating] = useState(false);
@@ -48,11 +51,9 @@ export default function ConversationsScreen() {
         }}
         ListHeaderComponent={
           <View className="gap-4 py-5">
-            <Text className="text-base leading-7 text-text-muted">
-              Pick up a conversation on your runtime.
-            </Text>
+            <Text className="text-base leading-7 text-text-muted">{t("conversations.intro")}</Text>
             <Action
-              label={creating ? "Close new conversation" : "New conversation"}
+              label={creating ? t("conversations.closeNew") : t("conversations.new")}
               onPress={() => {
                 setCreating(!creating);
               }}
@@ -60,7 +61,7 @@ export default function ConversationsScreen() {
             />
             {creating ? (
               <View className="gap-4">
-                <Text className="text-base text-ink">Choose an installed agent</Text>
+                <Text className="text-base text-ink">{t("conversations.chooseAgent")}</Text>
                 <View className="gap-2">
                   {harnesses.data
                     ?.filter((item) => item.available)
@@ -76,36 +77,30 @@ export default function ConversationsScreen() {
                     ))}
                 </View>
                 <Field
-                  label="Working directory on runtime (optional)"
+                  label={t("conversations.directory")}
                   value={cwd}
                   onChangeText={setCwd}
                   autoCapitalize="none"
                   autoCorrect={false}
                 />
                 <Action
-                  label={create.isPending ? "Creating…" : "Create conversation"}
+                  label={create.isPending ? t("conversations.creating") : t("conversations.create")}
                   disabled={!harness || create.isPending}
                   onPress={() => {
                     create.mutate();
                   }}
                 />
                 {create.isError || harnesses.isError ? (
-                  <Notice>
-                    Could not create the conversation. Check the runtime and agent configuration.
-                  </Notice>
+                  <Notice>{t("conversations.createError")}</Notice>
                 ) : null}
               </View>
             ) : null}
-            {sessions.isError ? (
-              <Notice>Could not load conversations. Pull to retry.</Notice>
-            ) : null}
+            {sessions.isError ? <Notice>{t("conversations.loadError")}</Notice> : null}
           </View>
         }
         ListEmptyComponent={
           <Notice>
-            {sessions.isPending
-              ? "Loading conversations…"
-              : "No conversations yet. Start with an installed agent."}
+            {sessions.isPending ? t("conversations.loading") : t("conversations.empty")}
           </Notice>
         }
         renderItem={({ item }) => (
@@ -118,7 +113,7 @@ export default function ConversationsScreen() {
                 {item.metadata.title ?? item.options.harness}
               </Text>
               <Text className="text-sm text-text-muted">
-                {item.options.harness} · {item.state.replaceAll("_", " ")}
+                {item.options.harness} · {statusLabel(t, item.state)}
               </Text>
             </Pressable>
           </Link>

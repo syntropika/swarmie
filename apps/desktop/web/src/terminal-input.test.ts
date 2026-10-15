@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 
-import { createTerminalInput } from "./terminal-input";
-import { deferred } from "./test-fixtures";
+import { createTerminalInput } from "~/web/src/terminal-input";
+import { deferred } from "~/web/src/test-fixtures";
 
 it("waits for each acknowledged terminal write before sending typed or pasted input", async () => {
   const acknowledgement = deferred<undefined>();

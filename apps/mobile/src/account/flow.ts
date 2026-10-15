@@ -1,7 +1,8 @@
 import { z } from "zod";
 
-import { AccountAccessError } from "./contracts";
-import type { Account, EmailLookup, SignInOptions } from "./contracts";
+import { AccountAccessError } from "~/src/account/contracts";
+import type { Account, EmailLookup, SignInOptions } from "~/src/account/contracts";
+import type { MessageKey } from "~/src/platform/i18n/catalogs/en";
 
 export type AccountStep =
   | { kind: "email"; email: string }
@@ -27,29 +28,29 @@ export function stepEmail(step: AccountStep): string {
   return "email" in step ? step.email : step.account.email;
 }
 
-export function accountErrorMessage(error: unknown): string {
+export function accountErrorKey(error: unknown): Extract<MessageKey, `error.${string}`> {
   if (!(error instanceof AccountAccessError)) {
-    return "We couldn't connect. Check your connection and try again.";
+    return "error.connection";
   }
   const { reason } = error;
   switch (reason) {
     case "unavailable": {
-      return "Account sign-in is not available yet. Please try again later.";
+      return "error.unavailable";
     }
     case "invalid_credentials": {
-      return "That password didn't work. Try again or reset your password.";
+      return "error.invalidCredentials";
     }
     case "invalid_code": {
-      return "That code didn't work. Check the email and try again.";
+      return "error.invalidCode";
     }
     case "expired": {
-      return "That code has expired. Request a new code to continue.";
+      return "error.expired";
     }
     case "cancelled": {
-      return "Passkey sign-in was cancelled. Try again or use your password.";
+      return "error.cancelled";
     }
     case "rate_limited": {
-      return "Too many attempts. Please wait before trying again.";
+      return "error.rateLimited";
     }
     default: {
       const exhaustive: never = reason;

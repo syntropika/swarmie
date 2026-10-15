@@ -1,15 +1,19 @@
 import { KeyRound, Monitor, MoreHorizontal, RefreshCw } from "lucide-react";
 import { useId, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Dropdown } from "@/components/ui/dropdown";
-import { Switch } from "@/components/ui/switch";
-import { Tooltip, TooltipContent } from "@/components/ui/tooltip";
-
-import { startAction, errorMessage, errorReporter } from "./action-boundary";
-import { AddNodeDialog, LocalAccessDialog, NodeDetailsDialog, routeAddress } from "./node-dialogs";
-import type { NodeClient, NodesState } from "./nodes";
-import { hasText, nonEmptyText } from "./value-presence";
+import { startAction, errorMessage, errorReporter } from "~/web/src/action-boundary";
+import { Button } from "~/web/src/components/ui/button";
+import { Dropdown } from "~/web/src/components/ui/dropdown";
+import { Switch } from "~/web/src/components/ui/switch";
+import { Tooltip, TooltipContent } from "~/web/src/components/ui/tooltip";
+import {
+  AddNodeDialog,
+  LocalAccessDialog,
+  NodeDetailsDialog,
+  routeAddress,
+} from "~/web/src/node-dialogs";
+import type { NodeClient, NodesState } from "~/web/src/nodes";
+import { hasText, nonEmptyText } from "~/web/src/value-presence";
 
 const views = [
   { id: "computer", label: "Control this computer" },

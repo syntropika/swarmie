@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 
-import { getPageMarkdownUrl } from "@/lib/shared";
-import { docsLlms, source } from "@/lib/source";
+import { getPageMarkdownUrl } from "~/lib/shared";
+import { docsLlms, source } from "~/lib/source";
 
 export const revalidate = false;
 

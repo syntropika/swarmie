@@ -2,10 +2,9 @@ import { Circle, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import type { ReactNode } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
-
-import { startAction } from "./action-boundary";
+import { startAction } from "~/web/src/action-boundary";
+import { Button } from "~/web/src/components/ui/button";
+import { Slider } from "~/web/src/components/ui/slider";
 
 export function ReasoningEffort({
   choices,

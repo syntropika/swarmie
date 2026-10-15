@@ -159,6 +159,35 @@ scheduler database, service dependency or mobile foreground clock. Hosted identi
 collaboration authorization, relay routing, billing and enrollment remain in the independent cloud
 repository.
 
+## Localization
+
+Mobile supports the same eight languages as web: English (`en`), Spanish (`es`), French
+(`fr`), German (`de`), Portuguese (`pt`), Italian (`it`), Japanese (`ja`), and Simplified
+Chinese (`zh-CN`). `apps/mobile/locales.json` is the supported-language metadata source.
+The 154-message typed catalogs under `apps/mobile/src/platform/i18n` cover application UI,
+errors, notices, and accessible names; English defines keys and interpolation contracts.
+
+`expo-localization` supplies OS language preferences through `useLocales`; its config
+plugin declares the same eight supported languages. Automatic mode selects a supported
+language with English fallback. Unsupported Traditional Chinese script preferences are
+not substituted with Simplified Chinese. The locale provider supplies `Intl` date and
+number formatting.
+
+Settings and the existing development preview guide expose automatic mode and a manual
+language choice; account entry has no additional language control. AsyncStorage stores
+the bounded preference under `swarmie.locale`. Writes are ordered, and a late storage
+restore cannot overwrite a newer user selection. Storage failure preserves a session-only
+choice and reports that persistence is unavailable.
+
+Domain errors and notices retain message keys, so already-visible feedback translates
+when language changes without clearing editable credentials. Persisted user and agent
+content is not rewritten. Shared native controls receive localized labels from their
+consumers; the verification-code field requires its accessible label.
+
+Application imports use `~/` relative to `apps/mobile`, including `~/src` and `~/assets`.
+Expo configuration retains its relative `locales.json` import because that is a Node
+configuration boundary. See [project-local import rules](../frontend.md#project-local-imports).
+
 ## Local development
 
 Run commands from the parent repository root with its pinned tools, Bun 1.4.3, root isolated
@@ -209,8 +238,9 @@ Install a runtime containing the updated resources extension to enable routine c
 
 SecureStore owns the endpoint and credential together. Neither secrets nor endpoint URLs enter Query
 keys, application logs or source. Query stores runtime snapshots and journals in memory and clears
-on connection changes. AsyncStorage owns unresolved authored sends, including the stable submission
-key and optional image; it is not a transcript database or secret store. Retained drafts remain scoped
+on connection changes. AsyncStorage owns the nonsecret language preference and unresolved authored
+sends, including the stable submission key and optional image; it is not a transcript database or
+secret store. Retained drafts remain scoped
 to their runtime store and session after disconnect. The app reports storage failures instead of
 sending without first saving the submission key. Corrupt local entries require recovery before send.
 
@@ -245,6 +275,21 @@ password and passkey sign-in, account creation, verification, code resend, and s
 passkey enrollment. These results qualify browser-preview fidelity only. They do not
 establish physical-device behavior, native accessibility, credential ceremonies, or live
 account/passkey support.
+
+Localization and project-alias checks also pass: the root check, a frozen dependency install,
+`just mobile-check` (22 tests and 3,777 assertions, plus dependency validation), all three
+Expo exports, the native Storybook build, desktop main/demo builds, and the documentation
+site's static Next build. The independent hosted repository passes its own check and web
+build; source-build independence is preserved.
+
+An independent localization review accepted 17 browser captures: all eight email-entry
+languages, Spanish passkey/create/verify/enrollment screens, a French password error,
+German narrow-screen account creation with vertical scrolling, and Japanese tablet guide
+and account creation. None of the eight phone email screens has horizontal overflow.
+Browser fixtures verify Spanish create/resend/verify/skip, translating a visible password
+error from Spanish to French while retaining the password for successful French sign-in,
+and retaining a Japanese preference after reload. This remains browser-only qualification;
+physical-device behavior, native accessibility, and live credentials are not established.
 
 Automated checks cover schema boundaries, journal replay/deduplication, timezone offsets, unresolved
 input recovery, native-operation cancellation and ownership, routine restart persistence,

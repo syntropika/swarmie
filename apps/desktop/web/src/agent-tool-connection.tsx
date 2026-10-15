@@ -3,17 +3,16 @@ import { Check, Copy, ExternalLink, LoaderCircle, X } from "lucide-react";
 import type { ReactNode, SubmitEvent } from "react";
 import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-
-import { startAction, errorReporter } from "./action-boundary";
-import { nodeKey } from "./node-scope";
-import { copyText } from "./protocol";
-import { preferredConnectionMethod, setupAuthorizationUrl } from "./provider-setup";
-import type { AgentToolFlow, AgentToolSetup } from "./provider-setup";
-import { hasText, hasNumber, nonEmptyText } from "./value-presence";
-import type { WorkspaceStore } from "./workspace";
+import { startAction, errorReporter } from "~/web/src/action-boundary";
+import { Button } from "~/web/src/components/ui/button";
+import { Input } from "~/web/src/components/ui/input";
+import { Select } from "~/web/src/components/ui/select";
+import { nodeKey } from "~/web/src/node-scope";
+import { copyText } from "~/web/src/protocol";
+import { preferredConnectionMethod, setupAuthorizationUrl } from "~/web/src/provider-setup";
+import type { AgentToolFlow, AgentToolSetup } from "~/web/src/provider-setup";
+import { hasText, hasNumber, nonEmptyText } from "~/web/src/value-presence";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 type ConnectionProps = {
   store: WorkspaceStore;

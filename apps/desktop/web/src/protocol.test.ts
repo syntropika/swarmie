@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { newThread, reduceEvents } from "./protocol";
-import type { Event, Thread } from "./protocol";
+import { newThread, reduceEvents } from "~/web/src/protocol";
+import type { Event, Thread } from "~/web/src/protocol";
 
 const event = (sequence: number, type: string, data: unknown, sessionId = "s"): Event => ({
   sessionId,

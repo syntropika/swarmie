@@ -6,15 +6,16 @@ import { createContext, useContext, useEffect, useState, useMemo } from "react";
 import type { ReactNode } from "react";
 import { AppState } from "react-native";
 
-import { connectionSchema } from "./settings";
-import type { ConnectionSettings } from "./settings";
+import { connectionSchema } from "~/src/connection/settings";
+import type { ConnectionSettings } from "~/src/connection/settings";
 
 const credentialKey = "swarmie.runtime.connection";
+type ConnectionError = "connection.error" | "connection.restoreError";
 type Connection = { client: MobileClient; scope: string; resources: Set<string> };
 type Context = {
   connection: Connection | null;
   restoring: boolean;
-  error: string | null;
+  error: ConnectionError | null;
   connect: (settings: ConnectionSettings) => void;
   disconnect: () => void;
   pending: boolean;
@@ -43,7 +44,7 @@ async function open(settings: ConnectionSettings): Promise<Connection> {
 function ConnectionOwner({ children, cache }: { children: ReactNode; cache: QueryClient }) {
   const [connection, setConnection] = useState<Connection | null>(null);
   const [restoring, setRestoring] = useState(true);
-  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [restoreError, setRestoreError] = useState<ConnectionError | null>(null);
   const mutation = useMutation({
     mutationFn: async (settings: ConnectionSettings) => {
       const next = await open(settings);
@@ -94,7 +95,7 @@ function ConnectionOwner({ children, cache }: { children: ReactNode; cache: Quer
         }
       } catch {
         if (active) {
-          setRestoreError("Could not restore the connection. Check the runtime and reconnect.");
+          setRestoreError("connection.restoreError");
         }
       } finally {
         if (active) {
@@ -123,14 +124,11 @@ function ConnectionOwner({ children, cache }: { children: ReactNode; cache: Quer
     [connection],
   );
 
-  const value = useMemo(
+  const value = useMemo<Context>(
     () => ({
       connection,
       restoring,
-      error:
-        mutation.isError || disconnect.isError
-          ? "Connection failed. Check the URL, credential and native development build."
-          : restoreError,
+      error: mutation.isError || disconnect.isError ? "connection.error" : restoreError,
       connect: mutation.mutate,
       disconnect: () => {
         disconnect.mutate();

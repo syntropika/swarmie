@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 
-import { newThread } from "./protocol";
-import { watchThreadTimes } from "./thread-clock";
+import { newThread } from "~/web/src/protocol";
+import { watchThreadTimes } from "~/web/src/thread-clock";
 
 afterEach(() => vi.useRealTimers());
 

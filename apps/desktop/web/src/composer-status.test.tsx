@@ -3,14 +3,14 @@ import userEvent from "@testing-library/user-event";
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from "vitest";
 
-import { ContextUsage } from "./context-usage";
-import { HarnessSelect } from "./harness-select";
-import { newThread } from "./protocol";
-import type { Thread } from "./protocol";
-import { SessionControls } from "./session-controls";
-import { sessionPermissions } from "./session-permissions";
-import { fixtureControl, renderWithQuery as render } from "./test-fixtures";
-import { WorkspaceStore } from "./workspace";
+import { ContextUsage } from "~/web/src/context-usage";
+import { HarnessSelect } from "~/web/src/harness-select";
+import { newThread } from "~/web/src/protocol";
+import type { Thread } from "~/web/src/protocol";
+import { SessionControls } from "~/web/src/session-controls";
+import { sessionPermissions } from "~/web/src/session-permissions";
+import { fixtureControl, renderWithQuery as render } from "~/web/src/test-fixtures";
+import { WorkspaceStore } from "~/web/src/workspace";
 
 afterEach(() => {
   cleanup();

@@ -1,13 +1,13 @@
 import { expect, it, vi } from "vitest";
 
-import { ContributionRegistry } from "./contributions";
+import { ContributionRegistry } from "~/web/src/contributions";
 import type {
   ClientExtension,
   ContributionContext,
   ScopedClientApi,
   ContributionEvent,
-} from "./contributions";
-import { deferred } from "./test-fixtures";
+} from "~/web/src/contributions";
+import { deferred } from "~/web/src/test-fixtures";
 
 type Host = Parameters<ContributionRegistry["configure"]>[0];
 const context: ContributionContext = {

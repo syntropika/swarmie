@@ -1,12 +1,12 @@
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
-import { AccountAccessError } from "./contracts";
-import type { AccountAccess, AuthenticationResult } from "./contracts";
-import { accountErrorMessage, emailStep, oneUseTask, stepEmail } from "./flow";
-import type { AccountStep } from "./flow";
+import { AccountAccessError } from "~/src/account/contracts";
+import type { AccountAccess, AuthenticationResult } from "~/src/account/contracts";
+import { accountErrorKey, emailStep, oneUseTask, stepEmail } from "~/src/account/flow";
+import type { AccountStep } from "~/src/account/flow";
 
-type Outcome = { step: AccountStep; notice?: string };
+type Outcome = { step: AccountStep; notice?: "account.codeSent" };
 type Job = { revision: number; execute: () => Promise<Outcome> };
 
 function authenticated(
@@ -24,7 +24,7 @@ function authenticated(
 
 export function useAccountFlow(access: AccountAccess) {
   const [step, setStep] = useState<AccountStep>({ kind: "email", email: "" });
-  const [notice, setNotice] = useState<string>();
+  const [notice, setNotice] = useState<"account.codeSent">();
   const revision = useRef(0);
   const active = useRef<AbortController | null>(null);
   const busy = useRef(false);
@@ -86,7 +86,7 @@ export function useAccountFlow(access: AccountAccess) {
   return {
     step,
     pending: mutation.isPending,
-    error: mutation.isError ? accountErrorMessage(mutation.error) : undefined,
+    error: mutation.isError ? accountErrorKey(mutation.error) : undefined,
     notice,
     navigate,
     changeEmail: () => {
@@ -137,7 +137,7 @@ export function useAccountFlow(access: AccountAccess) {
         const result = await access.resendCode(step.challenge, signal);
         return {
           step: { ...step, challenge: result.challenge },
-          notice: "A new code has been sent.",
+          notice: "account.codeSent",
         };
       });
     },

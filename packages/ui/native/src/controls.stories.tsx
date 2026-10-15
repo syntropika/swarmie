@@ -63,7 +63,11 @@ function FieldExamples() {
         autoComplete="email"
         placeholder="you@example.com"
       />
-      <NativeCodeField value={code} onChangeText={setCode} />
+      <NativeCodeField
+        value={code}
+        onChangeText={setCode}
+        accessibilityLabel="Six-digit verification code"
+      />
       <NativeNotice>That code didn&apos;t work. Check the email and try again.</NativeNotice>
       <NativeTextAction
         label="Resend code"

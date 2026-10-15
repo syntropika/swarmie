@@ -2,16 +2,15 @@ import type { InputNativeHistoryQuery, NativeHistorySession } from "@swarmie/con
 import { useIsFetching, useIsMutating, useMutation, useQuery } from "@tanstack/react-query";
 import { useId, useState, useSyncExternalStore } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Disclosure } from "@/components/ui/disclosure";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
-
-import { startAction } from "./action-boundary";
-import { HarnessSelect } from "./harness-select";
-import { nodeKey } from "./node-scope";
-import { nonEmptyText } from "./value-presence";
-import type { WorkspaceStore } from "./workspace";
+import { startAction } from "~/web/src/action-boundary";
+import { Button } from "~/web/src/components/ui/button";
+import { Disclosure } from "~/web/src/components/ui/disclosure";
+import { Input } from "~/web/src/components/ui/input";
+import { Switch } from "~/web/src/components/ui/switch";
+import { HarnessSelect } from "~/web/src/harness-select";
+import { nodeKey } from "~/web/src/node-scope";
+import { nonEmptyText } from "~/web/src/value-presence";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 const supported = ["codex", "claude", "cursor", "pi"];
 export function NativeHistory({ store }: { store: WorkspaceStore }) {

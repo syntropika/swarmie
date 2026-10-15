@@ -3,9 +3,9 @@ import userEvent from "@testing-library/user-event";
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from "vitest";
 
-import { ProjectDialog } from "./project-dialog";
-import { fixtureProject, fixtureControl, renderWithQuery as render } from "./test-fixtures";
-import { WorkspaceStore } from "./workspace";
+import { ProjectDialog } from "~/web/src/project-dialog";
+import { fixtureProject, fixtureControl, renderWithQuery as render } from "~/web/src/test-fixtures";
+import { WorkspaceStore } from "~/web/src/workspace";
 
 afterEach(() => {
   cleanup();

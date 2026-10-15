@@ -2,7 +2,8 @@ import { NativeField, NativeIconAction } from "@swarmie/ui-native";
 import { useState } from "react";
 import { useCSSVariable } from "uniwind";
 
-import { Icon } from "../ui/icon";
+import { useLocale } from "~/src/platform/i18n/provider";
+import { Icon } from "~/src/ui/icon";
 
 export function PasswordField({
   value,
@@ -17,11 +18,12 @@ export function PasswordField({
   disabled: boolean;
   onSubmit: () => void;
 }) {
+  const { t } = useLocale();
   const [visible, setVisible] = useState(false);
   const muted = useCSSVariable("--color-native-muted");
   return (
     <NativeField
-      label={creating ? "Create a password" : "Password"}
+      label={creating ? t("account.createPassword") : t("account.password")}
       value={value}
       onChangeText={onChange}
       secureTextEntry={!visible}
@@ -35,7 +37,7 @@ export function PasswordField({
       onSubmitEditing={onSubmit}
       trailing={
         <NativeIconAction
-          accessibilityLabel={visible ? "Hide password" : "Show password"}
+          accessibilityLabel={visible ? t("account.hidePassword") : t("account.showPassword")}
           disabled={disabled}
           onPress={() => {
             setVisible(!visible);

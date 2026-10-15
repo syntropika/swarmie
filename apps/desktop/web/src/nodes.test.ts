@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { NodeClient } from "./nodes";
-import type { ClientNode } from "./nodes";
-import { fixtureRequestBody, fixtureText } from "./test-fixtures";
+import { NodeClient } from "~/web/src/nodes";
+import type { ClientNode } from "~/web/src/nodes";
+import { fixtureRequestBody, fixtureText } from "~/web/src/test-fixtures";
 
 const identity = (id: string) => ({
   environmentId: id,

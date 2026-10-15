@@ -2,32 +2,35 @@ import { Mic, Square, Plug, X, LoaderCircle } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Dropdown } from "@/components/ui/dropdown";
-
-import { nativeClient } from "./client-transport";
-import { ContributionBinding } from "./contribution-binding";
-import { Host, useContributions } from "./contribution-context";
-import type { ClientContribution, Mount, HostContext } from "./contribution-context";
-import { ContributionMounts } from "./contribution-mounts";
-import { ContributionRegistry } from "./contributions";
+import { nativeClient } from "~/web/src/client-transport";
+import { Button } from "~/web/src/components/ui/button";
+import { Dropdown } from "~/web/src/components/ui/dropdown";
+import { ContributionBinding } from "~/web/src/contribution-binding";
+import { Host, useContributions } from "~/web/src/contribution-context";
+import type { ClientContribution, Mount, HostContext } from "~/web/src/contribution-context";
+import { ContributionMounts } from "~/web/src/contribution-mounts";
+import { ContributionRegistry } from "~/web/src/contributions";
 import type {
   ContributionContext,
   ScopedClientApi,
   UiSlot,
   SurfaceEntry,
   SlotEntry,
-} from "./contributions";
-import { CustomExtensionView } from "./custom-extension-view";
-import { createDictationExtension, DictationSettings, DICTATION_EXTENSION_ID } from "./dictation";
-import type { TranscriptionProvider } from "./dictation";
-import type { ExtensionInfo, Thread } from "./protocol";
-import { readShortcuts, matchesShortcut } from "./shortcuts";
-import { hasText } from "./value-presence";
-import type { WorkspaceStore } from "./workspace";
+} from "~/web/src/contributions";
+import { CustomExtensionView } from "~/web/src/custom-extension-view";
+import {
+  createDictationExtension,
+  DictationSettings,
+  DICTATION_EXTENSION_ID,
+} from "~/web/src/dictation";
+import type { TranscriptionProvider } from "~/web/src/dictation";
+import type { ExtensionInfo, Thread } from "~/web/src/protocol";
+import { readShortcuts, matchesShortcut } from "~/web/src/shortcuts";
+import { hasText } from "~/web/src/value-presence";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
-export { useContributions } from "./contribution-context";
-export type { ClientContribution } from "./contribution-context";
+export { useContributions } from "~/web/src/contribution-context";
+export type { ClientContribution } from "~/web/src/contribution-context";
 
 const contributionIcons = { microphone: Mic, stop: Square, spinner: LoaderCircle, extension: Plug };
 const noSubscribe = () => () => undefined;

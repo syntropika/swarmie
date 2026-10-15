@@ -11,21 +11,20 @@ import {
 // SPDX-License-Identifier: Apache-2.0
 import { useRef } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Dropdown } from "@/components/ui/dropdown";
-import { Input } from "@/components/ui/input";
-import { ResizeHandle } from "@/components/ui/resize-handle";
-import { Tooltip, TooltipContent } from "@/components/ui/tooltip";
-
-import { startAction } from "./action-boundary";
-import { ContributionSlot } from "./contribution-host";
-import type { Thread } from "./protocol";
-import { SidebarChatActions } from "./sidebar-chat-actions";
-import { sortThreads } from "./sidebar-preferences";
-import { SidebarSection, SidebarSortMenu } from "./sidebar-section";
-import { hasText } from "./value-presence";
-import { IconButton } from "./workspace-icon-button";
-import type { WorkspaceViewState } from "./workspace-state";
+import { startAction } from "~/web/src/action-boundary";
+import { Button } from "~/web/src/components/ui/button";
+import { Dropdown } from "~/web/src/components/ui/dropdown";
+import { Input } from "~/web/src/components/ui/input";
+import { ResizeHandle } from "~/web/src/components/ui/resize-handle";
+import { Tooltip, TooltipContent } from "~/web/src/components/ui/tooltip";
+import { ContributionSlot } from "~/web/src/contribution-host";
+import type { Thread } from "~/web/src/protocol";
+import { SidebarChatActions } from "~/web/src/sidebar-chat-actions";
+import { sortThreads } from "~/web/src/sidebar-preferences";
+import { SidebarSection, SidebarSortMenu } from "~/web/src/sidebar-section";
+import { hasText } from "~/web/src/value-presence";
+import { IconButton } from "~/web/src/workspace-icon-button";
+import type { WorkspaceViewState } from "~/web/src/workspace-state";
 
 export function WorkspaceSidebar({
   view,

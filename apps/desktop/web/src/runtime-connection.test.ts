@@ -1,15 +1,15 @@
 import type { RuntimeIdentity } from "@swarmie/contracts";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { WorkspaceCache } from "./cache";
-import { routeTargetKey } from "./node-scope";
+import { WorkspaceCache } from "~/web/src/cache";
+import { routeTargetKey } from "~/web/src/node-scope";
 import {
   fixtureRequestBody,
   fixtureOptions,
   fixtureCapabilities,
   fixtureSession,
-} from "./test-fixtures";
-import { WorkspaceStore } from "./workspace";
+} from "~/web/src/test-fixtures";
+import { WorkspaceStore } from "~/web/src/workspace";
 
 const identity: RuntimeIdentity = {
   identity: {

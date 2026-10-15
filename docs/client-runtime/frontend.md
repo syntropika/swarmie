@@ -41,6 +41,27 @@ Do not move account authority, billing, hosted synchronization, or authorization
 shared UI or public runtime packages. Future cross-repository sharing requires explicitly
 versioned distribution packages; this relocation does not publish packages.
 
+## Project-local imports
+
+Use `~/` for application source imports, resolved from the owning project's root:
+
+| Project | Root-relative examples |
+| --- | --- |
+| Mobile (`apps/mobile`) | `~/src`, `~/assets` |
+| Desktop (`apps/desktop`) | `~/web/src`, `~/web/demo` |
+| Documentation site (`apps/docs`) | Paths relative to that application root |
+| Hosted web (`packages/web` in the independent hosted repository) | Paths relative to that package root |
+| Hosted auth (`packages/auth` in the independent hosted repository) | Paths relative to that package root |
+
+There is no monorepo-wide `~` root. Vite 8 uses `resolve.tsconfigPaths: true` to resolve
+each importer against its owning compiler project; Expo and Next consume their project's
+TypeScript paths. The desktop compiler includes both main and demo source, and its component
+generator configuration follows the same aliases. Keep public `@swarmie/*` package imports.
+Node configuration and runtime filesystem references retain appropriate relative paths,
+including Expo's configuration import of `locales.json`. Do not blanket-rewrite vendored
+internal imports. Hosted changes stay in their independent repository; builds require
+neither another source checkout nor documentation contents.
+
 ## TypeScript and lint policy
 
 Shared packages use strict TypeScript with checked indexed access, exact
@@ -165,6 +186,15 @@ hydrated client locale consistent. Browser storage failure must not prevent swit
 languages. Preserve user-generated names and other user content. Comments, identifiers,
 documentation, and translation keys are English; explicitly supported catalog values
 may use their target language.
+
+Mobile language metadata lives in `apps/mobile/locales.json`: `en`, `es`, `fr`, `de`,
+`pt`, `it`, `ja`, and `zh-CN`, matching the supported web languages. Its platform-owned
+typed catalogs cover UI copy, errors, notices, and accessible names. Locale-aware dates
+and numbers come from the locale provider. Keep domain feedback as message keys so an
+already-visible error changes language without losing editable input. Shared primitives
+receive localized labels from consumers; `NativeCodeField` requires its accessible label.
+OS detection, preference persistence, script matching, and failure behavior are described
+in [the mobile foundation](mobile/foundation.md#localization).
 
 Keep instrumentation at transport, workflow, routing, and error boundaries. Use bounded
 operation names, route templates, timing, status, and safe error types. Do not put

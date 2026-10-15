@@ -1,9 +1,9 @@
 import type { AgentTask } from "@swarmie/contracts";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { WorkspaceCache } from "./cache";
-import { record } from "./checked-json";
-import { hasConversation } from "./protocol";
+import { WorkspaceCache } from "~/web/src/cache";
+import { record } from "~/web/src/checked-json";
+import { hasConversation } from "~/web/src/protocol";
 import {
   deferred,
   fixtureOptions,
@@ -14,8 +14,8 @@ import {
   fixtureProject,
   fixtureEvent,
   fixtureCapability,
-} from "./test-fixtures";
-import { WorkspaceStore, RpcError } from "./workspace";
+} from "~/web/src/test-fixtures";
+import { WorkspaceStore, RpcError } from "~/web/src/workspace";
 
 const node = {
   environmentId: "view-node",

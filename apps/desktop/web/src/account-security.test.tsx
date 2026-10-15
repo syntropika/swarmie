@@ -6,7 +6,7 @@ import { act, cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 
-import { AccountSecurity } from "./account-security";
+import { AccountSecurity } from "~/web/src/account-security";
 import {
   AccountFixture,
   accountSnapshot,
@@ -14,9 +14,9 @@ import {
   accountSession,
   renderAccount,
   accountFixtureValue,
-} from "./account-test-fixture";
-import { record } from "./checked-json";
-import { deferred } from "./test-fixtures";
+} from "~/web/src/account-test-fixture";
+import { record } from "~/web/src/checked-json";
+import { deferred } from "~/web/src/test-fixtures";
 
 const page: AccountSessionPage = {
   current: accountSession("current-session"),

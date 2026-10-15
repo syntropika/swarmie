@@ -4,9 +4,9 @@ import { cn } from "cn";
 import { ChevronDown } from "lucide-react";
 import { useRef, useState } from "react";
 
-import { Button } from "./button";
-import { floatingClasses, itemClasses } from "./floating";
-import { fieldClasses } from "./input";
+import { Button } from "~/web/src/components/ui/button";
+import { floatingClasses, itemClasses } from "~/web/src/components/ui/floating";
+import { fieldClasses } from "~/web/src/components/ui/input";
 
 export function ComboBox({
   label,

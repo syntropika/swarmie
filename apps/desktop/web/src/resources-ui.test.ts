@@ -4,13 +4,13 @@ import {
   parseNativeDefaults,
   projectDefaultsPayload,
   projectWorkspacePaths,
-} from "./project-settings";
-import type { Project } from "./protocol";
+} from "~/web/src/project-settings";
+import type { Project } from "~/web/src/protocol";
 import {
   matchingTemplateIdentifier,
   parseTemplateAliases,
   templateParameterNames,
-} from "./resource-library";
+} from "~/web/src/resource-library";
 
 describe("template command parameters and aliases", () => {
   it("uses unique canonical placeholder keys including dots and hyphens", () => {

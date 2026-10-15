@@ -13,9 +13,9 @@ import type {
   ClientExtension,
 } from "@swarmie/contracts/ui-client";
 
-import { startAction } from "./action-boundary";
-import { sortedCopy } from "./collection-order";
-import { hasText } from "./value-presence";
+import { startAction } from "~/web/src/action-boundary";
+import { sortedCopy } from "~/web/src/collection-order";
+import { hasText } from "~/web/src/value-presence";
 
 export type { UiManifest, UiSlot, UiContribution, UiSurface } from "@swarmie/contracts";
 

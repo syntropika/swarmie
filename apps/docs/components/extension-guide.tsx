@@ -1,4 +1,4 @@
-import guide from "@/lib/extension-guide.json";
+import guide from "~/lib/extension-guide.json";
 
 export function SlotIndex() {
   return (

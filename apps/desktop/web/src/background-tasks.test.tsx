@@ -3,12 +3,12 @@ import userEvent from "@testing-library/user-event";
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from "vitest";
 
-import { BackgroundTasks } from "./background-tasks";
-import { NativeHistory } from "./native-history";
-import { newThread } from "./protocol";
-import type { AgentTask, Thread } from "./protocol";
-import { deferred, fixtureControl, renderWithQuery as render } from "./test-fixtures";
-import { WorkspaceStore } from "./workspace";
+import { BackgroundTasks } from "~/web/src/background-tasks";
+import { NativeHistory } from "~/web/src/native-history";
+import { newThread } from "~/web/src/protocol";
+import type { AgentTask, Thread } from "~/web/src/protocol";
+import { deferred, fixtureControl, renderWithQuery as render } from "~/web/src/test-fixtures";
+import { WorkspaceStore } from "~/web/src/workspace";
 
 const node = {
   environmentId: "node",

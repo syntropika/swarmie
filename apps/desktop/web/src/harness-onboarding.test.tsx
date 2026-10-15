@@ -3,21 +3,21 @@ import userEvent from "@testing-library/user-event";
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from "vitest";
 
-import { decodeObjectResult } from "./connections";
-import { HarnessOnboarding } from "./harness-onboarding";
-import { HarnessSelect } from "./harness-select";
+import { decodeObjectResult } from "~/web/src/connections";
+import { HarnessOnboarding } from "~/web/src/harness-onboarding";
+import { HarnessSelect } from "~/web/src/harness-select";
 import {
   completeHarnessSetup,
   defaultHarness,
   harnessReadiness,
   readHarnessSetup,
-} from "./harness-setup";
-import { NodeClient } from "./nodes";
-import type { Detection } from "./protocol";
-import { SettingsPage } from "./settings-page";
-import { defaultShortcuts } from "./shortcuts";
-import { fixtureControl, renderWithQuery as render } from "./test-fixtures";
-import { WorkspaceStore } from "./workspace";
+} from "~/web/src/harness-setup";
+import { NodeClient } from "~/web/src/nodes";
+import type { Detection } from "~/web/src/protocol";
+import { SettingsPage } from "~/web/src/settings-page";
+import { defaultShortcuts } from "~/web/src/shortcuts";
+import { fixtureControl, renderWithQuery as render } from "~/web/src/test-fixtures";
+import { WorkspaceStore } from "~/web/src/workspace";
 
 const node = {
   environmentId: "node",

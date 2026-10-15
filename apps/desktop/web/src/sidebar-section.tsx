@@ -1,9 +1,9 @@
 import { ChevronDown, Check, ListFilter } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Dropdown } from "@/components/ui/dropdown";
-import { TooltipContent } from "@/components/ui/tooltip";
+import { Button } from "~/web/src/components/ui/button";
+import { Dropdown } from "~/web/src/components/ui/dropdown";
+import { TooltipContent } from "~/web/src/components/ui/tooltip";
 
 export type SidebarSort = "manual" | "updated_at";
 

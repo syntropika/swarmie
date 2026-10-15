@@ -1,10 +1,9 @@
 import { useId, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-
-import { startAction } from "./action-boundary";
-import type { WorkspaceStore } from "./workspace";
+import { startAction } from "~/web/src/action-boundary";
+import { Button } from "~/web/src/components/ui/button";
+import { Input } from "~/web/src/components/ui/input";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 export function ChatDirectorySettings({
   store,

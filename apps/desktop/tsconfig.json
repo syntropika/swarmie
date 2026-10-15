@@ -11,9 +11,9 @@
     "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "paths": {
-      "@/*": ["./web/src/*"]
+      "~/*": ["./*"]
     },
     "types": ["vite/client", "react", "react-dom"]
   },
-  "include": ["web/src", "vite.config.ts"]
+  "include": ["web/src", "web/demo", "vite.config.ts", "vite.demo.config.ts"]
 }

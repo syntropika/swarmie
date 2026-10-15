@@ -3,10 +3,10 @@
 import type { AccountObservation, AccountSnapshot } from "@swarmie/contracts";
 import { expect, it, vi, afterEach } from "vitest";
 
-import { AccountStore } from "./account-state";
-import type { AccountIO } from "./account-state";
-import { accountSnapshot, accountProfile } from "./account-test-fixture";
-import { deferred } from "./test-fixtures";
+import { AccountStore } from "~/web/src/account-state";
+import type { AccountIO } from "~/web/src/account-state";
+import { accountSnapshot, accountProfile } from "~/web/src/account-test-fixture";
+import { deferred } from "~/web/src/test-fixtures";
 
 afterEach(() => {
   vi.useRealTimers();

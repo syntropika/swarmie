@@ -1,16 +1,15 @@
 import { useState, useId } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Disclosure } from "@/components/ui/disclosure";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-
-import { startAction } from "./action-boundary";
-import { extensionResult } from "./components/extension-result";
-import type { Thread } from "./protocol";
-import { hasText } from "./value-presence";
-import type { WorkspaceStore } from "./workspace";
+import { startAction } from "~/web/src/action-boundary";
+import { extensionResult } from "~/web/src/components/extension-result";
+import { Button } from "~/web/src/components/ui/button";
+import { Checkbox } from "~/web/src/components/ui/checkbox";
+import { Disclosure } from "~/web/src/components/ui/disclosure";
+import { Input } from "~/web/src/components/ui/input";
+import { Select } from "~/web/src/components/ui/select";
+import type { Thread } from "~/web/src/protocol";
+import { hasText } from "~/web/src/value-presence";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 function setupArguments(text: string): string[] {
   const value: unknown = JSON.parse(text);

@@ -1,17 +1,16 @@
 import { lazy, Suspense, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Disclosure } from "@/components/ui/disclosure";
-import { Input } from "@/components/ui/input";
-
-import { startAction, errorMessage, errorReporter } from "./action-boundary";
-import { decodeAsset, decodeExport } from "./asset-values";
-import type { PreviewAsset } from "./asset-values";
-import { hasText } from "./value-presence";
-import type { WorkspaceStore } from "./workspace";
+import { startAction, errorMessage, errorReporter } from "~/web/src/action-boundary";
+import { decodeAsset, decodeExport } from "~/web/src/asset-values";
+import type { PreviewAsset } from "~/web/src/asset-values";
+import { Button } from "~/web/src/components/ui/button";
+import { Disclosure } from "~/web/src/components/ui/disclosure";
+import { Input } from "~/web/src/components/ui/input";
+import { hasText } from "~/web/src/value-presence";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 const PdfPreview = lazy(async () => {
-  const module = await import("./pdf-preview");
+  const module = await import("~/web/src/pdf-preview");
   return { default: module.PdfPreview };
 });
 function copyName(name: string) {

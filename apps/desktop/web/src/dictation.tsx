@@ -1,11 +1,14 @@
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-
-import { recognitionConstructor, startBrowserSpeech } from "./browser-speech";
-import type { ClientExtension, ContributionRegistry, ScopedClientApi } from "./contributions";
-import { nonEmptyText, hasText } from "./value-presence";
+import { recognitionConstructor, startBrowserSpeech } from "~/web/src/browser-speech";
+import { Button } from "~/web/src/components/ui/button";
+import { Input } from "~/web/src/components/ui/input";
+import type {
+  ClientExtension,
+  ContributionRegistry,
+  ScopedClientApi,
+} from "~/web/src/contributions";
+import { nonEmptyText, hasText } from "~/web/src/value-presence";
 
 export const DICTATION_EXTENSION_ID = "@swarmie.dictation";
 export type DictationSession = { stop: () => void; abort: () => void };

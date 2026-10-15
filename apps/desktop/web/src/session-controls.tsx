@@ -2,20 +2,19 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, Shield, Zap } from "lucide-react";
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Tooltip, TooltipContent } from "@/components/ui/tooltip";
-
-import { startAction, errorMessage } from "./action-boundary";
-import { scalarLabel } from "./components/presentation-values";
-import { ModelPicker } from "./model-picker";
-import { nodeKey } from "./node-scope";
-import { PermissionPicker } from "./permission-picker";
-import type { Thread, Configuration } from "./protocol";
-import { ReasoningEffort } from "./reasoning-effort";
-import { sessionPermissions } from "./session-permissions";
-import { hasText, hasNumber, nonEmptyText } from "./value-presence";
-import type { WorkspaceStore } from "./workspace";
+import { startAction, errorMessage } from "~/web/src/action-boundary";
+import { scalarLabel } from "~/web/src/components/presentation-values";
+import { Button } from "~/web/src/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "~/web/src/components/ui/popover";
+import { Tooltip, TooltipContent } from "~/web/src/components/ui/tooltip";
+import { ModelPicker } from "~/web/src/model-picker";
+import { nodeKey } from "~/web/src/node-scope";
+import { PermissionPicker } from "~/web/src/permission-picker";
+import type { Thread, Configuration } from "~/web/src/protocol";
+import { ReasoningEffort } from "~/web/src/reasoning-effort";
+import { sessionPermissions } from "~/web/src/session-permissions";
+import { hasText, hasNumber, nonEmptyText } from "~/web/src/value-presence";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 type ControlProps = {
   thread: Thread;

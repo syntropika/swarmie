@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Button } from "./ui/button";
-import { Dialog } from "./ui/dialog";
+import { Button } from "~/web/src/components/ui/button";
+import { Dialog } from "~/web/src/components/ui/dialog";
 
 type Confirmation = { scope: string; message: string; accept: () => void };
 

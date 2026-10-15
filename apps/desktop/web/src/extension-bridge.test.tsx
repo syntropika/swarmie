@@ -9,12 +9,12 @@ import {
   ContributionSurface,
   ContributionSlot,
   useContributions,
-} from "./contribution-host";
-import { CustomExtensionView } from "./custom-extension-view";
-import { extensionDocument } from "./extension-frame";
-import { newThread } from "./protocol";
-import { renderWithQuery as render, fixtureWorkspace } from "./test-fixtures";
-import { WorkspaceStore } from "./workspace";
+} from "~/web/src/contribution-host";
+import { CustomExtensionView } from "~/web/src/custom-extension-view";
+import { extensionDocument } from "~/web/src/extension-frame";
+import { newThread } from "~/web/src/protocol";
+import { renderWithQuery as render, fixtureWorkspace } from "~/web/src/test-fixtures";
+import { WorkspaceStore } from "~/web/src/workspace";
 
 function matchingObject(value: Record<string, unknown>): unknown {
   return expect.objectContaining(value);

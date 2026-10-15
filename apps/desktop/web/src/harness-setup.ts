@@ -1,7 +1,7 @@
 import type { LocalStoreIdentity } from "@swarmie/contracts";
 
-import { nodeKey } from "./node-scope";
-import type { Detection } from "./protocol";
+import { nodeKey } from "~/web/src/node-scope";
+import type { Detection } from "~/web/src/protocol";
 
 type SetupPreference = {
   completed: boolean;

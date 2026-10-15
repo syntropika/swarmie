@@ -1,5 +1,5 @@
-import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent } from "@/components/ui/tooltip";
+import { Button } from "~/web/src/components/ui/button";
+import { Tooltip, TooltipContent } from "~/web/src/components/ui/tooltip";
 // Copyright 2026 Syntropika
 // SPDX-License-Identifier: Apache-2.0
 

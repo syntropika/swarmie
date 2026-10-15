@@ -1,11 +1,10 @@
 import { Archive, MoreHorizontal, Pencil, Pin, PinOff } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { Dropdown } from "@/components/ui/dropdown";
-import { Tooltip, TooltipContent } from "@/components/ui/tooltip";
-
-import { ContributionSlot } from "./contribution-host";
-import type { Thread } from "./protocol";
+import { Button } from "~/web/src/components/ui/button";
+import { Dropdown } from "~/web/src/components/ui/dropdown";
+import { Tooltip, TooltipContent } from "~/web/src/components/ui/tooltip";
+import { ContributionSlot } from "~/web/src/contribution-host";
+import type { Thread } from "~/web/src/protocol";
 
 export function SidebarChatActions({
   thread,

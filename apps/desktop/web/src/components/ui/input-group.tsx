@@ -1,7 +1,7 @@
 import { cn } from "cn";
 import type { ComponentProps, ReactNode } from "react";
 
-import { Input } from "./input";
+import { Input } from "~/web/src/components/ui/input";
 
 export function InputGroup({
   icon,

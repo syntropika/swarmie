@@ -1,16 +1,15 @@
 import { ChevronDown, Folder, FolderPlus, X } from "lucide-react";
 import { useState, useId } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog } from "@/components/ui/dialog";
-import { Dropdown } from "@/components/ui/dropdown";
-import { Input } from "@/components/ui/input";
-import { InputGroup } from "@/components/ui/input-group";
-
-import { startAction, errorMessage, errorReporter } from "./action-boundary";
-import { nonEmptyText } from "./value-presence";
-import type { WorkspaceStore } from "./workspace";
+import { startAction, errorMessage, errorReporter } from "~/web/src/action-boundary";
+import { Button } from "~/web/src/components/ui/button";
+import { Checkbox } from "~/web/src/components/ui/checkbox";
+import { Dialog } from "~/web/src/components/ui/dialog";
+import { Dropdown } from "~/web/src/components/ui/dropdown";
+import { Input } from "~/web/src/components/ui/input";
+import { InputGroup } from "~/web/src/components/ui/input-group";
+import { nonEmptyText } from "~/web/src/value-presence";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 type Source = "existing" | "create" | "clone";
 

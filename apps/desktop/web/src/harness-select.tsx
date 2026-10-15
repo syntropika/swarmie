@@ -1,13 +1,12 @@
 import { Asterisk, ChevronDown, Sparkles, Terminal } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { Dropdown } from "@/components/ui/dropdown";
-import { Select } from "@/components/ui/select";
-
-import { harnessGuide } from "./harness-setup";
-import { HarnessStatus, HarnessStatusDot } from "./harness-status";
-import type { Detection } from "./protocol";
-import { hasText } from "./value-presence";
+import { Button } from "~/web/src/components/ui/button";
+import { Dropdown } from "~/web/src/components/ui/dropdown";
+import { Select } from "~/web/src/components/ui/select";
+import { harnessGuide } from "~/web/src/harness-setup";
+import { HarnessStatus, HarnessStatusDot } from "~/web/src/harness-status";
+import type { Detection } from "~/web/src/protocol";
+import { hasText } from "~/web/src/value-presence";
 
 export function HarnessIcon({ harness }: { harness: string }) {
   const Icon = (() => {

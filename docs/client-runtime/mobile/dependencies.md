@@ -15,7 +15,7 @@ Workspace packages share this repository's source and are not published by this 
 
 | Package | Resolved version | Responsibility / activation |
 | --- | --- | --- |
-| `@react-native-async-storage/async-storage` | `2.2.0` | Retained unresolved authored inputs; no secrets or transcript cache |
+| `@react-native-async-storage/async-storage` | `2.2.0` | Unresolved authored inputs and bounded language preference; no secrets or transcript cache |
 | `@swarmie/contracts` | `0.1.0` | Runtime-owned wire DTOs and method-selected response validators |
 | `@swarmie/react-native` | `0.1.0` | Thin Swift/Kotlin/JNI bridge to canonical Rust client |
 | `@swarmie/ui-native` | `0.0.0` | Shared native presentation wrappers; reversible HeroUI Native trial, independent of web UI |
@@ -37,6 +37,7 @@ Workspace packages share this repository's source and are not published by this 
 | `expo-image-manipulator` | `57.0.21` | Deferred image resizing/compression |
 | `expo-image-picker` | `57.0.20` | Deferred system photo-picker adapter; camera/microphone/photo permissions disabled |
 | `expo-linking` | `57.0.13` | Router deep-link handling |
+| `expo-localization` | `57.0.2` | OS locale observation and config-plugin declaration of eight supported languages |
 | `expo-media-library` | `57.0.5` | Deferred media export; library permissions disabled |
 | `expo-modules-core` | `57.0.23` | Thin Swarmie native module API |
 | `expo-notifications` | `57.0.23` | Deferred functional notifications; no permission requests or push registration |
@@ -97,10 +98,18 @@ and does not implement identity, provider authorization, or native credential ce
 
 [AsyncStorage](https://docs.expo.dev/versions/latest/sdk/async-storage/) is sufficient for the
 small asynchronous unresolved-input journal. It stores authored text, an optional bounded image,
-and an idempotency key. No mirrored server transcript is persisted.
+and an idempotency key. It also stores the nonsecret language preference under `swarmie.locale`,
+with ordered writes and a late-restore guard; failure retains a session-only choice.
+No mirrored server transcript is persisted.
 [TanStack Query](https://tanstack.com/query/latest/docs/framework/react/overview) owns server state
 in memory. [SecureStore](https://docs.expo.dev/versions/latest/sdk/securestore/) owns credentials;
 no encryption key or credential is stored in AsyncStorage.
+
+`expo-localization` observes OS language preferences through `useLocales`; its standard
+config plugin declares the supported languages from `apps/mobile/locales.json`. Typed
+platform catalogs and `Intl` formatting stay with the mobile consumer rather than shared
+UI. Unsupported Traditional Chinese script preferences do not select Simplified Chinese.
+See [localization behavior](foundation.md#localization) for detection, fallback, and selection.
 
 [MMKV](https://github.com/margelo/react-native-mmkv) was evaluated and deferred. Its current major
 uses Nitro Modules and synchronous native storage. This slice has no measured synchronous read

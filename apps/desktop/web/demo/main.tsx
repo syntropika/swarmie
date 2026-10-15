@@ -1,16 +1,16 @@
 import { createRoot } from "react-dom/client";
 
-import { NodeWorkspace } from "../src/app";
-import type { NodesState } from "../src/nodes";
-import { newThread } from "../src/protocol";
-import type { Thread } from "../src/protocol";
-import { WorkspaceStore } from "../src/workspace";
-import type { Workspace } from "../src/workspace";
-import { contributionDemo } from "./contributions";
-import { DemoClient } from "./demo-client";
+import { contributionDemo } from "~/web/demo/contributions";
+import { DemoClient } from "~/web/demo/demo-client";
+import { NodeWorkspace } from "~/web/src/app";
+import type { NodesState } from "~/web/src/nodes";
+import { newThread } from "~/web/src/protocol";
+import type { Thread } from "~/web/src/protocol";
+import { WorkspaceStore } from "~/web/src/workspace";
+import type { Workspace } from "~/web/src/workspace";
 
-import "../src/styles.css";
-import "./styles.css";
+import "~/web/src/styles.css";
+import "~/web/demo/styles.css";
 
 const node = { environmentId: "demo", storeId: "demo-store", ownerScopeId: "demo-owner" };
 const first: Thread = {

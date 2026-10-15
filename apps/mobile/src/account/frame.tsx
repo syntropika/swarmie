@@ -2,8 +2,9 @@ import { NativeBrand, NativeTextAction } from "@swarmie/ui-native";
 import type { ReactNode } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from "react-native";
 
-import brandSource from "../../assets/swarmie-mono-ink.png";
-import { SafeView } from "../ui/controls";
+import brandSource from "~/assets/swarmie-mono-ink.png";
+import { useLocale } from "~/src/platform/i18n/provider";
+import { SafeView } from "~/src/ui/controls";
 
 export function AccountFrame({
   title,
@@ -20,6 +21,7 @@ export function AccountFrame({
   children: ReactNode;
   footer: ReactNode;
 }) {
+  const { t } = useLocale();
   return (
     <SafeView edges={["top", "bottom", "left", "right"]} className="flex-1 bg-native-canvas">
       <KeyboardAvoidingView
@@ -53,8 +55,8 @@ export function AccountFrame({
                 </Text>
                 {onChangeEmail ? (
                   <NativeTextAction
-                    label="Change"
-                    accessibilityHint="Change email address"
+                    label={t("account.change")}
+                    accessibilityHint={t("account.changeEmail")}
                     onPress={onChangeEmail}
                   />
                 ) : null}

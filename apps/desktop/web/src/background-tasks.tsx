@@ -2,14 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ListTodo, LoaderCircle, RefreshCw, Square } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Tooltip, TooltipContent } from "@/components/ui/tooltip";
-
-import { startAction } from "./action-boundary";
-import { nodeKey } from "./node-scope";
-import type { AgentTask, Thread } from "./protocol";
-import type { WorkspaceStore } from "./workspace";
+import { startAction } from "~/web/src/action-boundary";
+import { Button } from "~/web/src/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "~/web/src/components/ui/popover";
+import { Tooltip, TooltipContent } from "~/web/src/components/ui/tooltip";
+import { nodeKey } from "~/web/src/node-scope";
+import type { AgentTask, Thread } from "~/web/src/protocol";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 const labels: Record<AgentTask["status"], string> = {
   running: "Running",

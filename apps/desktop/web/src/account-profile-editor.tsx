@@ -3,13 +3,12 @@
 import type { AccountMethods, AccountProfile, AccountSnapshot } from "@swarmie/contracts";
 import { useId, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-
-import { accountReceiptId } from "./account";
-import { useAccountAction } from "./account-action";
-import { useAccountService } from "./account-state";
-import { hasText, nonEmptyText } from "./value-presence";
+import { accountReceiptId } from "~/web/src/account";
+import { useAccountAction } from "~/web/src/account-action";
+import { useAccountService } from "~/web/src/account-state";
+import { Button } from "~/web/src/components/ui/button";
+import { Input } from "~/web/src/components/ui/input";
+import { hasText, nonEmptyText } from "~/web/src/value-presence";
 
 type ProfileReceipt = AccountMethods["account/profile/update"]["params"];
 type AvatarReceipt = AccountMethods["account/profile/avatar/update"]["params"];

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import type { ScopedClientApi } from "./contributions";
+import type { ScopedClientApi } from "~/web/src/contributions";
 
 export type Mount = (props: { api: ScopedClientApi }) => ReactNode;
 /** Mount registrations are host-owned; callers receive only the stable lookup interface. */

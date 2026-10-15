@@ -2,11 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 
-import { useRuntime } from "../../src/connection/provider";
-import { routinesSchema, scheduleInstant } from "../../src/routines/contracts";
-import { Action, Field, Notice, Page } from "../../src/ui/controls";
+import { useRuntime } from "~/src/connection/provider";
+import { useLocale } from "~/src/platform/i18n/provider";
+import { statusLabel } from "~/src/platform/i18n/translate";
+import { routinesSchema, scheduleInstant } from "~/src/routines/contracts";
+import { Action, Field, Notice, Page } from "~/src/ui/controls";
 
 export default function RoutinesScreen() {
+  const { t, formatDate, formatNumber } = useLocale();
   const connection = useRuntime();
   const supported = connection.resources.has("schedules.put");
   const cache = useQueryClient();
@@ -84,28 +87,29 @@ export default function RoutinesScreen() {
   return (
     <Page>
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerClassName="gap-5 p-5">
-        <Text className="text-base leading-7 text-text-muted">
-          Your runtime runs scheduled prompts while this app is closed. Delivery history shows
-          dispatch, not verified completion.
-        </Text>
+        <Text className="text-base leading-7 text-text-muted">{t("routines.intro")}</Text>
         {supported ? (
           <>
             {routines.data?.schedules.map((routine) => (
               <View key={routine.id} className="gap-3 border-b border-border pb-6">
                 <Text className="text-lg font-semibold text-ink">{routine.text}</Text>
                 <Text className="text-base text-text-muted">
-                  {routine.enabled ? "Enabled" : "Paused"} · {routine.status}
+                  {routine.enabled ? t("routines.enabled") : t("routines.paused")} ·{" "}
+                  {statusLabel(t, routine.status)}
                 </Text>
                 <Text className="text-sm text-text-muted">
-                  Next: {new Date(routine.nextRunAtMs).toLocaleString()} ·{" "}
-                  {routine.intervalSeconds === null
-                    ? "Once"
-                    : `Every ${routine.intervalSeconds} seconds`}
+                  {t("routines.next", {
+                    date: formatDate(routine.nextRunAtMs),
+                    recurrence:
+                      routine.intervalSeconds === null
+                        ? t("routines.once")
+                        : t("routines.every", { seconds: formatNumber(routine.intervalSeconds) }),
+                  })}
                 </Text>
                 <View className="flex-row flex-wrap gap-3">
                   {connection.resources.has("schedules.enabled") ? (
                     <Action
-                      label={routine.enabled ? "Pause routine" : "Resume routine"}
+                      label={routine.enabled ? t("routines.pause") : t("routines.resume")}
                       disabled={
                         change.isPending ||
                         routine.status === "running" ||
@@ -118,7 +122,7 @@ export default function RoutinesScreen() {
                     />
                   ) : null}
                   <Action
-                    label="Cancel routine"
+                    label={t("routines.cancel")}
                     disabled={
                       remove.isPending ||
                       routine.status === "running" ||
@@ -132,16 +136,16 @@ export default function RoutinesScreen() {
                 </View>
                 {routine.attempts.map((attempt) => (
                   <Text key={attempt.id} className="text-sm text-text-muted">
-                    {new Date(attempt.startedAtMs).toLocaleString()} · {attempt.status}
+                    {formatDate(attempt.startedAtMs)} · {statusLabel(t, attempt.status)}
                   </Text>
                 ))}
               </View>
             ))}
             <Text accessibilityRole="header" className="text-xl font-semibold text-ink">
-              New routine
+              {t("routines.new")}
             </Text>
-            <Field label="Prompt" value={text} onChangeText={setText} multiline />
-            <Text className="text-base text-ink">Send to an existing conversation</Text>
+            <Field label={t("routines.prompt")} value={text} onChangeText={setText} multiline />
+            <Text className="text-base text-ink">{t("routines.destination")}</Text>
             {sessions.data?.map((session) => (
               <Action
                 key={session.id}
@@ -155,25 +159,21 @@ export default function RoutinesScreen() {
               />
             ))}
             <Field
-              label="Start time with timezone"
+              label={t("routines.start")}
               placeholder="2026-11-01T09:00:00+00:00"
               value={time}
               onChangeText={setTime}
               autoCapitalize="none"
             />
             <Field
-              label="Repeat every seconds (blank for once)"
+              label={t("routines.interval")}
               value={interval}
               onChangeText={setInterval}
               keyboardType="number-pad"
             />
-            <Text className="text-sm leading-6 text-text-muted">
-              Time is stored as an absolute instant. Repeats use elapsed time, so the local clock
-              time can change with daylight saving. Missed occurrences coalesce to one delivery;
-              busy agents queue it.
-            </Text>
+            <Text className="text-sm leading-6 text-text-muted">{t("routines.timing")}</Text>
             <Action
-              label={create.isPending ? "Saving…" : "Save routine"}
+              label={create.isPending ? t("routines.saving") : t("routines.save")}
               selected
               disabled={!text.trim() || !sessionId || !time || create.isPending}
               onPress={() => {
@@ -181,13 +181,11 @@ export default function RoutinesScreen() {
               }}
             />
             {create.isError || change.isError || remove.isError || routines.isError ? (
-              <Notice>
-                Could not update routines. Check the time, interval and runtime state.
-              </Notice>
+              <Notice>{t("routines.error")}</Notice>
             ) : null}
           </>
         ) : (
-          <Notice>Enable the resources extension on your runtime to use routines.</Notice>
+          <Notice>{t("routines.unavailable")}</Notice>
         )}
       </ScrollView>
     </Page>

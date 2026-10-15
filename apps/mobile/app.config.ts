@@ -1,5 +1,7 @@
 import type { ExpoConfig } from "expo/config";
 
+import languageNames from "./locales.json";
+
 const config: ExpoConfig = {
   name: "Swarmie",
   slug: "swarmie-mobile",
@@ -25,6 +27,10 @@ const config: ExpoConfig = {
     ],
   },
   plugins: [
+    [
+      "expo-localization",
+      { supportedLocales: Object.keys(languageNames), allowDynamicLocaleChangesAndroid: true },
+    ],
     "expo-router",
     "expo-secure-store",
     "expo-splash-screen",

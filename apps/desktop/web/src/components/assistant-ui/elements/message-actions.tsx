@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import type { ComponentProps } from "react";
 
-import { Tooltip, TooltipContent } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent } from "~/web/src/components/ui/tooltip";
 
 import { ghostButton, iconSwap, iconSwapIn, iconSwapOut } from "./surfaces";
 

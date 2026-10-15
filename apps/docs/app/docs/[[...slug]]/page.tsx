@@ -10,9 +10,9 @@ import { createRelativeLink } from "fumadocs-ui/mdx";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
-import { getMDXComponents } from "@/components/mdx";
-import { getPageImageUrl, getPageMarkdownUrl, gitConfig } from "@/lib/shared";
-import { source } from "@/lib/source";
+import { getMDXComponents } from "~/components/mdx";
+import { getPageImageUrl, getPageMarkdownUrl, gitConfig } from "~/lib/shared";
+import { source } from "~/lib/source";
 
 export default async function Page(props: { params: Promise<{ slug?: string[] }> }) {
   const params = await props.params;

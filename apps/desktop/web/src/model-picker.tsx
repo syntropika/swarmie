@@ -3,11 +3,10 @@ import { cn } from "cn";
 import { Check, ChevronRight } from "lucide-react";
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { floatingClasses, itemClasses } from "@/components/ui/floating";
-
-import { startAction } from "./action-boundary";
-import { hasText } from "./value-presence";
+import { startAction } from "~/web/src/action-boundary";
+import { Button } from "~/web/src/components/ui/button";
+import { floatingClasses, itemClasses } from "~/web/src/components/ui/floating";
+import { hasText } from "~/web/src/value-presence";
 
 export function ModelPicker({
   choices,

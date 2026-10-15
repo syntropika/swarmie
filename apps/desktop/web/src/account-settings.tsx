@@ -3,14 +3,13 @@
 import type { AccountSnapshot } from "@swarmie/contracts";
 import { useId, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
-
-import { useAccountAction } from "./account-action";
-import { AccountProfileEditor } from "./account-profile-editor";
-import { useAccountService, useAccount } from "./account-state";
-import { hasText } from "./value-presence";
+import { useAccountAction } from "~/web/src/account-action";
+import { AccountProfileEditor } from "~/web/src/account-profile-editor";
+import { useAccountService, useAccount } from "~/web/src/account-state";
+import { Button } from "~/web/src/components/ui/button";
+import { Input } from "~/web/src/components/ui/input";
+import { Switch } from "~/web/src/components/ui/switch";
+import { hasText } from "~/web/src/value-presence";
 
 function AccountSignIn({ account }: { account: AccountSnapshot }) {
   const service = useAccountService();

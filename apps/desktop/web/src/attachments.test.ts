@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { attachmentBytes, attachmentLimit, readAttachment } from "./attachments";
+import { attachmentBytes, attachmentLimit, readAttachment } from "~/web/src/attachments";
 
 function file(bytes: number[] | string, name = "context.txt", type = "text/plain"): File {
   return new File([typeof bytes === "string" ? bytes : new Uint8Array(bytes)], name, { type });

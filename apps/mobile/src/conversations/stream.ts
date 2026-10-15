@@ -3,8 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { AppState } from "react-native";
 
-import { useRuntime } from "../connection/provider";
-import { appendEvents } from "./journal";
+import { useRuntime } from "~/src/connection/provider";
+import { appendEvents } from "~/src/conversations/journal";
 
 export function useTranscript(sessionId: string) {
   const connection = useRuntime();

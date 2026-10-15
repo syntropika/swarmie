@@ -12,10 +12,10 @@ import type {
 } from "@swarmie/contracts";
 import { decodeContract } from "@swarmie/contracts/validation";
 
-import { startAction } from "./action-boundary";
-import { WorkspaceCache, hydrateThreads } from "./cache";
-import { clientRequest, nativeClient } from "./client-transport";
-import { sortedCopy } from "./collection-order";
+import { startAction } from "~/web/src/action-boundary";
+import { WorkspaceCache, hydrateThreads } from "~/web/src/cache";
+import { clientRequest, nativeClient } from "~/web/src/client-transport";
+import { sortedCopy } from "~/web/src/collection-order";
 import {
   RpcError,
   isThreadKey,
@@ -30,11 +30,11 @@ import {
   decodeFileResult,
   decodeProjectOpenResult,
   decodeReviewResult,
-} from "./connections";
-import type { ConnectionMethod, ConnectionMethodResults } from "./connections";
-import { contextText, lineExcerpt } from "./context";
-import type { ContextItem, FileLocation } from "./context";
-import { defaultHarness, readHarnessSetup, setHarnessEnabled } from "./harness-setup";
+} from "~/web/src/connections";
+import type { ConnectionMethod, ConnectionMethodResults } from "~/web/src/connections";
+import { contextText, lineExcerpt } from "~/web/src/context";
+import type { ContextItem, FileLocation } from "~/web/src/context";
+import { defaultHarness, readHarnessSetup, setHarnessEnabled } from "~/web/src/harness-setup";
 import {
   retainNode,
   sameNode,
@@ -42,10 +42,10 @@ import {
   workspaceStorageKey,
   rpcPath,
   routeTargetKey,
-} from "./node-scope";
-import { NotificationService, readNotificationPreferences } from "./notifications";
-import type { NotificationPreferences } from "./notifications";
-import { newThread, reduceEvents, isRecord, nativeEvents } from "./protocol";
+} from "~/web/src/node-scope";
+import { NotificationService, readNotificationPreferences } from "~/web/src/notifications";
+import type { NotificationPreferences } from "~/web/src/notifications";
+import { newThread, reduceEvents, isRecord, nativeEvents } from "~/web/src/protocol";
 import type {
   Thread,
   Project,
@@ -58,12 +58,12 @@ import type {
   Attachment,
   PromptPart,
   Queued,
-} from "./protocol";
-import type { AgentToolConnect, AgentToolSetup } from "./provider-setup";
-import { fingerprint } from "./reviewed";
-import { hasText, nonEmptyText, hasNumber } from "./value-presence";
+} from "~/web/src/protocol";
+import type { AgentToolConnect, AgentToolSetup } from "~/web/src/provider-setup";
+import { fingerprint } from "~/web/src/reviewed";
+import { hasText, nonEmptyText, hasNumber } from "~/web/src/value-presence";
 
-export { RpcError } from "./connections";
+export { RpcError } from "~/web/src/connections";
 
 export type NodeWorkspaceOptions = {
   node?: LocalStoreIdentity;

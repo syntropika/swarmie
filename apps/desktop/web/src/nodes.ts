@@ -5,16 +5,16 @@ import type {
   NodeStartup,
 } from "@swarmie/contracts";
 
-import { startAction, errorMessage } from "./action-boundary";
-import { responseResult } from "./checked-json";
-import { clientRequest, nativeClient, observeClient } from "./client-transport";
-import { decodeClientResult } from "./connections";
-import type { ConnectionMethodResults } from "./connections";
-import { nodeKey, sameNode, validNodeIdentity } from "./node-scope";
-import { isRecord } from "./protocol";
-import { hasText } from "./value-presence";
-import { WorkspaceStore } from "./workspace";
-import type { Workspace } from "./workspace";
+import { startAction, errorMessage } from "~/web/src/action-boundary";
+import { responseResult } from "~/web/src/checked-json";
+import { clientRequest, nativeClient, observeClient } from "~/web/src/client-transport";
+import { decodeClientResult } from "~/web/src/connections";
+import type { ConnectionMethodResults } from "~/web/src/connections";
+import { nodeKey, sameNode, validNodeIdentity } from "~/web/src/node-scope";
+import { isRecord } from "~/web/src/protocol";
+import { hasText } from "~/web/src/value-presence";
+import { WorkspaceStore } from "~/web/src/workspace";
+import type { Workspace } from "~/web/src/workspace";
 
 export type NodeRoute = {
   name: string;

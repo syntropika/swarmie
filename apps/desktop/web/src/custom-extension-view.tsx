@@ -1,15 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
-import { Button } from "@/components/ui/button";
-
-import { errorMessage, startAction } from "./action-boundary";
-import { isRecord } from "./checked-json";
-import { useContributions } from "./contribution-context";
-import type { ContributionContext, ContributionEvent, ScopedClientApi } from "./contributions";
-import { extensionDocument } from "./extension-frame";
-import type { ExtensionInfo, ExtensionView, Thread } from "./protocol";
-import type { WorkspaceStore } from "./workspace";
+import { errorMessage, startAction } from "~/web/src/action-boundary";
+import { isRecord } from "~/web/src/checked-json";
+import { Button } from "~/web/src/components/ui/button";
+import { useContributions } from "~/web/src/contribution-context";
+import type {
+  ContributionContext,
+  ContributionEvent,
+  ScopedClientApi,
+} from "~/web/src/contributions";
+import { extensionDocument } from "~/web/src/extension-frame";
+import type { ExtensionInfo, ExtensionView, Thread } from "~/web/src/protocol";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 type ViewProps = {
   store: WorkspaceStore;

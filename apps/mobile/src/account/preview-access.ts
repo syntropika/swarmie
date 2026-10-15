@@ -1,6 +1,6 @@
 /* oxlint-disable typescript/require-await -- In-memory preview adapters preserve promise rejection semantics without fake I/O. */
-import { AccountAccessError } from "./contracts";
-import type { AccountAccess, Account } from "./contracts";
+import { AccountAccessError } from "~/src/account/contracts";
+import type { AccountAccess, Account } from "~/src/account/contracts";
 
 function check(signal: AbortSignal) {
   signal.throwIfAborted();

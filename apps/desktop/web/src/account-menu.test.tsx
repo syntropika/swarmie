@@ -6,14 +6,14 @@ import { act, screen, cleanup, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 
-import { AccountMenu } from "./account-menu";
+import { AccountMenu } from "~/web/src/account-menu";
 import {
   AccountFixture,
   accountSnapshot,
   accountProfile,
   renderAccount,
-} from "./account-test-fixture";
-import { deferred } from "./test-fixtures";
+} from "~/web/src/account-test-fixture";
+import { deferred } from "~/web/src/test-fixtures";
 
 afterEach(cleanup);
 it("keeps settings available without login and directs sign-in to the account page", async () => {

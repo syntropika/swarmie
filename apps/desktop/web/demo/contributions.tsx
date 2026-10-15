@@ -1,9 +1,8 @@
-import { Button } from "@/components/ui/button";
-
-import type { ClientContribution } from "../src/contribution-host";
-import type { UiSlot, ScopedClientApi } from "../src/contributions";
-import { slotCatalog } from "../src/contributions";
-import type { TranscriptionProvider } from "../src/dictation";
+import { Button } from "~/web/src/components/ui/button";
+import type { ClientContribution } from "~/web/src/contribution-host";
+import type { UiSlot, ScopedClientApi } from "~/web/src/contributions";
+import { slotCatalog } from "~/web/src/contributions";
+import type { TranscriptionProvider } from "~/web/src/dictation";
 
 type ContributionDemo = ClientContribution & { transcription?: TranscriptionProvider };
 function isUiSlot(value: string): value is UiSlot {

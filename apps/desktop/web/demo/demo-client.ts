@@ -1,5 +1,5 @@
-import { NodeClient } from "../src/nodes";
-import type { NodesState } from "../src/nodes";
+import { NodeClient } from "~/web/src/nodes";
+import type { NodesState } from "~/web/src/nodes";
 
 export class DemoClient extends NodeClient {
   private readonly ownerReady = Promise.resolve();

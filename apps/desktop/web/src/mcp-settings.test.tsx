@@ -6,9 +6,9 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 
-import { McpSettings } from "./mcp-settings";
-import { deferred } from "./test-fixtures";
-import { WorkspaceStore } from "./workspace";
+import { McpSettings } from "~/web/src/mcp-settings";
+import { deferred } from "~/web/src/test-fixtures";
+import { WorkspaceStore } from "~/web/src/workspace";
 
 function render(ui: ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });

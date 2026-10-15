@@ -2,30 +2,29 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { useEffect, useRef, useState, useCallback, useMemo, useId } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { ComboBox } from "@/components/ui/combobox";
-import { Disclosure } from "@/components/ui/disclosure";
-import { Select } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-
-import { useConfirmation } from "./components/confirmation";
+import { useConfirmation } from "~/web/src/components/confirmation";
+import { useExtensionQuery } from "~/web/src/components/extension-query";
+import { extensionResult } from "~/web/src/components/extension-result";
+import { hasCount, hasText } from "~/web/src/components/presentation-values";
+import { Button } from "~/web/src/components/ui/button";
+import { Checkbox } from "~/web/src/components/ui/checkbox";
+import { ComboBox } from "~/web/src/components/ui/combobox";
 
 import "@xterm/xterm/css/xterm.css";
-import { useExtensionQuery } from "./components/extension-query";
-import { extensionResult } from "./components/extension-result";
-import { hasCount, hasText } from "./components/presentation-values";
-import { decodeReviewResult } from "./connections";
-import { CustomExtensionView } from "./custom-extension-view";
-import { GitWorkflow } from "./git-workflow";
-import { BrowserPreview, Devices, SystemWindows } from "./platform-views";
-import { ProjectSettings } from "./project-settings";
-import type { ExtensionInfo, ExtensionView, Thread, Review } from "./protocol";
-import { ResourceLibrary } from "./resource-library";
-import { fingerprint, reviewKey } from "./reviewed";
-import { createTerminalInput } from "./terminal-input";
-import { Schedules, Peers, UsageDashboard } from "./workflow-views";
-import type { WorkspaceStore } from "./workspace";
+import { Disclosure } from "~/web/src/components/ui/disclosure";
+import { Select } from "~/web/src/components/ui/select";
+import { Textarea } from "~/web/src/components/ui/textarea";
+import { decodeReviewResult } from "~/web/src/connections";
+import { CustomExtensionView } from "~/web/src/custom-extension-view";
+import { GitWorkflow } from "~/web/src/git-workflow";
+import { BrowserPreview, Devices, SystemWindows } from "~/web/src/platform-views";
+import { ProjectSettings } from "~/web/src/project-settings";
+import type { ExtensionInfo, ExtensionView, Thread, Review } from "~/web/src/protocol";
+import { ResourceLibrary } from "~/web/src/resource-library";
+import { fingerprint, reviewKey } from "~/web/src/reviewed";
+import { createTerminalInput } from "~/web/src/terminal-input";
+import { Schedules, Peers, UsageDashboard } from "~/web/src/workflow-views";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 function selectedText(selection: string | undefined, fallback: string | undefined) {
   return hasText(selection) ? selection : (fallback ?? "");

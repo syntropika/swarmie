@@ -1,4 +1,4 @@
-import type { Question } from "./protocol";
+import type { Question } from "~/web/src/protocol";
 
 export function questionAnswers(
   questions: Question[],

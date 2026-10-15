@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
-import { Provider } from "@/components/provider";
+import { Provider } from "~/components/provider";
 
-import "./global.css";
+import "~/app/global.css";
 
 export const metadata: Metadata = {
   metadataBase:

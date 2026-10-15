@@ -3,27 +3,26 @@ import { Home, History, GitBranch, Layers, Settings } from "lucide-react";
 // SPDX-License-Identifier: Apache-2.0
 import { useEffect, useSyncExternalStore } from "react";
 
-import { Button } from "@/components/ui/button";
-
-import { AccountMenu } from "./account-menu";
-import { startAction } from "./action-boundary";
-import { CommandPalette } from "./command-palette";
-import { ContributionHost, ContributionSlot } from "./contribution-host";
-import { FileFinder } from "./file-finder";
-import { HarnessOnboarding } from "./harness-onboarding";
-import { nodeKey } from "./node-scope";
-import { ProjectDialog } from "./project-dialog";
-import { NodeQueryBoundary } from "./query-boundary";
-import { SettingsPage } from "./settings-page";
-import { hasText, hasNumber } from "./value-presence";
-import { WorkspaceHeader } from "./workspace-header";
-import { IconButton } from "./workspace-icon-button";
-import { nodeClient } from "./workspace-instance";
-import { WorkspaceConversation, WorkspaceDetailPanel } from "./workspace-panels";
-import { WorkspaceShell } from "./workspace-shell";
-import { WorkspaceSidebar } from "./workspace-sidebar";
-import type { NodeWorkspaceProps } from "./workspace-state";
-import { useWorkspaceState } from "./workspace-state";
+import { AccountMenu } from "~/web/src/account-menu";
+import { startAction } from "~/web/src/action-boundary";
+import { CommandPalette } from "~/web/src/command-palette";
+import { Button } from "~/web/src/components/ui/button";
+import { ContributionHost, ContributionSlot } from "~/web/src/contribution-host";
+import { FileFinder } from "~/web/src/file-finder";
+import { HarnessOnboarding } from "~/web/src/harness-onboarding";
+import { nodeKey } from "~/web/src/node-scope";
+import { ProjectDialog } from "~/web/src/project-dialog";
+import { NodeQueryBoundary } from "~/web/src/query-boundary";
+import { SettingsPage } from "~/web/src/settings-page";
+import { hasText, hasNumber } from "~/web/src/value-presence";
+import { WorkspaceHeader } from "~/web/src/workspace-header";
+import { IconButton } from "~/web/src/workspace-icon-button";
+import { nodeClient } from "~/web/src/workspace-instance";
+import { WorkspaceConversation, WorkspaceDetailPanel } from "~/web/src/workspace-panels";
+import { WorkspaceShell } from "~/web/src/workspace-shell";
+import { WorkspaceSidebar } from "~/web/src/workspace-sidebar";
+import type { NodeWorkspaceProps } from "~/web/src/workspace-state";
+import { useWorkspaceState } from "~/web/src/workspace-state";
 
 export function App() {
   const nodes = useSyncExternalStore(nodeClient.subscribe, nodeClient.getSnapshot);

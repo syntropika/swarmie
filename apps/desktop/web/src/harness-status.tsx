@@ -1,4 +1,4 @@
-import { TooltipContent } from "@/components/ui/tooltip";
+import { TooltipContent } from "~/web/src/components/ui/tooltip";
 
 const states = [
   {

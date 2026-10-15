@@ -4,13 +4,17 @@ import { StrictMode, useState } from "react";
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from "vitest";
 
-import { CommandPalette } from "../src/command-palette";
-import { ContributionHost, ContributionSlot, ContributionSurface } from "../src/contribution-host";
-import { Conversation } from "../src/conversation";
-import { newThread } from "../src/protocol";
-import { WorkspaceStore } from "../src/workspace";
-import type { Workspace } from "../src/workspace";
-import { contributionDemo } from "./contributions";
+import { contributionDemo } from "~/web/demo/contributions";
+import { CommandPalette } from "~/web/src/command-palette";
+import {
+  ContributionHost,
+  ContributionSlot,
+  ContributionSurface,
+} from "~/web/src/contribution-host";
+import { Conversation } from "~/web/src/conversation";
+import { newThread } from "~/web/src/protocol";
+import { WorkspaceStore } from "~/web/src/workspace";
+import type { Workspace } from "~/web/src/workspace";
 
 afterEach(() => {
   cleanup();

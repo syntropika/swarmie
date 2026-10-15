@@ -114,6 +114,10 @@ the small size; legal copy uses the extra-small size. Persistent field labels an
 values share the larger input type token. Field labels use native ink with medium weight
 (500). Preserve text wrapping and native text scaling.
 
+Mobile supports English, Spanish, French, German, Portuguese, Italian, Japanese, and
+Simplified Chinese through consumer-owned typed catalogs. Translate labels, supporting
+copy, feedback, and accessible names together. Preserve user and agent content as authored.
+
 ## Layout
 
 Account screens fill the available safe area with a white canvas and a centered column
@@ -126,6 +130,11 @@ reach every field and action. Keep bottom actions in the shared footer position;
 allow content to scroll rather than compressing controls. Native brand geometry uses
 the shared width and height tokens with contained aspect ratio and available-width
 constraints.
+
+Allow translated headings, action labels, and notices to wrap within the existing column.
+Longer copy may extend vertical scrolling on narrow screens; do not shrink the shared
+controls or introduce horizontal overflow. Language choice belongs in Settings and the
+development preview guide, without adding another control to account entry.
 
 ## Elevation & Depth
 
@@ -172,13 +181,14 @@ reserves extra input padding to keep typed text clear of its action.
 `NativeIconAction` supplies a shared button target (48 square) with a required accessible
 label and disabled state. The account-owned `PasswordField` composes it with `NativeField`
 and the app's existing SVG `Icon` component. Muted eye and eye-off icons (28 square) are
-hidden from accessibility navigation; the button exposes "Show password" or "Hide password".
+hidden from accessibility navigation; the button exposes localized show/hide password labels.
 The account component owns the `secureTextEntry` toggle, field labels and password autofill
 policy. Presentation does not define identity-service password policy.
 
 `NativeCodeField` retains six visual cells backed by one numeric vendor `Input` with one-time-code
 autofill. Only that input participates in accessibility navigation; decorative cells
 are hidden. It accepts at most six digits and marks the focused cell with an ink border.
+The consumer must supply its localized `accessibilityLabel`; stories use an English fixture label.
 It does not use the vendor's segmented `InputOTP` component.
 `NativeNotice` supplies textual, politely announced feedback.
 

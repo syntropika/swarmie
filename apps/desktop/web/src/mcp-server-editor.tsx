@@ -1,13 +1,12 @@
 import type { McpEntry, InputMcpDefinition as McpDefinition } from "@swarmie/contracts";
 import { useId } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-
-import type { Thread } from "./protocol";
-import { hasText } from "./value-presence";
+import { Button } from "~/web/src/components/ui/button";
+import { Input } from "~/web/src/components/ui/input";
+import { Select } from "~/web/src/components/ui/select";
+import { Textarea } from "~/web/src/components/ui/textarea";
+import type { Thread } from "~/web/src/protocol";
+import { hasText } from "~/web/src/value-presence";
 
 export type Editor = {
   entry?: McpEntry;

@@ -1,13 +1,13 @@
 import "fake-indexeddb/auto";
 import { expect, it, vi } from "vitest";
 
-import { WorkspaceCache, hydrateThreads } from "./cache";
-import { record } from "./checked-json";
-import { decodeCachedWorkspace } from "./connections";
-import { workspaceStorageKey } from "./node-scope";
-import { newThread } from "./protocol";
-import { fixtureRequest } from "./test-fixtures";
-import { WorkspaceStore } from "./workspace";
+import { WorkspaceCache, hydrateThreads } from "~/web/src/cache";
+import { record } from "~/web/src/checked-json";
+import { decodeCachedWorkspace } from "~/web/src/connections";
+import { workspaceStorageKey } from "~/web/src/node-scope";
+import { newThread } from "~/web/src/protocol";
+import { fixtureRequest } from "~/web/src/test-fixtures";
+import { WorkspaceStore } from "~/web/src/workspace";
 
 const node = {
   environmentId: "cache-node",

@@ -2,30 +2,32 @@ import { Tabs } from "expo-router";
 import type { ColorValue } from "react-native";
 import { useCSSVariable } from "uniwind";
 
-import { Icon } from "../../src/ui/icon";
+import { useLocale } from "~/src/platform/i18n/provider";
+import { Icon } from "~/src/ui/icon";
 
 export default function TabsLayout() {
+  const { t } = useLocale();
   const tint = useCSSVariable("--color-primary");
   return (
     <Tabs screenOptions={typeof tint === "string" ? { tabBarActiveTintColor: tint } : {}}>
       <Tabs.Screen
         name="index"
         options={{
-          title: "Conversations",
+          title: t("nav.conversations"),
           tabBarIcon: conversationsIcon,
         }}
       />
       <Tabs.Screen
         name="routines"
         options={{
-          title: "Routines",
+          title: t("nav.routines"),
           tabBarIcon: routinesIcon,
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
-          title: "Settings",
+          title: t("nav.settings"),
           tabBarIcon: settingsIcon,
         }}
       />

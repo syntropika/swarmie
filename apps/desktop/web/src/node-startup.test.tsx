@@ -3,10 +3,10 @@ import userEvent from "@testing-library/user-event";
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from "vitest";
 
-import { NodeStartupControls } from "./node-startup-controls";
-import { NodeClient } from "./nodes";
-import type { ClientNode, NodeStartup } from "./nodes";
-import { renderWithQuery as render } from "./test-fixtures";
+import { NodeStartupControls } from "~/web/src/node-startup-controls";
+import { NodeClient } from "~/web/src/nodes";
+import type { ClientNode, NodeStartup } from "~/web/src/nodes";
+import { renderWithQuery as render } from "~/web/src/test-fixtures";
 
 afterEach(cleanup);
 const node: ClientNode = {

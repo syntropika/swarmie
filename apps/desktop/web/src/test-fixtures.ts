@@ -18,10 +18,10 @@ import { createElement } from "react";
 import type { ReactNode } from "react";
 import { vi } from "vitest";
 
-import { isRecord } from "./protocol";
-import { NodeQueryBoundary } from "./query-boundary";
-import { WorkspaceStore } from "./workspace";
-import type { Workspace } from "./workspace";
+import { isRecord } from "~/web/src/protocol";
+import { NodeQueryBoundary } from "~/web/src/query-boundary";
+import { WorkspaceStore } from "~/web/src/workspace";
+import type { Workspace } from "~/web/src/workspace";
 
 /** A fixture holds an external acknowledgement until the test explicitly settles it. */
 export function deferred<T>() {

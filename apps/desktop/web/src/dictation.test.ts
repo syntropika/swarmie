@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
 import { expect, it, vi } from "vitest";
 
-import { ContributionRegistry } from "./contributions";
-import { createDictationExtension } from "./dictation";
-import type { TranscriptionProvider } from "./dictation";
+import { ContributionRegistry } from "~/web/src/contributions";
+import { createDictationExtension } from "~/web/src/dictation";
+import type { TranscriptionProvider } from "~/web/src/dictation";
 
 type Host = Parameters<ContributionRegistry["configure"]>[0];
 it("shares toggle dispatch, processes final text, and discards callbacks after changing conversations", async () => {

@@ -1,17 +1,16 @@
 import { useState, useId } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Disclosure } from "@/components/ui/disclosure";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-
-import { startAction } from "./action-boundary";
-import { extensionResult } from "./components/extension-result";
-import type { Thread } from "./protocol";
-import { hasText, hasNumber } from "./value-presence";
-import type { WorkspaceStore } from "./workspace";
+import { startAction } from "~/web/src/action-boundary";
+import { extensionResult } from "~/web/src/components/extension-result";
+import { Button } from "~/web/src/components/ui/button";
+import { Checkbox } from "~/web/src/components/ui/checkbox";
+import { Disclosure } from "~/web/src/components/ui/disclosure";
+import { Input } from "~/web/src/components/ui/input";
+import { Select } from "~/web/src/components/ui/select";
+import { Textarea } from "~/web/src/components/ui/textarea";
+import type { Thread } from "~/web/src/protocol";
+import { hasText, hasNumber } from "~/web/src/value-presence";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 type PullRequest = {
   number: number;

@@ -1,13 +1,12 @@
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Disclosure } from "@/components/ui/disclosure";
-
-import { startAction, errorMessage, errorReporter } from "./action-boundary";
-import { isRecord } from "./checked-json";
-import type { Thread } from "./protocol";
-import { hasText } from "./value-presence";
-import type { WorkspaceStore } from "./workspace";
+import { startAction, errorMessage, errorReporter } from "~/web/src/action-boundary";
+import { isRecord } from "~/web/src/checked-json";
+import { Button } from "~/web/src/components/ui/button";
+import { Disclosure } from "~/web/src/components/ui/disclosure";
+import type { Thread } from "~/web/src/protocol";
+import { hasText } from "~/web/src/value-presence";
+import type { WorkspaceStore } from "~/web/src/workspace";
 
 async function readTree(store: WorkspaceStore, sessionId: string) {
   return await store.rpc("session/tree", { sessionId });
