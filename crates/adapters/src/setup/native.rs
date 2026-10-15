@@ -43,10 +43,7 @@ impl Drop for NativeAgentTools {
             handle.spawn(async move {
                 let entries = std::mem::take(&mut *flows.write().await);
                 for login in entries.into_values() {
-                    let _public = login.public.write().await;
-                    login.cancelled.store(true, Ordering::SeqCst);
-                    *login.credential.lock().await = None;
-                    let _ = login.process.kill().await;
+                    let _ = release_login(&login).await;
                 }
             });
         }
@@ -54,6 +51,7 @@ impl Drop for NativeAgentTools {
 }
 struct Login {
     public: RwLock<Value>,
+    directory: PathBuf,
     process: Arc<ManagedProcess>,
     stdin: Mutex<Box<dyn tokio::io::AsyncWrite + Send + Unpin>>,
     cancelled: AtomicBool,
@@ -64,6 +62,24 @@ struct Login {
     credential: Mutex<Option<String>>,
     overlay: Mutex<AgentToolExecutionOverlay>,
 }
+
+/// Remove only the profile created for this flow, after stopping its native process.
+/// Connected profiles remain available to subsequent sessions and readiness probes.
+async fn release_login(login: &Login) -> Result<()> {
+    let public = login.public.write().await;
+    login.cancelled.store(true, Ordering::SeqCst);
+    *login.credential.lock().await = None;
+    login.process.kill().await?;
+    if public["status"] != "connected" || login.overlay.lock().await.config_home.is_none() {
+        match std::fs::remove_dir_all(&login.directory) {
+            Ok(()) => (),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
+
 fn executable(harness: &str, overlay: Option<&AgentToolExecutionOverlay>) -> Option<PathBuf> {
     if let Some(path) = overlay.and_then(|overlay| overlay.config["executable"].as_str()) {
         return process::find_executable(path);
@@ -426,6 +442,7 @@ impl NativeSetup for NativeAgentTools {
                 )
             };
         let login = Arc::new(Login {
+            directory: profile,
             public: RwLock::new(
                 json!({"id":id,"status":"pending","message":"Waiting for provider sign-in"}),
             ),
@@ -594,10 +611,7 @@ impl NativeSetup for NativeAgentTools {
             return self.opencode.release(id).await;
         }
         if let Some(login) = self.flows.write().await.remove(&id) {
-            let _public = login.public.write().await;
-            login.cancelled.store(true, Ordering::SeqCst);
-            *login.credential.lock().await = None;
-            let _ = login.process.kill().await;
+            release_login(&login).await?;
         }
         Ok(())
     }
@@ -605,9 +619,8 @@ impl NativeSetup for NativeAgentTools {
         self.opencode.shutdown().await?;
         let ids: Vec<_> = self.flows.read().await.keys().copied().collect();
         for id in ids {
-            let _ = self.cancel(id).await;
+            self.release(id).await?;
         }
-        self.flows.write().await.clear();
         Ok(())
     }
 }
@@ -1180,8 +1193,12 @@ mod tests {
                 .unwrap();
             }
             let login = native.flows.read().await[&id].clone();
+            let profile = root
+                .join("native-profiles/antigravity")
+                .join(id.to_string());
             native.release(id).await.unwrap();
             assert!(login.process.exited());
+            assert_eq!(profile.exists(), !cancel);
         }
         native.shutdown().await.unwrap();
         std::fs::remove_dir_all(root).unwrap();
@@ -1211,6 +1228,8 @@ mod tests {
     async fn fixture(mode: &str, sdk: bool) -> (NativeAgentTools, Uuid, Arc<Login>, PathBuf) {
         let root = std::env::temp_dir().join(format!("swarmie-auth-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
+        let profile = root.join("profile");
+        std::fs::create_dir_all(&profile).unwrap();
         let script =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/native_auth.py");
         let args = vec![script.to_string_lossy().into_owned(), mode.into()];
@@ -1224,6 +1243,7 @@ mod tests {
         .unwrap();
         let id = Uuid::new_v4();
         let login = Arc::new(Login {
+            directory: profile.clone(),
             public: RwLock::new(json!({"id":id,"status":"pending"})),
             process: Arc::new(process),
             stdin: Mutex::new(Box::new(stdin)),
@@ -1234,7 +1254,7 @@ mod tests {
             google_menu_ready: AtomicBool::new(false),
             credential: Mutex::new(None),
             overlay: Mutex::new(AgentToolExecutionOverlay {
-                config_home: Some(root.clone()),
+                config_home: Some(profile),
                 ..Default::default()
             }),
         });
@@ -1262,6 +1282,38 @@ mod tests {
         .await
         .unwrap()
     }
+    #[tokio::test]
+    async fn released_native_login_removes_only_abandoned_profiles() {
+        for state in ["pending", "failed", "cancelled", "connected"] {
+            let (native, id, login, root) = fixture("idle", false).await;
+            let profile = login.overlay.lock().await.config_home.clone().unwrap();
+            let user_file = root.join("user-owned.txt");
+            std::fs::write(&user_file, "User-owned data").unwrap();
+            let credential = profile.join("auth.json");
+            std::fs::write(&credential, "fixture-credential").unwrap();
+            login.public.write().await["status"] = json!(state);
+            native.release(id).await.unwrap();
+            assert!(login.process.exited());
+            assert_eq!(profile.exists(), state == "connected", "{state}");
+            assert!(user_file.exists());
+            assert!(native.flow(id).await.is_err());
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn native_shutdown_removes_pending_profiles_and_preserves_connected_profiles() {
+        for state in ["pending", "connected"] {
+            let (native, _id, login, root) = fixture("idle", false).await;
+            let profile = login.overlay.lock().await.config_home.clone().unwrap();
+            login.public.write().await["status"] = json!(state);
+            native.shutdown().await.unwrap();
+            assert!(login.process.exited());
+            assert_eq!(profile.exists(), state == "connected", "{state}");
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
     #[tokio::test]
     async fn console_prompt_without_newline_accepts_private_input_and_sanitizes_logs() {
         let (native, id, login, root) = fixture("console", false).await;

@@ -33,6 +33,14 @@ const CLAUDE_FILES: &[(&str, &str)] = &[
         include_str!("../../../../../packages/claude-agent-worker/session.mjs"),
     ),
     (
+        "tasks.mjs",
+        include_str!("../../../../../packages/claude-agent-worker/tasks.mjs"),
+    ),
+    (
+        "input-queue.mjs",
+        include_str!("../../../../../packages/claude-agent-worker/input-queue.mjs"),
+    ),
+    (
         "diagnostics.mjs",
         include_str!("../../../../../packages/claude-agent-worker/diagnostics.mjs"),
     ),
@@ -614,6 +622,30 @@ fn provider_binary(staging: &Path, harness: &str, binary: &str) -> Result<PathBu
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn packaged_claude_session_imports_without_source_checkout() {
+        let root = temporary("claude-worker-import");
+        write_support(&root, CLAUDE_FILES).unwrap();
+        let node = process::find_executable("node").expect("Node.js is required for worker tests");
+        let output = tokio::process::Command::new(node)
+            .current_dir(&root)
+            .args([
+                "--input-type=module",
+                "-e",
+                "await import('./session.mjs');",
+            ])
+            .output()
+            .await
+            .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
     fn temporary(label: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!("swarmie-{label}-{}", uuid::Uuid::new_v4()));
         private_directory(&root).unwrap();
