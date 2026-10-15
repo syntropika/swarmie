@@ -31,12 +31,12 @@ The HTTP daemon exposes `/ws`; an independent client can also use the explicit W
 
 ## SDK transport support
 
-| Client | HTTP | Owned stdio | WebSocket or local socket |
-| --- | --- | --- | --- |
-| TypeScript | Yes | Yes, Node | Not provided by this SDK |
-| Python | Yes | Yes, Unix | Not provided by this SDK |
-| Go | Yes | No | Not provided by this SDK |
-| Swift | Yes | No | Not provided by this SDK |
+| Client     | HTTP | Owned stdio | WebSocket or local socket |
+| ---------- | ---- | ----------- | ------------------------- |
+| TypeScript | Yes  | Yes, Node   | Not provided by this SDK  |
+| Python     | Yes  | Yes, Unix   | Not provided by this SDK  |
+| Go         | Yes  | No          | Not provided by this SDK  |
+| Swift      | Yes  | No          | Not provided by this SDK  |
 
 These SDKs poll retained transcript pages for events. Independent consumers can implement another supported runtime transport while preserving correlation, ordering, cancellation, and target guards.
 

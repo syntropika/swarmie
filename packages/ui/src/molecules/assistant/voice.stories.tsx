@@ -9,7 +9,7 @@ import { VoiceOrb as VoiceOrbView, VoiceConversation as VoiceConversationView } 
 import type { VoiceState } from "./voice";
 
 const meta = {
-  title: "Assistant/Voice/Conversation",
+  title: "Assistant/Voice/conversation",
   parameters: {
     layout: "fullscreen",
     docs: {

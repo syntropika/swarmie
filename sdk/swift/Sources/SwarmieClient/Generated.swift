@@ -1,6 +1,22 @@
 // Generated from runtime/schema. Run tools/generate.py to refresh.
 public typealias AccountQuotaResult = JSONValue
+public struct AgentTask: Codable, Sendable {
+    public var description: String
+    public var id: String
+    public var kind: String?
+    public var status: AgentTaskStatus
+    public var summary: String?
+    public init(description: String, id: String, kind: String? = nil, status: AgentTaskStatus, summary: String? = nil) {
+        self.description = description
+        self.id = id
+        self.kind = kind
+        self.status = status
+        self.summary = summary
+    }
+}
+public typealias AgentTaskStatus = String
 public struct Capabilities: Codable, Sendable {
+    public var backgroundTasks: Capability
     public var cancel: Capability
     public var commands: Capability
     public var compact: Capability
@@ -26,7 +42,8 @@ public struct Capabilities: Codable, Sendable {
     public var submissionReconciliation: Capability
     public var toolsDisabled: Capability
     public var usage: Capability
-    public init(cancel: Capability, commands: Capability, compact: Capability, configure: Capability, ephemeral: Capability, fork: Capability, forkAtMessage: Capability, forkBeforeUser: Capability, images: Capability, metadata: [String: JSONValue], models: Capability, modes: Capability, nativeSkillInputs: Capability, operationApprovals: Capability, outputSchema: Capability, permissions: Capability, queue: Capability, quotas: Capability, reasoning: Capability, resume: Capability, rollback: Capability, steering: Capability, submissionReconciliation: Capability, toolsDisabled: Capability, usage: Capability) {
+    public init(backgroundTasks: Capability, cancel: Capability, commands: Capability, compact: Capability, configure: Capability, ephemeral: Capability, fork: Capability, forkAtMessage: Capability, forkBeforeUser: Capability, images: Capability, metadata: [String: JSONValue], models: Capability, modes: Capability, nativeSkillInputs: Capability, operationApprovals: Capability, outputSchema: Capability, permissions: Capability, queue: Capability, quotas: Capability, reasoning: Capability, resume: Capability, rollback: Capability, steering: Capability, submissionReconciliation: Capability, toolsDisabled: Capability, usage: Capability) {
+        self.backgroundTasks = backgroundTasks
         self.cancel = cancel
         self.commands = commands
         self.compact = compact
@@ -1112,4 +1129,4 @@ public struct WorkingContext: Codable, Sendable {
         self.source = source
     }
 }
-public let protocolMethods: [String] = ["agent/commands","agent/configuration","agent/configure","agent/kill","agent/models","agent/quotas","agent/spawn","directory/get","directory/register","extension/invoke","extension/list","permission/respond","project/create","project/get","project/list","project/update","runtime/configuration","runtime/discover","runtime/generate","runtime/history","runtime/history/read","runtime/initialize","runtime/probe","runtime/quotas","runtime/quotas/all","runtime/schema","runtime/shutdown","session/cancel","session/close","session/compact","session/context","session/create","session/events","session/fork","session/get","session/import","session/list","session/metadata","session/prompt","session/queue","session/queue/list","session/queue/pause","session/queue/remove","session/queue/update","session/resume","session/rollback","session/steer","session/submission","session/submission/reconcile","session/transcript","session/tree","settings/directory","settings/setDirectory"]
+public let protocolMethods: [String] = ["agent/commands","agent/configuration","agent/configure","agent/kill","agent/models","agent/quotas","agent/spawn","directory/get","directory/register","extension/invoke","extension/list","permission/respond","project/create","project/get","project/list","project/update","runtime/agentToolsCancel","runtime/agentToolsConnect","runtime/agentToolsDisconnect","runtime/agentToolsFlow","runtime/agentToolsInput","runtime/agentToolsInstall","runtime/agentToolsSetup","runtime/configuration","runtime/discover","runtime/generate","runtime/history","runtime/history/read","runtime/initialize","runtime/probe","runtime/quotas","runtime/quotas/all","runtime/schema","runtime/shutdown","session/cancel","session/close","session/compact","session/context","session/create","session/events","session/fork","session/get","session/import","session/list","session/metadata","session/prompt","session/queue","session/queue/list","session/queue/pause","session/queue/remove","session/queue/update","session/resume","session/rollback","session/steer","session/submission","session/submission/reconcile","session/task/stop","session/tasks","session/transcript","session/tree","settings/directory","settings/setDirectory"]

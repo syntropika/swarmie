@@ -5,6 +5,14 @@
 @source "./**/*.{ts,tsx}";
 
 @theme static {
+  /* Agent state and permission accents retain their established semantic colors. */
+  --color-harness-idle: #89d6a3;
+  --color-harness-working: #aaa8ef;
+  --color-harness-waiting: #e9bd71;
+  --color-harness-unavailable: #777777;
+  --color-permission-full-access: #ff984e;
+  --color-composer-cap-hover: #4a4a4a;
+
   --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
   --font-drawing: monospace;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;

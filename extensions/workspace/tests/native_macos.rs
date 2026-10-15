@@ -1,8 +1,8 @@
 #![cfg(target_os = "macos")]
-use swarmie::RuntimeExtension;
-use swarmie_workspace::WorkspaceExtension;
 use serde_json::json;
 use std::time::Duration;
+use swarmie::RuntimeExtension;
+use swarmie_workspace::WorkspaceExtension;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,

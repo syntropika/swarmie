@@ -1,8 +1,9 @@
 mod discovery;
 mod options;
 mod recording;
+#[cfg(windows)]
+mod windows_job;
 pub use discovery::find_executable;
-use swarmie::{Error, Result};
 pub use options::{ProcessOptions, validate_environment};
 pub use recording::{Recorder, WireRecording};
 use serde_json::{Value, json};
@@ -15,6 +16,7 @@ use std::{
     },
     time::Duration,
 };
+use swarmie::{Error, Result};
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{ChildStdin, Command},
@@ -28,7 +30,7 @@ pub enum WireStyle {
     Claude,
 }
 struct Inner {
-    pid: Option<u32>,
+    tree: ProcessTree,
     stdin: tokio::sync::Mutex<Option<ChildStdin>>,
     pending: Arc<Mutex<BTreeMap<String, oneshot::Sender<Result<Value>>>>>,
     next: AtomicU64,
@@ -60,7 +62,7 @@ fn diagnostic(events: &mpsc::Sender<Value>, value: Value) {
 impl Drop for Inner {
     fn drop(&mut self) {
         if !self.exited.load(Ordering::SeqCst) {
-            kill_group(self.pid);
+            self.tree.terminate();
         }
         let _ = self.kill.send(());
     }
@@ -133,7 +135,7 @@ impl JsonProcess {
         #[cfg(unix)]
         command.process_group(0);
         let mut child = command.spawn()?;
-        let pid = child.id();
+        let tree = ProcessTree::attach(&mut child)?;
         let stdin = child
             .stdin
             .take()
@@ -304,9 +306,10 @@ impl JsonProcess {
         let stderr_task_log = stderr.clone();
         let pending_task = pending.clone();
         let retained_events = events.clone();
+        let supervised_tree = tree.clone();
         tokio::spawn(async move {
-            let status = tokio::select! { s = child.wait() => s, _ = kill_rx.recv() => { kill_group(pid); let _ = child.kill().await; child.wait().await } };
-            kill_group(pid);
+            let status = tokio::select! { s = child.wait() => s, _ = kill_rx.recv() => { supervised_tree.terminate(); let _ = child.kill().await; child.wait().await } };
+            supervised_tree.terminate();
             exited_task.store(true, Ordering::SeqCst);
             // Process exit does not imply its pipe is empty. Drain through EOF before
             // failing pending responses, including the final native completion.
@@ -343,7 +346,7 @@ impl JsonProcess {
         });
         Ok((
             Self(Arc::new(Inner {
-                pid,
+                tree,
                 stdin: tokio::sync::Mutex::new(Some(stdin)),
                 pending,
                 next: AtomicU64::new(1),
@@ -481,54 +484,226 @@ impl Drop for PendingGuard {
         self.pending.lock().unwrap().remove(&self.key);
     }
 }
-fn kill_group(pid: Option<u32>) {
+#[derive(Clone)]
+struct ProcessTree {
     #[cfg(unix)]
-    if let Some(pid) = pid {
-        unsafe {
-            libc::kill(-(pid as i32), libc::SIGKILL);
-        }
+    pid: Option<u32>,
+    #[cfg(windows)]
+    job: Arc<windows_job::Job>,
+}
+impl ProcessTree {
+    fn attach(child: &mut tokio::process::Child) -> Result<Self> {
+        Ok(Self {
+            #[cfg(unix)]
+            pid: child.id(),
+            #[cfg(windows)]
+            job: Arc::new(windows_job::Job::attach(child)?),
+        })
     }
-    #[cfg(not(unix))]
-    let _ = pid;
+    fn terminate(&self) {
+        #[cfg(unix)]
+        if let Some(pid) = self.pid {
+            unsafe {
+                libc::kill(-(pid as i32), libc::SIGKILL);
+            }
+        }
+        #[cfg(windows)]
+        self.job.terminate();
+    }
 }
 /// Supervised process for servers whose stdout is diagnostic rather than JSONL.
 pub struct ManagedProcess {
-    pid: Option<u32>,
+    tree: ProcessTree,
     kill: mpsc::UnboundedSender<()>,
     exited: Arc<AtomicBool>,
+    status: Arc<Mutex<Option<std::process::ExitStatus>>>,
 }
+type ManagedPipes = (
+    ManagedProcess,
+    Option<tokio::process::ChildStdin>,
+    Option<tokio::process::ChildStdout>,
+    Option<tokio::process::ChildStderr>,
+);
 impl ManagedProcess {
+    /// A private native authentication terminal with owned process-group cleanup.
+    #[cfg(unix)]
+    pub async fn spawn_with_terminal(
+        executable: &Path,
+        args: &[String],
+        cwd: &Path,
+        env: &[(String, String)],
+    ) -> Result<(Self, tokio::fs::File, tokio::fs::File)> {
+        use std::os::fd::{AsRawFd, FromRawFd};
+        validate_environment(&env.iter().cloned().collect())?;
+        let mut master = -1;
+        let mut slave = -1;
+        let mut size = libc::winsize {
+            ws_row: 40,
+            ws_col: 120,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        // openpty transfers two fresh descriptors, immediately owned by Files.
+        if unsafe {
+            libc::openpty(
+                &mut master,
+                &mut slave,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::addr_of_mut!(size),
+            )
+        } != 0
+        {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        let master = unsafe { std::fs::File::from_raw_fd(master) };
+        let slave = unsafe { std::fs::File::from_raw_fd(slave) };
+        for file in [&master, &slave] {
+            if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) } < 0 {
+                return Err(std::io::Error::last_os_error().into());
+            }
+        }
+        let mut command = Command::new(executable);
+        command
+            .args(args)
+            .current_dir(cwd)
+            .envs(env.iter().cloned())
+            .stdin(slave.try_clone()?)
+            .stdout(slave.try_clone()?)
+            .stderr(slave)
+            .kill_on_drop(true);
+        // setsid establishes the same owned process group used by termination.
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0
+                    || libc::ioctl(libc::STDIN_FILENO, libc::TIOCSCTTY as _, 0) < 0
+                {
+                    return Err(std::io::Error::last_os_error());
+                }
+                let mut terminal = std::mem::zeroed();
+                if libc::tcgetattr(libc::STDIN_FILENO, &mut terminal) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                terminal.c_lflag &= !(libc::ECHO | libc::ECHONL);
+                if libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &terminal) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let child = command.spawn()?;
+        let input = tokio::fs::File::from_std(master.try_clone()?);
+        let output = tokio::fs::File::from_std(master);
+        Ok((Self::supervise(child)?, input, output))
+    }
     pub async fn spawn(
         executable: &Path,
         args: &[String],
         cwd: &Path,
         env: &[(String, String)],
     ) -> Result<Self> {
+        Self::spawn_inner(executable, args, cwd, env, false, false)
+            .await
+            .map(|(process, _, _, _)| process)
+    }
+    /// Capture a server's ready-line handshake while retaining process-group supervision.
+    pub async fn spawn_with_stderr(
+        executable: &Path,
+        args: &[String],
+        cwd: &Path,
+        env: &[(String, String)],
+    ) -> Result<(Self, tokio::process::ChildStderr)> {
+        let (process, _, _, stderr) =
+            Self::spawn_inner(executable, args, cwd, env, true, false).await?;
+        Ok((process, stderr.expect("captured server stderr")))
+    }
+    /// Private login IPC with the same bounded process-tree ownership as servers.
+    pub async fn spawn_with_pipes(
+        executable: &Path,
+        args: &[String],
+        cwd: &Path,
+        env: &[(String, String)],
+    ) -> Result<(
+        Self,
+        tokio::process::ChildStdin,
+        tokio::process::ChildStdout,
+        tokio::process::ChildStderr,
+    )> {
+        let (process, stdin, stdout, stderr) =
+            Self::spawn_inner(executable, args, cwd, env, true, true).await?;
+        Ok((
+            process,
+            stdin.expect("captured login stdin"),
+            stdout.expect("captured login stdout"),
+            stderr.expect("captured login stderr"),
+        ))
+    }
+    async fn spawn_inner(
+        executable: &Path,
+        args: &[String],
+        cwd: &Path,
+        env: &[(String, String)],
+        capture_stderr: bool,
+        capture_pipes: bool,
+    ) -> Result<ManagedPipes> {
         validate_environment(&env.iter().cloned().collect())?;
         let mut cmd = Command::new(executable);
         cmd.args(args)
             .current_dir(cwd)
             .envs(env.iter().cloned())
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::inherit())
+            .stdin(if capture_pipes {
+                std::process::Stdio::piped()
+            } else {
+                std::process::Stdio::null()
+            })
+            .stdout(if capture_pipes {
+                std::process::Stdio::piped()
+            } else {
+                std::process::Stdio::null()
+            })
+            .stderr(if capture_stderr {
+                std::process::Stdio::piped()
+            } else {
+                std::process::Stdio::inherit()
+            })
             .kill_on_drop(true);
         #[cfg(unix)]
         cmd.process_group(0);
         let mut child = cmd.spawn()?;
-        let pid = child.id();
+        let stdin = child.stdin.take();
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        Ok((Self::supervise(child)?, stdin, stdout, stderr))
+    }
+    fn supervise(mut child: tokio::process::Child) -> Result<Self> {
+        let tree = ProcessTree::attach(&mut child)?;
         let (kill, mut rx) = mpsc::unbounded_channel();
         let exited = Arc::new(AtomicBool::new(false));
+        let status = Arc::new(Mutex::new(None));
+        let completion = status.clone();
         let flag = exited.clone();
+        let supervised_tree = tree.clone();
         tokio::spawn(async move {
-            tokio::select! { _ = child.wait() => (), _ = rx.recv() => { kill_group(pid); let _ = child.kill().await; let _ = child.wait().await; } };
-            kill_group(pid);
+            let result = tokio::select! {
+                result = child.wait() => result,
+                _ = rx.recv() => { supervised_tree.terminate(); let _ = child.start_kill(); child.wait().await }
+            };
+            *completion.lock().unwrap() = result.ok();
+            supervised_tree.terminate();
             flag.store(true, Ordering::SeqCst);
         });
-        Ok(Self { pid, kill, exited })
+        Ok(Self {
+            tree,
+            kill,
+            exited,
+            status,
+        })
     }
     pub fn exited(&self) -> bool {
         self.exited.load(Ordering::SeqCst)
+    }
+    pub fn exit_status(&self) -> Option<std::process::ExitStatus> {
+        *self.status.lock().unwrap()
     }
     pub async fn kill(&self) -> Result<()> {
         let _ = self.kill.send(());
@@ -544,7 +719,7 @@ impl ManagedProcess {
 impl Drop for ManagedProcess {
     fn drop(&mut self) {
         if !self.exited() {
-            kill_group(self.pid);
+            self.tree.terminate();
         }
         let _ = self.kill.send(());
     }

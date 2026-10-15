@@ -19,6 +19,39 @@ EXECUTABLE = 'swarmie.exe' if WINDOWS else 'swarmie'
 FILES = ('bin/' + EXECUTABLE, 'LICENSE', 'NOTICE', 'runtime-package.json')
 
 
+def support_inventory(metadata):
+    inventory = metadata.get('supportFiles', {})
+    if not isinstance(inventory, dict):
+        raise SystemExit('Invalid runtime support inventory.')
+    for relative, checksum in inventory.items():
+        parts = relative.split('/')
+        if len(parts) < 2 or parts[0] != 'agent-tools' or any(part in ('', '.', '..') or '\\' in part or ':' in part for part in parts) or not isinstance(checksum, str) or len(checksum) != 64 or any(c not in '0123456789abcdef' for c in checksum):
+            raise SystemExit('Invalid runtime support inventory.')
+    return inventory
+
+
+def require_managed_path(root, relative):
+    path = root
+    for part in relative.split('/'):
+        path = path / part
+        require_plain_path(path)
+    return path
+
+
+def remove_empty_directories(prefix, files):
+    directories = {prefix}
+    for relative in files:
+        directory = (prefix / relative).parent
+        while directory != prefix:
+            directories.add(directory)
+            directory = directory.parent
+    for directory in sorted(directories, key=lambda path: len(path.parts), reverse=True):
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
+
+
 def digest(path):
     hasher = hashlib.sha256()
     with path.open('rb') as file:
@@ -94,6 +127,7 @@ def install(args):
     prefix = args.prefix.expanduser().absolute()
     bin_dir = args.bin_dir.expanduser().absolute()
     launcher = bin_dir / (EXECUTABLE)
+    support_hint = bin_dir / '.swarmie-runtime-location.json'
     target = prefix / 'bin' / EXECUTABLE
     for path in (prefix, prefix / 'bin', prefix / MARKER):
         require_plain_path(path)
@@ -103,13 +137,17 @@ def install(args):
         raise SystemExit('A managed runtime installation now exists; check the connection again.')
     if marker.exists():
         saved = json.loads(marker.read_text())
-        if saved.get('kind') != 'swarmie-runtime-install' or set(saved.get('files', {})) != set(FILES):
+        saved_files = saved.get('files', {})
+        if not isinstance(saved_files, dict):
+            raise SystemExit('Invalid runtime installation marker.')
+        extra_files = {relative: checksum for relative, checksum in saved_files.items() if relative not in FILES}
+        support_inventory({'supportFiles': extra_files})
+        if saved.get('kind') != 'swarmie-runtime-install' or not set(FILES).issubset(saved_files):
             raise SystemExit('Invalid runtime installation marker.')
         if saved.get('launcher') != str(launcher):
             raise SystemExit('Use the original --bin-dir to update or uninstall this installation.')
         for relative, expected in saved['files'].items():
-            path = prefix / relative
-            require_plain_path(path)
+            path = require_managed_path(prefix, relative)
             if not path.is_file() or digest(path) != expected:
                 raise SystemExit('Refusing to replace or remove modified installation file: ' + relative)
     elif prefix.exists() and any(prefix.iterdir()):
@@ -118,8 +156,15 @@ def install(args):
         owned_launcher = (saved is not None and not launcher.is_symlink() and launcher.is_file() and digest(launcher) == saved.get('launcherSha256')) if WINDOWS else (launcher.is_symlink() and os.readlink(launcher) == str(target))
         if not owned_launcher:
             raise SystemExit('Refusing to replace an unmanaged launcher: ' + str(launcher))
+    if WINDOWS:
+        require_plain_path(support_hint)
+        hint_record = saved.get('launcherSupportHint') if saved else None
+        if hint_record is not None and (hint_record.get('path') != str(support_hint) or not support_hint.is_file() or digest(support_hint) != hint_record.get('sha256')):
+            raise SystemExit('Refusing to replace or remove a modified runtime launcher support hint.')
+        if hint_record is None and support_hint.exists():
+            raise SystemExit('Refusing to replace an unmanaged runtime launcher support hint.')
     if WINDOWS and saved is not None:
-        windows_preflight([prefix / relative for relative in FILES] + [launcher])
+        windows_preflight([prefix / relative for relative in saved['files']] + [launcher, support_hint])
     if args.uninstall:
         if saved is None:
             raise SystemExit('No managed runtime installation exists at this prefix.')
@@ -133,15 +178,13 @@ def install(args):
                     raise SystemExit('The service still references this installation. Explicitly stop and uninstall the service first.')
         if launcher.exists() or launcher.is_symlink():
             launcher.unlink()
-        for relative in FILES:
+        if WINDOWS and saved.get('launcherSupportHint'):
+            support_hint.unlink()
+        for relative in saved['files']:
             (prefix / relative).unlink()
         marker.unlink()
         # Remove only empty installation directories; never recursively delete user content.
-        for directory in (prefix / 'bin', prefix):
-            try:
-                directory.rmdir()
-            except OSError:
-                pass
+        remove_empty_directories(prefix, saved['files'])
         print(json.dumps({'installed': False, 'dataPreserved': True, 'processesStopped': False}))
         return
     package = args.package.expanduser().resolve()
@@ -150,6 +193,20 @@ def install(args):
         if path.is_symlink() or not path.is_file():
             raise SystemExit('Incomplete runtime package: ' + relative)
     metadata = json.loads((package / 'runtime-package.json').read_text())
+    support_files = support_inventory(metadata)
+    files = tuple(FILES) + tuple(support_files)
+    for relative, expected in support_files.items():
+        path = require_managed_path(package, relative)
+        if not path.is_file() or digest(path) != expected:
+            raise SystemExit('Runtime support file SHA-256 does not match the package metadata: ' + relative)
+    if (package / 'agent-tools').exists():
+        actual_support = {'agent-tools/' + path.relative_to(package / 'agent-tools').as_posix() for path in (package / 'agent-tools').rglob('*') if path.is_file() or path.is_symlink()}
+        if actual_support != set(support_files):
+            raise SystemExit('Runtime support directory does not match the package inventory.')
+    for relative in files:
+        require_managed_path(prefix, relative)
+        if saved is not None and relative not in saved['files'] and (prefix / relative).exists():
+            raise SystemExit('Refusing to replace an unmanaged installation file: ' + relative)
     system = {'Linux': 'linux', 'Darwin': 'macos', 'Windows': 'windows'}.get(platform.system())
     arch = {'x86_64': 'x86_64', 'amd64': 'x86_64', 'aarch64': 'aarch64', 'arm64': 'aarch64'}.get(platform.machine().lower())
     if metadata.get('kind') != 'swarmie-runtime' or metadata.get('platform') != f'{system}-{arch}':
@@ -167,21 +224,28 @@ def install(args):
     # Unix keeps loaded executables alive. Windows refuses replacement of an in-use file.
     with tempfile.TemporaryDirectory(prefix='.swarmie-runtime-stage-', dir=prefix.parent) as temporary:
         staging = Path(temporary)
-        for relative in FILES:
+        for relative in files:
             path = staging / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(package / relative, path)
         record = {'kind': 'swarmie-runtime-install', 'launcher': str(launcher),
-                  'files': {relative: digest(staging / relative) for relative in FILES}}
+                  'files': {relative: digest(staging / relative) for relative in files}}
         if WINDOWS:
             record['launcherSha256'] = digest(staging / 'bin' / EXECUTABLE)
+            hint = staging / '.swarmie-runtime-location.json'
+            hint.write_text(json.dumps({'agentToolsDirectory': str(prefix / 'agent-tools')}) + '\n')
+            record['launcherSupportHint'] = {'path': str(support_hint), 'sha256': digest(hint)}
         (staging / MARKER).write_text(json.dumps(record, indent=2) + '\n')
-        for relative in FILES:
+        for relative in files:
+            (prefix / relative).parent.mkdir(parents=True, exist_ok=True)
             try:
                 os.replace(staging / relative, prefix / relative)
             except PermissionError:
                 raise SystemExit('The runtime executable or an installation file is in use or protected. Explicitly stop execution before updating on Windows, then retry.') from None
         os.replace(staging / MARKER, marker)
+        if saved is not None:
+            for relative in set(saved['files']) - set(files):
+                (prefix / relative).unlink()
         # Stage on the launcher filesystem so replacement also works with separate mounts.
         descriptor, pending = tempfile.mkstemp(prefix='.swarmie-runtime-link-', dir=bin_dir)
         os.close(descriptor)
@@ -193,6 +257,16 @@ def install(args):
                 pending.unlink()
                 pending.symlink_to(target)
             os.replace(pending, launcher)
+            if WINDOWS:
+                descriptor, pending_hint = tempfile.mkstemp(prefix='.swarmie-runtime-hint-', dir=bin_dir)
+                os.close(descriptor)
+                pending_hint = Path(pending_hint)
+                try:
+                    shutil.copy2(hint, pending_hint)
+                    os.replace(pending_hint, support_hint)
+                finally:
+                    if pending_hint.exists():
+                        pending_hint.unlink()
         finally:
             if pending.is_symlink() or pending.exists():
                 pending.unlink()

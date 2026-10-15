@@ -1,8 +1,8 @@
 //! Operating-system window metadata, capture and accessibility context.
 use crate::{WorkspaceExtension, assets, command, required};
-use swarmie::{Error, Result};
 use serde_json::{Value, json};
 use std::path::PathBuf;
+use swarmie::{Error, Result};
 fn program(extension: &WorkspaceExtension, name: &str) -> PathBuf {
     extension
         .integrations

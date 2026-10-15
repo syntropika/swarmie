@@ -30,6 +30,8 @@ pub(crate) enum Command {
     Configure(Value, Reply<ConfigurationReceipt>),
     Configuration(Reply<Vec<SettingDescriptor>>),
     SlashCommands(Reply<Value>),
+    Tasks(Reply<Vec<AgentTask>>),
+    StopTask(String, Reply<()>),
     Quotas(Reply<Value>),
     Models(Reply<Vec<ModelDescriptor>>),
     Rollback(u64, RollbackScope, Option<u64>, Reply<()>),
@@ -187,6 +189,16 @@ impl Agent {
     pub async fn slash_commands(&self) -> Result<Value> {
         self.request(Command::SlashCommands).await
     }
+    pub async fn tasks(&self) -> Result<Vec<AgentTask>> {
+        self.request(Command::Tasks).await
+    }
+    pub async fn stop_task(&self, task_id: &str) -> Result<()> {
+        if task_id.is_empty() || task_id.len() > 4096 || task_id.chars().any(char::is_control) {
+            return Err(Error::Invalid("invalid background task identifier".into()));
+        }
+        self.request(|reply| Command::StopTask(task_id.into(), reply))
+            .await
+    }
     pub async fn quotas(&self) -> Result<Value> {
         self.request(Command::Quotas).await
     }
@@ -226,6 +238,7 @@ pub(crate) struct Engine {
     pub backend: Arc<dyn AgentBackend>,
     pub input: mpsc::Receiver<BackendEvent>,
     pub commands: mpsc::UnboundedReceiver<Command>,
+    pub task_controls: tokio::task::JoinSet<()>,
     pub snapshot: SessionSnapshot,
     pub shared: Arc<RwLock<SessionSnapshot>>,
     pub events: broadcast::Sender<RuntimeEvent>,
@@ -246,6 +259,10 @@ impl Drop for Engine {
     }
 }
 impl Engine {
+    async fn stop_task_controls(&mut self) {
+        self.task_controls.abort_all();
+        while self.task_controls.join_next().await.is_some() {}
+    }
     pub(crate) async fn emit(&mut self, kind: EventKind, raw: Option<Value>) {
         if self.storage_error.is_some() {
             return;
@@ -281,6 +298,7 @@ impl Engine {
             self.storage_error = Some(error.to_string());
             self.snapshot.state = SessionState::Failed;
             self.closed.store(true, Ordering::SeqCst);
+            self.stop_task_controls().await;
             if let Some(tools) = &self.host_tools {
                 tools.revoke();
             }
@@ -807,6 +825,7 @@ impl Engine {
                 }
             }
             BackendEvent::Exited { message } => {
+                self.stop_task_controls().await;
                 self.emit(EventKind::Error { message }, None).await;
                 self.clear_permissions().await;
                 self.finish(TurnOutcome::Failed, None, None).await;
@@ -848,6 +867,7 @@ impl Engine {
                 command = self.commands.recv() => match command {
                     Some(Command::Close(_, _)) | None => {
                         if let Some(tools) = &self.host_tools { tools.revoke(); }
+                        self.stop_task_controls().await;
                         let result = self.backend.kill().await;
                         self.snapshot.queue.paused = true; self.clear_permissions().await; self.finish(TurnOutcome::Cancelled,None,None).await; self.state(SessionState::Closed).await;
                         self.closed.store(true,Ordering::SeqCst); self.emit(EventKind::SessionEnded,None).await; self.persist().await;
@@ -876,18 +896,34 @@ impl Engine {
                     Some(Command::Steer(_,r) | Command::Rollback(_,_,_,r) | Command::Compact(r)) => { let _ = r.send(Err(Error::Busy)); }
                     Some(Command::Permission(_,r)) => { let _ = r.send(Err(Error::Busy)); }
                     Some(Command::Models(r)) => { let _ = r.send(Err(Error::Busy)); }
+                    Some(Command::Tasks(reply)) => {
+                        let backend = self.backend.clone(); let capability = self.snapshot.capabilities.background_tasks.clone();
+                        self.task_controls.spawn(async move {
+                            let result = tokio::time::timeout(std::time::Duration::from_secs(5), async { capability.require("background tasks")?; backend.tasks().await }).await.unwrap_or_else(|_| Err(Error::Timeout("background task status".into())));
+                            let _ = reply.send(result);
+                        });
+                    }
+                    Some(Command::StopTask(task_id,reply)) => {
+                        let backend = self.backend.clone(); let capability = self.snapshot.capabilities.background_tasks.clone();
+                        self.task_controls.spawn(async move {
+                            let result = tokio::time::timeout(std::time::Duration::from_secs(5), async { capability.require("background task control")?; backend.stop_task(&task_id).await }).await.unwrap_or_else(|_| Err(Error::Timeout("background task stop acknowledgement".into())));
+                            let _ = reply.send(result);
+                        });
+                    }
                     Some(Command::Configuration(r)) => { let _ = r.send(Err(Error::Busy)); }
                     Some(Command::Configure(_,r)) => { let _ = r.send(Err(Error::Busy)); }
                     Some(Command::SlashCommands(r) | Command::Quotas(r)) => { let _ = r.send(Err(Error::Busy)); }
                     Some(command @ (Command::QueueAdd(..) | Command::QueueUpdate(..) | Command::QueueRemove(..) | Command::QueuePause(..) | Command::Metadata(..))) => self.queue_command(command).await,
                 },
                 _ = &mut cancel_deadline, if !cancel_replies.is_empty() => {
+                    self.stop_task_controls().await;
                     let _ = self.backend.kill().await;
                     self.snapshot.queue.paused = true; self.clear_permissions().await; self.finish(TurnOutcome::Cancelled,None,None).await; self.state(SessionState::Closed).await;
                     self.closed.store(true,Ordering::SeqCst); self.emit(EventKind::SessionEnded,None).await; self.persist().await;
                     for reply in cancel_replies { let _ = reply.send(Err(Error::Timeout("prompt acceptance during cancellation; session terminated".into()))); }
                     return Err(Error::Closed);
                 }
+                _ = self.task_controls.join_next(), if !self.task_controls.is_empty() => {}
             }
         }
     }
@@ -986,6 +1022,8 @@ impl Engine {
                         Command::Models(reply) => { let backend = self.backend.clone(); let capability = self.snapshot.capabilities.models.clone(); let result = self.controlled(Box::pin(async move { capability.require("models")?; backend.models().await }),false).await; let _ = reply.send(result); }
                         Command::Configuration(reply) => { let result = self.describe_configuration().await; let _ = reply.send(result); }
                         Command::SlashCommands(reply) => { let backend = self.backend.clone(); let result = self.controlled(Box::pin(async move { backend.commands().await }),false).await; let _ = reply.send(result); }
+                        Command::Tasks(reply) => { let backend = self.backend.clone(); let capability = self.snapshot.capabilities.background_tasks.clone(); let result = self.controlled(Box::pin(async move { capability.require("background tasks")?; backend.tasks().await }),false).await; let _ = reply.send(result); }
+                        Command::StopTask(task_id, reply) => { let backend = self.backend.clone(); let capability = self.snapshot.capabilities.background_tasks.clone(); let result = self.controlled(Box::pin(async move { capability.require("background task control")?; backend.stop_task(&task_id).await }),false).await; let _ = reply.send(result); }
                         Command::Quotas(reply) => { let backend = self.backend.clone(); let result = self.controlled(Box::pin(async move { backend.quotas().await }),false).await; let _ = reply.send(result); }
                         Command::Configure(v, reply) => {
                             let result = self.apply_configuration(v).await;
@@ -1012,6 +1050,7 @@ impl Engine {
                         Command::Compact(reply) => { let result = if self.dispatch_blocked() || self.snapshot.turn.is_some() || !self.permissions.is_empty() { Err(Error::Busy) } else { { let backend = self.backend.clone(); self.controlled(Box::pin(async move { backend.compact().await }),false).await } }; let _ = reply.send(result); }
                         Command::Close(kill, reply) => {
                             if let Some(tools) = &self.host_tools { tools.revoke(); }
+                            self.stop_task_controls().await;
                             // Native teardown settles control requests without waiting for an
                             // approval acknowledgement that the provider may never complete.
                             let result = if kill { self.backend.kill().await } else { self.backend.close().await };
@@ -1026,11 +1065,13 @@ impl Engine {
                     let event = event.unwrap_or(BackendEvent::Exited { message: "provider event stream closed".into() });
                     if self.handle_event(event).await { break; }
                 }
+                _ = self.task_controls.join_next(), if !self.task_controls.is_empty() => {}
             }
         }
         if let Some(tools) = &self.host_tools {
             tools.revoke();
         }
+        self.stop_task_controls().await;
         let _ = self.backend.kill().await;
         for ext in &self.extensions {
             ext.on_session_closed(&self.snapshot).await;

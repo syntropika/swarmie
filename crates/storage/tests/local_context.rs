@@ -1,11 +1,11 @@
 use async_trait::async_trait;
+use serde_json::json;
+use std::path::Path;
+use storage::SqliteSessionStore;
 use swarmie::{
     mock::{MockHarness, MockScript},
     *,
 };
-use serde_json::json;
-use std::path::Path;
-use storage::SqliteSessionStore;
 
 struct Resumable(MockHarness);
 #[async_trait]

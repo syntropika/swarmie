@@ -5,7 +5,15 @@ import os
 import sys
 
 mode = sys.argv[1]
-permission = sys.argv[sys.argv.index('--permission-mode') + 1] if '--permission-mode' in sys.argv else 'default'
+def flag(name, default=None):
+    for index, argument in enumerate(sys.argv):
+        if argument.startswith(name + '='):
+            return argument[len(name) + 1:]
+        if argument == name and index + 1 < len(sys.argv):
+            return sys.argv[index + 1]
+    return default
+
+permission = flag('--permission-mode', 'default')
 
 def emit(value):
     print(json.dumps(value), flush=True)
@@ -41,7 +49,7 @@ for line in sys.stdin:
                 permission = command['mode']
             emit({'type': 'control_response', 'response': {'subtype': 'success', 'request_id': request['request_id'], 'response': value}})
         elif request.get('type') == 'user':
-            session_id = sys.argv[sys.argv.index('--session-id') + 1]
+            session_id = flag('--session-id')
             emit({'type': 'system', 'subtype': 'init', 'session_id': session_id, 'permissionMode': permission})
             emit({'type': 'stream_event', 'event': {'type': 'content_block_delta', 'delta': {'type': 'text_delta', 'text': json.dumps({'permissionMode': permission})}}})
             emit({'type': 'result', 'is_error': False})

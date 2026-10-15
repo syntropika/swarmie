@@ -1,73 +1,164 @@
 // @vitest-environment happy-dom
 // Copyright 2026 Syntropika
 // SPDX-License-Identifier: Apache-2.0
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import type { AccountSessionPage } from "@swarmie/contracts";
+import { act, cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { AccountSecurity } from "./AccountSecurity";
-const fixture = vi.hoisted(() => ({ state: { account: undefined as any, error: "" }, request: vi.fn(), reconcile: vi.fn() }));
-vi.mock("./accountState", () => ({ useAccount: () => fixture.state, accountStore: { reconcile: fixture.reconcile } }));
-vi.mock("./account", () => ({ accountRequest: fixture.request }));
-const session = (id: string) => ({ id, installationId: "installation-id", authenticatedAt: "2026-10-10T10:00:00Z", createdAt: "2026-10-14T10:00:00Z", lastUsedAt: "2026-10-14T11:00:00Z", expiresAt: "2026-11-13T10:00:00Z" });
-const page = { current: session("current-session"), others: [session("other-session")], nextCursor: null };
-beforeEach(() => {
-  vi.clearAllMocks();
-  fixture.state = { account: { status: "signedIn", profile: { id: "account-a", email: "user@example.test" }, persistence: "secureVault" }, error: "" };
-  fixture.reconcile.mockResolvedValue({});
-});
+import { afterEach, expect, it, vi } from "vitest";
+
+import { AccountSecurity } from "./account-security";
+import {
+  AccountFixture,
+  accountSnapshot,
+  accountProfile,
+  accountSession,
+  renderAccount,
+  accountFixtureValue,
+} from "./account-test-fixture";
+import { record } from "./checked-json";
+import { deferred } from "./test-fixtures";
+
+const page: AccountSessionPage = {
+  current: accountSession("current-session"),
+  others: [accountSession("other-session")],
+  nextCursor: null,
+};
+function signedIn() {
+  return new AccountFixture(accountSnapshot({ status: "signedIn", profile: accountProfile() }));
+}
+function security(fixture: AccountFixture) {
+  return renderAccount(fixture, <AccountSecurity onProfile={vi.fn<() => void>()} />);
+}
 afterEach(cleanup);
 it("shows the authentication time when family creation happened later", async () => {
-  fixture.request.mockResolvedValueOnce(page);
-  render(<AccountSecurity onProfile={vi.fn()} />);
+  const fixture = signedIn();
+  fixture.handle("account/sessions/read", async () => page);
+  security(fixture);
   await screen.findByRole("button", { name: "Sign out session other-se" });
   for (const label of screen.getAllByText("Signed in", { exact: true })) {
-    const time = label.parentElement!.querySelector("time")!;
+    const time = accountFixtureValue(
+      accountFixtureValue(label.parentElement).querySelector("time"),
+    );
     expect(time.getAttribute("datetime")).toBe(page.current.authenticatedAt);
-    expect(time.textContent).toBe(new Date(page.current.authenticatedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }));
+    expect(time.textContent).toBe(
+      new Date(page.current.authenticatedAt).toLocaleString(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }),
+    );
   }
 });
 it("revokes only the selected session with the displayed account intent and refreshes metadata", async () => {
-  fixture.request.mockResolvedValueOnce(page).mockResolvedValueOnce({ status: "signedIn" }).mockResolvedValueOnce({ ...page, others: [] });
-  render(<AccountSecurity onProfile={vi.fn()} />);
-  const user = userEvent.setup();
-  await user.click(await screen.findByRole("button", { name: "Sign out session other-se" }));
+  const fixture = signedIn();
+  let currentPage = page;
+  fixture.handle("account/sessions/read", async () => currentPage);
+  fixture.handle("account/sessions/revoke", async () => {
+    currentPage = { ...page, others: [] };
+    return fixture.snapshot;
+  });
+  security(fixture);
+  await userEvent.click(await screen.findByRole("button", { name: "Sign out session other-se" }));
   await screen.findByText("No other active native sessions.");
-  expect(fixture.request).toHaveBeenNthCalledWith(2, "account/sessions/revoke", { expectedAccountId: "account-a", sessionId: "other-session" });
+  expect(fixture.calls("account/sessions/revoke")).toEqual([
+    { expectedAccountId: "account-a", sessionId: "other-session" },
+  ]);
   expect(screen.getByRole("status").textContent).toContain("selected native session");
 });
-it("requires an explicit confirmation for global sign-out and does not claim success on failure", async () => {
-  fixture.request.mockResolvedValueOnce(page).mockRejectedValueOnce(new Error("Account service is unavailable"));
-  render(<AccountSecurity onProfile={vi.fn()} />);
-  const user = userEvent.setup();
+it("requires explicit confirmation for global sign-out and does not claim success on failure", async () => {
+  const fixture = signedIn();
+  fixture.handle("account/sessions/read", async () => page);
+  fixture.handle("account/sessions/revoke-all", async () => {
+    throw new Error("Account service is unavailable");
+  });
+  security(fixture);
   await screen.findByRole("button", { name: "Sign out session other-se" });
-  await user.click(screen.getByRole("button", { name: "Sign out all native sessions" }));
-  expect(fixture.request).toHaveBeenCalledTimes(1);
+  await userEvent.click(screen.getByRole("button", { name: "Sign out all native sessions" }));
+  expect(fixture.calls("account/sessions/revoke-all")).toEqual([]);
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }));
-  await user.click(screen.getByRole("button", { name: "Confirm sign out everywhere" }));
-  expect((await screen.findByRole("alert")).textContent).toContain("unavailable");
-  expect(fixture.request).toHaveBeenNthCalledWith(2, "account/sessions/revoke-all", { expectedAccountId: "account-a" });
-  expect(screen.queryByRole("status")).toBeNull();
-  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Refresh session state" }));
-  expect(fixture.reconcile).toHaveBeenCalledTimes(1);
+  await userEvent.click(screen.getByRole("button", { name: "Confirm sign out everywhere" }));
+  await screen.findAllByText(/Account service is unavailable/u);
+  expect(fixture.calls("account/sessions/revoke-all")).toEqual([
+    { expectedAccountId: "account-a" },
+  ]);
+  expect(
+    screen.queryByText(
+      "All native sessions are signed out. Your browser session remains available.",
+    ),
+  ).toBeNull();
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Refresh session state" }),
+  );
 });
 it("offers a retry after a failed session read without hiding local sign-out", async () => {
-  fixture.request.mockRejectedValueOnce(new Error("Service unavailable")).mockResolvedValueOnce(page);
-  render(<AccountSecurity onProfile={vi.fn()} />);
-  const user = userEvent.setup();
+  const fixture = signedIn();
+  let reads = 0;
+  fixture.handle("account/sessions/read", async () => {
+    reads += 1;
+    if (reads === 1) {
+      throw new Error("Service unavailable");
+    }
+    return page;
+  });
+  security(fixture);
   await screen.findByRole("alert");
   expect(screen.getByRole("button", { name: "Sign out of this installation" })).toBeDefined();
-  await user.click(screen.getByRole("button", { name: "Refresh sessions" }));
+  await userEvent.click(screen.getByRole("button", { name: "Refresh sessions" }));
   await screen.findByRole("button", { name: "Sign out session other-se" });
   expect(screen.queryByRole("alert")).toBeNull();
+  expect(reads).toBe(2);
 });
-it("discards a former account's delayed session response after the observed identity changes", async () => {
-  let finish!: (value: unknown) => void;
-  fixture.request.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; })).mockResolvedValueOnce({ ...page, others: [] });
-  const view = render(<AccountSecurity onProfile={vi.fn()} />);
-  fixture.state.account = { ...fixture.state.account, profile: { id: "account-b", email: "other@example.test" } };
-  view.rerender(<AccountSecurity onProfile={vi.fn()} />);
+it("discards a former account's delayed session response after observed identity changes", async () => {
+  const fixture = signedIn();
+  const previous = deferred<AccountSessionPage>();
+  fixture.handle("account/sessions/read", async (params) =>
+    record(params).expectedAccountId === "account-a"
+      ? await previous.promise
+      : { ...page, others: [] },
+  );
+  security(fixture);
+  await waitFor(() => {
+    expect(fixture.calls("account/sessions/read")).toHaveLength(1);
+  });
+  act(() => {
+    fixture.publish(
+      accountSnapshot({
+        status: "signedIn",
+        profile: accountProfile({ id: "account-b", email: "other@example.test" }),
+      }),
+    );
+  });
   await screen.findByText("No other active native sessions.");
-  finish(page);
-  await waitFor(() => expect(screen.queryByRole("button", { name: "Sign out session other-se" })).toBeNull());
-  expect(fixture.request).toHaveBeenNthCalledWith(2, "account/sessions/read", { expectedAccountId: "account-b" });
+  await act(async () => {
+    previous.resolve(page);
+    await previous.promise;
+  });
+  expect(screen.queryByRole("button", { name: "Sign out session other-se" })).toBeNull();
+  expect(fixture.calls("account/sessions/read").at(1)).toEqual({ expectedAccountId: "account-b" });
+});
+it("does not display an earlier principal's delayed revoke failure on the replacement account", async () => {
+  const fixture = signedIn();
+  const revoke = deferred<unknown>();
+  fixture.handle("account/sessions/read", async (params) =>
+    record(params).expectedAccountId === "account-a" ? page : { ...page, others: [] },
+  );
+  fixture.handle("account/sessions/revoke", async () => await revoke.promise);
+  security(fixture);
+  await userEvent.click(await screen.findByRole("button", { name: "Sign out session other-se" }));
+  act(() => {
+    fixture.publish(
+      accountSnapshot({
+        status: "signedIn",
+        profile: accountProfile({ id: "account-b", email: "other@example.test" }),
+      }),
+    );
+  });
+  await screen.findByText("other@example.test");
+  await act(async () => {
+    revoke.reject(new Error("Previous account revoke failed"));
+    await expect(revoke.promise).rejects.toThrow("Previous account revoke failed");
+  });
+  expect(screen.queryByText(/Previous account revoke failed/u)).toBeNull();
+  expect(fixture.calls("account/sessions/revoke")).toEqual([
+    { expectedAccountId: "account-a", sessionId: "other-session" },
+  ]);
 });

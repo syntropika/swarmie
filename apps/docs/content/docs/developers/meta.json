@@ -1,9 +1,4 @@
 {
   "title": "Developers",
-  "pages": [
-    "clients",
-    "rust-api",
-    "protocol",
-    "submissions"
-  ]
+  "pages": ["clients", "rust-api", "protocol", "submissions"]
 }

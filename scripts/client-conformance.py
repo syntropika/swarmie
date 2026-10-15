@@ -44,7 +44,8 @@ def verify_typescript_packages(environment):
         client,contracts=packaging.package_typescript(archives,build=False)
         consumer=root/'consumer';consumer.mkdir()
         (consumer/'package.json').write_text(json.dumps({'private':True,'type':'module'})+'\n')
-        run(['npm','install','--ignore-scripts','--offline','--no-audit','--no-fund',str(contracts),str(client)],cwd=consumer)
+        # A new consumer must resolve declared dependencies without relying on a warmed npm cache.
+        run(['npm','install','--ignore-scripts','--no-audit','--no-fund','--cache',str(root/'npm-cache'),str(contracts),str(client)],cwd=consumer)
         (consumer/'check.ts').write_text('import { Client, type InputSpawnOptions } from "@swarmie/client";\nimport type { SessionProjection } from "@swarmie/contracts";\nconst options: InputSpawnOptions = { harness: "codex", cwd: "/project" };\nconst client = Client.http("http://127.0.0.1:7457");\nvoid client.spawn(options);\nconst projection = null as unknown as SessionProjection;\nvoid projection.events;\n')
         run([str(CLIENTS/'typescript/node_modules/.bin/tsc'),'--strict','--noEmit','--target','ES2022','--module','NodeNext','--moduleResolution','NodeNext','check.ts'],cwd=consumer)
         run(['node','--input-type=module','-e','import { Client } from "@swarmie/client"; const client=Client.http(process.env.SWARMIE_TEST_URL,{token:process.env.SWARMIE_TEST_TOKEN}); try { if (!await client.initialize()) throw new Error("Runtime did not initialize"); } finally { client.dispose(); }'],cwd=consumer,env=environment)
@@ -63,6 +64,8 @@ def main():
     if args.swift_local and os.uname().sysname != 'Darwin': parser.error('--swift-local requires macOS')
     if not args.skip_swift and not args.swift_host and not args.swift_local: parser.error('--swift-host is required unless --skip-swift is set')
     if args.swift_host and args.swift_host.startswith('-'): raise SystemExit('Invalid SSH host')
+    # Contract generation uses the root formatter, so install tooling before starting the daemon.
+    run(['bun','install','--frozen-lockfile','--ignore-scripts'],cwd=PROJECT)
     ARTIFACTS.mkdir(parents=True,exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='daemon-',dir=ARTIFACTS) as directory:
         with socket.socket() as listener:listener.bind(('127.0.0.1',0));port=listener.getsockname()[1]
@@ -83,7 +86,6 @@ def main():
                     time.sleep(.05)
             run(['python3',str(CLIENTS/'tools/generate.py'),'--url',environment['SWARMIE_TEST_URL'],'--check'],env=environment)
             run(['python3',str(CLIENTS/'tools/build_native.py'), *(['--apple'] if args.swift_local else [])],cwd=PROJECT,env=environment)
-            run(['bun','install','--frozen-lockfile','--ignore-scripts'],cwd=PROJECT,env=environment)
             run(['bun','run','--cwd','sdk/typescript','test'],cwd=PROJECT,env=environment)
             verify_typescript_packages(environment)
             python_env={**environment,'PYTHONPATH':str(CLIENTS/'python')}

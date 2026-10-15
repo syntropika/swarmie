@@ -1,13 +1,14 @@
 #![cfg(unix)]
 use adapters::AntigravityHarness;
-use swarmie::*;
 use serde_json::{Value, json};
 use std::{path::PathBuf, time::Duration};
+use swarmie::*;
 
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
-        let path = std::env::temp_dir().join(format!("swarmie-antigravity-{}", uuid::Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("swarmie-antigravity-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&path).unwrap();
         Self(path)
     }
@@ -217,9 +218,6 @@ async fn unsupported_execution_and_non_text_prompts_fail_explicitly() {
     let mut ephemeral = options.clone();
     ephemeral.execution.ephemeral = true;
     variants.push(ephemeral);
-    let mut home = options.clone();
-    home.execution.config_home = Some(fixture.0.join("config"));
-    variants.push(home);
     let mut mcp = options.clone();
     mcp.execution.mcp_servers.push(McpServer {
         name: "fixture".into(),
@@ -260,5 +258,40 @@ async fn unsupported_execution_and_non_text_prompts_fail_explicitly() {
         connection.backend.configure(json!({"model":"other"})).await,
         Err(Error::Unsupported(_))
     ));
+    connection.backend.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn managed_gemini_launch_uses_private_native_home_and_preserves_parent_home() {
+    let fixture = Fixture::new();
+    let parent_home = std::env::var_os("HOME");
+    let overlay = adapters::setup::providers::credential_overlay(
+        "antigravity",
+        "google",
+        "fixture-private-gemini-key",
+        &fixture.0,
+    )
+    .unwrap();
+    let private_home = overlay.config_home.clone().unwrap().canonicalize().unwrap();
+    let mut options = fixture.options();
+    options.execution.config_home = overlay.config_home;
+    options.execution.env = overlay.env;
+    let mut connection = AntigravityHarness
+        .connect(&options, None, false)
+        .await
+        .unwrap();
+    connection
+        .backend
+        .prompt(&Prompt::from("home"))
+        .await
+        .unwrap();
+    let (receipt, _, outcome) = finish(&mut connection).await;
+    assert_eq!(outcome, "completed");
+    assert_eq!(receipt["home"], private_home.to_string_lossy().as_ref());
+    assert!(receipt["geminiHome"].is_null());
+    assert_eq!(receipt["settings"]["modelProvider"], "gemini");
+    assert_eq!(receipt["geminiKeyPresent"], true);
+    assert!(!receipt.to_string().contains("fixture-private-gemini-key"));
+    assert_eq!(std::env::var_os("HOME"), parent_home);
     connection.backend.close().await.unwrap();
 }

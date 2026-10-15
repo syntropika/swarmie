@@ -4,9 +4,9 @@ use crate::{
     repository::{git, utf8},
     required,
 };
-use swarmie::{Error, Result};
 use serde_json::{Value, json};
 use std::{path::Path, process::Stdio, time::Duration};
+use swarmie::{Error, Result};
 use tokio::{io::AsyncReadExt, process::Command};
 
 pub fn validate(p: &Value) -> Result<Value> {

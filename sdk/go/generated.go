@@ -5,7 +5,18 @@ import "encoding/json"
 
 type AccountQuotaResult = json.RawMessage
 
+type AgentTask struct {
+	Description string          `json:"description"`
+	Id          string          `json:"id"`
+	Kind        *string         `json:"kind,omitempty"`
+	Status      AgentTaskStatus `json:"status"`
+	Summary     *string         `json:"summary,omitempty"`
+}
+
+type AgentTaskStatus string
+
 type Capabilities struct {
+	BackgroundTasks          Capability                 `json:"backgroundTasks"`
 	Cancel                   Capability                 `json:"cancel"`
 	Commands                 Capability                 `json:"commands"`
 	Compact                  Capability                 `json:"compact"`
@@ -680,4 +691,4 @@ type WorkingContext struct {
 	Source        ContextSource     `json:"source"`
 }
 
-var Methods = []string{"agent/commands", "agent/configuration", "agent/configure", "agent/kill", "agent/models", "agent/quotas", "agent/spawn", "directory/get", "directory/register", "extension/invoke", "extension/list", "permission/respond", "project/create", "project/get", "project/list", "project/update", "runtime/configuration", "runtime/discover", "runtime/generate", "runtime/history", "runtime/history/read", "runtime/initialize", "runtime/probe", "runtime/quotas", "runtime/quotas/all", "runtime/schema", "runtime/shutdown", "session/cancel", "session/close", "session/compact", "session/context", "session/create", "session/events", "session/fork", "session/get", "session/import", "session/list", "session/metadata", "session/prompt", "session/queue", "session/queue/list", "session/queue/pause", "session/queue/remove", "session/queue/update", "session/resume", "session/rollback", "session/steer", "session/submission", "session/submission/reconcile", "session/transcript", "session/tree", "settings/directory", "settings/setDirectory"}
+var Methods = []string{"agent/commands", "agent/configuration", "agent/configure", "agent/kill", "agent/models", "agent/quotas", "agent/spawn", "directory/get", "directory/register", "extension/invoke", "extension/list", "permission/respond", "project/create", "project/get", "project/list", "project/update", "runtime/agentToolsCancel", "runtime/agentToolsConnect", "runtime/agentToolsDisconnect", "runtime/agentToolsFlow", "runtime/agentToolsInput", "runtime/agentToolsInstall", "runtime/agentToolsSetup", "runtime/configuration", "runtime/discover", "runtime/generate", "runtime/history", "runtime/history/read", "runtime/initialize", "runtime/probe", "runtime/quotas", "runtime/quotas/all", "runtime/schema", "runtime/shutdown", "session/cancel", "session/close", "session/compact", "session/context", "session/create", "session/events", "session/fork", "session/get", "session/import", "session/list", "session/metadata", "session/prompt", "session/queue", "session/queue/list", "session/queue/pause", "session/queue/remove", "session/queue/update", "session/resume", "session/rollback", "session/steer", "session/submission", "session/submission/reconcile", "session/task/stop", "session/tasks", "session/transcript", "session/tree", "settings/directory", "settings/setDirectory"}

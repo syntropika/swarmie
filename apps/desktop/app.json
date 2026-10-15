@@ -5,21 +5,10 @@
   "display_name": "Swarmie",
   "description": "A native workspace for agent sessions and Git review.",
   "version": "0.1.0",
-  "icons": [
-    "assets/icon.png"
-  ],
-  "platforms": [
-    "linux",
-    "macos",
-    "windows"
-  ],
-  "permissions": [
-    "clipboard",
-    "notifications"
-  ],
-  "capabilities": [
-    "webview"
-  ],
+  "icons": ["assets/icon.png"],
+  "platforms": ["linux", "macos", "windows"],
+  "permissions": ["clipboard", "notifications"],
+  "capabilities": ["webview"],
   "shell": {
     "windows": [
       {
@@ -41,9 +30,7 @@
   },
   "security": {
     "navigation": {
-      "allowed_origins": [
-        "http://127.0.0.1:7447"
-      ],
+      "allowed_origins": ["http://127.0.0.1:7447"],
       "external_links": {
         "action": "deny"
       }

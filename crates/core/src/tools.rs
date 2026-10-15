@@ -337,7 +337,8 @@ pub(crate) struct HostTools {
 }
 impl HostTools {
     pub(crate) fn transport(&self, server: McpServer) -> Result<()> {
-        if server.name != "swarmie_host" || !matches!(server.transport, McpTransport::Stdio { .. }) {
+        if server.name != "swarmie_host" || !matches!(server.transport, McpTransport::Stdio { .. })
+        {
             return Err(Error::Invalid(
                 "host tool delivery requires the reserved swarmie_host stdio server".into(),
             ));

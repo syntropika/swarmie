@@ -3,16 +3,22 @@ name: Validate public documentation
 on:
   pull_request:
     paths:
-      - 'apps/docs/**'
-      - 'packages/contracts/**'
-      - 'assets/brandkit/**'
-      - '.github/workflows/docs.yml'
+      - "apps/docs/**"
+      - "packages/contracts/**"
+      - "assets/brandkit/**"
+      - "package.json"
+      - "bun.lock"
+      - "oxfmt.config.ts"
+      - ".github/workflows/docs.yml"
   push:
     paths:
-      - 'apps/docs/**'
-      - 'packages/contracts/**'
-      - 'assets/brandkit/**'
-      - '.github/workflows/docs.yml'
+      - "apps/docs/**"
+      - "packages/contracts/**"
+      - "assets/brandkit/**"
+      - "package.json"
+      - "bun.lock"
+      - "oxfmt.config.ts"
+      - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 permissions:
@@ -28,9 +34,14 @@ jobs:
           submodules: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
           cache-dependency-path: apps/docs/package-lock.json
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.10"
+      - name: Install workspace tooling
+        run: bun install --frozen-lockfile --ignore-scripts
       - run: npm --prefix apps/docs ci
       - run: npm --prefix apps/docs run test:generated
       - run: npm --prefix apps/docs run check

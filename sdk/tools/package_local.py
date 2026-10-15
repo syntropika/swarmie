@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Build local client packages and a current-host runtime executable bundle."""
 import argparse, hashlib, json, os, pathlib, platform, shutil, subprocess, sys, tarfile, tempfile
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / 'scripts/distribution'))
+from agent_tools import copy_agent_tools
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PROJECT = ROOT.parent
@@ -41,6 +43,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary',type=pathlib.Path,default=PROJECT/'target/release/swarmie')
     parser.add_argument('--output',type=pathlib.Path,default=DEFAULT_OUTPUT)
+    parser.add_argument('--agent-tools',type=pathlib.Path,help='Include explicitly staged SDK support assets from scripts/distribution/stage-agent-tools.py')
     args=parser.parse_args();binary=args.binary.resolve();output=args.output.resolve()
     if not binary.is_file(): raise SystemExit('Runtime executable is missing. Build with cargo build -p app --release, or supply --binary.')
     if output.is_relative_to(ROOT) or output.is_relative_to(RUNTIME_PACKAGE): raise SystemExit('Package output must be outside the client source directories.')
@@ -63,9 +66,14 @@ def main():
         shutil.copy2(binary,native/'swarmie');(native/'swarmie').chmod(0o755)
         metadata={'platform':host_platform,'arch':host_arch,'version':version,'build':'debug' if 'debug' in binary.parts else 'release' if 'release' in binary.parts else 'local'}
         (native/'target.json').write_text(json.dumps(metadata,indent=2)+'\n')
+        if args.agent_tools:
+            package_platform={'darwin':'macos'}.get(host_platform,host_platform)+'-'+{'x64':'x86_64','arm64':'aarch64'}[host_arch]
+            copy_agent_tools(args.agent_tools,stage/'runtime/agent-tools',package_platform)
         manifest=stage/'runtime/package.json';package=json.loads(manifest.read_text());package.update(os=[host_platform],cpu=[host_arch]);manifest.write_text(json.dumps(package,indent=2)+'\n')
         run(['npm','pack','--pack-destination',str(output)],cwd=stage/'runtime')
         bundle=stage/'native';bundle.mkdir();shutil.copy2(native/'swarmie',bundle/'swarmie');shutil.copy2(RUNTIME_PACKAGE/'LICENSE',bundle/'LICENSE');shutil.copy2(RUNTIME_PACKAGE/'NOTICE',bundle/'NOTICE');shutil.copy2(native/'target.json',bundle/'target.json')
+        if args.agent_tools:
+            copy_agent_tools(args.agent_tools,bundle/'agent-tools',package_platform)
         archive(bundle,output/f'swarmie-{package_version}-{host_platform}-{host_arch}-{metadata["build"]}.tar.gz','swarmie')
     shutil.copy2(CONTRACTS/'protocol.json',output/'swarmie-protocol-schema.json')
     for artifact in output.iterdir():

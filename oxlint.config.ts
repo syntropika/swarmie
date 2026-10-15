@@ -124,7 +124,7 @@ export default defineConfig({
   },
   overrides: [
     {
-      files: ["apps/desktop/web/src/main.tsx", "apps/desktop/web/src/ExtensionPanel.tsx"],
+      files: ["apps/desktop/web/src/main.tsx", "apps/desktop/web/src/extension-panel.tsx"],
       rules: {
         "no-restricted-imports": [
           "error",
@@ -132,6 +132,36 @@ export default defineConfig({
             patterns: stylingImportPatterns.map((pattern) => ({
               ...pattern,
               group: [...pattern.group, "!./styles.css", "!@xterm/xterm/css/xterm.css"],
+            })),
+          },
+        ],
+      },
+    },
+    {
+      // Application entry points own the stylesheets loaded once for their frontend.
+      files: ["apps/docs/app/layout.tsx"],
+      rules: {
+        "no-restricted-imports": [
+          "error",
+          {
+            patterns: stylingImportPatterns.map((pattern) => ({
+              ...pattern,
+              group: [...pattern.group, "!./global.css"],
+            })),
+          },
+        ],
+      },
+    },
+    {
+      // The isolated desktop demo is also a frontend root, not a component stylesheet.
+      files: ["apps/desktop/web/demo/main.tsx"],
+      rules: {
+        "no-restricted-imports": [
+          "error",
+          {
+            patterns: stylingImportPatterns.map((pattern) => ({
+              ...pattern,
+              group: [...pattern.group, "!../src/styles.css", "!./styles.css"],
             })),
           },
         ],

@@ -14,11 +14,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "status",
-            "harness",
-            "quotas"
-          ],
+          "required": ["status", "harness", "quotas"],
           "type": "object"
         },
         {
@@ -34,11 +30,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "status",
-            "harness",
-            "message"
-          ],
+          "required": ["status", "harness", "message"],
           "type": "object"
         },
         {
@@ -54,17 +46,47 @@
               "type": "string"
             }
           },
-          "required": [
-            "status",
-            "harness",
-            "message"
-          ],
+          "required": ["status", "harness", "message"],
           "type": "object"
         }
       ]
     },
+    "AgentTask": {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": ["string", "null"]
+        },
+        "status": {
+          "$ref": "#/$defs/AgentTaskStatus"
+        },
+        "summary": {
+          "type": ["string", "null"]
+        }
+      },
+      "required": ["id", "description", "status"],
+      "type": "object"
+    },
+    "AgentTaskStatus": {
+      "enum": ["running", "completed", "failed", "stopped", "unknown"],
+      "type": "string"
+    },
     "Capabilities": {
       "properties": {
+        "backgroundTasks": {
+          "$ref": "#/$defs/Capability",
+          "default": {
+            "availability": "unsupported",
+            "evidence": "declared",
+            "reason": "The adapter does not support this operation",
+            "source": "harness"
+          }
+        },
         "cancel": {
           "$ref": "#/$defs/Capability"
         },
@@ -152,6 +174,7 @@
         "queue",
         "commands",
         "quotas",
+        "backgroundTasks",
         "ephemeral",
         "outputSchema",
         "toolsDisabled",
@@ -186,51 +209,29 @@
           "$ref": "#/$defs/CapabilityEvidence"
         },
         "reason": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "source": {
           "$ref": "#/$defs/CapabilitySource"
         },
         "sourceId": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         }
       },
-      "required": [
-        "availability",
-        "source",
-        "evidence"
-      ],
+      "required": ["availability", "source", "evidence"],
       "type": "object"
     },
     "CapabilityAvailability": {
-      "enum": [
-        "available",
-        "unavailable",
-        "unsupported",
-        "unknown"
-      ],
+      "enum": ["available", "unavailable", "unsupported", "unknown"],
       "type": "string"
     },
     "CapabilityEvidence": {
       "description": "Evidence describes the declaration, not certification of live model execution.",
-      "enum": [
-        "declared",
-        "negotiated"
-      ],
+      "enum": ["declared", "negotiated"],
       "type": "string"
     },
     "CapabilitySource": {
-      "enum": [
-        "harness",
-        "runtime",
-        "extension"
-      ],
+      "enum": ["harness", "runtime", "extension"],
       "type": "string"
     },
     "ConfigurationPreview": {
@@ -243,10 +244,7 @@
           "items": {
             "$ref": "#/$defs/SettingDescriptor"
           },
-          "type": [
-            "array",
-            "null"
-          ]
+          "type": ["array", "null"]
         },
         "executionPolicy": {
           "$ref": "#/$defs/ExecutionPolicy"
@@ -255,18 +253,10 @@
           "items": {
             "$ref": "#/$defs/ModelDescriptor"
           },
-          "type": [
-            "array",
-            "null"
-          ]
+          "type": ["array", "null"]
         }
       },
-      "required": [
-        "capabilities",
-        "executionPolicy",
-        "configuration",
-        "models"
-      ],
+      "required": ["capabilities", "executionPolicy", "configuration", "models"],
       "type": "object"
     },
     "ConfigurationReceipt": {
@@ -286,11 +276,7 @@
           "type": "object"
         }
       },
-      "required": [
-        "values",
-        "executionPolicy",
-        "configuration"
-      ],
+      "required": ["values", "executionPolicy", "configuration"],
       "type": "object"
     },
     "ContextSource": {
@@ -310,11 +296,7 @@
               "type": "integer"
             }
           },
-          "required": [
-            "kind",
-            "projectId",
-            "revision"
-          ],
+          "required": ["kind", "projectId", "revision"],
           "type": "object"
         },
         {
@@ -329,10 +311,7 @@
               "type": "integer"
             }
           },
-          "required": [
-            "kind",
-            "revision"
-          ],
+          "required": ["kind", "revision"],
           "type": "object"
         },
         {
@@ -343,9 +322,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "kind"
-          ],
+          "required": ["kind"],
           "type": "object"
         },
         {
@@ -355,9 +332,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "kind"
-          ],
+          "required": ["kind"],
           "type": "object"
         }
       ]
@@ -371,17 +346,10 @@
           "$ref": "#/$defs/WorkingContext"
         },
         "reason": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         }
       },
-      "required": [
-        "context",
-        "available",
-        "reason"
-      ],
+      "required": ["context", "available", "reason"],
       "type": "object"
     },
     "ContextUsage": {
@@ -389,41 +357,24 @@
         "contextWindowTokens": {
           "format": "uint64",
           "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
+          "type": ["integer", "null"]
         },
         "percent": {
           "format": "double",
-          "type": [
-            "number",
-            "null"
-          ]
+          "type": ["number", "null"]
         },
         "remainingTokens": {
           "format": "uint64",
           "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
+          "type": ["integer", "null"]
         },
         "usedTokens": {
           "format": "uint64",
           "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
+          "type": ["integer", "null"]
         }
       },
-      "required": [
-        "usedTokens",
-        "contextWindowTokens",
-        "remainingTokens",
-        "percent"
-      ],
+      "required": ["usedTokens", "contextWindowTokens", "remainingTokens", "percent"],
       "type": "object"
     },
     "DefaultDirectory": {
@@ -443,23 +394,12 @@
           "type": "integer"
         }
       },
-      "required": [
-        "revision",
-        "environmentId",
-        "ownerScopeId",
-        "directory"
-      ],
+      "required": ["revision", "environmentId", "ownerScopeId", "directory"],
       "type": "object"
     },
     "DeliveryKnowledge": {
       "description": "Knowledge of native delivery, independent of execution outcome.",
-      "enum": [
-        "not_sent",
-        "in_flight",
-        "accepted",
-        "rejected",
-        "unknown"
-      ],
+      "enum": ["not_sent", "in_flight", "accepted", "rejected", "unknown"],
       "type": "string"
     },
     "Detection": {
@@ -471,28 +411,17 @@
           "$ref": "#/$defs/Capabilities"
         },
         "executable": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "harness": {
           "type": "string"
         }
       },
-      "required": [
-        "harness",
-        "available",
-        "executable",
-        "capabilities"
-      ],
+      "required": ["harness", "available", "executable", "capabilities"],
       "type": "object"
     },
     "DirectoryOwnership": {
-      "enum": [
-        "user",
-        "external_owner"
-      ],
+      "enum": ["user", "external_owner"],
       "type": "string"
     },
     "DirectoryRef": {
@@ -506,10 +435,7 @@
           "type": "integer"
         }
       },
-      "required": [
-        "id",
-        "revision"
-      ],
+      "required": ["id", "revision"],
       "type": "object"
     },
     "DirectoryResource": {
@@ -519,10 +445,7 @@
         },
         "fingerprint": {
           "description": "Node-local continuity evidence, not a filesystem lease or permission grant.",
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "id": {
           "type": "string"
@@ -539,18 +462,24 @@
           "type": "integer"
         }
       },
-      "required": [
-        "id",
-        "revision",
-        "environmentId",
-        "path",
-        "ownership",
-        "fingerprint"
-      ],
+      "required": ["id", "revision", "environmentId", "path", "ownership", "fingerprint"],
       "type": "object"
     },
     "EventKind": {
       "oneOf": [
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/AgentTask"
+            },
+            "type": {
+              "const": "task.updated",
+              "type": "string"
+            }
+          },
+          "required": ["type", "data"],
+          "type": "object"
+        },
         {
           "properties": {
             "data": {
@@ -561,10 +490,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -575,10 +501,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -589,10 +512,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -605,10 +525,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -619,10 +536,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -633,10 +547,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -649,10 +560,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -665,9 +573,7 @@
                   "type": "integer"
                 }
               },
-              "required": [
-                "turns"
-              ],
+              "required": ["turns"],
               "type": "object"
             },
             "type": {
@@ -675,10 +581,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -688,9 +591,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type"
-          ],
+          "required": ["type"],
           "type": "object"
         },
         {
@@ -700,9 +601,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type"
-          ],
+          "required": ["type"],
           "type": "object"
         },
         {
@@ -710,18 +609,13 @@
             "data": {
               "properties": {
                 "nativeReason": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
+                  "type": ["string", "null"]
                 },
                 "outcome": {
                   "$ref": "#/$defs/TurnOutcome"
                 }
               },
-              "required": [
-                "outcome"
-              ],
+              "required": ["outcome"],
               "type": "object"
             },
             "type": {
@@ -729,10 +623,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -745,10 +636,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -759,10 +647,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -770,15 +655,10 @@
             "data": {
               "properties": {
                 "item_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
+                  "type": ["string", "null"]
                 }
               },
-              "required": [
-                "item_id"
-              ],
+              "required": ["item_id"],
               "type": "object"
             },
             "type": {
@@ -786,10 +666,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -800,10 +677,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -811,19 +685,13 @@
             "data": {
               "properties": {
                 "item_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
+                  "type": ["string", "null"]
                 },
                 "text": {
                   "type": "string"
                 }
               },
-              "required": [
-                "text",
-                "item_id"
-              ],
+              "required": ["text", "item_id"],
               "type": "object"
             },
             "type": {
@@ -831,10 +699,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -845,9 +710,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "text"
-              ],
+              "required": ["text"],
               "type": "object"
             },
             "type": {
@@ -855,10 +718,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -871,10 +731,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -887,10 +744,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -903,10 +757,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -919,10 +770,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -936,10 +784,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "id",
-                "option"
-              ],
+              "required": ["id", "option"],
               "type": "object"
             },
             "type": {
@@ -947,10 +792,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -961,10 +803,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -975,10 +814,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -991,10 +827,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -1007,10 +840,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -1023,10 +853,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -1039,10 +866,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -1055,10 +879,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -1069,9 +890,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "message"
-              ],
+              "required": ["message"],
               "type": "object"
             },
             "type": {
@@ -1079,10 +898,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -1093,10 +909,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -1106,9 +919,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type"
-          ],
+          "required": ["type"],
           "type": "object"
         }
       ]
@@ -1117,10 +928,7 @@
       "description": "A requested selection and its native observation have independent lifetimes.",
       "properties": {
         "bindingId": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "choices": {
           "items": {
@@ -1169,10 +977,7 @@
           ]
         },
         "reason": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "requested": {
           "anyOf": [
@@ -1210,12 +1015,7 @@
       "type": "object"
     },
     "ExecutionProfile": {
-      "enum": [
-        "ask",
-        "review",
-        "full",
-        "native_custom"
-      ],
+      "enum": ["ask", "review", "full", "native_custom"],
       "type": "string"
     },
     "ExecutionProfileChoice": {
@@ -1239,14 +1039,7 @@
           "$ref": "#/$defs/ExecutionProfile"
         }
       },
-      "required": [
-        "profile",
-        "label",
-        "description",
-        "capability",
-        "mapping",
-        "application"
-      ],
+      "required": ["profile", "label", "description", "capability", "mapping", "application"],
       "type": "object"
     },
     "ExtensionCommand": {
@@ -1261,11 +1054,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "name",
-        "title",
-        "mutates"
-      ],
+      "required": ["name", "title", "mutates"],
       "type": "object"
     },
     "ExtensionInfo": {
@@ -1297,11 +1086,7 @@
           "type": "array"
         }
       },
-      "required": [
-        "id",
-        "commands",
-        "views"
-      ],
+      "required": ["id", "commands", "views"],
       "type": "object"
     },
     "ExtensionView": {
@@ -1320,48 +1105,29 @@
           "type": "string"
         }
       },
-      "required": [
-        "id",
-        "title",
-        "kind",
-        "command"
-      ],
+      "required": ["id", "title", "kind", "command"],
       "type": "object"
     },
     "FileDiff": {
       "additionalProperties": true,
       "properties": {
         "change": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "newText": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "oldText": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "path": {
           "type": "string"
         },
         "unified": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         }
       },
-      "required": [
-        "path"
-      ],
+      "required": ["path"],
       "type": "object"
     },
     "FileLocation": {
@@ -1370,51 +1136,34 @@
         "column": {
           "format": "uint64",
           "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
+          "type": ["integer", "null"]
         },
         "endColumn": {
           "format": "uint64",
           "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
+          "type": ["integer", "null"]
         },
         "endLine": {
           "format": "uint64",
           "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
+          "type": ["integer", "null"]
         },
         "line": {
           "format": "uint64",
           "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
+          "type": ["integer", "null"]
         },
         "path": {
           "type": "string"
         }
       },
-      "required": [
-        "path"
-      ],
+      "required": ["path"],
       "type": "object"
     },
     "ForkOrigin": {
       "properties": {
         "messageId": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "sequence": {
           "format": "uint64",
@@ -1425,18 +1174,10 @@
           "type": "string"
         },
         "turnId": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         }
       },
-      "required": [
-        "sessionId",
-        "messageId",
-        "sequence",
-        "turnId"
-      ],
+      "required": ["sessionId", "messageId", "sequence", "turnId"],
       "type": "object"
     },
     "HarnessProbe": {
@@ -1452,25 +1193,16 @@
           "$ref": "#/$defs/Capabilities"
         },
         "executable": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "harness": {
           "type": "string"
         },
         "message": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "version": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         }
       },
       "required": [
@@ -1503,11 +1235,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "extensionId",
-        "toolId",
-        "argumentConstraints"
-      ],
+      "required": ["extensionId", "toolId", "argumentConstraints"],
       "type": "object"
     },
     "InputAccountExecutionOptions": {
@@ -1515,10 +1243,7 @@
       "properties": {
         "configHome": {
           "default": null,
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "env": {
           "additionalProperties": {
@@ -1551,10 +1276,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "harness",
-        "cwd"
-      ],
+      "required": ["harness", "cwd"],
       "type": "object"
     },
     "InputDefaultDirectoryUpdate": {
@@ -1569,10 +1291,7 @@
           "type": "integer"
         }
       },
-      "required": [
-        "expectedRevision",
-        "directory"
-      ],
+      "required": ["expectedRevision", "directory"],
       "type": "object"
     },
     "InputDirectoryRef": {
@@ -1586,10 +1305,7 @@
           "type": "integer"
         }
       },
-      "required": [
-        "id",
-        "revision"
-      ],
+      "required": ["id", "revision"],
       "type": "object"
     },
     "InputDirectoryRegistration": {
@@ -1599,9 +1315,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "path"
-      ],
+      "required": ["path"],
       "type": "object"
     },
     "InputHostToolGrant": {
@@ -1623,10 +1337,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "extensionId",
-        "toolId"
-      ],
+      "required": ["extensionId", "toolId"],
       "type": "object"
     },
     "InputLocalStoreIdentity": {
@@ -1641,11 +1352,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "storeId",
-        "environmentId",
-        "ownerScopeId"
-      ],
+      "required": ["storeId", "environmentId", "ownerScopeId"],
       "type": "object"
     },
     "InputMcpServer": {
@@ -1657,10 +1364,7 @@
           "$ref": "#/$defs/InputMcpTransport"
         }
       },
-      "required": [
-        "name",
-        "transport"
-      ],
+      "required": ["name", "transport"],
       "type": "object"
     },
     "InputMcpTransport": {
@@ -1689,10 +1393,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "command"
-          ],
+          "required": ["type", "command"],
           "type": "object"
         },
         {
@@ -1712,10 +1413,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "url"
-          ],
+          "required": ["type", "url"],
           "type": "object"
         },
         {
@@ -1735,10 +1433,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "url"
-          ],
+          "required": ["type", "url"],
           "type": "object"
         }
       ]
@@ -1747,17 +1442,11 @@
       "properties": {
         "configHome": {
           "default": null,
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "cwd": {
           "default": null,
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "harness": {
           "type": "string"
@@ -1769,9 +1458,7 @@
           "type": "integer"
         }
       },
-      "required": [
-        "harness"
-      ],
+      "required": ["harness"],
       "type": "object"
     },
     "InputPermissionResponse": {
@@ -1792,10 +1479,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "id",
-        "option"
-      ],
+      "required": ["id", "option"],
       "type": "object"
     },
     "InputProjectCreate": {
@@ -1823,9 +1507,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "name"
-      ],
+      "required": ["name"],
       "type": "object"
     },
     "InputProjectLaunchDefaults": {
@@ -1835,16 +1517,10 @@
           "default": null
         },
         "harness": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "model": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         }
       },
       "type": "object"
@@ -1853,10 +1529,7 @@
       "additionalProperties": false,
       "properties": {
         "archived": {
-          "type": [
-            "boolean",
-            "null"
-          ]
+          "type": ["boolean", "null"]
         },
         "directory": {
           "anyOf": [
@@ -1885,10 +1558,7 @@
           ]
         },
         "name": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "projectId": {
           "type": "string"
@@ -1898,10 +1568,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "projectId",
-        "expectedRevision"
-      ],
+      "required": ["projectId", "expectedRevision"],
       "type": "object"
     },
     "InputPromptContent": {
@@ -1916,10 +1583,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -1933,10 +1597,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "data",
-                "mime_type"
-              ],
+              "required": ["data", "mime_type"],
               "type": "object"
             },
             "type": {
@@ -1944,10 +1605,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -1958,9 +1616,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "uri"
-              ],
+              "required": ["uri"],
               "type": "object"
             },
             "type": {
@@ -1968,10 +1624,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -1985,10 +1638,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "name",
-                "path"
-              ],
+              "required": ["name", "path"],
               "type": "object"
             },
             "type": {
@@ -1996,10 +1646,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         }
       ]
@@ -2019,10 +1666,7 @@
       "description": "Single answers are strings; multiple selections retain their ordered string array."
     },
     "InputRollbackScope": {
-      "enum": [
-        "conversation_only",
-        "conversation_and_files"
-      ],
+      "enum": ["conversation_only", "conversation_and_files"],
       "type": "string"
     },
     "InputRuntimeIdentity": {
@@ -2036,20 +1680,14 @@
           "type": "string"
         }
       },
-      "required": [
-        "identity",
-        "incarnationId"
-      ],
+      "required": ["identity", "incarnationId"],
       "type": "object"
     },
     "InputSessionExecutionOptions": {
       "properties": {
         "configHome": {
           "default": null,
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "env": {
           "additionalProperties": {
@@ -2091,16 +1729,10 @@
     "InputSessionMetadataUpdate": {
       "properties": {
         "archived": {
-          "type": [
-            "boolean",
-            "null"
-          ]
+          "type": ["boolean", "null"]
         },
         "title": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         }
       },
       "type": "object"
@@ -2131,38 +1763,24 @@
         },
         "model": {
           "default": null,
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "projectId": {
           "default": null,
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "projectRevision": {
           "default": null,
           "format": "uint64",
           "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
+          "type": ["integer", "null"]
         }
       },
-      "required": [
-        "harness"
-      ],
+      "required": ["harness"],
       "type": "object"
     },
     "InputToolPolicy": {
-      "enum": [
-        "enabled",
-        "disabled"
-      ],
+      "enum": ["enabled", "disabled"],
       "type": "string"
     },
     "LocalStoreIdentity": {
@@ -2177,11 +1795,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "storeId",
-        "environmentId",
-        "ownerScopeId"
-      ],
+      "required": ["storeId", "environmentId", "ownerScopeId"],
       "type": "object"
     },
     "McpServer": {
@@ -2193,10 +1807,7 @@
           "$ref": "#/$defs/McpTransport"
         }
       },
-      "required": [
-        "name",
-        "transport"
-      ],
+      "required": ["name", "transport"],
       "type": "object"
     },
     "McpTransport": {
@@ -2218,11 +1829,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "command",
-            "args"
-          ],
+          "required": ["type", "command", "args"],
           "type": "object"
         },
         {
@@ -2235,10 +1842,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "url"
-          ],
+          "required": ["type", "url"],
           "type": "object"
         },
         {
@@ -2251,10 +1855,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "url"
-          ],
+          "required": ["type", "url"],
           "type": "object"
         }
       ]
@@ -2262,10 +1863,7 @@
     "ModelDescriptor": {
       "properties": {
         "description": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "id": {
           "type": "string"
@@ -2278,16 +1876,10 @@
           "type": "object"
         },
         "provider": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         }
       },
-      "required": [
-        "id",
-        "label"
-      ],
+      "required": ["id", "label"],
       "type": "object"
     },
     "ModelReroute": {
@@ -2296,20 +1888,13 @@
           "type": "string"
         },
         "reason": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "toModel": {
           "type": "string"
         }
       },
-      "required": [
-        "fromModel",
-        "toModel",
-        "reason"
-      ],
+      "required": ["fromModel", "toModel", "reason"],
       "type": "object"
     },
     "NativeHistoryDocument": {
@@ -2336,13 +1921,7 @@
           "type": "array"
         }
       },
-      "required": [
-        "session",
-        "options",
-        "capabilities",
-        "records",
-        "tree"
-      ],
+      "required": ["session", "options", "capabilities", "records", "tree"],
       "type": "object"
     },
     "NativeHistoryRecord": {
@@ -2352,17 +1931,10 @@
         },
         "raw": true,
         "turnId": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         }
       },
-      "required": [
-        "turnId",
-        "kind",
-        "raw"
-      ],
+      "required": ["turnId", "kind", "raw"],
       "type": "object"
     },
     "NativeHistorySession": {
@@ -2388,14 +1960,7 @@
           "type": "integer"
         }
       },
-      "required": [
-        "native",
-        "cwd",
-        "title",
-        "path",
-        "updatedAtMs",
-        "metadata"
-      ],
+      "required": ["native", "cwd", "title", "path", "updatedAtMs", "metadata"],
       "type": "object"
     },
     "NativeMessageNode": {
@@ -2410,10 +1975,7 @@
           "default": null
         },
         "parentId": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "role": {
           "type": "string"
@@ -2422,14 +1984,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "id",
-        "parentId",
-        "role",
-        "text",
-        "active",
-        "metadata"
-      ],
+      "required": ["id", "parentId", "role", "text", "active", "metadata"],
       "type": "object"
     },
     "NativeSessionRef": {
@@ -2441,10 +1996,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "provider",
-        "id"
-      ],
+      "required": ["provider", "id"],
       "type": "object"
     },
     "PermissionOption": {
@@ -2459,11 +2011,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "id",
-        "label",
-        "kind"
-      ],
+      "required": ["id", "label", "kind"],
       "type": "object"
     },
     "PermissionRequest": {
@@ -2473,10 +2021,7 @@
         },
         "description": {
           "default": null,
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "id": {
           "type": "string"
@@ -2510,44 +2055,23 @@
           "type": "string"
         }
       },
-      "required": [
-        "id",
-        "kind",
-        "title",
-        "description",
-        "command",
-        "paths",
-        "options",
-        "metadata"
-      ],
+      "required": ["id", "kind", "title", "description", "command", "paths", "options", "metadata"],
       "type": "object"
     },
     "PlanEntry": {
       "additionalProperties": true,
       "properties": {
         "id": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "priority": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "status": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "text": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         }
       },
       "type": "object"
@@ -2562,52 +2086,29 @@
           "type": "array"
         },
         "markdown": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "requestId": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "status": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "text": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "title": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         }
       },
       "type": "object"
     },
     "PolicyEvidence": {
-      "enum": [
-        "native_receipt",
-        "native_acknowledgement"
-      ],
+      "enum": ["native_receipt", "native_acknowledgement"],
       "type": "string"
     },
     "PolicyMapping": {
-      "enum": [
-        "equivalent",
-        "partial",
-        "unsupported",
-        "unknown"
-      ],
+      "enum": ["equivalent", "partial", "unsupported", "unknown"],
       "type": "string"
     },
     "PolicyObservation": {
@@ -2629,10 +2130,7 @@
         },
         "native": true,
         "nativeVersion": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "profile": {
           "anyOf": [
@@ -2645,25 +2143,11 @@
           ]
         }
       },
-      "required": [
-        "profile",
-        "native",
-        "evidence",
-        "coverage",
-        "limitations",
-        "nativeVersion"
-      ],
+      "required": ["profile", "native", "evidence", "coverage", "limitations", "nativeVersion"],
       "type": "object"
     },
     "PolicyStatus": {
-      "enum": [
-        "staged",
-        "acknowledged",
-        "effective",
-        "rejected",
-        "partial",
-        "unknown"
-      ],
+      "enum": ["staged", "acknowledged", "effective", "rejected", "partial", "unknown"],
       "type": "string"
     },
     "ProjectLaunchDefaults": {
@@ -2673,23 +2157,13 @@
           "default": null
         },
         "harness": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "model": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         }
       },
-      "required": [
-        "harness",
-        "model",
-        "config"
-      ],
+      "required": ["harness", "model", "config"],
       "type": "object"
     },
     "ProjectRecord": {
@@ -2722,14 +2196,7 @@
           "type": "integer"
         }
       },
-      "required": [
-        "id",
-        "revision",
-        "name",
-        "archived",
-        "directory",
-        "launch"
-      ],
+      "required": ["id", "revision", "name", "archived", "directory", "launch"],
       "type": "object"
     },
     "Prompt": {
@@ -2741,9 +2208,7 @@
           "type": "array"
         }
       },
-      "required": [
-        "content"
-      ],
+      "required": ["content"],
       "type": "object"
     },
     "PromptContent": {
@@ -2758,10 +2223,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -2775,10 +2237,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "data",
-                "mime_type"
-              ],
+              "required": ["data", "mime_type"],
               "type": "object"
             },
             "type": {
@@ -2786,10 +2245,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -2800,9 +2256,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "uri"
-              ],
+              "required": ["uri"],
               "type": "object"
             },
             "type": {
@@ -2810,10 +2264,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -2827,10 +2278,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "name",
-                "path"
-              ],
+              "required": ["name", "path"],
               "type": "object"
             },
             "type": {
@@ -2838,10 +2286,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         }
       ]
@@ -2858,10 +2303,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "items",
-        "paused"
-      ],
+      "required": ["items", "paused"],
       "type": "object"
     },
     "Question": {
@@ -2893,24 +2335,14 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "id",
-        "prompt",
-        "options",
-        "multiple",
-        "allowText",
-        "secret"
-      ],
+      "required": ["id", "prompt", "options", "multiple", "allowText", "secret"],
       "type": "object"
     },
     "QuestionOption": {
       "additionalProperties": true,
       "properties": {
         "description": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "id": {
           "type": "string"
@@ -2919,10 +2351,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "id",
-        "label"
-      ],
+      "required": ["id", "label"],
       "type": "object"
     },
     "QueuedPrompt": {
@@ -2939,15 +2368,24 @@
           "$ref": "#/$defs/Prompt"
         }
       },
-      "required": [
-        "id",
-        "prompt",
-        "createdAtMs"
-      ],
+      "required": ["id", "prompt", "createdAtMs"],
       "type": "object"
     },
     "RuntimeEvent": {
       "oneOf": [
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/AgentTask"
+            },
+            "type": {
+              "const": "task.updated",
+              "type": "string"
+            }
+          },
+          "required": ["type", "data"],
+          "type": "object"
+        },
         {
           "properties": {
             "data": {
@@ -2958,10 +2396,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -2972,10 +2407,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -2986,10 +2418,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3002,10 +2431,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3016,10 +2442,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3030,10 +2453,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3046,10 +2466,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3062,9 +2479,7 @@
                   "type": "integer"
                 }
               },
-              "required": [
-                "turns"
-              ],
+              "required": ["turns"],
               "type": "object"
             },
             "type": {
@@ -3072,10 +2487,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3085,9 +2497,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type"
-          ],
+          "required": ["type"],
           "type": "object"
         },
         {
@@ -3097,9 +2507,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type"
-          ],
+          "required": ["type"],
           "type": "object"
         },
         {
@@ -3107,18 +2515,13 @@
             "data": {
               "properties": {
                 "nativeReason": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
+                  "type": ["string", "null"]
                 },
                 "outcome": {
                   "$ref": "#/$defs/TurnOutcome"
                 }
               },
-              "required": [
-                "outcome"
-              ],
+              "required": ["outcome"],
               "type": "object"
             },
             "type": {
@@ -3126,10 +2529,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3142,10 +2542,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3156,10 +2553,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3167,15 +2561,10 @@
             "data": {
               "properties": {
                 "item_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
+                  "type": ["string", "null"]
                 }
               },
-              "required": [
-                "item_id"
-              ],
+              "required": ["item_id"],
               "type": "object"
             },
             "type": {
@@ -3183,10 +2572,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3197,10 +2583,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3208,19 +2591,13 @@
             "data": {
               "properties": {
                 "item_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
+                  "type": ["string", "null"]
                 },
                 "text": {
                   "type": "string"
                 }
               },
-              "required": [
-                "text",
-                "item_id"
-              ],
+              "required": ["text", "item_id"],
               "type": "object"
             },
             "type": {
@@ -3228,10 +2605,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3242,9 +2616,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "text"
-              ],
+              "required": ["text"],
               "type": "object"
             },
             "type": {
@@ -3252,10 +2624,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3268,10 +2637,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3284,10 +2650,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3300,10 +2663,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3316,10 +2676,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3333,10 +2690,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "id",
-                "option"
-              ],
+              "required": ["id", "option"],
               "type": "object"
             },
             "type": {
@@ -3344,10 +2698,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3358,10 +2709,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3372,10 +2720,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3388,10 +2733,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3404,10 +2746,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3420,10 +2759,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3436,10 +2772,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3452,10 +2785,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3466,9 +2796,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "message"
-              ],
+              "required": ["message"],
               "type": "object"
             },
             "type": {
@@ -3476,10 +2804,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3490,10 +2815,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type",
-            "data"
-          ],
+          "required": ["type", "data"],
           "type": "object"
         },
         {
@@ -3503,9 +2825,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "type"
-          ],
+          "required": ["type"],
           "type": "object"
         }
       ],
@@ -3528,19 +2848,10 @@
           "type": "integer"
         },
         "turnId": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         }
       },
-      "required": [
-        "sessionId",
-        "sequence",
-        "turnId",
-        "source",
-        "timestampMs"
-      ],
+      "required": ["sessionId", "sequence", "turnId", "source", "timestampMs"],
       "type": "object"
     },
     "RuntimeIdentity": {
@@ -3554,20 +2865,14 @@
           "type": "string"
         }
       },
-      "required": [
-        "identity",
-        "incarnationId"
-      ],
+      "required": ["identity", "incarnationId"],
       "type": "object"
     },
     "SessionExecutionOptions": {
       "properties": {
         "configHome": {
           "default": null,
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "ephemeral": {
           "default": false,
@@ -3596,14 +2901,7 @@
           "default": "enabled"
         }
       },
-      "required": [
-        "configHome",
-        "mcpServers",
-        "tools",
-        "hostTools",
-        "outputSchema",
-        "ephemeral"
-      ],
+      "required": ["configHome", "mcpServers", "tools", "hostTools", "outputSchema", "ephemeral"],
       "type": "object"
     },
     "SessionMetadata": {
@@ -3628,10 +2926,7 @@
           "default": null
         },
         "title": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "updatedAtMs": {
           "format": "uint64",
@@ -3639,13 +2934,7 @@
           "type": "integer"
         }
       },
-      "required": [
-        "title",
-        "archived",
-        "createdAtMs",
-        "updatedAtMs",
-        "forkOrigin"
-      ],
+      "required": ["title", "archived", "createdAtMs", "updatedAtMs", "forkOrigin"],
       "type": "object"
     },
     "SessionSnapshot": {
@@ -3705,10 +2994,7 @@
           "$ref": "#/$defs/SessionState"
         },
         "turn": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "turnsCompleted": {
           "format": "uint64",
@@ -3743,32 +3029,18 @@
       "type": "object"
     },
     "SessionState": {
-      "enum": [
-        "idle",
-        "running",
-        "needs_input",
-        "cancelling",
-        "closed",
-        "failed"
-      ],
+      "enum": ["idle", "running", "needs_input", "cancelling", "closed", "failed"],
       "type": "string"
     },
     "SettingApplication": {
       "description": "Application scope is independent of whether an execution is currently busy.",
-      "enum": [
-        "creation_only",
-        "next_turn",
-        "current_turn"
-      ],
+      "enum": ["creation_only", "next_turn", "current_turn"],
       "type": "string"
     },
     "SettingChoice": {
       "properties": {
         "description": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "id": {
           "type": "string"
@@ -3781,10 +3053,7 @@
           "type": "object"
         }
       },
-      "required": [
-        "id",
-        "label"
-      ],
+      "required": ["id", "label"],
       "type": "object"
     },
     "SettingDescriptor": {
@@ -3799,10 +3068,7 @@
           "type": "array"
         },
         "description": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "id": {
           "type": "string"
@@ -3821,21 +3087,11 @@
           "description": "Absent means unobserved; a present null is an acknowledged reset."
         }
       },
-      "required": [
-        "id",
-        "label",
-        "type",
-        "application"
-      ],
+      "required": ["id", "label", "type", "application"],
       "type": "object"
     },
     "SettingType": {
-      "enum": [
-        "select",
-        "boolean",
-        "string",
-        "number"
-      ],
+      "enum": ["select", "boolean", "string", "number"],
       "type": "string"
     },
     "SpawnOptions": {
@@ -3864,26 +3120,17 @@
         },
         "model": {
           "default": null,
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "projectId": {
           "default": null,
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "projectRevision": {
           "default": null,
           "format": "uint64",
           "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
+          "type": ["integer", "null"]
         }
       },
       "required": [
@@ -3901,72 +3148,39 @@
       "additionalProperties": true,
       "properties": {
         "background": {
-          "type": [
-            "boolean",
-            "null"
-          ]
+          "type": ["boolean", "null"]
         },
         "id": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "model": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "parentSessionId": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "parentToolId": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "role": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "status": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "summary": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "textDelta": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "title": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "tokens": {
           "format": "uint64",
           "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
+          "type": ["integer", "null"]
         },
         "usage": {
           "anyOf": [
@@ -3987,10 +3201,7 @@
           "$ref": "#/$defs/DeliveryKnowledge"
         },
         "error": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "id": {
           "type": "string"
@@ -4034,16 +3245,10 @@
       "additionalProperties": true,
       "properties": {
         "command": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "cwd": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "diffs": {
           "items": {
@@ -4052,10 +3257,7 @@
           "type": "array"
         },
         "kind": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "locations": {
           "items": {
@@ -4084,10 +3286,7 @@
           ]
         },
         "title": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         }
       },
       "type": "object"
@@ -4112,31 +3311,18 @@
           "default": null
         },
         "name": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "output": true,
         "status": {
           "type": "string"
         }
       },
-      "required": [
-        "id",
-        "name",
-        "status",
-        "input",
-        "output",
-        "metadata"
-      ],
+      "required": ["id", "name", "status", "input", "output", "metadata"],
       "type": "object"
     },
     "ToolPolicy": {
-      "enum": [
-        "enabled",
-        "disabled"
-      ],
+      "enum": ["enabled", "disabled"],
       "type": "string"
     },
     "ToolProgress": {
@@ -4144,23 +3330,14 @@
       "properties": {
         "elapsedSeconds": {
           "format": "double",
-          "type": [
-            "number",
-            "null"
-          ]
+          "type": ["number", "null"]
         },
         "message": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "percent": {
           "format": "double",
-          "type": [
-            "number",
-            "null"
-          ]
+          "type": ["number", "null"]
         }
       },
       "type": "object"
@@ -4180,10 +3357,7 @@
       "type": "string"
     },
     "UiClient": {
-      "enum": [
-        "browser",
-        "desktop"
-      ],
+      "enum": ["browser", "desktop"],
       "type": "string"
     },
     "UiCommand": {
@@ -4193,16 +3367,10 @@
           "type": "string"
         },
         "runtimeCommand": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "shortcut": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "title": {
           "type": "string"
@@ -4215,22 +3383,11 @@
           "type": "array"
         }
       },
-      "required": [
-        "id",
-        "title",
-        "when"
-      ],
+      "required": ["id", "title", "when"],
       "type": "object"
     },
     "UiCondition": {
-      "enum": [
-        "connected",
-        "conversation",
-        "project",
-        "message",
-        "panel",
-        "composerReady"
-      ],
+      "enum": ["connected", "conversation", "project", "message", "panel", "composerReady"],
       "type": "string"
     },
     "UiContribution": {
@@ -4244,10 +3401,7 @@
           "type": "array"
         },
         "command": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "enabledWhen": {
           "default": [],
@@ -4281,10 +3435,7 @@
           "$ref": "#/$defs/UiSlot"
         },
         "text": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "title": {
           "type": "string"
@@ -4297,33 +3448,15 @@
           "type": "array"
         }
       },
-      "required": [
-        "id",
-        "slot",
-        "kind",
-        "title",
-        "order",
-        "when",
-        "enabledWhen",
-        "clients"
-      ],
+      "required": ["id", "slot", "kind", "title", "order", "when", "enabledWhen", "clients"],
       "type": "object"
     },
     "UiContributionKind": {
-      "enum": [
-        "action",
-        "text",
-        "section"
-      ],
+      "enum": ["action", "text", "section"],
       "type": "string"
     },
     "UiIcon": {
-      "enum": [
-        "microphone",
-        "stop",
-        "spinner",
-        "extension"
-      ],
+      "enum": ["microphone", "stop", "spinner", "extension"],
       "type": "string"
     },
     "UiManifest": {
@@ -4364,13 +3497,7 @@
           "type": "integer"
         }
       },
-      "required": [
-        "version",
-        "commands",
-        "slots",
-        "screens",
-        "panels"
-      ],
+      "required": ["version", "commands", "slots", "screens", "panels"],
       "type": "object"
     },
     "UiSlot": {
@@ -4404,10 +3531,7 @@
           "type": "array"
         },
         "command": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "id": {
           "type": "string"
@@ -4416,11 +3540,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "id",
-        "title",
-        "clients"
-      ],
+      "required": ["id", "title", "clients"],
       "type": "object"
     },
     "Usage": {
@@ -4428,41 +3548,26 @@
         "cacheWriteTokens": {
           "format": "uint64",
           "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
+          "type": ["integer", "null"]
         },
         "cachedInputTokens": {
           "format": "uint64",
           "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
+          "type": ["integer", "null"]
         },
         "costUsd": {
           "format": "double",
-          "type": [
-            "number",
-            "null"
-          ]
+          "type": ["number", "null"]
         },
         "inputTokens": {
           "format": "uint64",
           "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
+          "type": ["integer", "null"]
         },
         "outputTokens": {
           "format": "uint64",
           "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
+          "type": ["integer", "null"]
         },
         "scope": {
           "type": "string"
@@ -4470,10 +3575,7 @@
         "totalTokens": {
           "format": "uint64",
           "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
+          "type": ["integer", "null"]
         }
       },
       "required": [
@@ -4538,9 +3640,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "sessionId"
-        ],
+        "required": ["sessionId"],
         "type": "object"
       },
       "result": true
@@ -4552,9 +3652,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "sessionId"
-        ],
+        "required": ["sessionId"],
         "type": "object"
       },
       "result": {
@@ -4573,9 +3671,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "sessionId"
-            ],
+            "required": ["sessionId"],
             "type": "object"
           },
           {
@@ -4584,9 +3680,7 @@
                 "type": "object"
               }
             },
-            "required": [
-              "config"
-            ],
+            "required": ["config"],
             "type": "object"
           }
         ]
@@ -4602,9 +3696,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "sessionId"
-        ],
+        "required": ["sessionId"],
         "type": "object"
       },
       "result": {
@@ -4618,9 +3710,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "sessionId"
-        ],
+        "required": ["sessionId"],
         "type": "object"
       },
       "result": {
@@ -4637,9 +3727,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "sessionId"
-        ],
+        "required": ["sessionId"],
         "type": "object"
       },
       "result": true
@@ -4679,10 +3767,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "extensionId",
-          "command"
-        ],
+        "required": ["extensionId", "command"],
         "type": "object"
       },
       "result": true
@@ -4709,9 +3794,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "sessionId"
-            ],
+            "required": ["sessionId"],
             "type": "object"
           },
           {
@@ -4738,9 +3821,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "projectId"
-        ],
+        "required": ["projectId"],
         "type": "object"
       },
       "result": {
@@ -4766,6 +3847,682 @@
       },
       "result": {
         "$ref": "#/$defs/ProjectRecord"
+      }
+    },
+    "runtime/agentToolsCancel": {
+      "params": {
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "type": "object"
+      },
+      "result": {
+        "properties": {
+          "authorizationUrl": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "inputFields": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "placeholder": {
+                  "type": "string"
+                },
+                "secret": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["id", "label"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "message": {
+            "type": "string"
+          },
+          "operation": {
+            "enum": ["install", "connect"]
+          },
+          "status": {
+            "enum": ["pending", "connected", "completed", "failed", "cancelled"]
+          },
+          "userCode": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "status"],
+        "type": "object"
+      }
+    },
+    "runtime/agentToolsConnect": {
+      "params": {
+        "properties": {
+          "harness": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "storage": {
+            "enum": ["secure", "session"]
+          },
+          "values": {
+            "additionalProperties": {
+              "maxLength": 16384,
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "required": ["harness", "provider", "method", "storage", "values"],
+        "type": "object"
+      },
+      "result": {
+        "properties": {
+          "authorizationUrl": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "inputFields": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "placeholder": {
+                  "type": "string"
+                },
+                "secret": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["id", "label"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "message": {
+            "type": "string"
+          },
+          "operation": {
+            "enum": ["install", "connect"]
+          },
+          "status": {
+            "enum": ["pending", "connected", "completed", "failed", "cancelled"]
+          },
+          "userCode": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "status"],
+        "type": "object"
+      }
+    },
+    "runtime/agentToolsDisconnect": {
+      "params": {
+        "properties": {
+          "harness": {
+            "type": "string"
+          }
+        },
+        "required": ["harness"],
+        "type": "object"
+      },
+      "result": {
+        "properties": {
+          "authState": {
+            "enum": ["authenticated", "unauthenticated", "unknown"]
+          },
+          "connection": {
+            "properties": {
+              "method": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string"
+              },
+              "storage": {
+                "enum": ["native", "secure", "session"]
+              },
+              "verified": {
+                "type": "boolean"
+              }
+            },
+            "required": ["provider", "method", "storage", "verified"],
+            "type": "object"
+          },
+          "flow": {
+            "properties": {
+              "authorizationUrl": {
+                "type": "string"
+              },
+              "expiresAt": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "inputFields": {
+                "items": {
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "placeholder": {
+                      "type": "string"
+                    },
+                    "secret": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["id", "label"],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "message": {
+                "type": "string"
+              },
+              "operation": {
+                "enum": ["install", "connect"]
+              },
+              "status": {
+                "enum": ["pending", "connected", "completed", "failed", "cancelled"]
+              },
+              "userCode": {
+                "type": "string"
+              }
+            },
+            "required": ["id", "status"],
+            "type": "object"
+          },
+          "harness": {
+            "type": "string"
+          },
+          "installation": {
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "supported": {
+                "type": "boolean"
+              }
+            },
+            "required": ["supported"],
+            "type": "object"
+          },
+          "installed": {
+            "type": "boolean"
+          },
+          "manual": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "providers": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "methods": {
+                  "items": {
+                    "properties": {
+                      "fields": {
+                        "items": {
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": "string"
+                            },
+                            "placeholder": {
+                              "type": "string"
+                            },
+                            "secret": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": ["id", "label"],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "help": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "enum": ["api_key", "browser", "device", "existing"]
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["id", "label", "kind"],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": ["id", "label", "methods"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "storage": {
+            "properties": {
+              "description": {
+                "type": "string"
+              },
+              "persistent": {
+                "type": "boolean"
+              }
+            },
+            "required": ["persistent", "description"],
+            "type": "object"
+          }
+        },
+        "required": ["harness", "installed", "authState", "storage", "providers"],
+        "type": "object"
+      }
+    },
+    "runtime/agentToolsFlow": {
+      "params": {
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "type": "object"
+      },
+      "result": {
+        "properties": {
+          "authorizationUrl": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "inputFields": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "placeholder": {
+                  "type": "string"
+                },
+                "secret": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["id", "label"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "message": {
+            "type": "string"
+          },
+          "operation": {
+            "enum": ["install", "connect"]
+          },
+          "status": {
+            "enum": ["pending", "connected", "completed", "failed", "cancelled"]
+          },
+          "userCode": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "status"],
+        "type": "object"
+      }
+    },
+    "runtime/agentToolsInput": {
+      "params": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "values": {
+            "additionalProperties": {
+              "maxLength": 16384,
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "required": ["id", "values"],
+        "type": "object"
+      },
+      "result": {
+        "properties": {
+          "authorizationUrl": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "inputFields": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "placeholder": {
+                  "type": "string"
+                },
+                "secret": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["id", "label"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "message": {
+            "type": "string"
+          },
+          "operation": {
+            "enum": ["install", "connect"]
+          },
+          "status": {
+            "enum": ["pending", "connected", "completed", "failed", "cancelled"]
+          },
+          "userCode": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "status"],
+        "type": "object"
+      }
+    },
+    "runtime/agentToolsInstall": {
+      "params": {
+        "properties": {
+          "harness": {
+            "type": "string"
+          }
+        },
+        "required": ["harness"],
+        "type": "object"
+      },
+      "result": {
+        "properties": {
+          "authorizationUrl": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "inputFields": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "placeholder": {
+                  "type": "string"
+                },
+                "secret": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["id", "label"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "message": {
+            "type": "string"
+          },
+          "operation": {
+            "enum": ["install", "connect"]
+          },
+          "status": {
+            "enum": ["pending", "connected", "completed", "failed", "cancelled"]
+          },
+          "userCode": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "status"],
+        "type": "object"
+      }
+    },
+    "runtime/agentToolsSetup": {
+      "params": {
+        "properties": {
+          "harness": {
+            "type": "string"
+          }
+        },
+        "required": ["harness"],
+        "type": "object"
+      },
+      "result": {
+        "properties": {
+          "authState": {
+            "enum": ["authenticated", "unauthenticated", "unknown"]
+          },
+          "connection": {
+            "properties": {
+              "method": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string"
+              },
+              "storage": {
+                "enum": ["native", "secure", "session"]
+              },
+              "verified": {
+                "type": "boolean"
+              }
+            },
+            "required": ["provider", "method", "storage", "verified"],
+            "type": "object"
+          },
+          "flow": {
+            "properties": {
+              "authorizationUrl": {
+                "type": "string"
+              },
+              "expiresAt": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "inputFields": {
+                "items": {
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "placeholder": {
+                      "type": "string"
+                    },
+                    "secret": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["id", "label"],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "message": {
+                "type": "string"
+              },
+              "operation": {
+                "enum": ["install", "connect"]
+              },
+              "status": {
+                "enum": ["pending", "connected", "completed", "failed", "cancelled"]
+              },
+              "userCode": {
+                "type": "string"
+              }
+            },
+            "required": ["id", "status"],
+            "type": "object"
+          },
+          "harness": {
+            "type": "string"
+          },
+          "installation": {
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "supported": {
+                "type": "boolean"
+              }
+            },
+            "required": ["supported"],
+            "type": "object"
+          },
+          "installed": {
+            "type": "boolean"
+          },
+          "manual": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "providers": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "methods": {
+                  "items": {
+                    "properties": {
+                      "fields": {
+                        "items": {
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": "string"
+                            },
+                            "placeholder": {
+                              "type": "string"
+                            },
+                            "secret": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": ["id", "label"],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "help": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "enum": ["api_key", "browser", "device", "existing"]
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["id", "label", "kind"],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": ["id", "label", "methods"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "storage": {
+            "properties": {
+              "description": {
+                "type": "string"
+              },
+              "persistent": {
+                "type": "boolean"
+              }
+            },
+            "required": ["persistent", "description"],
+            "type": "object"
+          }
+        },
+        "required": ["harness", "installed", "authState", "storage", "providers"],
+        "type": "object"
       }
     },
     "runtime/configuration": {
@@ -4798,14 +4555,10 @@
           {
             "anyOf": [
               {
-                "required": [
-                  "text"
-                ]
+                "required": ["text"]
               },
               {
-                "required": [
-                  "content"
-                ]
+                "required": ["content"]
               }
             ],
             "properties": {
@@ -4862,9 +4615,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "nativeId"
-            ],
+            "required": ["nativeId"],
             "type": "object"
           }
         ]
@@ -4900,10 +4651,7 @@
             "$ref": "#/$defs/RuntimeIdentity"
           },
           "transcriptDurability": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "version": {
             "type": "string"
@@ -4928,9 +4676,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "harness"
-        ],
+        "required": ["harness"],
         "type": "object"
       },
       "result": {
@@ -4955,9 +4701,7 @@
             "type": "array"
           }
         },
-        "required": [
-          "queries"
-        ],
+        "required": ["queries"],
         "type": "object"
       },
       "result": {
@@ -4996,9 +4740,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "sessionId"
-            ],
+            "required": ["sessionId"],
             "type": "object"
           },
           {
@@ -5023,9 +4765,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "sessionId"
-        ],
+        "required": ["sessionId"],
         "type": "object"
       },
       "result": {
@@ -5039,9 +4779,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "sessionId"
-        ],
+        "required": ["sessionId"],
         "type": "object"
       },
       "result": {
@@ -5055,9 +4793,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "sessionId"
-        ],
+        "required": ["sessionId"],
         "type": "object"
       },
       "result": {
@@ -5081,9 +4817,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "sessionId"
-            ],
+            "required": ["sessionId"],
             "type": "object"
           },
           {
@@ -5119,9 +4853,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "sessionId"
-            ],
+            "required": ["sessionId"],
             "type": "object"
           },
           {
@@ -5135,10 +4867,7 @@
                 "type": "string"
               },
               "position": {
-                "enum": [
-                  "after_assistant",
-                  "before_user"
-                ],
+                "enum": ["after_assistant", "before_user"],
                 "type": "string"
               }
             },
@@ -5158,9 +4887,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "sessionId"
-        ],
+        "required": ["sessionId"],
         "type": "object"
       },
       "result": {
@@ -5179,9 +4906,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "nativeId"
-            ],
+            "required": ["nativeId"],
             "type": "object"
           }
         ]
@@ -5212,9 +4937,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "sessionId"
-            ],
+            "required": ["sessionId"],
             "type": "object"
           },
           {
@@ -5235,22 +4958,16 @@
                 "type": "string"
               }
             },
-            "required": [
-              "sessionId"
-            ],
+            "required": ["sessionId"],
             "type": "object"
           },
           {
             "anyOf": [
               {
-                "required": [
-                  "text"
-                ]
+                "required": ["text"]
               },
               {
-                "required": [
-                  "content"
-                ]
+                "required": ["content"]
               }
             ],
             "properties": {
@@ -5275,9 +4992,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "idempotencyKey"
-            ],
+            "required": ["idempotencyKey"],
             "type": "object"
           }
         ]
@@ -5295,22 +5010,16 @@
                 "type": "string"
               }
             },
-            "required": [
-              "sessionId"
-            ],
+            "required": ["sessionId"],
             "type": "object"
           },
           {
             "anyOf": [
               {
-                "required": [
-                  "text"
-                ]
+                "required": ["text"]
               },
               {
-                "required": [
-                  "content"
-                ]
+                "required": ["content"]
               }
             ],
             "properties": {
@@ -5340,9 +5049,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "sessionId"
-        ],
+        "required": ["sessionId"],
         "type": "object"
       },
       "result": {
@@ -5358,9 +5065,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "sessionId"
-            ],
+            "required": ["sessionId"],
             "type": "object"
           },
           {
@@ -5369,9 +5074,7 @@
                 "type": "boolean"
               }
             },
-            "required": [
-              "paused"
-            ],
+            "required": ["paused"],
             "type": "object"
           }
         ]
@@ -5389,9 +5092,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "sessionId"
-            ],
+            "required": ["sessionId"],
             "type": "object"
           },
           {
@@ -5400,9 +5101,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "id"
-            ],
+            "required": ["id"],
             "type": "object"
           }
         ]
@@ -5420,22 +5119,16 @@
                 "type": "string"
               }
             },
-            "required": [
-              "sessionId"
-            ],
+            "required": ["sessionId"],
             "type": "object"
           },
           {
             "anyOf": [
               {
-                "required": [
-                  "text"
-                ]
+                "required": ["text"]
               },
               {
-                "required": [
-                  "content"
-                ]
+                "required": ["content"]
               }
             ],
             "properties": {
@@ -5458,9 +5151,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "id"
-            ],
+            "required": ["id"],
             "type": "object"
           }
         ]
@@ -5478,9 +5169,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "sessionId"
-            ],
+            "required": ["sessionId"],
             "type": "object"
           },
           {
@@ -5507,9 +5196,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "sessionId"
-            ],
+            "required": ["sessionId"],
             "type": "object"
           },
           {
@@ -5526,9 +5213,7 @@
                 "type": "integer"
               }
             },
-            "required": [
-              "turns"
-            ],
+            "required": ["turns"],
             "type": "object"
           }
         ]
@@ -5546,22 +5231,16 @@
                 "type": "string"
               }
             },
-            "required": [
-              "sessionId"
-            ],
+            "required": ["sessionId"],
             "type": "object"
           },
           {
             "anyOf": [
               {
-                "required": [
-                  "text"
-                ]
+                "required": ["text"]
               },
               {
-                "required": [
-                  "content"
-                ]
+                "required": ["content"]
               }
             ],
             "properties": {
@@ -5586,9 +5265,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "accepted"
-        ],
+        "required": ["accepted"],
         "type": "object"
       }
     },
@@ -5601,9 +5278,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "sessionId"
-            ],
+            "required": ["sessionId"],
             "type": "object"
           },
           {
@@ -5614,9 +5289,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "idempotencyKey"
-            ],
+            "required": ["idempotencyKey"],
             "type": "object"
           }
         ]
@@ -5641,9 +5314,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "sessionId"
-            ],
+            "required": ["sessionId"],
             "type": "object"
           },
           {
@@ -5654,9 +5325,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "idempotencyKey"
-            ],
+            "required": ["idempotencyKey"],
             "type": "object"
           }
         ]
@@ -5672,6 +5341,52 @@
         ]
       }
     },
+    "session/task/stop": {
+      "params": {
+        "allOf": [
+          {
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              }
+            },
+            "required": ["sessionId"],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "taskId": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": ["taskId"],
+            "type": "object"
+          }
+        ]
+      },
+      "result": {
+        "type": "null"
+      }
+    },
+    "session/tasks": {
+      "params": {
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          }
+        },
+        "required": ["sessionId"],
+        "type": "object"
+      },
+      "result": {
+        "items": {
+          "$ref": "#/$defs/AgentTask"
+        },
+        "type": "array"
+      }
+    },
     "session/transcript": {
       "params": {
         "allOf": [
@@ -5681,9 +5396,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "sessionId"
-            ],
+            "required": ["sessionId"],
             "type": "object"
           },
           {
@@ -5717,9 +5430,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "sessionId"
-        ],
+        "required": ["sessionId"],
         "type": "object"
       },
       "result": {

@@ -20,14 +20,17 @@
     "lint:doctor": "ultracite doctor",
     "format": "node node_modules/oxfmt/bin/oxfmt .",
     "format:check": "node node_modules/oxfmt/bin/oxfmt --check .",
-    "test": "bun run test:ui && bun run --cwd apps/desktop test:web && bun run --cwd sdk/typescript test",
+    "test": "bun run test:contracts && bun run test:ui && bun run --cwd apps/desktop test:web && bun run --cwd sdk/typescript test",
     "check": "bun run format:check && bun run typecheck && bun run lint:code && bun run test",
     "lint:shared": "oxlint --deny-warnings --report-unused-disable-directives oxlint.config.ts oxfmt.config.ts packages/config packages/ui",
     "format:shared:check": "node node_modules/oxfmt/bin/oxfmt --check oxlint.config.ts oxfmt.config.ts package.json tsconfig.json packages/config packages/ui",
     "check:ui": "bun run format:shared:check && bun run --filter @swarmie/ui typecheck && bun run lint:shared",
-    "test:ui": "bun test packages/ui"
+    "test:ui": "bun test packages/ui",
+    "test:contracts": "tsc --noEmit -p packages/contracts/tsconfig.json && bun test packages/contracts"
   },
   "devDependencies": {
+    "@earendil-works/pi-ai": "1.2.0",
+    "@earendil-works/pi-coding-agent": "1.2.0",
     "@shadcn/lint": "0.2.0",
     "@swarmie/config": "workspace:*",
     "@types/bun": "1.3.10",

@@ -1,8 +1,8 @@
-use swarmie::{Runtime, RuntimeExtension};
-use swarmie_workspace::WorkspaceExtension;
 use protocol::RuntimeService;
 use serde_json::{Value, json};
 use std::time::Duration;
+use swarmie::{Runtime, RuntimeExtension};
+use swarmie_workspace::WorkspaceExtension;
 async fn invoke(service: &RuntimeService, command: &str, args: Value) -> swarmie::Result<Value> {
     service
         .invoke(

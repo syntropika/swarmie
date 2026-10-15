@@ -123,7 +123,11 @@ def main():
     code+='export interface Methods {\n'+''.join('  '+json.dumps(name)+': { params: '+ts(value['params'])+'; result: '+ts(value['result'])+' };\n' for name,value in sorted(methods.items()))+'}\n'
     code+='export type { NativeClientMethods, SubmissionProjection, SessionProjection, SessionLaunchIntent, SessionControls, SessionOpenProjection, ClientProject, InputAttachment, InputContext, PreparedInput, RecoveredDraft, SshReadiness, NodeStartup } from "./client.js";\n'
     code+='export type { AccountCursor, AccountMethods, AccountObservation, AccountProfile, AccountSession, AccountSessionPage, AccountSnapshot } from "./account.js";\n'
+    code+='export type RuntimeResults = { [M in keyof Methods]: Methods[M]["result"] };\n'
+    code+='export type ContractDefinitions = {\n'+''.join('  '+json.dumps(name)+': '+name+';\n' for name in sorted(defs))+'};\n'
+    code+='export { decodeContract, decodeRuntimeResult } from "./validation.js";\n'
     files[CONTRACTS/'index.d.ts']=code
+    files[CONTRACTS/'validation.d.ts']=header+'import type { ContractDefinitions, RuntimeResults } from "./index.js";\nexport declare function decodeRuntimeResult<M extends keyof RuntimeResults>(method: M, value: unknown): RuntimeResults[M];\nexport declare function decodeContract<M extends keyof ContractDefinitions>(name: M, value: unknown): ContractDefinitions[M];\n'
     code='# Generated from runtime/schema. Run tools/generate.py to refresh.\nfrom __future__ import annotations\nfrom typing import Any, Literal, Union, TypedDict, NotRequired\n\n'
     aliases=[]
     for name,value in sorted(defs.items()):
@@ -141,7 +145,13 @@ def main():
     files[ROOT/'python/swarmie_client/generated.py']=code
     files[ROOT/'go/generated.go']=generated_go(defs,methods)
     files[ROOT/'swift/Sources/SwarmieClient/Generated.swift']=generated_swift(defs,methods)
+    # Generated wire contracts follow the same root formatter as their consumers.
+    import subprocess
+    formatter=ROOT.parent/'node_modules/oxfmt/bin/oxfmt'
+    if not formatter.is_file():raise SystemExit('Install root Bun dependencies before generating SDK contracts.')
     for path,content in files.items():
+        if path.suffix=='.json' or path.name.endswith('.d.ts'):
+            content=subprocess.run(['node',str(formatter),'--stdin-filepath',str(path)],input=content,text=True,capture_output=True,check=True,cwd=ROOT.parent).stdout
         if args.check:
             if not path.exists() or path.read_text()!=content:raise SystemExit(f'Generated file is stale: {path.relative_to(ROOT.parent)}')
         else:path.write_text(content)

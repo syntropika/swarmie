@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
-import {
-  matchingTemplateIdentifier,
-  parseTemplateAliases,
-  templateParameterNames,
-} from "./ResourceLibrary";
+
 import {
   parseNativeDefaults,
   projectDefaultsPayload,
   projectWorkspacePaths,
-} from "./ProjectSettings";
+} from "./project-settings";
 import type { Project } from "./protocol";
+import {
+  matchingTemplateIdentifier,
+  parseTemplateAliases,
+  templateParameterNames,
+} from "./resource-library";
 
 describe("template command parameters and aliases", () => {
   it("uses unique canonical placeholder keys including dots and hyphens", () => {
@@ -42,8 +43,9 @@ describe("template command parameters and aliases", () => {
       "review review",
       "review/invalid",
       Array.from({ length: 17 }, (_, i) => `a${i}`).join(" "),
-    ])
+    ]) {
       expect(() => parseTemplateAliases(aliases)).toThrow();
+    }
   });
 });
 
@@ -107,14 +109,11 @@ describe("project default controls and workspace selection", () => {
       config: null,
       directoryPath: "/repo",
     });
-    expect(() =>
-      projectDefaultsPayload(project, "", "{}", "/trees/missing"),
-    ).toThrow();
-    expect(() =>
-      projectDefaultsPayload(project, "", "{}", "/other-project"),
-    ).toThrow();
+    expect(() => projectDefaultsPayload(project, "", "{}", "/trees/missing")).toThrow();
+    expect(() => projectDefaultsPayload(project, "", "{}", "/other-project")).toThrow();
     expect(parseNativeDefaults("null")).toEqual({});
-    for (const config of ["[]", '"plan"', "broken"])
+    for (const config of ["[]", '"plan"', "broken"]) {
       expect(() => parseNativeDefaults(config)).toThrow();
+    }
   });
 });

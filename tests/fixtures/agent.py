@@ -15,9 +15,12 @@ pending_question = False
 selected_model = "fixture-model"
 thinking = "medium"
 session = "fixture-session"
+text_started = False
 
 
 def emit(frame):
+    if mode == "claude" and frame.get("type") == "result" and frame.get("is_error"):
+        frame.setdefault("errors", [])
     with lock:
         print(json.dumps(frame, ensure_ascii=False), flush=True)
 
@@ -36,12 +39,17 @@ def response(request, value=None):
 
 
 def text(value):
+    global text_started
     if mode == "codex":
         notify("item/agentMessage/delta", {"threadId": session, "itemId": "message", "delta": value})
     elif mode == "pi":
         emit({"type": "message_update", "assistantMessageEvent": {"type": "text_delta", "delta": value}})
     elif mode == "claude":
-        emit({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": value}}})
+        if not text_started:
+            emit({"type": "stream_event", "event": {"type": "message_start", "message": {"id": f"message-{turn}"}}})
+            emit({"type": "stream_event", "event": {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}})
+            text_started = True
+        emit({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": value}}})
     else:
         notify("session/update", {"sessionId": session, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": value}}})
 
@@ -61,8 +69,9 @@ def finish(request=None, reason="completed"):
 
 
 def prompt(request, value):
-    global active, turn, permission, pending_question
+    global active, turn, permission, pending_question, text_started
     turn += 1
+    text_started = False
     active = True
     if value == "crash":
         os._exit(7)

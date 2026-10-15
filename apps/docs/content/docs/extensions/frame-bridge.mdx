@@ -30,8 +30,8 @@ Removal and context changes invalidate callbacks. Pending frame requests are rel
 
 ```js
 const context = await swarmie.getContext();
-await swarmie.insertText('Text from this extension. ');
-const stop = swarmie.on('composer.changed', (event) => {
+await swarmie.insertText("Text from this extension. ");
+const stop = swarmie.on("composer.changed", (event) => {
   console.log(event.context.conversationId);
 });
 // Release the listener when this frame no longer needs it.

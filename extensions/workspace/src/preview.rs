@@ -1,7 +1,6 @@
 //! Bounded static preview files with a direct loopback server and scoped daemon relay.
 use crate::{WorkspaceExtension, assets, relative, required};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use swarmie::{Error, Result};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -9,6 +8,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
+use swarmie::{Error, Result};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},

@@ -49,21 +49,36 @@ pub(crate) fn local_socket_path(root: &Path) -> Result<PathBuf> {
     let root = std::fs::canonicalize(root)?;
     #[cfg(not(windows))]
     let preferred = root.join("runtime/node.sock");
-    #[cfg(unix)] {
+    #[cfg(unix)]
+    {
         use std::os::unix::ffi::OsStrExt;
-        if preferred.as_os_str().as_bytes().len() < 100 { return Ok(preferred); }
+        if preferred.as_os_str().as_bytes().len() < 100 {
+            return Ok(preferred);
+        }
         use sha2::{Digest, Sha256};
         let digest = format!("{:x}", Sha256::digest(root.as_os_str().as_bytes()));
         let uid = unsafe { libc::geteuid() };
-        let path = PathBuf::from("/tmp").join(format!("swarmie-{uid}")).join(format!("{}.sock", &digest[..24]));
+        let path = PathBuf::from("/tmp")
+            .join(format!("swarmie-{uid}"))
+            .join(format!("{}.sock", &digest[..24]));
         Ok(path)
     }
-    #[cfg(windows)] {
+    #[cfg(windows)]
+    {
         use sha2::{Digest, Sha256};
-        let digest = format!("{:x}", Sha256::digest(root.as_os_str().to_string_lossy().as_bytes()));
-        Ok(PathBuf::from(format!(r"\\.\pipe\swarmie-{}", &digest[..32])))
+        let digest = format!(
+            "{:x}",
+            Sha256::digest(root.as_os_str().to_string_lossy().as_bytes())
+        );
+        Ok(PathBuf::from(format!(
+            r"\\.\pipe\swarmie-{}",
+            &digest[..32]
+        )))
     }
-    #[cfg(not(any(unix, windows)))] { Ok(preferred) }
+    #[cfg(not(any(unix, windows)))]
+    {
+        Ok(preferred)
+    }
 }
 fn record_path(root: &Path) -> PathBuf {
     root.join("runtime/http-endpoint.json")
@@ -119,7 +134,9 @@ pub(crate) fn read(root: &Path) -> Result<Option<Endpoint>> {
     if let Some(socket) = &endpoint.local_socket {
         let expected = local_socket_path(root)?;
         if socket != &expected {
-            return Err(Error::Invalid("runtime socket must belong to the retained Environment directory".into()));
+            return Err(Error::Invalid(
+                "runtime socket must belong to the retained Environment directory".into(),
+            ));
         }
     }
     Ok(Some(endpoint))
@@ -149,7 +166,11 @@ pub async fn register(
     let identity = service.runtime().identity().await?;
     let endpoint = Endpoint {
         url: format!("http://{address}"),
-        local_socket: if cfg!(any(unix, windows)) { Some(local_socket_path(root)?) } else { None },
+        local_socket: if cfg!(any(unix, windows)) {
+            Some(local_socket_path(root)?)
+        } else {
+            None
+        },
         runtime_identity: identity.clone(),
         desktop_assets: match assets {
             Some(path) => Some(tokio::fs::canonicalize(path).await?),
@@ -187,13 +208,33 @@ async fn request(
 ) -> Result<Option<Value>> {
     #[cfg(unix)]
     if let Some(path) = &endpoint.local_socket {
-        let transport = storage::NodeTransport::LocalSocket { path: path.to_string_lossy().into_owned() };
+        let transport = storage::NodeTransport::LocalSocket {
+            path: path.to_string_lossy().into_owned(),
+        };
         match tokio::net::UnixStream::connect(path).await {
             Ok(stream) => drop(stream),
-            Err(error) if matches!(error.kind(), std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound) => return Ok(None),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound
+                ) =>
+            {
+                return Ok(None);
+            }
             Err(error) => return Err(error.into()),
         }
-        let value = crate::node_connection::rpc_targeted(&transport.endpoint(), method, json!({}), None, if target { Some(&endpoint.runtime_identity) } else { None }).await;
+        let value = crate::node_connection::rpc_targeted(
+            &transport.endpoint(),
+            method,
+            json!({}),
+            None,
+            if target {
+                Some(&endpoint.runtime_identity)
+            } else {
+                None
+            },
+        )
+        .await;
         return match value {
             Ok(value) => Ok(Some(value)),
             Err(_) if !path.exists() => Ok(None),
@@ -204,12 +245,32 @@ async fn request(
     if let Some(path) = &endpoint.local_socket {
         match crate::runtime::windows_pipe::connect(path).await {
             Ok(stream) => drop(stream),
-            Err(error) if matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused) => return Ok(None),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+                ) =>
+            {
+                return Ok(None);
+            }
             Err(error) => return Err(error.into()),
         }
-        let transport = storage::NodeTransport::LocalSocket { path: path.to_string_lossy().into_owned() };
-        return crate::node_connection::rpc_targeted(&transport.endpoint(), method, json!({}), None,
-            if target {Some(&endpoint.runtime_identity)} else {None}).await.map(Some);
+        let transport = storage::NodeTransport::LocalSocket {
+            path: path.to_string_lossy().into_owned(),
+        };
+        return crate::node_connection::rpc_targeted(
+            &transport.endpoint(),
+            method,
+            json!({}),
+            None,
+            if target {
+                Some(&endpoint.runtime_identity)
+            } else {
+                None
+            },
+        )
+        .await
+        .map(Some);
     }
     let client = reqwest::Client::builder()
         .no_proxy()
@@ -453,11 +514,18 @@ pub async fn attach(root: &Path) -> Result<Endpoint> {
 pub async fn run(root: &Path, command: RuntimeCommand) -> Result<()> {
     if matches!(command, RuntimeCommand::Start) {
         let endpoint = attach(root).await?;
-        println!("{}", json!({"running":true,"runtimeIdentity":endpoint.runtime_identity}));
+        println!(
+            "{}",
+            json!({"running":true,"runtimeIdentity":endpoint.runtime_identity})
+        );
         return Ok(());
     }
     if let RuntimeCommand::Proxy { socket } = command {
-        return proxy(match socket { Some(path) => path, None => local_socket_path(root)? }).await;
+        return proxy(match socket {
+            Some(path) => path,
+            None => local_socket_path(root)?,
+        })
+        .await;
     }
     let (token, stop) = match command {
         RuntimeCommand::Status { token } => (token, false),
@@ -500,7 +568,9 @@ pub async fn run(root: &Path, command: RuntimeCommand) -> Result<()> {
                     fs2::FileExt::unlock(&file)?;
                     break;
                 }
-                Err(error) if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() => {
+                Err(error)
+                    if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() =>
+                {
                     tokio::time::sleep(Duration::from_millis(50)).await;
                 }
                 Err(error) => return Err(error.into()),

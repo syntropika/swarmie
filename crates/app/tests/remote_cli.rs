@@ -111,10 +111,8 @@ async fn terminal_open_encodes_a_real_project_and_session_without_launching_when
         url.query_pairs()
             .any(|(key, value)| key == "session" && value == id)
     );
-    assert!(
-        url.query_pairs()
-            .any(|(key, value)| key == "project" && value == root.path().canonicalize().unwrap().to_string_lossy())
-    );
+    assert!(url.query_pairs().any(|(key, value)| key == "project"
+        && value == root.path().canonicalize().unwrap().to_string_lossy()));
 }
 #[cfg(target_os = "linux")]
 #[tokio::test]
@@ -191,11 +189,15 @@ esac
     );
     for operation in ["enable", "start", "status"] {
         let output = command(vec!["service".into(), operation.into()])
-            .output().await.unwrap();
+            .output()
+            .await
+            .unwrap();
         assert!(output.status.success());
     }
     let refused = command(vec!["service".into(), "uninstall".into()])
-        .output().await.unwrap();
+        .output()
+        .await
+        .unwrap();
     assert!(!refused.status.success());
     assert!(String::from_utf8_lossy(&refused.stderr).contains("service stop explicitly"));
     assert!(unit.exists());
@@ -368,7 +370,10 @@ print(json.dumps({'clientUrl':url,'runtimeIdentity':result['runtimeIdentity']}))
         .json()
         .await
         .unwrap();
-    assert_eq!(initialized["result"]["runtimeIdentity"], first["runtimeIdentity"]);
+    assert_eq!(
+        initialized["result"]["runtimeIdentity"],
+        first["runtimeIdentity"]
+    );
     let reopened = cli(&state, &args).await;
     assert!(reopened.status.success());
     let reopened: Value = serde_json::from_slice(&reopened.stdout).unwrap();

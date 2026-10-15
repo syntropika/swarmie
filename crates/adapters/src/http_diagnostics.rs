@@ -1,5 +1,4 @@
 //! Bounded wire recording and activity diagnostics for HTTP/SSE adapters.
-use swarmie::{BackendEvent, Error, EventKind, Result};
 use process::{Recorder, WireRecording};
 use serde_json::{Value, json};
 use std::{
@@ -8,6 +7,7 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
+use swarmie::{BackendEvent, Error, EventKind, Result};
 use tokio::{sync::mpsc, task::JoinHandle};
 
 pub(super) struct HttpDiagnostics {

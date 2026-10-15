@@ -100,7 +100,9 @@ pub(crate) async fn inspect_ssh(host: &str, socket: &str, token: Option<&str>) -
     let mut command = crate::node_channel::ssh_command(host)?;
     let shell = match super::ssh_shell::discover(host).await {
         Ok(shell) => shell,
-        Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => return Ok(ssh_readiness("ssh-client-unavailable", None, None, None)),
+        Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(ssh_readiness("ssh-client-unavailable", None, None, None));
+        }
         Err(_) => return Ok(ssh_readiness("ssh-unavailable", None, None, None)),
     };
     command
@@ -163,7 +165,12 @@ pub(crate) async fn inspect_ssh(host: &str, socket: &str, token: Option<&str>) -
         return Ok(ssh_readiness("invalid-installation", None, None, None));
     }
     // Keep the complete read-only check within the client request deadline.
-    let result: Result<Value> = match tokio::time::timeout(Duration::from_secs(15), rpc(&endpoint, "runtime/initialize", json!({}), token)).await {
+    let result: Result<Value> = match tokio::time::timeout(
+        Duration::from_secs(15),
+        rpc(&endpoint, "runtime/initialize", json!({}), token),
+    )
+    .await
+    {
         Ok(Ok(value)) => match crate::node_connection::handshake(&value, None) {
             Ok(target) => Ok(ssh_readiness(
                 "ready",
@@ -179,7 +186,10 @@ pub(crate) async fn inspect_ssh(host: &str, socket: &str, token: Option<&str>) -
             )),
         },
         Ok(Err(Error::Invalid(_) | Error::Json(_))) => Ok(ssh_readiness(
-            "incompatible-runtime", Some(true), Some(version), None,
+            "incompatible-runtime",
+            Some(true),
+            Some(version),
+            None,
         )),
         _ => Ok(ssh_readiness(
             "runtime-unavailable",
@@ -190,9 +200,79 @@ pub(crate) async fn inspect_ssh(host: &str, socket: &str, token: Option<&str>) -
     };
     let mut result = result?;
     if result["status"] == "runtime-unavailable" {
-        result["preparation"] = crate::client::ssh_preparation::preparation(host, socket, false).await;
+        result["preparation"] =
+            crate::client::ssh_preparation::preparation(host, socket, false).await;
     }
     Ok(result)
+}
+
+pub async fn run(root: &Path, command: RemoteCommand) -> Result<()> {
+    let manager = ConnectionManager::open(root).await?;
+    match command {
+        RemoteCommand::List => println!(
+            "{}",
+            serde_json::to_string_pretty(
+                &manager
+                    .list()
+                    .await?
+                    .iter()
+                    .map(public_connection)
+                    .collect::<Vec<_>>()
+            )?
+        ),
+        RemoteCommand::Remove { name } => manager.remove(&name).await?,
+        RemoteCommand::Pair { name, url, token } => println!(
+            "{}",
+            public_connection(&manager.pair(name, url, token).await?)
+        ),
+        RemoteCommand::Call {
+            name,
+            method,
+            params,
+        } => println!(
+            "{}",
+            serde_json::to_string_pretty(
+                &manager
+                    .call(&name, &method, serde_json::from_str(&params)?)
+                    .await?
+            )?
+        ),
+        RemoteCommand::PrepareSsh { host, action } => println!(
+            "{}",
+            crate::client::ssh_preparation::prepare(&host, "", &action).await?
+        ),
+        RemoteCommand::InspectSsh {
+            host,
+            socket,
+            token,
+        } => println!("{}", inspect_ssh(&host, &socket, token.as_deref()).await?),
+        RemoteCommand::Ssh {
+            name,
+            host,
+            socket,
+            token,
+        } => {
+            let readiness = inspect_ssh(&host, &socket, token.as_deref()).await?;
+            if readiness["ready"] != true {
+                return Err(Error::Invalid(format!(
+                    "remote runtime is not ready: {}",
+                    readiness["nextAction"]
+                )));
+            }
+            let endpoint = ssh_endpoint(&host, &socket)?;
+            let target = serde_json::from_value(readiness["runtimeIdentity"].clone())?;
+            println!(
+                "{}",
+                public_connection(
+                    &manager
+                        .pair_prepared(name, endpoint, token, &target)
+                        .await?
+                )
+            );
+        }
+    }
+    manager.close().await;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -227,27 +307,4 @@ mod tests {
             b"unexpected error"
         ));
     }
-}
-
-pub async fn run(root: &Path, command: RemoteCommand) -> Result<()> {
-    let manager = ConnectionManager::open(root).await?;
-    match command {
-        RemoteCommand::List => println!("{}", serde_json::to_string_pretty(&manager.list().await?.iter().map(public_connection).collect::<Vec<_>>())?),
-        RemoteCommand::Remove { name } => manager.remove(&name).await?,
-        RemoteCommand::Pair { name, url, token } => println!("{}", public_connection(&manager.pair(name, url, token).await?)),
-        RemoteCommand::Call { name, method, params } => println!("{}", serde_json::to_string_pretty(&manager.call(&name, &method, serde_json::from_str(&params)?).await?)?),
-        RemoteCommand::PrepareSsh { host, action } => println!("{}", crate::client::ssh_preparation::prepare(&host, "", &action).await?),
-        RemoteCommand::InspectSsh { host, socket, token } => println!("{}", inspect_ssh(&host, &socket, token.as_deref()).await?),
-        RemoteCommand::Ssh { name, host, socket, token } => {
-            let readiness = inspect_ssh(&host, &socket, token.as_deref()).await?;
-            if readiness["ready"] != true {
-                return Err(Error::Invalid(format!("remote runtime is not ready: {}", readiness["nextAction"])));
-            }
-            let endpoint = ssh_endpoint(&host, &socket)?;
-            let target = serde_json::from_value(readiness["runtimeIdentity"].clone())?;
-            println!("{}", public_connection(&manager.pair_prepared(name, endpoint, token, &target).await?));
-        }
-    }
-    manager.close().await;
-    Ok(())
 }

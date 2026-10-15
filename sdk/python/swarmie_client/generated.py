@@ -2,7 +2,15 @@
 from __future__ import annotations
 from typing import Any, Literal, Union, TypedDict, NotRequired
 
+class AgentTask(TypedDict):
+    description: str
+    id: str
+    kind: NotRequired[Union[str, None]]
+    status: AgentTaskStatus
+    summary: NotRequired[Union[str, None]]
+
 class Capabilities(TypedDict):
+    backgroundTasks: Capability
     cancel: Capability
     commands: Capability
     compact: Capability
@@ -545,13 +553,14 @@ class WorkingContext(TypedDict):
     source: ContextSource
 
 AccountQuotaResult = Union[dict[str, Any], dict[str, Any], dict[str, Any]]
+AgentTaskStatus = Literal['running', 'completed', 'failed', 'stopped', 'unknown']
 CapabilityAvailability = Literal['available', 'unavailable', 'unsupported', 'unknown']
 CapabilityEvidence = Literal['declared', 'negotiated']
 CapabilitySource = Literal['harness', 'runtime', 'extension']
 ContextSource = Union[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]
 DeliveryKnowledge = Literal['not_sent', 'in_flight', 'accepted', 'rejected', 'unknown']
 DirectoryOwnership = Literal['user', 'external_owner']
-EventKind = Union[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]
+EventKind = Union[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]
 ExecutionProfile = Literal['ask', 'review', 'full', 'native_custom']
 InputMcpTransport = Union[dict[str, Any], dict[str, Any], dict[str, Any]]
 InputPromptContent = Union[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]
@@ -573,4 +582,4 @@ UiCondition = Literal['connected', 'conversation', 'project', 'message', 'panel'
 UiContributionKind = Literal['action', 'text', 'section']
 UiIcon = Literal['microphone', 'stop', 'spinner', 'extension']
 UiSlot = Literal['sidebar.primary', 'sidebar.footer', 'app.header.actions', 'conversation.header.actions', 'composer.actions', 'composer.context', 'composer.status', 'message.actions', 'message.details', 'project.actions', 'project.contextMenu', 'conversation.contextMenu', 'panel.toolbar', 'panel.status', 'settings.sections']
-METHODS = ('agent/commands', 'agent/configuration', 'agent/configure', 'agent/kill', 'agent/models', 'agent/quotas', 'agent/spawn', 'directory/get', 'directory/register', 'extension/invoke', 'extension/list', 'permission/respond', 'project/create', 'project/get', 'project/list', 'project/update', 'runtime/configuration', 'runtime/discover', 'runtime/generate', 'runtime/history', 'runtime/history/read', 'runtime/initialize', 'runtime/probe', 'runtime/quotas', 'runtime/quotas/all', 'runtime/schema', 'runtime/shutdown', 'session/cancel', 'session/close', 'session/compact', 'session/context', 'session/create', 'session/events', 'session/fork', 'session/get', 'session/import', 'session/list', 'session/metadata', 'session/prompt', 'session/queue', 'session/queue/list', 'session/queue/pause', 'session/queue/remove', 'session/queue/update', 'session/resume', 'session/rollback', 'session/steer', 'session/submission', 'session/submission/reconcile', 'session/transcript', 'session/tree', 'settings/directory', 'settings/setDirectory')
+METHODS = ('agent/commands', 'agent/configuration', 'agent/configure', 'agent/kill', 'agent/models', 'agent/quotas', 'agent/spawn', 'directory/get', 'directory/register', 'extension/invoke', 'extension/list', 'permission/respond', 'project/create', 'project/get', 'project/list', 'project/update', 'runtime/agentToolsCancel', 'runtime/agentToolsConnect', 'runtime/agentToolsDisconnect', 'runtime/agentToolsFlow', 'runtime/agentToolsInput', 'runtime/agentToolsInstall', 'runtime/agentToolsSetup', 'runtime/configuration', 'runtime/discover', 'runtime/generate', 'runtime/history', 'runtime/history/read', 'runtime/initialize', 'runtime/probe', 'runtime/quotas', 'runtime/quotas/all', 'runtime/schema', 'runtime/shutdown', 'session/cancel', 'session/close', 'session/compact', 'session/context', 'session/create', 'session/events', 'session/fork', 'session/get', 'session/import', 'session/list', 'session/metadata', 'session/prompt', 'session/queue', 'session/queue/list', 'session/queue/pause', 'session/queue/remove', 'session/queue/update', 'session/resume', 'session/rollback', 'session/steer', 'session/submission', 'session/submission/reconcile', 'session/task/stop', 'session/tasks', 'session/transcript', 'session/tree', 'settings/directory', 'settings/setDirectory')

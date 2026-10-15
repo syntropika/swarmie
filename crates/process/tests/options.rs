@@ -46,7 +46,10 @@ async fn recording_redacts_both_directions_and_stops_at_budget_nonfatally() {
     let folder = tempfile::tempdir().unwrap();
     let path = folder.path().join("wire.jsonl");
     let options = ProcessOptions {
-        environment: BTreeMap::from([("SWARMIE_PROCESS_FIXTURE".into(), "private-env-secret".into())]),
+        environment: BTreeMap::from([(
+            "SWARMIE_PROCESS_FIXTURE".into(),
+            "private-env-secret".into(),
+        )]),
         recording: Some(WireRecording {
             path: path.clone(),
             max_bytes: 1800,

@@ -1,11 +1,13 @@
-import { AnnotatedCapture, SlotIndex } from './extension-guide';
-import defaultMdxComponents from 'fumadocs-ui/mdx';
-import type { MDXComponents } from 'mdx/types';
+import defaultMdxComponents from "fumadocs-ui/mdx";
+import type { MDXComponents } from "mdx/types";
+
+import { AnnotatedCapture, SlotIndex } from "./extension-guide";
 
 export function getMDXComponents(components?: MDXComponents) {
   return {
     ...defaultMdxComponents,
-    AnnotatedCapture, SlotIndex,
+    AnnotatedCapture,
+    SlotIndex,
     ...components,
   } satisfies MDXComponents;
 }

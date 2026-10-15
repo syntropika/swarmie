@@ -1,6 +1,6 @@
-use swarmie::*;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use swarmie::*;
 
 fn legacy_request() -> PermissionRequest {
     serde_json::from_value(json!({

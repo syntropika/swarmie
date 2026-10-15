@@ -1,10 +1,10 @@
 use crate::repository::{git, git_index, utf8};
-use swarmie::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
 };
+use swarmie::{Error, Result};
 use tokio::sync::Mutex;
 
 #[derive(Clone, Serialize, Deserialize)]

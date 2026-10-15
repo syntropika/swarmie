@@ -49,6 +49,7 @@ impl RuntimeBuilder {
             open_lock: Mutex::new(()),
             events,
             host_tools: Default::default(),
+            agent_tools: Default::default(),
         }));
         for extension in &runtime.0.extensions {
             extension.initialize(runtime.downgrade());
@@ -57,6 +58,7 @@ impl RuntimeBuilder {
     }
 }
 struct RuntimeInner {
+    agent_tools: std::sync::RwLock<Option<Arc<dyn AgentToolSetupPort>>>,
     incarnation_id: String,
     host_tools: crate::tools::HostTools,
     harnesses: BTreeMap<String, Arc<dyn Harness>>,
@@ -82,6 +84,32 @@ impl Default for Runtime {
     }
 }
 impl Runtime {
+    pub fn install_agent_tool_setup(&self, setup: Arc<dyn AgentToolSetupPort>) {
+        *self.0.agent_tools.write().unwrap() = Some(setup);
+    }
+    async fn agent_tool_execution(&self, options: &mut SpawnOptions) -> Result<()> {
+        let setup = self.0.agent_tools.read().unwrap().clone();
+        if let Some(setup) = setup {
+            setup.execution(&options.harness).await?.apply(options)?;
+        }
+        Ok(())
+    }
+    async fn history_overlay(
+        &self,
+        query: &NativeHistoryQuery,
+    ) -> Result<AgentToolExecutionOverlay> {
+        let setup = self.0.agent_tools.read().unwrap().clone();
+        let mut overlay = if let Some(setup) = setup {
+            setup.history_overlay(&query.harness).await?
+        } else {
+            AgentToolExecutionOverlay::default()
+        };
+        overlay.env.clear();
+        if let Some(home) = &query.config_home {
+            overlay.config_home = Some(home.clone());
+        }
+        Ok(overlay)
+    }
     fn validate_permission_authority(&self) -> Result<()> {
         if self
             .0
@@ -204,9 +232,9 @@ impl Runtime {
         }
         options.execution.ephemeral = true;
         compile_launch_profile(harness.as_ref(), &mut options)?;
-        let connection = harness
-            .connect(&native_launch_options(&options), None, false)
-            .await?;
+        let mut launch = native_launch_options(&options);
+        self.agent_tool_execution(&mut launch).await?;
+        let connection = harness.connect(&launch, None, false).await?;
         let execution_policy =
             match launch_policy(connection.backend.as_ref(), &options, None).await {
                 Ok(policy) => policy,
@@ -252,7 +280,8 @@ impl Runtime {
             .harnesses
             .get(&query.harness)
             .ok_or_else(|| Error::Invalid("unregistered history harness".into()))?;
-        harness.native_history(&query).await
+        let overlay = self.history_overlay(&query).await?;
+        harness.native_history_with(&query, &overlay).await
     }
     pub async fn read_native_history(
         &self,
@@ -264,7 +293,10 @@ impl Runtime {
             .harnesses
             .get(&query.harness)
             .ok_or_else(|| Error::Invalid("unregistered history harness".into()))?;
-        harness.read_native_history(&query, native_id).await
+        let overlay = self.history_overlay(&query).await?;
+        harness
+            .read_native_history_with(&query, native_id, &overlay)
+            .await
     }
     /// Import observed native history without creating or executing a provider session.
     pub async fn import_native_history(
@@ -355,8 +387,13 @@ impl Runtime {
             .await?;
         Ok(snapshot)
     }
-    pub async fn account_quotas(&self, query: AccountQuery) -> Result<Value> {
+    pub async fn account_quotas(&self, mut query: AccountQuery) -> Result<Value> {
         query.validate()?;
+        let mut launch = query.connection_options();
+        self.agent_tool_execution(&mut launch).await?;
+        query.config = launch.config;
+        query.execution.env = launch.execution.env;
+        query.execution.config_home = launch.execution.config_home;
         let harness =
             self.0.harnesses.get(&query.harness).ok_or_else(|| {
                 Error::Invalid(format!("unregistered harness: {}", query.harness))
@@ -513,6 +550,7 @@ impl Runtime {
         let schema = options.execution.output_schema.is_some();
         let (events, _) = broadcast::channel(4096);
         let isolated = Runtime(Arc::new(RuntimeInner {
+            agent_tools: std::sync::RwLock::new(self.0.agent_tools.read().unwrap().clone()),
             incarnation_id: uuid::Uuid::new_v4().to_string(),
             host_tools: Default::default(),
             harnesses: self.0.harnesses.clone(),
@@ -877,6 +915,9 @@ impl Runtime {
         // Providers that rewrite IDs on native fork can retain canonical journal anchors.
         compile_launch_profile(h.as_ref(), &mut options)?;
         let mut connect_options = native_launch_options(&options);
+        self.agent_tool_execution(&mut connect_options).await?;
+        // Retain the nonsecret native history location across reconnects.
+        options.execution.config_home = connect_options.execution.config_home.clone();
         if let Some(config) = connect_options.config.as_object_mut() {
             config.remove("_runtimeMessageIdAliases");
         }
@@ -1174,6 +1215,7 @@ impl Runtime {
             host_tools,
             submissions,
             execution,
+            task_controls: tokio::task::JoinSet::new(),
             backend: Arc::from(connection.backend),
             input: connection.events,
             commands: rx,
@@ -1352,6 +1394,12 @@ impl Runtime {
             {
                 error = Some(e);
             }
+        }
+        let setup = self.0.agent_tools.read().unwrap().clone();
+        if let Some(setup) = setup
+            && let Err(failure) = setup.shutdown().await
+        {
+            error = Some(failure);
         }
         error.map_or(Ok(()), Err)
     }

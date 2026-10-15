@@ -53,12 +53,35 @@ pub trait Harness: Send + Sync {
     ) -> Result<Vec<NativeHistorySession>> {
         Err(Error::Unsupported("native history discovery".into()))
     }
+    async fn native_history_with(
+        &self,
+        query: &NativeHistoryQuery,
+        overlay: &AgentToolExecutionOverlay,
+    ) -> Result<Vec<NativeHistorySession>> {
+        let mut query = query.clone();
+        if query.config_home.is_none() {
+            query.config_home = overlay.config_home.clone();
+        }
+        self.native_history(&query).await
+    }
     async fn read_native_history(
         &self,
         _query: &NativeHistoryQuery,
         _native_id: &str,
     ) -> Result<NativeHistoryDocument> {
         Err(Error::Unsupported("native history import".into()))
+    }
+    async fn read_native_history_with(
+        &self,
+        query: &NativeHistoryQuery,
+        native_id: &str,
+        overlay: &AgentToolExecutionOverlay,
+    ) -> Result<NativeHistoryDocument> {
+        let mut query = query.clone();
+        if query.config_home.is_none() {
+            query.config_home = overlay.config_home.clone();
+        }
+        self.read_native_history(&query, native_id).await
     }
     async fn fork_before_user(
         &self,
@@ -125,6 +148,12 @@ pub trait AgentBackend: Send + Sync {
     }
     async fn commands(&self) -> Result<Value> {
         Err(Error::Unsupported("slash commands".into()))
+    }
+    async fn tasks(&self) -> Result<Vec<AgentTask>> {
+        Err(Error::Unsupported("background tasks".into()))
+    }
+    async fn stop_task(&self, _task_id: &str) -> Result<()> {
+        Err(Error::Unsupported("background task control".into()))
     }
     async fn quotas(&self) -> Result<Value> {
         Err(Error::Unsupported("account quotas".into()))

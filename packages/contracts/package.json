@@ -2,8 +2,20 @@
   "name": "@swarmie/contracts",
   "version": "0.1.0",
   "description": "Public wire contracts for Swarmie runtimes and clients",
-  "type": "module",
   "license": "Apache-2.0",
+  "files": [
+    "index.d.ts",
+    "client.d.ts",
+    "account.d.ts",
+    "index.js",
+    "protocol.json",
+    "LICENSE",
+    "NOTICE",
+    "ui-client.d.ts",
+    "validation.js",
+    "validation.d.ts"
+  ],
+  "type": "module",
   "types": "./index.d.ts",
   "exports": {
     ".": {
@@ -13,16 +25,13 @@
     "./schema": "./protocol.json",
     "./ui-client": {
       "types": "./ui-client.d.ts"
+    },
+    "./validation": {
+      "types": "./validation.d.ts",
+      "default": "./validation.js"
     }
   },
-  "files": [
-    "index.d.ts",
-    "client.d.ts",
-    "account.d.ts",
-    "index.js",
-    "protocol.json",
-    "LICENSE",
-    "NOTICE",
-    "ui-client.d.ts"
-  ]
+  "dependencies": {
+    "ajv": "8.20.0"
+  }
 }

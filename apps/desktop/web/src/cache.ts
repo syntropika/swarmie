@@ -1,79 +1,167 @@
-import { clientRequest, nativeClient } from "./clientTransport";
-import type { Project } from "./protocol";
-import type { Thread } from "./protocol";
 import type { LocalStoreIdentity } from "@swarmie/contracts";
-import { nodeKey, retainNode, sameNode, validNodeIdentity } from "./nodeScope";
-export type CachedWorkspace = { threads: Thread[]; revision: number; metadata?: { projects: Project[]; activeId: string; customChatDirectory?: string } };
+
+import { responseResult } from "./checked-json";
+import { clientRequest, nativeClient } from "./client-transport";
+import { decodeCachedWorkspace } from "./connections";
+import { nodeKey, retainNode, sameNode, validNodeIdentity } from "./node-scope";
+import type { Project, Thread } from "./protocol";
+
+export type CachedWorkspace = {
+  threads: Thread[];
+  revision: number;
+  metadata?: { projects: Project[]; activeId: string; customChatDirectory?: string };
+};
 export class WorkspaceCache {
   private database?: Promise<IDBDatabase>;
   private readonly node: LocalStoreIdentity;
   constructor(node: LocalStoreIdentity) {
     this.node = retainNode(node);
   }
-  available() {
-    return nativeClient() || typeof indexedDB !== "undefined";
-  }
-  private open(): Promise<IDBDatabase> {
-    if (!this.available())
-      return Promise.reject(
-        new Error(
-          "This WebView does not support persistent attachment storage.",
-        ),
-      );
-    return (this.database ??= new Promise((resolve, reject) => {
+  available = cacheAvailable;
+  private async open(): Promise<IDBDatabase> {
+    if (!this.available()) {
+      throw new Error("This WebView does not support persistent attachment storage.");
+    }
+    if (this.database) {
+      return await this.database;
+    }
+    // Native IDB callbacks settle once. A blocked open is rejected; a later success closes its unused connection.
+    // oxlint-disable-next-line promise/avoid-new -- IndexedDB exposes callback events, and this adapter owns settlement and late connection cleanup.
+    const pending = new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open("swarmie.desktop.cache", 1);
-      request.onupgradeneeded = () => {
+      let rejected = false;
+      request.addEventListener("upgradeneeded", () => {
         request.result.createObjectStore("workspace");
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () =>
-        reject(request.error ?? new Error("Cannot open attachment storage."));
-      request.onblocked = () =>
-        reject(
-          new Error("Close other swarmie windows to update attachment storage."),
-        );
-    }));
+      });
+      request.addEventListener(
+        "success",
+        () => {
+          if (rejected) {
+            request.result.close();
+            return;
+          }
+          resolve(request.result);
+        },
+        { once: true },
+      );
+      request.addEventListener(
+        "error",
+        () => {
+          rejected = true;
+          reject(request.error ?? new Error("Cannot open attachment storage."));
+        },
+        { once: true },
+      );
+      request.addEventListener(
+        "blocked",
+        () => {
+          rejected = true;
+          reject(new Error("Close other swarmie windows to update attachment storage."));
+        },
+        { once: true },
+      );
+    });
+    this.database = pending;
+    try {
+      return await pending;
+    } catch (error) {
+      if (this.database === pending) {
+        this.database = undefined;
+      }
+      throw error;
+    }
   }
   async load(): Promise<CachedWorkspace | undefined> {
-    if (!this.available()) return undefined;
+    if (!this.available()) {
+      return undefined;
+    }
     if (nativeClient()) {
-      const saved = await this.native<CachedWorkspace & { node?: LocalStoreIdentity }>("client/cacheLoad", {});
-      return saved && validNodeIdentity(saved.node) && sameNode(saved.node, this.node) && Array.isArray(saved.threads) ? saved : undefined;
+      return this.saved(await this.native("client/cacheLoad", {}));
     }
     const database = await this.open();
-    return new Promise((resolve, reject) => {
+    // Decode within the success callback so invalid cached data rejects instead of stranding this read.
+    // oxlint-disable-next-line promise/avoid-new -- The native IDB request owns success/error settlement, including decoding failures.
+    return await new Promise<CachedWorkspace | undefined>((resolve, reject) => {
       const transaction = database.transaction("workspace", "readonly");
       const request = transaction.objectStore("workspace").get(nodeKey(this.node));
-      request.onsuccess = () => {
-        const saved = request.result as (CachedWorkspace & { node?: LocalStoreIdentity }) | undefined;
-        resolve(saved && validNodeIdentity(saved.node) && sameNode(saved.node, this.node) && Array.isArray(saved.threads)
-          ? saved : undefined);
-      };
-      request.onerror = () => reject(request.error);
+      request.addEventListener(
+        "success",
+        () => {
+          const value: unknown = request.result;
+          try {
+            resolve(this.saved(value));
+          } catch (error) {
+            reject(error instanceof Error ? error : new Error("Invalid cached workspace."));
+          }
+        },
+        { once: true },
+      );
+      request.addEventListener(
+        "error",
+        () => {
+          reject(request.error ?? new Error("Cannot read attachment storage."));
+        },
+        { once: true },
+      );
     });
   }
-  private async native<T>(method: string, params: unknown): Promise<T> {
-    const response = await clientRequest("/client/cache", { jsonrpc: "2.0", id: crypto.randomUUID(), method, params: { node: this.node, ...(params as object) } }, "", 30_000);
-    const value = await response.json();
-    if (value.error) throw new Error(value.error.message);
-    return value.result as T;
+  private saved(value: unknown): CachedWorkspace | undefined {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    const saved = decodeCachedWorkspace(value);
+    return validNodeIdentity(saved.node) && sameNode(saved.node, this.node) ? saved : undefined;
+  }
+  private async native(
+    method: "client/cacheLoad" | "client/cacheSave",
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
+    const response = await clientRequest(
+      "/client/cache",
+      {
+        jsonrpc: "2.0",
+        id: crypto.randomUUID(),
+        method,
+        params: { node: this.node, ...params },
+      },
+      "",
+      30_000,
+    );
+    const value: unknown = await response.json();
+    return responseResult(value);
   }
   async save(value: CachedWorkspace): Promise<void> {
-    if (nativeClient()) { await this.native("client/cacheSave", { value: { ...value, node: this.node } }); return; }
+    if (nativeClient()) {
+      await this.native("client/cacheSave", { value: { ...value, node: this.node } });
+      return;
+    }
     const database = await this.open();
+    // A write settles at transaction completion; request success alone does not acknowledge durable storage.
+    // oxlint-disable-next-line promise/avoid-new -- Native IDB transaction completion/error/abort owns write settlement and cancellation.
     await new Promise<void>((resolve, reject) => {
       const transaction = database.transaction("workspace", "readwrite");
       transaction.objectStore("workspace").put({ ...value, node: this.node }, nodeKey(this.node));
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () =>
-        reject(
-          transaction.error ?? new Error("Cannot save attachment drafts."),
-        );
-      transaction.onabort = () =>
-        reject(
-          transaction.error ??
-            new Error("Attachment storage transaction was cancelled."),
-        );
+      transaction.addEventListener(
+        "complete",
+        () => {
+          resolve();
+        },
+        { once: true },
+      );
+      transaction.addEventListener(
+        "error",
+        () => {
+          reject(transaction.error ?? new Error("Cannot save attachment drafts."));
+        },
+        { once: true },
+      );
+      transaction.addEventListener(
+        "abort",
+        () => {
+          reject(transaction.error ?? new Error("Attachment storage transaction was cancelled."));
+        },
+        { once: true },
+      );
     });
   }
 }
@@ -84,7 +172,9 @@ export function hydrateThreads(
 ): Thread[] {
   return current.map((thread) => {
     const saved = cached.find((t) => t.id === thread.id);
-    if (!saved) return thread;
+    if (!saved) {
+      return thread;
+    }
     const hydrated = {
       ...saved,
       ...thread,
@@ -101,13 +191,18 @@ export function hydrateThreads(
       context: saved.context,
       queue: saved.queue,
     };
-    for (const key of edited.get(thread.id) ?? [])
+    for (const key of edited.get(thread.id) ?? []) {
       Object.defineProperty(hydrated, key, {
         value: thread[key],
         enumerable: true,
         configurable: true,
         writable: true,
       });
+    }
     return hydrated;
   });
+}
+
+function cacheAvailable() {
+  return nativeClient() || typeof indexedDB !== "undefined";
 }

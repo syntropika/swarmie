@@ -1,17 +1,20 @@
 // Adapted from assistant-ui Elements; see LICENSE in this directory.
 "use client";
 
-import { useEffect, useId, type ComponentProps } from "react";
-import { SearchIcon } from "lucide-react";
+import { Command } from "cmdk";
 import { cn } from "cn";
+import { SearchIcon } from "lucide-react";
+import { useEffect, useId, useCallback } from "react";
+import type { ComponentProps } from "react";
+
 import { field, floating, mono } from "./surfaces";
 
-export interface PaletteCommand {
+export type PaletteCommand = {
   id: string;
   label: string;
   group: string;
   keys: readonly string[];
-}
+};
 
 export function CommandPalette({
   commands,
@@ -23,14 +26,8 @@ export function CommandPalette({
   className,
   ...props
 }: Omit<
-  ComponentProps<"div">,
-  | "children"
-  | "commands"
-  | "query"
-  | "activeId"
-  | "onQueryChange"
-  | "onActiveChange"
-  | "onRun"
+  ComponentProps<typeof Command>,
+  "children" | "commands" | "query" | "activeId" | "onQueryChange" | "onActiveChange" | "onRun"
 > & {
   commands: readonly PaletteCommand[];
   query: string;
@@ -40,54 +37,69 @@ export function CommandPalette({
   onRun?: (id: string) => void;
 }) {
   const listId = useId();
-  const optionId = (id: string) => `${listId}-${id}`;
+  const optionId = useCallback((id: string) => `${listId}-${id}`, [listId]);
   const matches = commands.filter((command) =>
     command.label.toLowerCase().includes(query.toLowerCase()),
   );
   const groups = [...new Set(matches.map((command) => command.group))];
   // display order, which is grouped and so differs from the filter order
-  const ordered = groups.flatMap((group) =>
-    matches.filter((command) => command.group === group),
-  );
+  const ordered = groups.flatMap((group) => matches.filter((command) => command.group === group));
 
   const move = (delta: number) => {
-    if (ordered.length === 0) return;
+    if (ordered.length === 0) {
+      return;
+    }
     const at = ordered.findIndex((command) => command.id === activeId);
     // activeId can be filtered out by the query; start from the edge the key implies
-    const from = at === -1 ? (delta > 0 ? -1 : 0) : at;
+    let from = at;
+    if (at === -1) {
+      from = delta > 0 ? -1 : 0;
+    }
     const next = ordered[(from + delta + ordered.length) % ordered.length];
-    if (next && onActiveChange) onActiveChange(next.id);
+    if (onActiveChange !== undefined) {
+      onActiveChange(next.id);
+    }
   };
 
   // aria-activedescendant moves the highlight without moving focus, and only
   // focus scrolls; the list is short enough to walk the active row out of view.
   useEffect(() => {
     document
-      .getElementById(optionId(activeId))
+      .querySelector(`[id="${CSS.escape(optionId(activeId))}"]`)
       ?.scrollIntoView({ block: "nearest" });
-  }, [activeId, listId]);
+  }, [activeId, optionId]);
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.nativeEvent.isComposing) return;
+    if (event.nativeEvent.isComposing) {
+      return;
+    }
     if (event.key === "ArrowDown") {
       event.preventDefault();
+      event.stopPropagation();
       move(1);
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
+      event.stopPropagation();
       move(-1);
     } else if (event.key === "Enter") {
       event.preventDefault();
+      event.stopPropagation();
       const active = ordered.find((command) => command.id === activeId);
-      if (active && onRun) onRun(active.id);
+      if (active && onRun) {
+        onRun(active.id);
+      }
     }
   };
 
   return (
-    <div
+    <Command
+      shouldFilter={false}
+      value={activeId}
+      onValueChange={onActiveChange}
       data-slot="command-palette"
       className={cn(
         floating,
-        "flex w-full max-w-sm flex-col overflow-hidden rounded-[20px]",
+        "flex w-full max-w-sm flex-col overflow-hidden rounded-2xl",
         className,
       )}
 
@@ -106,67 +118,39 @@ export function CommandPalette({
           aria-controls={listId}
           aria-autocomplete="list"
           aria-activedescendant={
-            ordered.some((command) => command.id === activeId)
-              ? optionId(activeId)
-              : undefined
+            ordered.some((command) => command.id === activeId) ? optionId(activeId) : undefined
           }
-          className="text-foreground/85 placeholder:text-muted min-w-0 flex-1 bg-transparent text-[13.5px] outline-none"
+          className="text-foreground/85 placeholder:text-muted min-w-0 flex-1 bg-transparent text-sm outline-none"
         />
-        <span
-          className={cn(
-            field,
-            mono,
-            "text-muted rounded px-1.5 py-0.5",
-          )}
-        >
-          esc
-        </span>
+        <span className={cn(field, mono, "text-muted rounded px-1.5 py-0.5")}>esc</span>
       </div>
 
-      <div
+      <Command.List
         id={listId}
-        role="listbox"
-        aria-label="Commands"
+        label="Commands"
         className="border-foreground/[0.07] flex max-h-72 flex-col overflow-y-auto border-t p-1.5"
       >
         {groups.map((group) => (
-          <div
-            key={group}
-            role="group"
-            aria-label={group}
-            className="flex flex-col"
-          >
-            <span
-              aria-hidden
-              className={cn(mono, "text-muted px-2 pt-2 pb-1")}
-            >
+          <Command.Group key={group} aria-label={group} className="flex flex-col">
+            <span aria-hidden className={cn(mono, "text-muted px-2 pt-2 pb-1")}>
               {group}
             </span>
             {matches
               .filter((command) => command.group === group)
               .map((command) => {
-                const className = cn(
+                const rowClasses = cn(
                   "flex items-center gap-2 rounded-xl px-2 py-1.5 text-start transition-colors",
-                  command.id === activeId
-                    ? "bg-foreground/[0.06]"
-                    : onRun
-                      ? "hover:bg-foreground/[0.03]"
-                      : undefined,
+                  command.id === activeId && "bg-foreground/[0.06]",
+                  command.id !== activeId && onRun !== undefined && "hover:bg-foreground/[0.03]",
                 );
                 const content = (
                   <>
-                    <span className="min-w-0 flex-1 truncate text-[13px]">
-                      {command.label}
-                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm">{command.label}</span>
                     <span className="flex shrink-0 gap-1">
                       {command.keys.map((key) => (
                         <span
                           key={key}
-                          className={cn(
-                            field,
-                            mono,
-                            "text-muted rounded px-1.5 py-0.5",
-                          )}
+                          className={cn(field, mono, "text-muted rounded px-1.5 py-0.5")}
                         >
                           {key}
                         </span>
@@ -175,35 +159,27 @@ export function CommandPalette({
                   </>
                 );
 
-                return onRun ? (
-                  <button
+                return (
+                  <Command.Item
                     key={command.id}
                     id={optionId(command.id)}
-                    type="button"
-                    role="option"
-                    tabIndex={-1}
+                    value={command.id}
                     aria-selected={command.id === activeId}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => onRun(command.id)}
-                    className={className}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                    }}
+                    onSelect={() => {
+                      onRun?.(command.id);
+                    }}
+                    className={rowClasses}
                   >
                     {content}
-                  </button>
-                ) : (
-                  <div
-                    key={command.id}
-                    id={optionId(command.id)}
-                    role="option"
-                    aria-selected={command.id === activeId}
-                    className={className}
-                  >
-                    {content}
-                  </div>
+                  </Command.Item>
                 );
               })}
-          </div>
+          </Command.Group>
         ))}
-      </div>
+      </Command.List>
       {matches.length === 0 && (
         <div className="border-foreground/[0.07] border-t p-1.5">
           <span className="text-muted block px-2 py-4 text-center text-xs break-words">
@@ -211,6 +187,6 @@ export function CommandPalette({
           </span>
         </div>
       )}
-    </div>
+    </Command>
   );
 }

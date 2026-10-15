@@ -1,5 +1,5 @@
-use swarmie::*;
 use storage::SqliteSessionStore;
+use swarmie::*;
 
 fn snapshot(id: &str) -> SessionSnapshot {
     SessionSnapshot {

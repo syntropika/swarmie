@@ -1,15 +1,15 @@
 //! Optional policies for interactive requests surfaced by harness adapters.
 //! This extension does not alter native execution modes or provide a sandbox.
 use async_trait::async_trait;
-use swarmie::{
-    Error, ExtensionCommand, PermissionRequest, PermissionResponse, Result, RuntimeExtension,
-    SessionSnapshot,
-};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     str::FromStr,
     sync::atomic::{AtomicU8, Ordering},
+};
+use swarmie::{
+    Error, ExtensionCommand, PermissionRequest, PermissionResponse, Result, RuntimeExtension,
+    SessionSnapshot,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -35,7 +35,10 @@ impl Channels {
     ) -> Result<Value> {
         let slot = self.peers.lock().await.entry(key).or_default().clone();
         let mut current = slot.lock().await;
-        let peer = if let Some(peer) = current.as_ref().filter(|peer| !peer.commands.is_closed() && !peer.stop.is_cancelled()) {
+        let peer = if let Some(peer) = current
+            .as_ref()
+            .filter(|peer| !peer.commands.is_closed() && !peer.stop.is_cancelled())
+        {
             peer.clone()
         } else {
             let peer = Channel::connect(url, token, Some(identity.clone()), events.clone()).await?;
@@ -48,16 +51,28 @@ impl Channels {
     pub async fn remove(&self, keys: &[String]) {
         let removed = {
             let mut peers = self.peers.lock().await;
-            keys.iter().filter_map(|key| peers.remove(key)).collect::<Vec<_>>()
+            keys.iter()
+                .filter_map(|key| peers.remove(key))
+                .collect::<Vec<_>>()
         };
         for slot in removed {
-            if let Some(channel) = slot.lock().await.as_ref() { channel.stop.cancel(); }
+            if let Some(channel) = slot.lock().await.as_ref() {
+                channel.stop.cancel();
+            }
         }
     }
     pub async fn clear(&self) {
-        let removed = self.peers.lock().await.drain().map(|(_, peer)| peer).collect::<Vec<_>>();
+        let removed = self
+            .peers
+            .lock()
+            .await
+            .drain()
+            .map(|(_, peer)| peer)
+            .collect::<Vec<_>>();
         for slot in removed {
-            if let Some(channel) = slot.lock().await.as_ref() { channel.stop.cancel(); }
+            if let Some(channel) = slot.lock().await.as_ref() {
+                channel.stop.cancel();
+            }
         }
     }
 }
@@ -122,17 +137,32 @@ pub(crate) fn socket_path(url: &str) -> Result<String> {
 }
 #[cfg(any(windows, test))]
 pub(crate) fn pipe_path(url: &str) -> Result<String> {
-    let parsed = reqwest::Url::parse(url).map_err(|_| Error::Invalid("invalid named-pipe URL".into()))?;
+    let parsed =
+        reqwest::Url::parse(url).map_err(|_| Error::Invalid("invalid named-pipe URL".into()))?;
     let values: Vec<_> = parsed.query_pairs().collect();
-    if parsed.scheme() != "pipe" || parsed.host_str() != Some("localhost") || parsed.path() != "/"
-        || parsed.port().is_some() || !parsed.username().is_empty() || parsed.password().is_some()
-        || parsed.fragment().is_some() || values.len() != 1 || values[0].0 != "path" {
-        return Err(Error::Invalid("named-pipe URL requires one local runtime path".into()));
+    if parsed.scheme() != "pipe"
+        || parsed.host_str() != Some("localhost")
+        || parsed.path() != "/"
+        || parsed.port().is_some()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.fragment().is_some()
+        || values.len() != 1
+        || values[0].0 != "path"
+    {
+        return Err(Error::Invalid(
+            "named-pipe URL requires one local runtime path".into(),
+        ));
     }
     let path = values[0].1.to_string();
-    if !path.starts_with(r"\\.\pipe\swarmie-") || path.len() > 256 || path.chars().any(char::is_control)
-        || path[r"\\.\pipe\".len()..].contains(['\\', '/']) {
-        return Err(Error::Invalid("named-pipe path must identify a local Swarmie runtime".into()));
+    if !path.starts_with(r"\\.\pipe\swarmie-")
+        || path.len() > 256
+        || path.chars().any(char::is_control)
+        || path[r"\\.\pipe\".len()..].contains(['\\', '/'])
+    {
+        return Err(Error::Invalid(
+            "named-pipe path must identify a local Swarmie runtime".into(),
+        ));
     }
     Ok(path)
 }
@@ -266,7 +296,11 @@ async fn connect_socket(
         }
     }).await.map_err(|_| Error::Timeout("node connection".into()))?
 }
-async fn send_or_stop(socket: &mut Box<dyn MessageSocket>, frame: Message, stop: &tokio_util::sync::CancellationToken) -> bool {
+async fn send_or_stop(
+    socket: &mut Box<dyn MessageSocket>,
+    frame: Message,
+    stop: &tokio_util::sync::CancellationToken,
+) -> bool {
     tokio::select! {
         biased;
         _ = stop.cancelled() => false,
@@ -389,7 +423,9 @@ impl Channel {
         Ok(Self { commands, stop })
     }
     pub(crate) async fn request(&self, request: Value) -> Result<Value> {
-        if self.stop.is_cancelled() { return Err(Error::Closed); }
+        if self.stop.is_cancelled() {
+            return Err(Error::Closed);
+        }
         let (response, result) = oneshot::channel();
         self.commands
             .try_send(Command { request, response })
@@ -411,7 +447,12 @@ mod tests {
         let path = r"\\.\pipe\swarmie-fixture";
         let url = storage::NodeTransport::LocalSocket { path: path.into() }.endpoint();
         assert_eq!(pipe_path(&url).unwrap(), path);
-        for url in ["pipe://server/?path=foo", "pipe://localhost/?path=one&path=two", "pipe://localhost/?path=%5C%5Cremote%5Cpipe%5Cswarmie-foreign", "pipe://localhost/?path=%5C%5C.%5Cpipe%5Cswarmie-test%5Cnested"] {
+        for url in [
+            "pipe://server/?path=foo",
+            "pipe://localhost/?path=one&path=two",
+            "pipe://localhost/?path=%5C%5Cremote%5Cpipe%5Cswarmie-foreign",
+            "pipe://localhost/?path=%5C%5C.%5Cpipe%5Cswarmie-test%5Cnested",
+        ] {
             assert!(pipe_path(url).is_err());
         }
     }
@@ -565,10 +606,14 @@ mod tests {
                         if request["method"] == "runtime/initialize" {
                             socket.send(Message::Text(json!({"jsonrpc":"2.0","id":request["id"],"result":{"name":"swarmie","protocolVersion":protocol::PROTOCOL_VERSION,"runtimeIdentity":fixture_target}}).to_string().into())).await.unwrap();
                         } else {
-                            if let Some(dispatched) = dispatched.take() { let _ = dispatched.send(()); }
+                            if let Some(dispatched) = dispatched.take() {
+                                let _ = dispatched.send(());
+                            }
                         }
                     }
-                    Message::Ping(data) => { let _ = socket.send(Message::Pong(data)).await; }
+                    Message::Ping(data) => {
+                        let _ = socket.send(Message::Pong(data)).await;
+                    }
                     _ => break,
                 }
             }
@@ -579,11 +624,20 @@ mod tests {
         let pending = tokio::spawn(async move {
             call_channels.request("pending".into(), &url, None, &target.identity, &events, json!({"jsonrpc":"2.0","id":1,"method":"test/hold","params":{},"expectedRuntime":target})).await
         });
-        tokio::time::timeout(Duration::from_secs(3), observed_dispatch).await.unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(3), observed_dispatch)
+            .await
+            .unwrap()
+            .unwrap();
         channels.remove(&["pending".into()]).await;
-        let error = tokio::time::timeout(Duration::from_secs(2), pending).await.unwrap().unwrap().unwrap_err();
+        let error = tokio::time::timeout(Duration::from_secs(2), pending)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap_err();
         assert!(error.to_string().contains("uncertain"));
-        tokio::time::timeout(Duration::from_secs(2), fixture).await.unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(2), fixture)
+            .await
+            .unwrap()
+            .unwrap();
     }
-
 }

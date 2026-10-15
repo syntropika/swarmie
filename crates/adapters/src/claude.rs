@@ -4,6 +4,86 @@ use std::{collections::BTreeMap, sync::Arc};
 use tokio::sync::RwLock;
 
 pub struct ClaudeHarness;
+fn sdk_node(options: &SpawnOptions) -> Result<PathBuf> {
+    let requested = options.config["sdkNodeExecutable"]
+        .as_str()
+        .map(String::from)
+        .or_else(|| std::env::var("SWARMIE_NODE_EXECUTABLE").ok())
+        .unwrap_or_else(|| "node".into());
+    process::find_executable(&requested).ok_or_else(|| {
+        Error::Provider("Claude Agent SDK requires Node.js 22 or later on this runtime node".into())
+    })
+}
+fn sdk_worker(options: &SpawnOptions) -> Result<PathBuf> {
+    if let Some(path) = options.config["sdkWorkerPath"]
+        .as_str()
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("SWARMIE_CLAUDE_SDK_WORKER").map(PathBuf::from))
+    {
+        return path
+            .is_file()
+            .then_some(path)
+            .ok_or_else(|| Error::Provider("Configured Claude SDK worker does not exist".into()));
+    }
+    let mut candidates = vec![];
+    if let Some(root) = super::agent_tools_root() {
+        candidates.push(root.join("claude/worker.mjs"));
+    }
+    candidates.push(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../packages/claude-agent-worker/worker.mjs"),
+    );
+    candidates
+        .into_iter()
+        .find(|path| path.is_file())
+        .ok_or_else(|| {
+            Error::Provider(
+                "Claude Agent SDK worker is missing; install the runtime agent tools bundle".into(),
+            )
+        })
+}
+pub(crate) async fn sdk_readiness(options: &SpawnOptions) -> Result<()> {
+    let node = sdk_node(options)?;
+    let worker = sdk_worker(options)?;
+    let package = worker
+        .parent()
+        .ok_or_else(|| Error::Invalid("SDK worker path has no parent".into()))?;
+    if [
+        "session.mjs",
+        "diagnostics.mjs",
+        "transport.mjs",
+        "tasks.mjs",
+        "input-queue.mjs",
+    ]
+    .iter()
+    .any(|file| !package.join(file).is_file())
+        || !package
+            .join("node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs")
+            .is_file()
+    {
+        return Err(Error::Provider(
+            "Claude Agent SDK dependencies are missing; install the runtime agent tools bundle"
+                .into(),
+        ));
+    }
+    let mut command = tokio::process::Command::new(node);
+    command.arg("--version").kill_on_drop(true);
+    let output = tokio::time::timeout(std::time::Duration::from_secs(3), command.output())
+        .await
+        .map_err(|_| Error::Timeout("Node.js version probe".into()))??;
+    let major = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .trim_start_matches('v')
+        .split('.')
+        .next()
+        .and_then(|value| value.parse::<u32>().ok());
+    if !output.status.success() || major.is_none_or(|major| major < 22) {
+        return Err(Error::Provider(
+            "Claude Agent SDK requires Node.js 22 or later on this runtime node".into(),
+        ));
+    }
+    Ok(())
+}
 fn configuration_for(init: &Value, config: &Value) -> Value {
     let mut fields = vec![
         settings::select(
@@ -167,12 +247,14 @@ fn quota_windows(receipt: &Value) -> Result<Value> {
 
 fn capabilities() -> Capabilities {
     Capabilities {
+        steering: true.into(),
         commands: true.into(),
         quotas: true.into(),
         ephemeral: true.into(),
         output_schema: true.into(),
         tools_disabled: true.into(),
         fork_at_message: true.into(),
+        background_tasks: true.into(),
 
         resume: true.into(),
         fork: true.into(),
@@ -203,45 +285,54 @@ impl Harness for ClaudeHarness {
         super::policy::claude_plan(profile)
     }
     async fn detect(&self) -> Result<Detection> {
-        Ok(detection("claude", "claude", capabilities()))
+        let mut detected = detection("claude", "claude", capabilities());
+        if detected.available {
+            let options = SpawnOptions {
+                project_id: None,
+                project_revision: None,
+                harness: "claude".into(),
+                cwd: PathBuf::from("."),
+                model: None,
+                execution: Default::default(),
+                config: json!({}),
+            };
+            if let Err(error) = sdk_readiness(&options).await {
+                detected.available = false;
+                detected
+                    .capabilities
+                    .metadata
+                    .insert("sdkError".into(), json!(error.to_string()));
+            }
+        }
+        Ok(detected)
     }
     async fn probe(&self) -> Result<HarnessProbe> {
-        readiness::probe(self.detect().await?, Some(&["auth", "status", "--json"])).await
+        let detected = self.detect().await?;
+        let sdk_error = detected
+            .capabilities
+            .metadata
+            .get("sdkError")
+            .and_then(Value::as_str)
+            .map(String::from);
+        let mut probe = readiness::probe(detected, Some(&["auth", "status", "--json"])).await?;
+        if let Some(error) = sdk_error {
+            probe.message = Some(error);
+        }
+        Ok(probe)
     }
     async fn account_quotas(&self, query: &AccountQuery) -> Result<Value> {
-        let options = query.connection_options();
-        let args = [
-            "--print",
-            "--verbose",
-            "--input-format",
-            "stream-json",
-            "--output-format",
-            "stream-json",
-        ]
-        .map(String::from)
-        .to_vec();
-        let (exe, mut args) = launch(&options, "claude", args);
-        args.extend(
-            [
-                "--no-session-persistence",
-                "--bare",
-                "--tools",
-                "",
-                "--strict-mcp-config",
-                "--disable-slash-commands",
-            ]
-            .map(String::from),
-        );
-        let env = execution_env(&options, Some("CLAUDE_CONFIG_DIR"))?;
-        let (wire, mut frames) = spawn_json(&options, &exe, &args, WireStyle::Claude, env).await?;
+        let mut options = query.connection_options();
+        options.execution.ephemeral = true;
+        options.execution.tools = ToolPolicy::Disabled;
+        let launched = launch_connection(&options, None, false).await?;
+        let wire = launched.wire;
+        let mut frames = launched.frames;
         let drain = tokio::spawn(async move { while frames.recv().await.is_some() {} });
-        let result = async {
-            wire.request("initialize", json!({"hooks":{},"sdkMcpServers":[]}))
-                .await?;
-            quota_windows(&wire.request("get_usage", json!({})).await?)
-        }
-        .await;
-        let closed = wire.close().await;
+        let result = match wire.request("get_usage", json!({})).await {
+            Ok(receipt) => quota_windows(&receipt),
+            Err(error) => Err(error),
+        };
+        let closed = close_worker(&wire).await;
         drain.abort();
         closed?;
         result
@@ -394,78 +485,87 @@ async fn launch_connection(
             .map(|s| s.id.clone())
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
     };
-    let args = [
-        "--print",
-        "--verbose",
-        "--input-format",
-        "stream-json",
-        "--output-format",
-        "stream-json",
-        "--include-partial-messages",
-        "--permission-prompt-tool",
-        "stdio",
-    ]
-    .map(String::from)
-    .to_vec();
-    let (exe, mut args) = launch(o, "claude", args);
-    if let Some(s) = saved {
-        args.extend(["--resume".into(), s.id.clone()]);
-        if fork {
-            args.extend(["--fork-session".into(), "--session-id".into(), id.clone()]);
-        }
-    } else {
-        args.extend(["--session-id".into(), id.clone()]);
-    }
-    if let Some(model) = &o.model {
-        args.extend(["--model".into(), model.clone()]);
-    }
-    if let Some(mode) = o.config["permissionMode"].as_str() {
-        args.extend(["--permission-mode".into(), mode.into()]);
-    }
-    if o.execution.tools == ToolPolicy::Disabled {
-        if !o.execution.mcp_servers.is_empty()
-            || args.iter().any(|arg| {
+    let (cli, cli_args) = launch(o, "claude", vec![]);
+    let cli = process::find_executable(&cli.to_string_lossy()).ok_or_else(|| {
+        Error::Provider("Claude Code executable is unavailable on this runtime node".into())
+    })?;
+    let node = sdk_node(o)?;
+    let worker = sdk_worker(o)?;
+    if o.execution.tools == ToolPolicy::Disabled
+        && (!o.execution.mcp_servers.is_empty()
+            || cli_args.iter().any(|arg| {
                 matches!(
-                    arg.as_str(),
+                    arg.split('=').next().unwrap_or_default(),
                     "--mcp-config" | "--plugin-dir" | "--plugin-url" | "--tools"
                 )
-            })
-        {
-            return Err(Error::Invalid(
-                "disabled tools cannot be combined with explicit tool or MCP arguments".into(),
-            ));
-        }
-        args.extend([
-            "--tools".into(),
-            String::new(),
-            "--strict-mcp-config".into(),
-            "--disable-slash-commands".into(),
-            "--bare".into(),
-        ]);
+            }))
+    {
+        return Err(Error::Invalid(
+            "disabled tools cannot be combined with explicit tool or MCP arguments".into(),
+        ));
     }
-    if o.execution.ephemeral {
-        if saved.is_some() {
-            return Err(Error::Unsupported(
-                "resume an ephemeral Claude session".into(),
-            ));
-        }
-        args.push("--no-session-persistence".into());
+    if o.execution.ephemeral && saved.is_some() {
+        return Err(Error::Unsupported(
+            "resume an ephemeral Claude session".into(),
+        ));
     }
-    if let Some(schema) = &o.execution.output_schema {
-        args.extend(["--json-schema".into(), schema.to_string()]);
-    }
-    if let Some(anchor) = o.config["resumeAtMessage"].as_str() {
-        if !fork {
-            return Err(Error::Invalid("resumeAtMessage requires a fork".into()));
-        }
-        args.push(format!("--resume-session-at={anchor}"));
+    if o.config["resumeAtMessage"].is_string() && !fork {
+        return Err(Error::Invalid("resumeAtMessage requires a fork".into()));
     }
     let mut env = execution_env(o, Some("CLAUDE_CONFIG_DIR"))?;
     env.entry("CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING".into())
         .or_insert_with(|| "true".into());
-    let (wire, frames) = spawn_json(o, &exe, &args, WireStyle::Claude, env).await?;
+    let file_checkpointing = env
+        .get("CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING")
+        .is_none_or(|value| value == "true" || value == "1");
+    let mut sdk_options = json!({
+        "cwd":o.cwd, "includePartialMessages":true,
+        "persistSession":!o.execution.ephemeral,
+        "enableFileCheckpointing":file_checkpointing,
+        "permissionMode":o.config["permissionMode"].as_str().unwrap_or("default"),
+        "allowDangerouslySkipPermissions":o.config["permissionMode"] == "bypassPermissions",
+        "settingSources":["user","project","local"],
+        "systemPrompt":{"type":"preset","preset":"claude_code"},
+        "extraArgs":{"replay-user-messages":null},
+    });
+    if let Some(model) = &o.model {
+        sdk_options["model"] = json!(model);
+    }
+    if let Some(saved) = saved {
+        sdk_options["resume"] = json!(saved.id);
+        if fork {
+            sdk_options["forkSession"] = json!(true);
+            sdk_options["sessionId"] = json!(id);
+        }
+    } else {
+        sdk_options["sessionId"] = json!(id);
+    }
+    if let Some(anchor) = o.config["resumeAtMessage"].as_str() {
+        sdk_options["resumeSessionAt"] = json!(anchor);
+    }
+    if o.execution.tools == ToolPolicy::Disabled {
+        sdk_options["tools"] = json!([]);
+        sdk_options["strictMcpConfig"] = json!(true);
+        sdk_options["settingSources"] = json!([]);
+        sdk_options["extraArgs"]["disable-slash-commands"] = Value::Null;
+        sdk_options["extraArgs"]["bare"] = Value::Null;
+    }
+    if let Some(schema) = &o.execution.output_schema {
+        sdk_options["outputFormat"] = json!({"type":"json_schema","schema":schema});
+    }
+    let (wire, frames) = spawn_json(
+        o,
+        &node,
+        &[worker.to_string_lossy().into_owned()],
+        WireStyle::JsonRpc,
+        env,
+    )
+    .await?;
     let init = wire
-        .request("initialize", json!({"hooks":{},"sdkMcpServers":[]}))
+        .request(
+            "initialize",
+            json!({"cliExecutable":cli,"cliArgs":cli_args,"options":sdk_options}),
+        )
         .await?;
     if !o.execution.mcp_servers.is_empty() {
         let receipt = wire
@@ -608,12 +708,25 @@ fn decode(
             if terminal_frame(&f, &tx).await {
                 break;
             }
-            if f["type"] == "control_request" {
+            if f["type"] == "sdk_task" {
+                match serde_json::from_value::<AgentTask>(f["task"].clone()) {
+                    Ok(task) => {
+                        let _ = tx
+                            .send(BackendEvent::content(EventKind::TaskUpdated(task), f))
+                            .await;
+                    }
+                    Err(_) => {
+                        let _ = tx.send(BackendEvent::content(EventKind::Diagnostic(json!({"code":"invalid_task_update","level":"warning","message":"Claude SDK task update could not be decoded"})), f)).await;
+                    }
+                }
+                continue;
+            }
+            if f["type"] == "sdk_permission" {
                 if compaction.lock().unwrap().is_some() {
-                    let _=wire_task.send(json!({"type":"control_response","response":{"subtype":"success","request_id":f["request_id"],"response":{"behavior":"deny","message":"Compaction cannot open interactive tool requests"}}})).await;
+                    let _=wire_task.request("permission", json!({"id":f["request_id"],"response":{"behavior":"deny","message":"Compaction cannot open interactive tool requests"}})).await;
                     continue;
                 }
-                if f["request"]["subtype"] == "can_use_tool" {
+                if f["request"]["tool_name"].is_string() {
                     let r = &f["request"];
                     let id = string(&f, "request_id");
                     req_task.write().await.insert(id.clone(), f.clone());
@@ -673,11 +786,11 @@ fn decode(
                         break;
                     }
                 } else {
-                    let _ = wire_task.send(json!({"type":"control_response","response":{"subtype":"error","request_id":f["request_id"],"error":"unsupported control request"}})).await;
+                    let _ = wire_task.request("permission", json!({"id":f["request_id"],"response":{"behavior":"deny","message":"Unsupported permission request"}})).await;
                 }
                 continue;
             }
-            if f["type"] == "control_cancel_request" {
+            if f["type"] == "sdk_permission_cancel" {
                 let id = string(&f, "request_id");
                 if req_task.write().await.remove(&id).is_some() {
                     let _ = tx
@@ -707,6 +820,10 @@ fn decode(
                 {
                     break;
                 }
+                continue;
+            }
+            if f["type"] == "sdk_hook" {
+                let _ = tx.send(BackendEvent::content(EventKind::Diagnostic(json!({"code":"claude_sdk_hook","level":"info","hook":f["hook"],"data":f["data"]})), f)).await;
                 continue;
             }
             if let Some(diagnostic) = f.get("_runtime_diagnostic") {
@@ -1154,6 +1271,13 @@ struct ClaudeBackend {
     events: mpsc::Sender<BackendEvent>,
     operation: tokio::sync::Mutex<()>,
 }
+fn prompt_content(prompt: &Prompt) -> Result<Vec<Value>> {
+    prompt.content.iter().map(|content| match content {
+        PromptContent::Text(text) => Ok(json!({"type":"text","text":text})),
+        PromptContent::Image { data, mime_type } => Ok(json!({"type":"image","source":{"type":"base64","data":data,"media_type":mime_type}})),
+        _ => Err(Error::Unsupported("Claude resource content".into())),
+    }).collect()
+}
 async fn rewind_files(wire: &JsonProcess, user: &str, dry_run: bool) -> Result<()> {
     let receipt = wire
         .request(
@@ -1171,8 +1295,43 @@ async fn rewind_files(wire: &JsonProcess, user: &str, dry_run: bool) -> Result<(
     }
     Ok(())
 }
+async fn close_worker(wire: &JsonProcess) -> Result<()> {
+    let graceful = wire
+        .request_timeout("close", json!({}), std::time::Duration::from_secs(5))
+        .await;
+    let closed = wire.close().await;
+    closed?;
+    graceful.map(|_| ())
+}
 #[async_trait]
 impl AgentBackend for ClaudeBackend {
+    async fn tasks(&self) -> Result<Vec<AgentTask>> {
+        let connection = self.current.read().await;
+        let receipt = connection.wire.request("tasks", json!({})).await?;
+        serde_json::from_value(receipt)
+            .map_err(|_| Error::Provider("Claude SDK task list could not be decoded".into()))
+    }
+    async fn stop_task(&self, task_id: &str) -> Result<()> {
+        let connection = self.current.read().await;
+        connection
+            .wire
+            .request("stop_task", json!({"taskId":task_id}))
+            .await?;
+        Ok(())
+    }
+    async fn steer(&self, p: &Prompt) -> Result<()> {
+        let _operation = self.operation.lock().await;
+        if self.history.lock().unwrap().user.is_none() || self.compaction.lock().unwrap().is_some()
+        {
+            return Err(Error::Invalid(
+                "Claude steering requires an active turn".into(),
+            ));
+        }
+        let content = prompt_content(p)?;
+        let connection = self.current.read().await;
+        connection.wire.request("prompt", json!({"type":"user","uuid":uuid::Uuid::new_v4().to_string(),"priority":"now","session_id":*connection.id.read().await,"message":{"role":"user","content":content},"parent_tool_use_id":null})).await?;
+        Ok(())
+    }
     async fn prompt(&self, p: &Prompt) -> Result<()> {
         let _operation = self.operation.lock().await;
         if self.history.lock().unwrap().user.is_some() || self.compaction.lock().unwrap().is_some()
@@ -1180,11 +1339,7 @@ impl AgentBackend for ClaudeBackend {
             return Err(Error::Busy);
         }
         let connection = self.current.read().await;
-        let content = p.content.iter().map(|c| match c {
-            PromptContent::Text(t) => Ok(json!({"type":"text","text":t})),
-            PromptContent::Image { data,mime_type } => Ok(json!({"type":"image","source":{"type":"base64","data":data,"media_type":mime_type}})),
-            _ => Err(Error::Unsupported("Claude resource content".into())),
-        }).collect::<Result<Vec<_>>>()?;
+        let content = prompt_content(p)?;
         let uuid = uuid::Uuid::new_v4().to_string();
         {
             let mut history = self.history.lock().unwrap();
@@ -1193,7 +1348,7 @@ impl AgentBackend for ClaudeBackend {
             history.cancelled = false;
         }
         connection.wire.set_active(true);
-        let result=connection.wire.send(json!({"type":"user","uuid":uuid,"session_id":*connection.id.read().await,"message":{"role":"user","content":content},"parent_tool_use_id":null})).await;
+        let result=connection.wire.request("prompt", json!({"type":"user","uuid":uuid,"session_id":*connection.id.read().await,"message":{"role":"user","content":content},"parent_tool_use_id":null})).await.map(|_| ());
         if result.is_err() {
             connection.wire.set_active(false);
             let mut history = self.history.lock().unwrap();
@@ -1289,7 +1444,11 @@ impl AgentBackend for ClaudeBackend {
         if cancelled {
             self.history.lock().unwrap().cancelled = true;
         }
-        let sent=connection.wire.send(json!({"type":"control_response","response":{"subtype":"success","request_id":r.id,"response":response}})).await;
+        let sent = connection
+            .wire
+            .request("permission", json!({"id":r.id,"response":response}))
+            .await
+            .map(|_| ());
         if let Err(error) = sent {
             if cancelled {
                 self.history.lock().unwrap().cancelled = false;
@@ -1404,7 +1563,7 @@ impl AgentBackend for ClaudeBackend {
         self.events
             .send(BackendEvent::content(
                 EventKind::QuotasUpdated(quotas.clone()),
-                json!({"type":"control_response","subtype":"get_usage","response":receipt}),
+                json!({"source":"claude_agent_sdk","operation":"usage","response":receipt}),
             ))
             .await
             .map_err(|_| Error::Closed)?;
@@ -1428,7 +1587,7 @@ impl AgentBackend for ClaudeBackend {
             });
         }
         connection.wire.set_active(true);
-        let sent = connection.wire.send(json!({"type":"user","uuid":uuid::Uuid::new_v4().to_string(),"session_id":*connection.id.read().await,"message":{"role":"user","content":"/compact"},"parent_tool_use_id":null})).await;
+        let sent = connection.wire.request("prompt", json!({"type":"user","uuid":uuid::Uuid::new_v4().to_string(),"session_id":*connection.id.read().await,"message":{"role":"user","content":"/compact"},"parent_tool_use_id":null})).await;
         if let Err(error) = sent {
             self.compaction.lock().unwrap().take();
             connection.wire.set_active(false);
@@ -1558,12 +1717,12 @@ impl AgentBackend for ClaudeBackend {
             .send(BackendEvent::NativeSessionChanged(native("claude", id)))
             .await
             .map_err(|_| Error::Closed)?;
-        let _ = old_wire.close().await;
+        let _ = close_worker(&old_wire).await;
         Ok(())
     }
     async fn close(&self) -> Result<()> {
         let connection = self.current.read().await;
-        connection.wire.close().await
+        close_worker(&connection.wire).await
     }
     async fn kill(&self) -> Result<()> {
         let connection = self.current.read().await;

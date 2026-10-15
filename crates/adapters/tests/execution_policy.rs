@@ -1,9 +1,9 @@
 #![cfg(unix)]
 use adapters::{AcpHarness, PiHarness, builtin_builder};
 use futures_util::StreamExt;
-use swarmie::*;
 use serde_json::{Value, json};
 use std::{path::PathBuf, time::Duration};
+use swarmie::*;
 
 struct Fixture(PathBuf);
 impl Fixture {

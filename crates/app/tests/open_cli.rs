@@ -50,7 +50,10 @@ fn native_open_hands_encoded_project_and_session_to_the_host() {
             .count(),
         1
     );
-    assert_eq!(query.get("project").unwrap(), &project.canonicalize().unwrap().to_string_lossy());
+    assert_eq!(
+        query.get("project").unwrap(),
+        &project.canonicalize().unwrap().to_string_lossy()
+    );
     assert_eq!(query.get("session").unwrap(), session);
     assert_eq!(query.get("existing").unwrap(), "value");
     assert_eq!(lines.next(), Some("1"));

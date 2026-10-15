@@ -1,6 +1,6 @@
 use crate::WorkspaceExtension;
-use swarmie::{Error, Result};
 use serde_json::{Value, json};
+use swarmie::{Error, Result};
 pub async fn files(extension: &WorkspaceExtension, p: &Value) -> Result<Value> {
     let root = extension.project(p).await?;
     let query = p["query"].as_str().unwrap_or("").to_lowercase();

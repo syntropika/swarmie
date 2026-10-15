@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 const { spawn } = require("node:child_process");
-const { join } = require("node:path");
+const path = require("node:path");
+const { existsSync, readFileSync } = require("node:fs");
+
 let target;
 try {
-  target = require("../native/target.json");
+  target = JSON.parse(readFileSync(path.join(__dirname, "../native/target.json"), "utf-8"));
 } catch {
   console.error(
     "This source package needs a native executable. Build a local bundle with sdk/tools/package_local.py.",
@@ -16,8 +18,17 @@ if (target.platform !== process.platform || target.arch !== process.arch) {
   );
   process.exit(1);
 }
-const child = spawn(join(__dirname, "../native/swarmie"), process.argv.slice(2), {
+const environment = { ...process.env };
+const agentTools = path.join(__dirname, "../agent-tools");
+if (!environment.SWARMIE_AGENT_TOOLS_DIR && existsSync(path.join(agentTools, "agent-tools.json"))) {
+  environment.SWARMIE_AGENT_TOOLS_DIR = agentTools;
+}
+if (!environment.SWARMIE_NODE_EXECUTABLE) {
+  environment.SWARMIE_NODE_EXECUTABLE = process.execPath;
+}
+const child = spawn(path.join(__dirname, "../native/swarmie"), process.argv.slice(2), {
   stdio: "inherit",
+  env: environment,
 });
 const interrupt = () => child.kill("SIGINT");
 const terminate = () => child.kill("SIGTERM");
@@ -30,5 +41,15 @@ child.on("error", () => {
 child.on("exit", (code, signal) => {
   process.removeListener("SIGINT", interrupt);
   process.removeListener("SIGTERM", terminate);
-  process.exitCode = code ?? (signal === "SIGINT" ? 130 : signal === "SIGTERM" ? 143 : 1);
+  process.exitCode =
+    code ??
+    (() => {
+      if (signal === "SIGINT") {
+        return 130;
+      }
+      if (signal === "SIGTERM") {
+        return 143;
+      }
+      return 1;
+    })();
 });

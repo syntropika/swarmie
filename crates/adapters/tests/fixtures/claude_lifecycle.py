@@ -13,13 +13,16 @@ sessions.mkdir(exist_ok=True)
 
 
 def flag(name):
+    assigned = next((arg.split("=", 1)[1] for arg in args if arg.startswith(name + "=")), None)
+    if assigned is not None:
+        return assigned
     return args[args.index(name) + 1] if name in args else None
 
 
 session = flag("--session-id") or flag("--resume")
 history = []
 failure = None
-if "--resume" in args:
+if flag("--resume"):
     try:
         history = json.loads((sessions / (flag("--resume") + ".json")).read_text())
     except Exception:
@@ -41,9 +44,15 @@ settings = {}
 queued = None
 pending_permission = None
 pending_active = None
+pending_steer = None
+tasks = {}
 
 
 def emit(value):
+    if value.get("type") == "result":
+        value.setdefault("subtype", "error_during_execution" if value.get("is_error") else "success")
+        if value.get("is_error"):
+            value.setdefault("errors", [value.get("result", "Native fixture failed")])
     print(json.dumps(value), flush=True)
 
 
@@ -103,8 +112,19 @@ for line in sys.stdin:
             if pending_active is not None:
                 emit({"type": "result", "subtype": "error_during_execution" if pending_active else "success", "is_error": pending_active})
                 pending_active = None
-            receipt(request, {"cancelled": [queued] if queued else []})
+            receipt(request, {"still_queued": [], "cancelled": [queued] if queued else []})
             queued = None
+        elif operation == "stop_task":
+            task_id = control["task_id"]
+            with (root / "task-stops.jsonl").open("a") as output:
+                output.write(json.dumps(control) + "\n")
+            if task_id not in tasks:
+                receipt(request, error="Unknown native task")
+                continue
+            receipt(request, {})
+            time.sleep(0.25)
+            emit({"type": "system", "subtype": "task_notification", "session_id": session, "uuid": str(uuid.uuid4()), "task_id": task_id, "run_id": "run-001", "status": "stopped", "output_file": "fixture-task-output.txt", "summary": "Native task stopped"})
+            tasks.pop(task_id)
         else:
             receipt(request, {})
         continue
@@ -113,6 +133,22 @@ for line in sys.stdin:
     emit({"type": "system", "subtype": "init", "session_id": session, "model": model})
     content = request["message"]["content"]
     text = content if isinstance(content, str) else "".join(part.get("text", "") for part in content)
+    if text == "steering-work":
+        pending_steer = request["uuid"]
+        continue
+    if pending_steer:
+        if request.get("priority") != "now":
+            raise RuntimeError("Steering must use the SDK immediate message priority")
+        text = "steering-work: " + text
+        request["uuid"] = pending_steer
+        pending_steer = None
+    if text in ("task-control-busy", "task-control-permission"):
+        tasks["controlled-task"] = True
+        emit({"type": "system", "subtype": "task_started", "session_id": session, "uuid": str(uuid.uuid4()), "task_id": "controlled-task", "run_id": "run-001", "description": "Native fixture background task", "task_type": "local_bash", "is_backgrounded": True})
+        if text == "task-control-busy":
+            pending_active = True
+            continue
+        text = "ask-tool"
     if text in ("ask-permission", "ask-plan", "ask-tool"):
         pending_permission = request["uuid"]
         tool = {"ask-permission": "AskUserQuestion", "ask-plan": "ExitPlanMode", "ask-tool": "Bash"}[text]

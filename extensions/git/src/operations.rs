@@ -2,9 +2,9 @@ use crate::{
     repository::{git, utf8},
     required,
 };
-use swarmie::{Error, Result};
 use serde_json::{Value, json};
 use std::path::Path;
+use swarmie::{Error, Result};
 
 pub async fn invoke(cwd: &Path, command: &str, p: &Value) -> Result<Value> {
     match command {
