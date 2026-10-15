@@ -48,8 +48,13 @@ The former private conversation store, execution coordinator, direct model adapt
 selection preferences, streaming conversation API and corresponding development fixtures have also
 been removed. Conversation execution belongs to the runtime and its Harness adapters.
 
-The development launcher starts account services and disposable PostgreSQL without a browser app
-or a synthetic inference provider. Frontend CI checks the authentication library, HTTP contracts,
+The `just dev` recipe starts account services and disposable PostgreSQL directly from
+`config/local.toml`, with memory identity and email providers. It uses Bash and Docker Compose,
+requires no Node runtime, refuses an existing project or concurrent launcher, and cleans up
+only its own API and database on exit. A custom profile and matching PostgreSQL port can be
+passed as positional arguments; ports are explicit rather than automatically reassigned.
+`just test-dev` exercises startup failures, interruption, and ownership using isolated
+command fixtures. Frontend CI checks the authentication library, HTTP contracts,
 shared UI and website. Backend CI validates account services; image publication remains an explicit
 manual action. The coupled browser-app preview and backend deployment workflows have been retired.
 No existing deployment, provider configuration, credential or persistent database was changed.
