@@ -502,7 +502,12 @@ impl Runtime {
                                 .any(|v| v.as_str() == Some(&entry.definition.transport))
                         })
             });
-            if affected && supported && snapshot.options.execution.tools != ToolPolicy::Disabled {
+            // Only require reopening when the native session can actually be resumed.
+            if affected
+                && supported
+                && snapshot.options.execution.tools != ToolPolicy::Disabled
+                && snapshot.capabilities.resume.is_available()
+            {
                 agent
                     .0
                     .mcp_restart

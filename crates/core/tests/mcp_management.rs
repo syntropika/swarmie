@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 use swarmie::{
@@ -29,6 +30,10 @@ impl Harness for McpHarness {
     }
     async fn mcp_capabilities(&self, options: &SpawnOptions) -> Result<Capabilities> {
         let mut caps = self.detect().await?.capabilities;
+        if options.execution.ephemeral {
+            caps.resume =
+                Capability::unavailable("Ephemeral sessions do not retain native history");
+        }
         if options.config["external"] == true {
             caps.metadata.insert("mcpTransports".into(), json!([]));
             caps.metadata
@@ -147,6 +152,97 @@ async fn registry_changes_compile_fresh_and_gate_existing_native_sessions() {
         .unwrap();
     assert!(temp.path().is_dir());
     again.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn non_resumable_sessions_keep_accepting_prompts_and_queued_work_after_mcp_changes() {
+    let temp = tempfile::tempdir().unwrap();
+    let harness = McpHarness {
+        script: MockScript::default()
+            .expect("direct follow-up", vec![])
+            .expect("queued follow-up", vec![]),
+        ..Default::default()
+    };
+    let runtime = Runtime::builder().harness(harness.clone()).build();
+    let entry = runtime
+        .mcp_mutate(mutation("install", None))
+        .await
+        .unwrap()
+        .entry
+        .unwrap();
+    let mut options = SpawnOptions::new("mock", temp.path());
+    options.execution.ephemeral = true;
+    options
+        .execution
+        .env
+        .insert("MCP_TOKEN".into(), "fixture".into());
+    let agent = runtime.spawn(options).await.unwrap();
+    let id = agent.snapshot().await.id;
+    assert!(!agent.snapshot().await.capabilities.resume.is_available());
+    assert!(matches!(
+        runtime.mcp_reopen(&id).await,
+        Err(Error::Unsupported(_))
+    ));
+
+    let receipt = runtime
+        .mcp_mutate(mutation("disable", Some(&entry)))
+        .await
+        .unwrap();
+    assert!(receipt.restart_sessions.is_empty());
+    assert!(
+        runtime
+            .mcp_catalog(McpQuery::default())
+            .await
+            .unwrap()
+            .restart_sessions
+            .is_empty()
+    );
+
+    let mut events = agent.events();
+    agent.prompt("direct follow-up").await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while let Some(event) = events.next().await {
+            if let EventKind::TurnEnded { outcome, .. } = event.unwrap().kind {
+                assert_eq!(outcome, TurnOutcome::Completed);
+                return;
+            }
+        }
+        panic!("session ended before the direct follow-up completed");
+    })
+    .await
+    .unwrap();
+    let queued = agent.enqueue("queued follow-up").await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while let Some(event) = events.next().await {
+            if let EventKind::TurnEnded { outcome, .. } = event.unwrap().kind {
+                assert_eq!(outcome, TurnOutcome::Completed);
+                return;
+            }
+        }
+        panic!("session ended before the queued follow-up completed");
+    })
+    .await
+    .unwrap();
+    let receipt = agent
+        .submission(format!("queue:{}", queued.id))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(receipt.delivery, DeliveryKnowledge::Accepted);
+    assert!(agent.snapshot().await.queue.items.is_empty());
+    assert_eq!(harness.launches.lock().unwrap().len(), 1);
+    agent.close().await.unwrap();
+    let fresh = runtime
+        .spawn(SpawnOptions::new("mock", temp.path()))
+        .await
+        .unwrap();
+    assert!(
+        harness.launches.lock().unwrap()[1]
+            .execution
+            .mcp_servers
+            .is_empty()
+    );
+    fresh.close().await.unwrap();
 }
 
 #[tokio::test]
