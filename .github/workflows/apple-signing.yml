@@ -48,7 +48,7 @@ env:
 jobs:
   validate:
     name: Verify signing tooling
-    runs-on: [self-hosted, linux, x64, docker]
+    runs-on: ubuntu-24.04
     container: ruby:3.3.12-bookworm@sha256:b899e7de6ffa6e974d947202d3ce2ac921c12e46c14cff3106214079388dcff4
     timeout-minutes: 15
     steps:
@@ -83,7 +83,7 @@ jobs:
     name: Manage certificates and profiles
     if: github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch
     needs: validate
-    runs-on: [self-hosted, macOS, ARM64, swarmie-macos]
+    runs-on: xcode-27
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -103,7 +103,6 @@ jobs:
       - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1
         with:
           ruby-version: ${{ steps.tools.outputs.ruby }}
-          self-hosted: true
           bundler-cache: true
       - uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
         with:
