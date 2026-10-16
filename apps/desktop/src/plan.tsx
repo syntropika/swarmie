@@ -1,4 +1,4 @@
-import { Disclosure } from "~/src/components/ui/disclosure";
+import { Button, Disclosure } from "@swarmie/ui-web";
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -52,10 +52,17 @@ export function Plan({ value }: { value: unknown }) {
     );
   }
   return (
-    <div className="tool-activity">
-      <Disclosure defaultOpen>
-        <Disclosure.Summary>Plan</Disclosure.Summary>
-        {content}
+    <div data-workspace-part="tool-activity">
+      <Disclosure defaultExpanded>
+        <Disclosure.Heading>
+          <Button slot="trigger" variant="tertiary">
+            <span>Plan</span>
+            <Disclosure.Indicator />
+          </Button>
+        </Disclosure.Heading>
+        <Disclosure.Content>
+          <Disclosure.Body>{content}</Disclosure.Body>
+        </Disclosure.Content>
       </Disclosure>
     </div>
   );

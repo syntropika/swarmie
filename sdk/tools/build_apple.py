@@ -18,7 +18,7 @@ def run(command, **options): subprocess.run(command, check=True, **options)
 def build(release=False):
     if platform.system() != 'Darwin': raise SystemExit('XCFramework builds require macOS and Xcode.')
     toolchain = re.search(r'^rust = "([^"]+)"', (PROJECT / 'mise.toml').read_text(), re.MULTILINE).group(1)
-    environment = {**os.environ, 'RUSTUP_TOOLCHAIN': toolchain, 'MACOSX_DEPLOYMENT_TARGET': '13.0', 'CARGO_PROFILE_RELEASE_STRIP': 'none'}
+    environment = {**os.environ, 'RUSTUP_TOOLCHAIN': toolchain, 'MACOSX_DEPLOYMENT_TARGET': '13.0', 'CARGO_PROFILE_DEV_STRIP': 'none', 'CARGO_PROFILE_RELEASE_STRIP': 'none'}
     # A global iOS deployment target also affects host proc-macro dylibs.
     # Keep the host macOS target and set C compiler deployment flags per target.
     environment.pop('IPHONEOS_DEPLOYMENT_TARGET', None)

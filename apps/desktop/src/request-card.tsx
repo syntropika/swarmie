@@ -1,13 +1,8 @@
+import { Button, Checkbox, Disclosure, Input, RadioGroup, Radio, TextArea } from "@swarmie/ui-web";
 import { ShieldCheck, MessageCircleQuestion } from "lucide-react";
 import { useState } from "react";
 
 import { startAction, errorReporter } from "~/src/action-boundary";
-import { Button } from "~/src/components/ui/button";
-import { Checkbox } from "~/src/components/ui/checkbox";
-import { Disclosure } from "~/src/components/ui/disclosure";
-import { Input } from "~/src/components/ui/input";
-import { RadioGroup, RadioOption } from "~/src/components/ui/radio-group";
-import { Textarea } from "~/src/components/ui/textarea";
 import type { Permission } from "~/src/protocol";
 import { questionAnswers } from "~/src/questions";
 import { hasText } from "~/src/value-presence";
@@ -67,9 +62,8 @@ export function RequestCard({
             q.options.map((option) => (
               <Checkbox
                 key={option.id}
-                label={option.label}
-                disabled={busy}
-                checked={Array.isArray(answers[q.id]) && answers[q.id].includes(option.id)}
+                isDisabled={busy}
+                isSelected={Array.isArray(answers[q.id]) && answers[q.id].includes(option.id)}
                 onChange={(checked) => {
                   setAnswers((previous) => ({
                     ...previous,
@@ -78,20 +72,35 @@ export function RequestCard({
                       : multipleAnswer(previous[q.id]).filter((v) => v !== option.id),
                   }));
                 }}
-              />
+                aria-label={option.label}
+              >
+                <Checkbox.Content>
+                  <Checkbox.Control>
+                    <Checkbox.Indicator />
+                  </Checkbox.Control>
+                  {option.label}
+                </Checkbox.Content>
+              </Checkbox>
             ))
           ) : (
             <RadioGroup
               aria-label={q.prompt}
               name={`${permission.id}-${q.id}`}
-              disabled={busy}
+              isDisabled={busy}
               value={singleAnswer(answers[q.id])}
-              onValueChange={(value) => {
+              onChange={(value) => {
                 setAnswers((previous) => ({ ...previous, [q.id]: value }));
               }}
             >
               {q.options.map((option) => (
-                <RadioOption value={option.id} key={option.id} label={option.label} />
+                <Radio value={option.id} key={option.id}>
+                  <Radio.Content>
+                    <Radio.Control>
+                      <Radio.Indicator />
+                    </Radio.Control>
+                    {option.label}
+                  </Radio.Content>
+                </Radio>
               ))}
             </RadioGroup>
           )}
@@ -126,22 +135,31 @@ export function RequestCard({
       ))}
       {!questions.length && (
         <Disclosure>
-          <Disclosure.Summary>Additional answer data</Disclosure.Summary>
-          <Textarea
-            aria-label="Structured permission answer"
-            placeholder="Optional JSON answer"
-            value={json}
-            onChange={(e) => {
-              setJson(e.target.value);
-            }}
-          />
+          <Disclosure.Heading>
+            <Button slot="trigger" variant="tertiary">
+              <span>Additional answer data</span>
+              <Disclosure.Indicator />
+            </Button>
+          </Disclosure.Heading>
+          <Disclosure.Content>
+            <Disclosure.Body>
+              <TextArea
+                aria-label="Structured permission answer"
+                placeholder="Optional JSON answer"
+                value={json}
+                onChange={(e) => {
+                  setJson(e.target.value);
+                }}
+              />
+            </Disclosure.Body>
+          </Disclosure.Content>
         </Disclosure>
       )}
       {hasText(issue) && <p role="alert">{issue}</p>}
       <div className="permission-actions">
         {permission.options.map((option) => (
           <Button
-            variant="ghost"
+            variant="tertiary"
             size="sm"
             key={option.id}
             disabled={busy}

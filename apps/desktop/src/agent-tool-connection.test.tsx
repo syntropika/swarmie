@@ -146,8 +146,8 @@ it("defaults to verified secure storage only when the runtime offers it", async 
   render(<AgentToolConnection {...props} />);
   await userEvent.type(await screen.findByLabelText("API key"), "fixture-secure-key");
   expect(
-    screen.getByRole("combobox", {
-      name: "Claude Code credential storage",
+    screen.getByRole("button", {
+      name: /Claude Code credential storage/u,
     }).textContent,
   ).toContain("Secure storage");
   await userEvent.click(
@@ -614,16 +614,24 @@ it("selects the model provider with keyboard controls and clears a previous prov
   const input = fixtureControl(await screen.findByLabelText("API key"));
   await userEvent.type(input, "old-provider-key");
   await userEvent.click(
-    screen.getByRole("combobox", {
-      name: "Pi model provider",
+    screen.getByRole("button", {
+      name: /Pi model provider/u,
     }),
   );
-  await userEvent.keyboard("{ArrowDown}{Enter}");
-  expect(
-    screen.getByRole("combobox", {
-      name: "Pi model provider",
-    }).textContent,
-  ).toContain("Anthropic");
+  const initialProviderOption = await screen.findByRole("option", { name: "OpenAI" });
+  initialProviderOption.focus();
+  await userEvent.keyboard("{End>}");
+  await waitFor(() => {
+    expect(document.activeElement?.textContent).toContain("Anthropic");
+  });
+  await userEvent.keyboard("{/End}{Enter}");
+  await waitFor(() => {
+    expect(
+      screen.getByRole("button", {
+        name: /Pi model provider/u,
+      }).textContent,
+    ).toContain("Anthropic");
+  });
   expect(input.value).toBe("");
   await userEvent.type(input, "new-provider-key");
   await userEvent.click(
@@ -897,8 +905,8 @@ it("shows explicit session-only storage for Cursor's browser-minted API key", as
   ];
   const { props, calls } = await fixture(setup);
   render(<AgentToolConnection {...props} name="Cursor" />);
-  const storage = await screen.findByRole("combobox", {
-    name: "Cursor credential storage",
+  const storage = await screen.findByRole("button", {
+    name: /Cursor credential storage/u,
   });
   expect(storage.textContent).toContain("This runtime session only");
   expect(screen.getByText(/Secure storage is unavailable/u)).toBeTruthy();

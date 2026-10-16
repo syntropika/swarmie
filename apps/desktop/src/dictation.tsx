@@ -1,8 +1,7 @@
+import { Button, Input } from "@swarmie/ui-web";
 import { useState } from "react";
 
 import { recognitionConstructor, startBrowserSpeech } from "~/src/browser-speech";
-import { Button } from "~/src/components/ui/button";
-import { Input } from "~/src/components/ui/input";
 import type { ClientExtension, ContributionRegistry, ScopedClientApi } from "~/src/contributions";
 import { nonEmptyText, hasText } from "~/src/value-presence";
 

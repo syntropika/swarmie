@@ -1,3 +1,4 @@
+import { Tooltip, Button, Dropdown, TooltipContent } from "@swarmie/ui-web";
 import { LogOut, Settings, UserRound, ShieldCheck } from "lucide-react";
 // Copyright 2026 Syntropika
 // SPDX-License-Identifier: Apache-2.0
@@ -5,9 +6,6 @@ import { useState } from "react";
 
 import { useAccountService, useAccount } from "~/src/account-state";
 import { startAction, errorMessage, errorReporter } from "~/src/action-boundary";
-import { Button } from "~/src/components/ui/button";
-import { Dropdown } from "~/src/components/ui/dropdown";
-import { TooltipContent } from "~/src/components/ui/tooltip";
 import { hasText, nonEmptyText } from "~/src/value-presence";
 
 export function AccountMenu({
@@ -70,35 +68,44 @@ export function AccountMenu({
     }
   };
   return (
-    <Dropdown triggerTooltip={<TooltipContent placement="right">{label}</TooltipContent>}>
-      <Button variant="ghost" size="icon" aria-label={`Account: ${label}`} aria-busy={busy}>
-        {hasText(avatarUrl) && failedImage !== avatarUrl ? (
-          <img
-            className="size-6 rounded-full object-cover"
-            src={avatarUrl}
-            alt=""
-            referrerPolicy="no-referrer"
-            onError={() => {
-              setFailedImage(avatarUrl);
-            }}
-          />
-        ) : (
-          <UserRound size={18} />
-        )}
-      </Button>
+    <Dropdown>
+      <Tooltip>
+        <Button
+          variant="tertiary"
+          size="md"
+          isIconOnly
+          aria-label={`Account: ${label}`}
+          aria-busy={busy}
+        >
+          {hasText(avatarUrl) && failedImage !== avatarUrl ? (
+            <img
+              className="size-6 rounded-full object-cover"
+              src={avatarUrl}
+              alt=""
+              referrerPolicy="no-referrer"
+              onError={() => {
+                setFailedImage(avatarUrl);
+              }}
+            />
+          ) : (
+            <UserRound size={18} />
+          )}
+        </Button>
+        <TooltipContent placement="right">{label}</TooltipContent>
+      </Tooltip>
       <Dropdown.Popover placement="top end">
+        <div className="max-w-64 px-2 py-2 text-sm">
+          <p className="font-medium break-words">{label}</p>
+          {hasText(profile?.displayName) && (
+            <p className="text-xs break-all text-muted">{profile.email}</p>
+          )}
+          {observationError && (
+            <p className="mt-1 text-xs text-danger">
+              Account updates unavailable. Open your profile to try again.
+            </p>
+          )}
+        </div>
         <Dropdown.Menu aria-label="Account menu">
-          <div className="max-w-64 px-2 py-2 text-sm">
-            <p className="font-medium break-words">{label}</p>
-            {hasText(profile?.displayName) && (
-              <p className="text-muted text-xs break-all">{profile.email}</p>
-            )}
-            {observationError && (
-              <p className="mt-1 text-xs text-danger">
-                Account updates unavailable. Open your profile to try again.
-              </p>
-            )}
-          </div>
           <Dropdown.Item
             id="profile"
             textValue={profile ? "Profile" : "Sign in"}

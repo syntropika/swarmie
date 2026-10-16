@@ -1,3 +1,4 @@
+import { Button, Dropdown, Input, ResizeHandle, Tooltip, TooltipContent } from "@swarmie/ui-web";
 import {
   ChevronDown,
   Check,
@@ -12,11 +13,6 @@ import {
 import { useRef } from "react";
 
 import { startAction } from "~/src/action-boundary";
-import { Button } from "~/src/components/ui/button";
-import { Dropdown } from "~/src/components/ui/dropdown";
-import { Input } from "~/src/components/ui/input";
-import { ResizeHandle } from "~/src/components/ui/resize-handle";
-import { Tooltip, TooltipContent } from "~/src/components/ui/tooltip";
 import { ContributionSlot } from "~/src/contribution-host";
 import type { Thread } from "~/src/protocol";
 import { SidebarChatActions } from "~/src/sidebar-chat-actions";
@@ -92,7 +88,7 @@ export function WorkspaceSidebar({
   return (
     <aside className="sidebar" aria-label="Projects and chats">
       <ResizeHandle
-        variant="sidebar"
+        data-workspace-part="sidebar-resize"
 
         aria-label="Resize sidebar"
         aria-orientation="vertical"
@@ -121,7 +117,11 @@ export function WorkspaceSidebar({
       />
       <div className="sidebar-heading">
         <Dropdown>
-          <Button variant="wordmark" aria-label="Workspace menu">
+          <Button
+            variant="tertiary"
+            data-workspace-part="workspace-wordmark"
+            aria-label="Workspace menu"
+          >
             swarmie
             <ChevronDown size={12} />
           </Button>
@@ -181,7 +181,8 @@ export function WorkspaceSidebar({
       </div>
       <div className="sidebar-navigation">
         <Button
-          variant="navigation"
+          variant="tertiary"
+          data-workspace-part="sidebar-nav-item"
           onClick={() => {
             newChat();
           }}
@@ -192,7 +193,7 @@ export function WorkspaceSidebar({
       </div>
       {search && (
         <Input
-          variant="search"
+          data-workspace-part="sidebar-search"
           autoFocus
           aria-label="Search chats"
           placeholder="Search chats…"
@@ -282,10 +283,11 @@ export function WorkspaceSidebar({
                 {!archived && (
                   <Tooltip>
                     <Button
-                      variant="ghost"
-                      size="icon-sm"
+                      variant="tertiary"
+                      size="sm"
+                      isIconOnly
                       aria-label="Add new project"
-                      tone="muted"
+
                       onClick={() => {
                         setProjectDialog(true);
                       }}
@@ -302,7 +304,7 @@ export function WorkspaceSidebar({
               <div className="project-group group/project" key={p.id}>
                 <div className="project-heading">
                   <Button
-                    variant="ghost"
+                    variant="tertiary"
                     onClick={() => {
                       toggleProject(p.id);
                     }}
@@ -329,8 +331,9 @@ export function WorkspaceSidebar({
                   />
                   <Dropdown>
                     <Button
-                      variant="ghost"
-                      size="icon-sm"
+                      variant="tertiary"
+                      size="sm"
+                      isIconOnly
                       aria-label={`Project options: ${p.name}`}
                     >
                       <MoreHorizontal size={14} />
@@ -362,10 +365,11 @@ export function WorkspaceSidebar({
                   <div className="pointer-events-none opacity-0 group-focus-within/project:pointer-events-auto group-focus-within/project:opacity-100 group-hover/project:pointer-events-auto group-hover/project:opacity-100">
                     <Tooltip>
                       <Button
-                        variant="ghost"
-                        size="icon-sm"
+                        variant="tertiary"
+                        size="sm"
+                        isIconOnly
                         aria-label={`New chat in ${p.name}`}
-                        tone="muted"
+
                         onClick={() => {
                           newChat(p.id);
                         }}
@@ -470,10 +474,11 @@ function ThreadRow({
   return (
     <div
       key={thread.id}
-      className={`group/chat-row relative rounded-lg ${active.id === thread.id ? "bg-control-secondary" : "hover:bg-control-hover focus-within:bg-control-hover"}`}
+      className={`group/chat-row relative rounded-lg ${active.id === thread.id ? "bg-default" : "focus-within:bg-default-hover hover:bg-default-hover"}`}
     >
       <Button
-        variant="thread"
+        variant="tertiary"
+        data-workspace-part="thread-row"
         data-thread-id={thread.id}
         onClick={() => {
           if (draggedClick.current === thread.id) {

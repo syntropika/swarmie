@@ -1,14 +1,10 @@
-import { useState, useId } from "react";
+import { Button, Disclosure, Input, TextArea, Select, ListBox } from "@swarmie/ui-web";
+import { isValidElement, useState, useId } from "react";
 
 import { startAction } from "~/src/action-boundary";
 import { useExtensionQuery } from "~/src/components/extension-query";
 import { extensionResult } from "~/src/components/extension-result";
 import { scalarLabel } from "~/src/components/presentation-values";
-import { Button } from "~/src/components/ui/button";
-import { Disclosure } from "~/src/components/ui/disclosure";
-import { Input } from "~/src/components/ui/input";
-import { Select } from "~/src/components/ui/select";
-import { Textarea } from "~/src/components/ui/textarea";
 import { HarnessSelect } from "~/src/harness-select";
 import { isRecord } from "~/src/protocol";
 import type { Thread, Project } from "~/src/protocol";
@@ -196,27 +192,51 @@ function ProjectSettingsContent({ store, thread }: { store: WorkspaceStore; thre
       <label htmlFor={`${fieldPrefix}-field-3`}>
         Default workspace
         <Select
-          id={`${fieldPrefix}-field-3`}
-          label="Default workspace"
+          aria-label="Default workspace"
           value={defaultWorkspace}
-          onChange={setDefaultWorkspace}
-          options={[
-            { id: "", label: "Project folder" },
-            ...(defaultWorkspace && !workspacePaths.includes(defaultWorkspace)
-              ? [
-                  {
-                    id: defaultWorkspace,
-                    label: `Unavailable: ${defaultWorkspace}`,
-                    disabled: true,
-                  },
-                ]
-              : []),
-            ...workspacePaths.map((path) => ({
-              id: path,
-              label: project?.worktrees.find((tree) => tree.path === path)?.branch ?? path,
-            })),
-          ]}
-        />
+          onChange={(key) => {
+            if (typeof key === "string") {
+              setDefaultWorkspace(key);
+            }
+          }}
+          placeholder="Select…"
+        >
+          <Select.Trigger id={`${fieldPrefix}-field-3`}>
+            <Select.Value />
+            <Select.Indicator />
+          </Select.Trigger>
+          <Select.Popover>
+            <ListBox aria-label="Default workspace">
+              {[
+                { id: "", label: "Project folder" },
+                ...(defaultWorkspace && !workspacePaths.includes(defaultWorkspace)
+                  ? [
+                      {
+                        id: defaultWorkspace,
+                        label: `Unavailable: ${defaultWorkspace}`,
+                        disabled: true,
+                      },
+                    ]
+                  : []),
+                ...workspacePaths.map((path) => ({
+                  id: path,
+                  label: project?.worktrees.find((tree) => tree.path === path)?.branch ?? path,
+                })),
+              ].map((choice) => (
+                <ListBox.Item
+                  key={choice.id}
+                  id={choice.id}
+                  textValue={choice.label}
+                  isDisabled={"disabled" in choice && choice.disabled === true}
+                >
+                  {"icon" in choice && isValidElement(choice.icon) ? choice.icon : null}
+                  {choice.label}
+                  <ListBox.ItemIndicator />
+                </ListBox.Item>
+              ))}
+            </ListBox>
+          </Select.Popover>
+        </Select>
       </label>
       <p className="panel-note">
         Used for new conversations unless another workspace is selected. Choose an existing project
@@ -224,7 +244,7 @@ function ProjectSettingsContent({ store, thread }: { store: WorkspaceStore; thre
       </p>
       <label htmlFor={`${fieldPrefix}-field-4`}>
         Native controls and permissions JSON
-        <Textarea
+        <TextArea
           id={`${fieldPrefix}-field-4`}
           value={defaultConfig}
           onChange={(event) => {
@@ -244,34 +264,58 @@ function ProjectSettingsContent({ store, thread }: { store: WorkspaceStore; thre
             <label htmlFor={`${fieldPrefix}-field-5-${option.id}`} key={option.id}>
               {option.label}
               <Select
-                id={`${fieldPrefix}-field-5-${option.id}`}
-                label={option.label}
+                aria-label={option.label}
                 value={scalarLabel(nativeDefaults[option.id], "")}
-                options={[
-                  { id: "", label: "Clear value (null)" },
-                  ...(option.choices ?? []).map((choice) => ({
-                    id: choice.id,
-                    label: choice.label,
-                  })),
-                ]}
-                onChange={(value) => {
-                  try {
-                    setDefaultConfig(
-                      JSON.stringify(
-                        { ...parseNativeDefaults(defaultConfig), [option.id]: value || null },
-                        null,
-                        2,
-                      ),
-                    );
-                  } catch (error) {
-                    store.setError(error);
+                onChange={(key) => {
+                  if (typeof key === "string") {
+                    ((value) => {
+                      try {
+                        setDefaultConfig(
+                          JSON.stringify(
+                            { ...parseNativeDefaults(defaultConfig), [option.id]: value || null },
+                            null,
+                            2,
+                          ),
+                        );
+                      } catch (error) {
+                        store.setError(error);
+                      }
+                    })(key);
                   }
                 }}
-              />
+                placeholder="Select…"
+              >
+                <Select.Trigger id={`${fieldPrefix}-field-5-${option.id}`}>
+                  <Select.Value />
+                  <Select.Indicator />
+                </Select.Trigger>
+                <Select.Popover>
+                  <ListBox aria-label={option.label}>
+                    {[
+                      { id: "", label: "Clear value (null)" },
+                      ...(option.choices ?? []).map((choice) => ({
+                        id: choice.id,
+                        label: choice.label,
+                      })),
+                    ].map((choice) => (
+                      <ListBox.Item
+                        key={choice.id}
+                        id={choice.id}
+                        textValue={choice.label}
+                        isDisabled={"disabled" in choice && choice.disabled === true}
+                      >
+                        {"icon" in choice && isValidElement(choice.icon) ? choice.icon : null}
+                        {choice.label}
+                        <ListBox.ItemIndicator />
+                      </ListBox.Item>
+                    ))}
+                  </ListBox>
+                </Select.Popover>
+              </Select>
             </label>
           ))}
       <Button
-        variant="ghost"
+        variant="tertiary"
         size="sm"
         disabled={selectedHarness !== thread.harness}
         onClick={() => {
@@ -285,7 +329,7 @@ function ProjectSettingsContent({ store, thread }: { store: WorkspaceStore; thre
         the native harness. Null clears saved defaults.
       </p>
       <Button
-        variant="ghost"
+        variant="tertiary"
         size="sm"
         disabled={busy || !project}
         onClick={() => {
@@ -316,76 +360,85 @@ function ProjectSettingsContent({ store, thread }: { store: WorkspaceStore; thre
       </Button>
       <hr />
       <Disclosure>
-        <Disclosure.Summary>Credentials</Disclosure.Summary>
-        <p className="panel-note">
-          Values stay in the daemon’s private local credential store. They are never returned to
-          this interface.
-        </p>
-        {credentials.map((credential) => (
-          <div className="resource-row" key={credential.id}>
-            <span>{credential.id} · configured</span>
+        <Disclosure.Heading>
+          <Button slot="trigger" variant="tertiary">
+            <span>Credentials</span>
+            <Disclosure.Indicator />
+          </Button>
+        </Disclosure.Heading>
+        <Disclosure.Content>
+          <Disclosure.Body>
+            <p className="panel-note">
+              Values stay in the daemon’s private local credential store. They are never returned to
+              this interface.
+            </p>
+            {credentials.map((credential) => (
+              <div className="resource-row" key={credential.id}>
+                <span>{credential.id} · configured</span>
+                <Button
+                  variant="tertiary"
+                  size="sm"
+                  onClick={() => {
+                    startAction(
+                      run(async () => {
+                        await store.invokeExtension("resources", "credentials.remove", {
+                          id: credential.id,
+                        });
+                        await load();
+                      }),
+                      store.setError.bind(store),
+                    );
+                  }}
+                >
+                  Remove
+                </Button>
+              </div>
+            ))}
+            <label htmlFor={`${fieldPrefix}-field-6`}>
+              Credential ID
+              <Input
+                id={`${fieldPrefix}-field-6`}
+                value={credentialId}
+                autoComplete="off"
+                onChange={(e) => {
+                  setCredentialId(e.target.value);
+                }}
+              />
+            </label>
+            <label htmlFor={`${fieldPrefix}-field-7`}>
+              Secret value
+              <Input
+                id={`${fieldPrefix}-field-7`}
+                type="password"
+                autoComplete="off"
+                value={credentialValue}
+                onChange={(e) => {
+                  setCredentialValue(e.target.value);
+                }}
+              />
+            </label>
             <Button
-              variant="ghost"
+              variant="tertiary"
               size="sm"
+              disabled={busy || !credentialId || !credentialValue}
               onClick={() => {
                 startAction(
                   run(async () => {
-                    await store.invokeExtension("resources", "credentials.remove", {
-                      id: credential.id,
+                    await store.invokeExtension("resources", "credentials.set", {
+                      id: credentialId,
+                      value: credentialValue,
                     });
+                    setCredentialValue("");
                     await load();
                   }),
                   store.setError.bind(store),
                 );
               }}
             >
-              Remove
+              Store credential
             </Button>
-          </div>
-        ))}
-        <label htmlFor={`${fieldPrefix}-field-6`}>
-          Credential ID
-          <Input
-            id={`${fieldPrefix}-field-6`}
-            value={credentialId}
-            autoComplete="off"
-            onChange={(e) => {
-              setCredentialId(e.target.value);
-            }}
-          />
-        </label>
-        <label htmlFor={`${fieldPrefix}-field-7`}>
-          Secret value
-          <Input
-            id={`${fieldPrefix}-field-7`}
-            type="password"
-            autoComplete="off"
-            value={credentialValue}
-            onChange={(e) => {
-              setCredentialValue(e.target.value);
-            }}
-          />
-        </label>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={busy || !credentialId || !credentialValue}
-          onClick={() => {
-            startAction(
-              run(async () => {
-                await store.invokeExtension("resources", "credentials.set", {
-                  id: credentialId,
-                  value: credentialValue,
-                });
-                setCredentialValue("");
-                await load();
-              }),
-              store.setError.bind(store),
-            );
-          }}
-        >
-          Store credential
-        </Button>
+          </Disclosure.Body>
+        </Disclosure.Content>
       </Disclosure>
     </div>
   );

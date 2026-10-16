@@ -1,6 +1,6 @@
-import * as Radio from "@radix-ui/react-radio-group";
-import { Check, Hand, ShieldCheck, ShieldAlert } from "lucide-react";
-import { useId, useState } from "react";
+import { RadioGroup, Radio, Select, ListBox } from "@swarmie/ui-web";
+import { Hand, ShieldCheck, ShieldAlert } from "lucide-react";
+import { isValidElement, useId, useState } from "react";
 
 import { startAction, errorReporter } from "~/src/action-boundary";
 import type { Thread } from "~/src/protocol";
@@ -31,12 +31,11 @@ export function PermissionPicker({
           {error}
         </p>
       )}
-      <Radio.Root
+      <RadioGroup
         aria-label="Approval mode"
         value={selected ?? ""}
         orientation="vertical"
-        className="grid gap-1"
-        onValueChange={(id) => {
+        onChange={(id) => {
           const option = options.find((entry) => entry.id === id);
           if (option?.available === true && !option.locked) {
             startAction(onChange(option.patch), errorReporter(setError));
@@ -46,48 +45,49 @@ export function PermissionPicker({
         {options.map((option) => {
           const Icon = icons[option.id];
           return (
-            <Radio.Item
+            <Radio
               key={option.id}
               value={option.id}
-              disabled={disabled || !option.available || option.locked}
+              isDisabled={disabled || !option.available || option.locked}
               aria-label={option.label}
-              className={`hover:bg-control-hover focus-visible:bg-control-hover focus-visible:ring-focus flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-40 ${option.id === "full" ? "text-permission-full-access" : "text-foreground"}`}
             >
-              <Icon size={16} className="mt-0.5 shrink-0" />
-              <span className="min-w-0 flex-1">
-                <span className="block">{option.label}</span>
-                <span
-                  className={`block text-xs ${option.id === "full" ? "text-permission-full-access" : "text-muted"}`}
-                >
-                  {(() => {
-                    if (option.available) {
-                      if (option.locked) {
-                        return "Wait until this session is idle";
+              <Radio.Content>
+                <Radio.Control>
+                  <Radio.Indicator />
+                </Radio.Control>
+                <Icon size={16} className="mt-0.5 shrink-0" />
+                <span className="min-w-0 flex-1">
+                  <span className="block">{option.label}</span>
+                  <span
+                    className={`block text-xs ${option.id === "full" ? "text-permission-full-access" : "text-muted"}`}
+                  >
+                    {(() => {
+                      if (option.available) {
+                        if (option.locked) {
+                          return "Wait until this session is idle";
+                        }
+                        return option.description;
                       }
-                      return option.description;
-                    }
-                    return option.reason ?? "Not supported by this agent tool";
-                  })()}
+                      return option.reason ?? "Not supported by this agent tool";
+                    })()}
+                  </span>
                 </span>
-              </span>
-              <Radio.Indicator className="mt-0.5">
-                <Check size={16} />
-              </Radio.Indicator>
-            </Radio.Item>
+              </Radio.Content>
+            </Radio>
           );
         })}
-      </Radio.Root>
-      {hasText(status) && <output className="text-muted px-2.5 text-xs">{status}</output>}
+      </RadioGroup>
+      {hasText(status) && <output className="px-2.5 text-xs text-muted">{status}</output>}
       {policy?.status === "staged" && hasText(observedLabel) && (
-        <p className="text-muted px-2.5 text-xs">Current native permissions: {observedLabel}</p>
+        <p className="px-2.5 text-xs text-muted">Current native permissions: {observedLabel}</p>
       )}
       {policy?.observed?.limitations?.map((limitation) => (
-        <p key={limitation} className="text-muted px-2.5 text-xs">
+        <p key={limitation} className="px-2.5 text-xs text-muted">
           {limitation}
         </p>
       ))}
       {nativeControls.length > 0 && (
-        <details className="text-muted px-2.5 text-xs">
+        <details className="px-2.5 text-xs text-muted">
           <summary className="cursor-pointer py-2">Native permission settings</summary>
           <p className="mb-2">
             These settings can have different coverage from the common modes. An explicit change
@@ -103,34 +103,56 @@ export function PermissionPicker({
               <div key={field.id} className="mb-2 block">
                 <label htmlFor={`${fieldId}-${field.id}`}>{field.label}</label>
                 {field.type === "select" && (field.choices?.length ?? 0) > 0 ? (
-                  <select
-                    id={`${fieldId}-${field.id}`}
+                  <Select
                     aria-label={`Native ${field.label}`}
-                    className="bg-control-secondary text-foreground mt-1 block w-full rounded p-1"
                     value={
                       selectedChoice === true && typeof value === "string" ? value : "__custom"
                     }
-                    disabled={locked}
-                    onChange={(event) => {
-                      startAction(
-                        onChange({ [field.id]: event.target.value }),
-                        errorReporter(setError),
-                      );
+                    onChange={(key) => {
+                      if (typeof key === "string") {
+                        ((next) => {
+                          startAction(onChange({ [field.id]: next }), errorReporter(setError));
+                        })(key);
+                      }
                     }}
+                    isDisabled={locked}
+                    placeholder="Select…"
                   >
-                    {!(selectedChoice === true) && (
-                      <option value="__custom" disabled>
-                        {value === undefined || value === null
-                          ? "Unknown"
-                          : "Current custom configuration"}
-                      </option>
-                    )}
-                    {field.choices?.map((choice) => (
-                      <option key={choice.id} value={choice.id}>
-                        {choice.label}
-                      </option>
-                    ))}
-                  </select>
+                    <Select.Trigger id={`${fieldId}-${field.id}`}>
+                      <Select.Value />
+                      <Select.Indicator />
+                    </Select.Trigger>
+                    <Select.Popover>
+                      <ListBox aria-label={`Native ${field.label}`}>
+                        {[
+                          ...(selectedChoice === true
+                            ? []
+                            : [
+                                {
+                                  id: "__custom",
+                                  label:
+                                    value === undefined || value === null
+                                      ? "Unknown"
+                                      : "Current custom configuration",
+                                  disabled: true,
+                                },
+                              ]),
+                          ...(field.choices ?? []),
+                        ].map((option) => (
+                          <ListBox.Item
+                            key={option.id}
+                            id={option.id}
+                            textValue={option.label}
+                            isDisabled={"disabled" in option && option.disabled}
+                          >
+                            {"icon" in option && isValidElement(option.icon) ? option.icon : null}
+                            {option.label}
+                            <ListBox.ItemIndicator />
+                          </ListBox.Item>
+                        ))}
+                      </ListBox>
+                    </Select.Popover>
+                  </Select>
                 ) : (
                   <pre className="overflow-auto whitespace-pre-wrap">
                     {JSON.stringify(value, null, 2)}

@@ -46,7 +46,7 @@ await Promise.all(
       }
     }
     if (
-      /\/(?:home|Users)\/[\w.-]+\/|\bdocs\/(?:client-runtime|cloud)\b|\b(?:AGENTS|PRODUCT|DESIGN)\.md\b|\bFIXTURE_[A-Z_]*RECEIPT\b/iu.test(
+      /\/(?:home|Users)\/[\w.-]+\/|\bdocs\/(?:cloud\b|[\w/-]+\.md\b)|\b(?:AGENTS|PRODUCT|DESIGN)\.md\b|\bFIXTURE_[A-Z_]*RECEIPT\b/iu.test(
         source,
       )
     ) {

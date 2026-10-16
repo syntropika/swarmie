@@ -106,7 +106,7 @@ export function CommandPalette({
       {...props}
     >
       <div className="flex items-center gap-2.5 px-3.5 py-3">
-        <SearchIcon className="text-muted size-3.5 shrink-0" />
+        <SearchIcon className="size-3.5 shrink-0 text-muted" />
         <input
           value={query}
           onChange={(event) => onQueryChange?.(event.target.value)}
@@ -120,19 +120,19 @@ export function CommandPalette({
           aria-activedescendant={
             ordered.some((command) => command.id === activeId) ? optionId(activeId) : undefined
           }
-          className="text-foreground/85 placeholder:text-muted min-w-0 flex-1 bg-transparent text-sm outline-none"
+          className="min-w-0 flex-1 bg-transparent text-sm text-foreground/85 outline-none placeholder:text-muted"
         />
-        <span className={cn(field, mono, "text-muted rounded px-1.5 py-0.5")}>esc</span>
+        <span className={cn(field, mono, "rounded px-1.5 py-0.5 text-muted")}>esc</span>
       </div>
 
       <Command.List
         id={listId}
         label="Commands"
-        className="border-foreground/[0.07] flex max-h-72 flex-col overflow-y-auto border-t p-1.5"
+        className="flex max-h-72 flex-col overflow-y-auto border-t border-foreground/[0.07] p-1.5"
       >
         {groups.map((group) => (
           <Command.Group key={group} aria-label={group} className="flex flex-col">
-            <span aria-hidden className={cn(mono, "text-muted px-2 pt-2 pb-1")}>
+            <span aria-hidden className={cn(mono, "px-2 pt-2 pb-1 text-muted")}>
               {group}
             </span>
             {matches
@@ -150,7 +150,7 @@ export function CommandPalette({
                       {command.keys.map((key) => (
                         <span
                           key={key}
-                          className={cn(field, mono, "text-muted rounded px-1.5 py-0.5")}
+                          className={cn(field, mono, "rounded px-1.5 py-0.5 text-muted")}
                         >
                           {key}
                         </span>
@@ -181,8 +181,8 @@ export function CommandPalette({
         ))}
       </Command.List>
       {matches.length === 0 && (
-        <div className="border-foreground/[0.07] border-t p-1.5">
-          <span className="text-muted block px-2 py-4 text-center text-xs break-words">
+        <div className="border-t border-foreground/[0.07] p-1.5">
+          <span className="block px-2 py-4 text-center text-xs break-words text-muted">
             No command matches “{query}”
           </span>
         </div>

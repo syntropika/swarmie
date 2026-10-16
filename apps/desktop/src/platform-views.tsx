@@ -1,3 +1,4 @@
+import { Button, Input } from "@swarmie/ui-web";
 import { useEffect, useRef, useState, useCallback, useId } from "react";
 
 import { MediaPreview } from "~/src/asset-preview";
@@ -5,8 +6,6 @@ import { attachmentBytes, attachmentLimit } from "~/src/attachments";
 import { useExtensionQuery } from "~/src/components/extension-query";
 import { extensionResult } from "~/src/components/extension-result";
 import { hasText } from "~/src/components/presentation-values";
-import { Button } from "~/src/components/ui/button";
-import { Input } from "~/src/components/ui/input";
 import type { Thread, Attachment } from "~/src/protocol";
 import type { WorkspaceStore } from "~/src/workspace";
 
@@ -162,7 +161,7 @@ function BrowserPreviewContent({ store, thread }: Host) {
       <div className="permission-actions">
         <Button
           size="sm"
-          variant="ghost"
+          variant="tertiary"
 
           disabled={busy}
           onClick={() => {
@@ -174,7 +173,7 @@ function BrowserPreviewContent({ store, thread }: Host) {
         {preview && (
           <Button
             size="sm"
-            variant="ghost"
+            variant="tertiary"
 
             disabled={busy}
             onClick={() => {
@@ -453,7 +452,7 @@ function DevicesContent({ store, thread }: Host) {
       </p>
       <Button
         size="sm"
-        variant="ghost"
+        variant="tertiary"
 
         disabled={busy}
         onClick={() => {
@@ -478,7 +477,7 @@ function DevicesContent({ store, thread }: Host) {
           <div className="permission-actions">
             <Button
               size="sm"
-              variant="ghost"
+              variant="tertiary"
 
               disabled={busy || !!emulators[device.id]}
               onClick={() => {
@@ -528,7 +527,7 @@ function DevicesContent({ store, thread }: Host) {
             {emulators[device.id] && (
               <Button
                 size="sm"
-                variant="ghost"
+                variant="tertiary"
 
                 disabled={busy}
                 onClick={() => {
@@ -550,7 +549,7 @@ function DevicesContent({ store, thread }: Host) {
             )}
             <Button
               size="sm"
-              variant="ghost"
+              variant="tertiary"
 
               disabled={busy}
               onClick={() => {
@@ -580,7 +579,7 @@ function DevicesContent({ store, thread }: Host) {
             </Button>
             <Button
               size="sm"
-              variant="ghost"
+              variant="tertiary"
 
               disabled={busy}
               onClick={() => {
@@ -636,7 +635,7 @@ function DevicesContent({ store, thread }: Host) {
           )}
           <Button
             size="sm"
-            variant="ghost"
+            variant="tertiary"
 
             disabled={busy}
             onClick={() => {
@@ -685,7 +684,7 @@ export function SystemWindows({ store, thread }: Host) {
       <h3>System windows</h3>
       <Button
         size="sm"
-        variant="ghost"
+        variant="tertiary"
 
         disabled={busy}
         onClick={() => {
@@ -729,7 +728,7 @@ export function SystemWindows({ store, thread }: Host) {
           <div className="permission-actions">
             <Button
               size="sm"
-              variant="ghost"
+              variant="tertiary"
 
               disabled={busy}
               onClick={() => {
@@ -756,7 +755,7 @@ export function SystemWindows({ store, thread }: Host) {
             </Button>
             <Button
               size="sm"
-              variant="ghost"
+              variant="tertiary"
 
               disabled={busy}
               onClick={() => {

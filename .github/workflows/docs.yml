@@ -24,9 +24,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: docs-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   docs:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, docker]
+    container: node:24.14.0-bookworm@sha256:5a593d74b632d1c6f816457477b6819760e13624455d587eef0fa418c8d0777b
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4

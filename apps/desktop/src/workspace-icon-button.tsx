@@ -1,5 +1,4 @@
-import { Button } from "~/src/components/ui/button";
-import { Tooltip, TooltipContent } from "~/src/components/ui/tooltip";
+import { Button, Tooltip, TooltipContent } from "@swarmie/ui-web";
 // Copyright 2026 Syntropika
 // SPDX-License-Identifier: Apache-2.0
 
@@ -21,8 +20,9 @@ export function IconButton({
   return (
     <Tooltip delay={500}>
       <Button
-        variant={active ? "secondary" : "ghost"}
-        size="icon"
+        variant={active ? "secondary" : "tertiary"}
+        size="md"
+        isIconOnly
         aria-label={label}
         data-sidebar-toggle={sidebarToggle}
         onClick={onClick}

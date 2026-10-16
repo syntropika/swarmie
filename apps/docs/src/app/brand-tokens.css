@@ -1,37 +1,16 @@
+/* Brand and editorial primitives only. Runtime themes are owned by packages/config. */
 :root {
-  --swarmie-periwinkle: #8e9fc2;
-  --swarmie-soft-coral: #dda99f;
-  --swarmie-action-periwinkle: #5f739d;
   --swarmie-ink: #1a1c1f;
   --swarmie-white: #ffffff;
+  --swarmie-soft-coral: #dda99f;
+  --swarmie-mint: #cde9de;
+  --swarmie-lilac: #ded9f2;
+  --swarmie-peach: #ffd2be;
+  --swarmie-mustard: #f6e6a6;
+  --swarmie-editorial-blue: #4c6486;
+  --swarmie-periwinkle: #8e9fc2;
+  --swarmie-link-blue: #465f8c;
+  --swarmie-link-blue-hover: #5f739d;
   --swarmie-dark-canvas: #181818;
-  --swarmie-light-functional-foreground: #465f8c;
   --swarmie-light-surface: #f3f3f3;
-  --swarmie-action-background: var(--swarmie-action-periwinkle);
-  --swarmie-action-foreground: var(--swarmie-white);
-}
-
-:root,
-[data-swarmie-theme="light"] {
-  --swarmie-ui-canvas: #ffffff;
-  --swarmie-ui-sidebar: #f9f9f9;
-  --swarmie-ui-composer: #f3f3f3;
-  --swarmie-ui-composer-cap: #eaeaea;
-  --swarmie-ui-user-bubble: #f0f0f0;
-  --swarmie-ui-selected-chat: #e8e8e8;
-  --swarmie-ui-text: #1a1c1f;
-  --swarmie-ui-muted-text: #606568;
-  --swarmie-ui-border: #d9d9d9;
-}
-
-[data-swarmie-theme="dark"] {
-  --swarmie-ui-canvas: #181818;
-  --swarmie-ui-sidebar: #171717;
-  --swarmie-ui-composer: #282828;
-  --swarmie-ui-composer-cap: #252525;
-  --swarmie-ui-user-bubble: #242424;
-  --swarmie-ui-selected-chat: #303030;
-  --swarmie-ui-text: #dfdfdf;
-  --swarmie-ui-muted-text: #aaaaaa;
-  --swarmie-ui-border: #383838;
 }

@@ -15,7 +15,9 @@ def build(release=False, apple=False):
     if release: command.append('--release')
     environment = dict(os.environ)
     if platform.system() == 'Darwin':
-        # Preserve Mach-O alignment with the pinned Rust toolchain's strip path.
+        # Rust's strip path can misalign Mach-O string pools, including when
+        # debug information is disabled through a development profile override.
+        environment['CARGO_PROFILE_DEV_STRIP'] = 'none'
         environment['CARGO_PROFILE_RELEASE_STRIP'] = 'none'
         environment['MACOSX_DEPLOYMENT_TARGET'] = '13.0'
     subprocess.run(command, cwd=PROJECT, env=environment, check=True)

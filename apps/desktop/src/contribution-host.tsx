@@ -1,10 +1,9 @@
+import { Button, Dropdown } from "@swarmie/ui-web";
 import { Mic, Square, Plug, X, LoaderCircle } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 
 import { nativeClient } from "~/src/client-transport";
-import { Button } from "~/src/components/ui/button";
-import { Dropdown } from "~/src/components/ui/dropdown";
 import { ContributionBinding } from "~/src/contribution-binding";
 import { Host, useContributions } from "~/src/contribution-context";
 import type { ClientContribution, Mount, HostContext } from "~/src/contribution-context";
@@ -315,7 +314,7 @@ export function ContributionSlot({
             key={entry.key}
             data-contribution-id={entry.key}
             type="button"
-            variant="ghost"
+            variant="tertiary"
             size="sm"
             disabled={!entry.enabled}
             aria-label={entry.title}
@@ -447,8 +446,9 @@ export function ContributionSurface({
       <div className="detail-heading">
         <h2>{entry.title}</h2>
         <Button
-          variant="ghost"
-          size="icon-sm"
+          variant="tertiary"
+          size="sm"
+          isIconOnly
           aria-label={`Close ${entry.title}`}
           onClick={onClose}
         >
@@ -540,7 +540,7 @@ function SurfaceNavigation({
   };
   return (
     <Dropdown>
-      <Button variant="ghost" size="sm" aria-label={`Extension ${kind}s`}>
+      <Button variant="tertiary" size="sm" aria-label={`Extension ${kind}s`}>
         <Plug size={14} />
         {kind === "screen" ? "Screens" : "Panels"}
       </Button>

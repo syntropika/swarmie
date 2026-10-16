@@ -1,4 +1,4 @@
-import { AlertRoot, AlertDescription, Button, Field, Input } from "@swarmie/ui-web";
+import { Alert, Button, TextField, Label, FieldError, Input } from "@swarmie/ui-web";
 import { useId } from "react";
 
 import type { PlainMessageKey } from "~/src/platform/i18n/catalogs/en";
@@ -15,16 +15,9 @@ type NewsletterFormProps = {
 function SubscriptionConfirmation({ announce }: { announce: boolean }) {
   const { t } = useLocale();
   return (
-    <AlertRoot
-      tone="success"
-      appearance="soft"
-      spacing="compact"
-      role={announce ? "status" : "presentation"}
-    >
-      <AlertDescription size="body" className="mt-0">
-        {t("newsletter.complete")}
-      </AlertDescription>
-    </AlertRoot>
+    <Alert status="success" role={announce ? "status" : "presentation"}>
+      <Alert.Description>{t("newsletter.complete")}</Alert.Description>
+    </Alert>
   );
 }
 
@@ -53,43 +46,36 @@ function SubscriptionFields({
       }}
     >
       <div className="@container">
-        <Field
-          id={`${id}-email`}
-          label={t("newsletter.email")}
-          error={
-            error ? (
-              <span role={announce === true ? "alert" : "presentation"}>{t(error)}</span>
-            ) : undefined
-          }
-        >
-          {(control) => (
-            <div className="flex flex-col gap-3 @lg:flex-row @lg:items-stretch">
-              <div className="min-w-0 flex-1">
-                <Input
-                  {...control}
-                  controlSize="large"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  placeholder={t("newsletter.placeholder")}
-                  required
-                  maxLength={254}
-                  readOnly={pending}
-                  className="h-full"
-                />
-              </div>
-              <Button
-                type="submit"
-                size="xl"
-                loading={pending}
-                loadingLabel={t("newsletter.saving")}
-                className="w-full text-center whitespace-normal @lg:w-auto @lg:max-w-[48%]"
-              >
-                {t("newsletter.submit")}
-              </Button>
+        <TextField isInvalid={error !== undefined}>
+          <Label htmlFor={`${id}-email`}>{t("newsletter.email")}</Label>
+          <div className="flex flex-col gap-3 @lg:flex-row @lg:items-stretch">
+            <div className="min-w-0 flex-1">
+              <Input
+                id={`${id}-email`}
+                name="email"
+                type="email"
+                autoComplete="email"
+                placeholder={t("newsletter.placeholder")}
+                required
+                maxLength={254}
+                readOnly={pending}
+              />
             </div>
-          )}
-        </Field>
+            <Button
+              type="submit"
+              loading={pending}
+              loadingLabel={t("newsletter.saving")}
+              className="w-full text-center whitespace-normal @lg:w-auto @lg:max-w-[48%]"
+            >
+              {t("newsletter.submit")}
+            </Button>
+          </div>
+          <FieldError>
+            {error ? (
+              <span role={announce === true ? "alert" : "presentation"}>{t(error)}</span>
+            ) : undefined}
+          </FieldError>
+        </TextField>
       </div>
       <div hidden aria-hidden="true">
         <label htmlFor={`${id}-website`}>{t("newsletter.website")}</label>

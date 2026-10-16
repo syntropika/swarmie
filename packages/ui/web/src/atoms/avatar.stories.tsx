@@ -1,66 +1,50 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
+import { officialExampleSource } from "../../.storybook/example-sources";
+import { OfficialExample as HeroUIDocumentationExample } from "../../.storybook/examples/avatar";
 import { Avatar } from "./avatar";
-import { Badge } from "./badge";
 
 const meta = {
   title: "Atoms/Avatar",
   component: Avatar,
-  args: { kind: "person", initials: "JL", label: "Jamie Lee" },
-  parameters: {
-    docs: {
-      description: {
-        component:
-          "People use circular avatars; Agents use softly squared identity tiles and a visible Agent label beside their name. Workspaces use softly squared mint tiles. Identity colors do not describe availability or execution state.",
-      },
-    },
-  },
+  args: { "aria-label": "Jamie Lee", children: <Avatar.Fallback>JL</Avatar.Fallback> },
 } satisfies Meta<typeof Avatar>;
-
 export default meta;
 type Story = StoryObj<typeof meta>;
-
-export const Person: Story = {};
-
-export const Small: Story = { args: { size: "sm" } };
-
-export const Workspace: Story = {
-  args: { kind: "workspace", initials: "S", label: "Studio" },
-  render: (args) => (
-    <div className="flex items-center gap-3">
-      <Avatar {...args} />
-      <span className="text-ui font-medium">Studio</span>
-    </div>
-  ),
-};
-
-export const Agent: Story = {
-  args: { kind: "agent", initials: "SY", label: "Sydney" },
-  render: (args) => (
-    <div className="flex items-center gap-3">
-      <Avatar {...args} />
-      <span className="text-ui font-medium">Sydney</span>
-      <Badge tone="agent">Agent</Badge>
-    </div>
-  ),
-};
-
-export const Participants: Story = {
+export const Default: Story = {};
+export const Sizes: Story = {
   render: () => (
-    <div className="flex flex-wrap gap-8">
-      <div className="flex items-center gap-3">
-        <Avatar kind="person" initials="JL" label="Jamie Lee" />
-        <span className="text-ui font-medium">Jamie Lee</span>
-      </div>
-      <div className="flex items-center gap-3">
-        <Avatar kind="person" initials="AK" label="Alex Kim" />
-        <span className="text-ui font-medium">Alex Kim</span>
-      </div>
-      <div className="flex items-center gap-3">
-        <Avatar kind="agent" initials="SY" label="Sydney" />
-        <span className="text-ui font-medium">Sydney</span>
-        <Badge tone="agent">Agent</Badge>
-      </div>
+    <div className="flex items-center gap-3">
+      <Avatar size="sm" aria-label="Small avatar">
+        <Avatar.Fallback>SM</Avatar.Fallback>
+      </Avatar>
+      <Avatar aria-label="Medium avatar">
+        <Avatar.Fallback>MD</Avatar.Fallback>
+      </Avatar>
+      <Avatar size="lg" aria-label="Large avatar">
+        <Avatar.Fallback>LG</Avatar.Fallback>
+      </Avatar>
     </div>
   ),
+};
+export const Colors: Story = {
+  render: () => (
+    <div className="flex flex-wrap gap-3">
+      <Avatar aria-label="Jamie Lee">
+        <Avatar.Fallback>JL</Avatar.Fallback>
+      </Avatar>
+      <Avatar color="accent" aria-label="Swarmie agent">
+        <Avatar.Fallback>SW</Avatar.Fallback>
+      </Avatar>
+      <Avatar color="success" aria-label="Studio workspace">
+        <Avatar.Fallback>S</Avatar.Fallback>
+      </Avatar>
+    </div>
+  ),
+};
+
+export const OfficialExample: Story = {
+  parameters: { docs: { source: { code: officialExampleSource("avatar"), language: "tsx" } } },
+  name: "Official example",
+  render: () => <HeroUIDocumentationExample />,
 };

@@ -1,8 +1,7 @@
+import { Button, Input } from "@swarmie/ui-web";
 import { useId, useState } from "react";
 
 import { startAction } from "~/src/action-boundary";
-import { Button } from "~/src/components/ui/button";
-import { Input } from "~/src/components/ui/input";
 import type { WorkspaceStore } from "~/src/workspace";
 
 export function ChatDirectorySettings({
@@ -59,7 +58,7 @@ export function ChatDirectorySettings({
           {saving ? "Saving…" : "Save directory"}
         </Button>
         <Button
-          variant="ghost"
+          variant="tertiary"
           disabled={!connected || saving || !custom}
           onClick={() => {
             startAction(save(), store.setError.bind(store));

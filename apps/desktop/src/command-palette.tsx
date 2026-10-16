@@ -1,9 +1,9 @@
+import { Modal } from "@swarmie/ui-web";
 import { useState, useSyncExternalStore } from "react";
 
 import { startAction } from "~/src/action-boundary";
 import { CommandPalette as Palette } from "~/src/components/assistant-ui/elements/command-palette";
 import type { PaletteCommand } from "~/src/components/assistant-ui/elements/command-palette";
-import { Dialog } from "~/src/components/ui/dialog";
 import { useContributions } from "~/src/contribution-host";
 import { hasConversation } from "~/src/protocol";
 import type { WorkspaceStore } from "~/src/workspace";
@@ -82,33 +82,42 @@ export function CommandPalette({
     keys: [],
   }));
   return (
-    <Dialog
-      variant="command-palette"
-      className="max-w-sm"
-      label="Command palette"
-      onClose={onClose}
+    <Modal
+      isOpen
+      onOpenChange={(next) => {
+        if (!next) {
+          onClose();
+        }
+      }}
     >
-      <Palette
-        commands={commands}
-        query={query}
-        activeId={activeId}
-        onQueryChange={(next) => {
-          setQuery(next);
-          setActiveId(
-            commands.find((command) => command.label.toLowerCase().includes(next.toLowerCase()))
-              ?.id ?? "",
-          );
-        }}
-        onActiveChange={setActiveId}
-        onRun={(id) => {
-          const action = actions.find((entry) => entry.id === id);
-          if (action) {
-            onClose();
-            action.run();
-          }
-        }}
-      />
-    </Dialog>
+      <Modal.Backdrop isDismissable>
+        <Modal.Container>
+          <Modal.Dialog aria-label="Command palette" className="max-w-sm">
+            <Palette
+              commands={commands}
+              query={query}
+              activeId={activeId}
+              onQueryChange={(next) => {
+                setQuery(next);
+                setActiveId(
+                  commands.find((command) =>
+                    command.label.toLowerCase().includes(next.toLowerCase()),
+                  )?.id ?? "",
+                );
+              }}
+              onActiveChange={setActiveId}
+              onRun={(id) => {
+                const action = actions.find((entry) => entry.id === id);
+                if (action) {
+                  onClose();
+                  action.run();
+                }
+              }}
+            />
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
   );
 }
 

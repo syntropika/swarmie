@@ -1,4 +1,4 @@
-import { Avatar, Badge, Icon } from "@swarmie/ui-web";
+import { Avatar, Chip, Icon } from "@swarmie/ui-web";
 
 import { useLocale } from "~/src/platform/i18n/provider";
 
@@ -25,8 +25,12 @@ export function CollaborationPreview() {
       <div className="relative z-10 rounded-3xl bg-surface p-5 shadow-raised sm:p-7">
         <div className="flex items-center gap-3 pb-5">
           <span aria-hidden="true" className="flex items-center gap-1">
-            <Avatar kind="person" initials="MC" label="Maya Chen" className="size-8" />
-            <Avatar kind="agent" initials="SW" label="Swarmie" className="size-8" />
+            <Avatar className="size-8" aria-label="Maya Chen" color="default">
+              <Avatar.Fallback>MC</Avatar.Fallback>
+            </Avatar>
+            <Avatar className="size-8" aria-label="Swarmie" color="accent">
+              <Avatar.Fallback>SW</Avatar.Fallback>
+            </Avatar>
           </span>
           <span className="min-w-0 text-ui font-medium text-ink">{t("demo.topic")}</span>
         </div>
@@ -35,7 +39,9 @@ export function CollaborationPreview() {
           data-motion-part="onboarding-question"
           className="mt-6 flex flex-row-reverse gap-3 sm:gap-4"
         >
-          <Avatar kind="person" initials="MC" label="Maya Chen" className="size-9 shrink-0" />
+          <Avatar className="size-9 shrink-0" aria-label="Maya Chen" color="default">
+            <Avatar.Fallback>MC</Avatar.Fallback>
+          </Avatar>
           <div className="min-w-0">
             <p className="flex flex-wrap items-baseline justify-end gap-x-2 text-ui font-medium text-ink">
               Maya Chen
@@ -70,11 +76,13 @@ export function CollaborationPreview() {
         </div>
 
         <div data-motion-part="onboarding-answer" className="mt-6 flex gap-3 sm:gap-4">
-          <Avatar kind="agent" initials="SW" label="Swarmie" className="size-9 shrink-0" />
+          <Avatar className="size-9 shrink-0" aria-label="Swarmie" color="accent">
+            <Avatar.Fallback>SW</Avatar.Fallback>
+          </Avatar>
           <div className="min-w-0">
             <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-ui font-medium text-ink">
               Swarmie
-              <Badge tone="agent">{t("demo.agent")}</Badge>
+              <Chip color="accent">{t("demo.agent")}</Chip>
               <time dateTime="09:42" className="text-xs font-normal text-text-muted">
                 {formatTime(9, 42)}
               </time>

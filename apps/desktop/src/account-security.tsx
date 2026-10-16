@@ -1,4 +1,5 @@
 import type { AccountSession, AccountSnapshot } from "@swarmie/contracts";
+import { Button } from "@swarmie/ui-web";
 import { QueryClient, useInfiniteQuery, useMutation } from "@tanstack/react-query";
 // Copyright 2026 Syntropika
 // SPDX-License-Identifier: Apache-2.0
@@ -6,7 +7,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useAccount, useAccountService } from "~/src/account-state";
 import { startAction, errorMessage, errorReporter } from "~/src/action-boundary";
-import { Button } from "~/src/components/ui/button";
 import { hasText } from "~/src/value-presence";
 
 export function AccountSecurity({ onProfile }: { onProfile: () => void }) {
@@ -67,20 +67,20 @@ function AccountSecurityView({
           {actionError || observationError}
         </p>
       )}
-      {message && <output className="text-muted text-sm">{message}</output>}
+      {message && <output className="text-sm text-muted">{message}</output>}
       {profile ? (
         <>
           <dl className="grid gap-2 text-sm">
             <dt className="text-muted">Signed in as</dt>
             <dd className="break-all">{profile.email}</dd>
-            <dt className="text-muted mt-2">Login storage</dt>
+            <dt className="mt-2 text-muted">Login storage</dt>
             <dd>
               {account?.persistence === "session"
                 ? "For this owner session only"
                 : "Protected by your system credential vault"}
             </dd>
           </dl>
-          <p className="text-muted text-sm leading-relaxed">
+          <p className="text-sm leading-relaxed text-muted">
             Closing Swarmie keeps this login available. Signing out removes it from this
             installation and asks the account service to revoke its access. Your browser login has
             its own session.
@@ -105,7 +105,7 @@ function AccountSecurityView({
         </>
       ) : (
         <>
-          <p className="text-muted text-sm">
+          <p className="text-sm text-muted">
             {account
               ? "Sign in to review this installation’s account session."
               : "Checking your account…"}
@@ -129,7 +129,7 @@ function date(value: string) {
 }
 function SessionDetails({ session }: { session: AccountSession }) {
   return (
-    <dl className="text-muted grid gap-1 text-sm">
+    <dl className="grid gap-1 text-sm text-muted">
       <div>
         <dt className="inline">Signed in </dt>
         <dd className="inline">
@@ -172,7 +172,7 @@ function SessionFailure({
         {message} Refresh the session state before trying again.
       </p>
       <div>
-        <Button ref={recovery} variant="ghost" disabled={disabled} onClick={onRefresh}>
+        <Button ref={recovery} variant="tertiary" disabled={disabled} onClick={onRefresh}>
           Refresh session state
         </Button>
       </div>
@@ -306,7 +306,7 @@ function NativeSessions({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">Native sessions</h3>
         <Button
-          variant="ghost"
+          variant="tertiary"
           disabled={busy}
           onClick={() => {
             run("refresh", load);
@@ -315,13 +315,13 @@ function NativeSessions({
           {busyId === "refresh" ? "Refreshing…" : "Refresh sessions"}
         </Button>
       </div>
-      <p className="text-muted text-sm leading-relaxed">
+      <p className="text-sm leading-relaxed text-muted">
         These sessions connect Swarmie installations to your account. Activity times can lag by five
         minutes. Your browser session is managed separately.
       </p>
       {feedback("read")}
       {feedback("refresh")}
-      {sessions.isPending && <output className="text-muted text-sm">Loading sessions…</output>}
+      {sessions.isPending && <output className="text-sm text-muted">Loading sessions…</output>}
       {page && (
         <>
           <div className="grid gap-2">
@@ -349,14 +349,14 @@ function NativeSessions({
                     </div>
                     {feedback(session.id)}
                     <SessionDetails session={session} />
-                    <p className="text-muted text-xs break-all">
+                    <p className="text-xs break-all text-muted">
                       Installation {session.installationId}
                     </p>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="text-muted text-sm">No other active native sessions.</p>
+              <p className="text-sm text-muted">No other active native sessions.</p>
             )}
             {sessions.hasNextPage && (
               <div>
@@ -386,7 +386,7 @@ function NativeSessions({
             </p>
             <div className="flex flex-wrap gap-2">
               <Button
-                variant="destructive"
+                variant="danger"
                 disabled={busy}
                 onClick={() => {
                   revokeAll();
@@ -396,7 +396,7 @@ function NativeSessions({
               </Button>
               <Button
                 ref={cancelConfirmation}
-                variant="ghost"
+                variant="tertiary"
                 disabled={busy}
                 onClick={() => {
                   setConfirmAll(false);

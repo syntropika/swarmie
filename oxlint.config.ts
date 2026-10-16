@@ -9,7 +9,6 @@ const frontendSources = [
   "packages/ui/{web,native}/src/**/*.{ts,tsx}",
   "apps/desktop/src/**/*.{ts,tsx}",
   "apps/web/src/**/*.{ts,tsx}",
-  "packages/auth/src/**/*.{ts,tsx}",
 ];
 
 const forbiddenStyleProps = ["style", "css"].map((propName) => ({
@@ -43,7 +42,7 @@ const stylingImportPatterns = [
       ].flatMap((library) => [library, `${library}/*`, `${library}[?#]*`]),
     ],
     message:
-      "Use Tailwind and @swarmie/ui instead of component CSS or CSS-in-JS. Only frontend roots load their owned stylesheets.",
+      "Use Tailwind and the shared @swarmie/ui-web or @swarmie/ui-native package instead of component CSS or CSS-in-JS. Only frontend roots load their owned stylesheets.",
   },
 ];
 
@@ -61,8 +60,6 @@ export default defineConfig({
     // Installed upstream skills retain their own source conventions.
     ".agents/skills/heroui-native/**",
     ".agents/skills/heroui-react/**",
-    // The hosted repository owns its own root configuration and dependency graph.
-    "cloud/**",
     "tests/fixtures/**",
     "**/storybook-static/**",
     "**/dist/**",
@@ -230,11 +227,7 @@ export default defineConfig({
       rules: { "shadcn/no-restyle": "off", "shadcn/require-static-classes": "off" },
     },
     {
-      files: [
-        "packages/contracts/**/*.{ts,tsx}",
-        "sdk/typescript/src/**/*.{ts,tsx}",
-        "packages/api/src/**/*.{ts,tsx}",
-      ],
+      files: ["packages/contracts/**/*.{ts,tsx}", "sdk/typescript/src/**/*.{ts,tsx}"],
       rules: {
         "no-restricted-imports": [
           "error",
@@ -248,12 +241,11 @@ export default defineConfig({
                   "react-dom/*",
                   "@swarmie/ui-web",
                   "@swarmie/ui-native",
-                  "@swarmie/auth",
                   "@swarmie/web",
                   "swarmie-desktop",
                 ],
                 message:
-                  "Shared HTTP contracts must remain React-free. Compose UI and workflows in the consuming capability.",
+                  "Runtime contracts and SDK transport must remain React-free. Compose UI and workflows in the consuming capability.",
               },
             ],
           },
@@ -270,15 +262,9 @@ export default defineConfig({
               ...stylingImportPatterns,
               {
                 group: [
-                  "@swarmie/auth",
                   "@swarmie/web",
                   "swarmie-desktop",
                   "swarmie-desktop/*",
-                  "@swarmie/api",
-                  "@swarmie/api/*",
-                  "@swarmie/auth",
-                  "@swarmie/auth/*",
-                  "@swarmie/web",
                   "@swarmie/web/*",
                   "@swarmie/client",
                   "@swarmie/client/*",
@@ -296,7 +282,7 @@ export default defineConfig({
     },
     {
       // TanStack Router uses Fetch Responses for redirects and route control flow.
-      files: ["apps/web/src/**/*.{ts,tsx}", "packages/auth/src/**/*.{ts,tsx}"],
+      files: ["apps/web/src/**/*.{ts,tsx}"],
       rules: {
         "typescript/only-throw-error": ["error", { allow: [{ from: "lib", name: "Response" }] }],
       },
@@ -317,6 +303,7 @@ export default defineConfig({
       },
     },
     {
+      // Catalog preview roots own their global stylesheet entries.
       files: ["packages/ui/*/.storybook/preview.tsx"],
       rules: {
         "no-restricted-imports": [
@@ -324,7 +311,7 @@ export default defineConfig({
           {
             patterns: stylingImportPatterns.map((pattern) => ({
               ...pattern,
-              group: [...pattern.group, "!../src/styles.css"],
+              group: [...pattern.group, "!../src/styles.css", "!./preview.css"],
             })),
           },
         ],

@@ -1,0 +1,8 @@
+/* Shared product typeface for web and desktop interfaces. */
+@font-face {
+  font-family: "Google Sans";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("./GoogleSansVariable.ttf") format("truetype");
+}

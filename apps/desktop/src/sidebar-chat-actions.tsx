@@ -1,8 +1,6 @@
+import { Button, Dropdown, Tooltip, TooltipContent } from "@swarmie/ui-web";
 import { Archive, MoreHorizontal, Pencil, Pin, PinOff } from "lucide-react";
 
-import { Button } from "~/src/components/ui/button";
-import { Dropdown } from "~/src/components/ui/dropdown";
-import { Tooltip, TooltipContent } from "~/src/components/ui/tooltip";
 import { ContributionSlot } from "~/src/contribution-host";
 import type { Thread } from "~/src/protocol";
 
@@ -31,11 +29,11 @@ export function SidebarChatActions({
       >
         <Tooltip>
           <Button
-            variant="ghost"
-            size="icon-sm"
+            variant="tertiary"
+            size="sm"
+            isIconOnly
             aria-label={`${pinLabel}: ${thread.title}`}
             onClick={onPin}
-            tone="muted"
           >
             {thread.pinned ? <PinOff size={14} /> : <Pin size={14} />}
           </Button>
@@ -43,15 +41,19 @@ export function SidebarChatActions({
         </Tooltip>
       </div>
       <div className="pointer-events-none opacity-0 group-focus-within/chat-row:pointer-events-auto group-focus-within/chat-row:opacity-100 group-hover/chat-row:pointer-events-auto group-hover/chat-row:opacity-100">
-        <Dropdown triggerTooltip={<TooltipContent>Chat options</TooltipContent>}>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            tone="muted"
-            aria-label={`Chat options: ${thread.title}`}
-          >
-            <MoreHorizontal size={14} />
-          </Button>
+        <Dropdown>
+          <Tooltip>
+            <Button
+              variant="tertiary"
+              size="sm"
+              isIconOnly
+
+              aria-label={`Chat options: ${thread.title}`}
+            >
+              <MoreHorizontal size={14} />
+            </Button>
+            <TooltipContent>Chat options</TooltipContent>
+          </Tooltip>
           <Dropdown.Popover placement="bottom end">
             <Dropdown.Menu aria-label={`Actions for ${thread.title}`}>
               <ContributionSlot

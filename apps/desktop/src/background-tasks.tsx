@@ -1,11 +1,9 @@
+import { Button, Popover, Tooltip, TooltipContent } from "@swarmie/ui-web";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ListTodo, LoaderCircle, RefreshCw, Square } from "lucide-react";
+import { ListTodo, LoaderCircle, RefreshCw, Square, X } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { startAction } from "~/src/action-boundary";
-import { Button } from "~/src/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "~/src/components/ui/popover";
-import { Tooltip, TooltipContent } from "~/src/components/ui/tooltip";
 import { nodeKey } from "~/src/node-scope";
 import type { AgentTask, Thread } from "~/src/protocol";
 import type { WorkspaceStore } from "~/src/workspace";
@@ -103,98 +101,120 @@ function TaskPopover({ store, thread, connected, scope }: Props & { scope: strin
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover isOpen={open} onOpenChange={setOpen}>
       <Tooltip>
-        <PopoverTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label="Background tasks" disabled={!connected}>
-            <ListTodo size={17} />
-          </Button>
-        </PopoverTrigger>
+        <Button
+          variant="tertiary"
+          size="md"
+          isIconOnly
+          aria-label="Background tasks"
+          disabled={!connected}
+        >
+          <ListTodo size={17} />
+        </Button>
+
         <TooltipContent>Background tasks</TooltipContent>
       </Tooltip>
-      <PopoverContent align="end" className="@container w-[26rem]" aria-label="Background tasks">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="font-medium">Background tasks</h3>
+      <Popover.Content
+        placement="bottom end"
+        className="@container w-[26rem]"
+        aria-label="Background tasks"
+      >
+        <Popover.Dialog aria-label="Background tasks">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="font-medium">Background tasks</h3>
+            <Button
+              variant="tertiary"
+              size="sm"
+              isIconOnly
+              aria-label="Refresh background tasks"
+              disabled={query.isFetching || stop.isPending || !connected}
+              onClick={() => {
+                setActionError("");
+                startAction(query.refetch(), () => {
+                  setActionError("Tasks could not be loaded. Try again.");
+                });
+              }}
+            >
+              <RefreshCw size={14} />
+            </Button>
+          </div>
           <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label="Refresh background tasks"
-            disabled={query.isFetching || stop.isPending || !connected}
-            onClick={() => {
-              setActionError("");
-              startAction(query.refetch(), () => {
-                setActionError("Tasks could not be loaded. Try again.");
-              });
+            variant="tertiary"
+            isIconOnly
+            aria-label="Close background tasks"
+            onPress={() => {
+              setOpen(false);
             }}
           >
-            <RefreshCw size={14} />
+            <X size={16} />
           </Button>
-        </div>
-        <p className="text-muted mt-2 text-sm">
-          Tasks started by this agent in the current session.
-        </p>
-        {query.isFetching && tasks.length === 0 && (
-          <output className="text-muted mt-4 flex items-center gap-2 text-sm">
-            <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" />
-            Loading tasks…
-          </output>
-        )}
-        {!query.isFetching && error.length === 0 && tasks.length === 0 && (
-          <output className="text-muted mt-4 block text-sm">
-            No background tasks have been observed.
-          </output>
-        )}
-        <ul className="mt-3 max-h-80 overflow-y-auto" aria-label="Session background tasks">
-          {tasks.map((task) => (
-            <li
-              key={task.id}
-              className="flex items-start gap-3 border-b border-border py-3 last:border-b-0"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="text-sm break-words">
-                  {task.description.length > 0 ? task.description : "Background task"}
-                </p>
-                <p className="text-muted mt-1 text-xs">
-                  {requested.includes(task.id) && task.status === "running"
-                    ? "Stop requested · waiting for confirmation"
-                    : labels[task.status]}
-                </p>
-                {task.summary !== undefined && (task.summary ?? "").length > 0 && (
-                  <p className="text-muted mt-2 text-sm break-words">{task.summary}</p>
-                )}
-              </div>
-              {task.status === "running" && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={stop.isPending || requested.includes(task.id) || !connected}
-                  aria-label={`Stop ${task.description.length > 0 ? task.description : "background task"}`}
-                  onClick={() => {
-                    setActionError("");
-                    startAction(stop.mutateAsync(task.id), () => {
-                      setActionError(
-                        "The task could not be stopped. Refresh its status and try again.",
-                      );
-                    });
-                  }}
-                >
-                  {stop.isPending && stop.variables === task.id ? (
-                    <LoaderCircle size={13} className="animate-spin motion-reduce:animate-none" />
-                  ) : (
-                    <Square size={12} />
-                  )}
-                  Stop
-                </Button>
-              )}
-            </li>
-          ))}
-        </ul>
-        {error.length > 0 && (
-          <p role="alert" className="inline-error mt-3 text-sm">
-            {error}
+          <p className="mt-2 text-sm text-muted">
+            Tasks started by this agent in the current session.
           </p>
-        )}
-      </PopoverContent>
+          {query.isFetching && tasks.length === 0 && (
+            <output className="mt-4 flex items-center gap-2 text-sm text-muted">
+              <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" />
+              Loading tasks…
+            </output>
+          )}
+          {!query.isFetching && error.length === 0 && tasks.length === 0 && (
+            <output className="mt-4 block text-sm text-muted">
+              No background tasks have been observed.
+            </output>
+          )}
+          <ul className="mt-3 max-h-80 overflow-y-auto" aria-label="Session background tasks">
+            {tasks.map((task) => (
+              <li
+                key={task.id}
+                className="flex items-start gap-3 border-b border-border py-3 last:border-b-0"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm break-words">
+                    {task.description.length > 0 ? task.description : "Background task"}
+                  </p>
+                  <p className="mt-1 text-xs text-muted">
+                    {requested.includes(task.id) && task.status === "running"
+                      ? "Stop requested · waiting for confirmation"
+                      : labels[task.status]}
+                  </p>
+                  {task.summary !== undefined && (task.summary ?? "").length > 0 && (
+                    <p className="mt-2 text-sm break-words text-muted">{task.summary}</p>
+                  )}
+                </div>
+                {task.status === "running" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={stop.isPending || requested.includes(task.id) || !connected}
+                    aria-label={`Stop ${task.description.length > 0 ? task.description : "background task"}`}
+                    onClick={() => {
+                      setActionError("");
+                      startAction(stop.mutateAsync(task.id), () => {
+                        setActionError(
+                          "The task could not be stopped. Refresh its status and try again.",
+                        );
+                      });
+                    }}
+                  >
+                    {stop.isPending && stop.variables === task.id ? (
+                      <LoaderCircle size={13} className="animate-spin motion-reduce:animate-none" />
+                    ) : (
+                      <Square size={12} />
+                    )}
+                    Stop
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+          {error.length > 0 && (
+            <p role="alert" className="inline-error mt-3 text-sm">
+              {error}
+            </p>
+          )}
+        </Popover.Dialog>
+      </Popover.Content>
     </Popover>
   );
 }

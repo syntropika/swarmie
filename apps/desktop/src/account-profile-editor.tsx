@@ -1,13 +1,12 @@
 // Copyright 2026 Syntropika
 // SPDX-License-Identifier: Apache-2.0
 import type { AccountMethods, AccountProfile, AccountSnapshot } from "@swarmie/contracts";
+import { Button, Input } from "@swarmie/ui-web";
 import { useId, useState } from "react";
 
 import { accountReceiptId } from "~/src/account";
 import { useAccountAction } from "~/src/account-action";
 import { useAccountService } from "~/src/account-state";
-import { Button } from "~/src/components/ui/button";
-import { Input } from "~/src/components/ui/input";
 import { hasText, nonEmptyText } from "~/src/value-presence";
 
 type ProfileReceipt = AccountMethods["account/profile/update"]["params"];
@@ -99,7 +98,7 @@ export function AccountProfileEditor({
   };
   return (
     <div className="grid gap-5">
-      {notice && <output className="text-muted text-sm">{notice}</output>}
+      {notice && <output className="text-sm text-muted">{notice}</output>}
       <div className="flex flex-wrap items-center gap-4">
         {hasText(profile.avatarUrl) && (
           <img
@@ -126,7 +125,7 @@ export function AccountProfileEditor({
               }
             }}
           />
-          <span className="text-muted text-xs">
+          <span className="text-xs text-muted">
             PNG, JPEG or WebP. Up to 1 MiB and 2048 pixels per side.
           </span>
         </div>
@@ -206,7 +205,7 @@ export function AccountProfileEditor({
         </div>
       </form>
       {persistence === "session" && (
-        <p className="text-muted text-sm">This login lasts until the account owner stops.</p>
+        <p className="text-sm text-muted">This login lasts until the account owner stops.</p>
       )}
       <div>
         <Button

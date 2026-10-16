@@ -1,4 +1,4 @@
-# Hosted services after the product transition
+# Hosted-service architecture
 
 The native client controls presentation and native connections. The independently installable
 runtime owns Harness execution, sessions, projects, local persistence and node supervision.
@@ -10,30 +10,22 @@ hosted account.
 
 | Component | Responsibility | Integration status |
 | --- | --- | --- |
-| `packages/ui/web` in `swarmie` | Reusable primitives, assistant renderers, design tokens and component examples | Preserved; the public application has no private package dependency |
-| `packages/auth` in `swarmie` | Account presentation and credential workflows | Reusable library; requires an explicitly supplied host |
-| `packages/api` in `swarmie` | Account, passkey, membership and invitation HTTP contracts | Account-service HTTP client, separate from the runtime protocol |
-| `apps/web` in `swarmie` | Product website and newsletter | Preserved, with retired browser-application launch links removed |
-| `packages/config` in `swarmie` | Shared frontend tooling, fonts and styles | Preserved |
-| `crates/core` | Account identity, membership authority and attributed domain facts | Preserved foundation for later collaboration |
-| `crates/server` | Account sessions, credential verification, transactional email, memberships and invitations | Preserved private service; does not execute Harnesses or assistant turns |
+| `packages/ui/web` in `swarmie` | Reusable primitives, design tokens and component examples | Shared HeroUI primitives; no private package dependency |
+| `apps/web` in `swarmie` | Product website and newsletter | Marketing website; separate from runtime client workflows |
+| `packages/config` in `swarmie` | Shared frontend tooling, fonts and styles | Shared root workspace |
+| `crates/core` | Account identity, membership authority and attributed domain facts | Hosted identity and collaboration foundation |
+| `crates/server` | Account sessions, credential verification, transactional email, memberships and invitations | Hosted account authority; no Harness execution |
 
 The TypeScript applications, shared packages, and Storybooks share the `swarmie` root
 workspace, lockfile, and checks. Cloud retains Rust services and backend operations.
 
-The authentication host supplies an HTTP client, a dedicated query cache, a website origin,
-navigation and navigation-error reporting. No client is created from build-time environment
-variables. Credentials remain transient; account replacement cancels and clears private state.
-Password authentication, email verification, recovery, magic links and browser passkey ceremonies
-retain their one-shot proof handling and bounded recovery reads. A client consumes the library's
-stylesheet and selects its own account surfaces and navigation.
-
-Account completion and invitation landing pages are served by the account service. Credential
-and protected HTTP operations trust its exact origin and one configured embedding-client origin;
-protected mutations still require the session-specific CSRF token. Passkey ceremonies retain
-their configured relying-party origin. Other account
-surfaces require an embedding client. Extracting these components does not implement native account
-enrollment, desktop cookie transfer or account-linked node pairing.
+Account browser authentication, completion pages, invitation acceptance and explicit native
+handoff belong to the hosted account service. Password, passkey, email verification and
+recovery endpoints retain their server-side proof, origin and CSRF rules. A complete
+credential-only browser portal remains separate work; native onboarding must use an
+actually available hosted ceremony rather than assuming a local TypeScript library exists.
+See [native account grants and profiles](native-accounts.md) for supported handoff endpoints
+and production qualification limits.
 
 Native account credentials, renewal and revalidation belong to the public native core and its
 persistent headless owner. The desktop gateway presents and forwards account operations; its
@@ -41,44 +33,35 @@ window lifetime does not own those credentials. CLI and runtime consumers can ob
 authority without opening a graphical client. Interactive-user sessions and runtime machine
 grants retain distinct scopes and protected storage.
 
-## Retired implementation
+## Execution and development boundaries
 
-The standalone browser application, its routes and deployment definitions have been removed.
-The former private conversation store, execution coordinator, direct model adapters, model catalog,
-selection preferences, streaming conversation API and corresponding development fixtures have also
-been removed. Conversation execution belongs to the runtime and its Harness adapters.
+Conversation execution belongs to the independently installable runtime and its Harness
+adapters. Hosted services do not provide a separate conversation store, model execution
+coordinator or browser application. The desktop's explicit browser development adapter
+uses the current native application workflows and runtime protocol.
 
-The `just dev` recipe starts account services and disposable PostgreSQL directly from
-`config/local.toml`, with memory identity and email providers. It uses Bash and Docker Compose,
-requires no Node runtime, refuses an existing project or concurrent launcher, and cleans up
-only its own API and database on exit. A custom profile and matching PostgreSQL port can be
-passed as positional arguments; ports are explicit rather than automatically reassigned.
-Frontend CI checks the authentication library, HTTP contracts,
-shared UI and website. Backend CI validates account services; image publication remains an explicit
-manual action. The coupled browser-app preview and backend deployment workflows have been retired.
-No existing deployment, provider configuration, credential or persistent database was changed.
+In the hosted-service repository, `just dev` starts account services and disposable
+PostgreSQL from `config/local.toml`, with memory identity and email providers. It uses
+Bash and Docker Compose, requires no Node runtime, refuses an existing project or
+concurrent launcher, and cleans up only its own API and database on exit. A custom
+profile and matching PostgreSQL port can be passed as positional arguments; ports are
+explicit rather than automatically reassigned.
 
-The current schema is intended for a fresh development database. Retired conversation migrations
-are absent; an existing deployment may have a different migration ledger. Do not apply this schema
-to existing data as an implicit upgrade. A future deployment must explicitly address its database
-lifecycle and preserve user-owned data. Encrypted deployment credentials remain unchanged.
-
-`FRONTEND_ORIGIN` must identify the approved host for account flows before deploying persistent
-services. Historical provider provisioning records are operational evidence, not product configuration.
+Frontend CI belongs to `swarmie`; backend CI validates account services in `swarmie-cloud`.
+Image publication is an explicit manual action. The development schema targets a fresh
+database. Applying it to an existing deployment requires a separate database lifecycle
+decision that preserves user-owned data. `FRONTEND_ORIGIN` identifies the approved host
+for account flows. Provider provisioning records remain outside project documentation.
 
 ## Remaining work
 
 - Extend the implemented [native account handoff and profiles](native-accounts.md) using the
   [integration plan](account-integration-plan.md). Complete production policy and portal coverage
   before deploying account onboarding. Browser cookies are not runtime credentials.
-- Move or independently extract selected UI components into public source if the public client adopts
-  them. It must continue to build without private repositories.
-- Revalidate membership and invitation rules against the intended collaboration model. Retaining the
-  foundation does not make the prior Workspace browser workflow the current product design.
+- Revalidate membership and invitation rules against the intended collaboration model before
+  treating retained account-domain types as qualified collaboration behavior.
 - Implement account-linked enrollment, hosted relay routing, cloud allocation, collaboration
   authorization, synchronization, billing and entitlements as independently scoped hosted services.
-- Revise the website's broader product illustrations and copy when those flows are established.
-  Website publication is manual during this transition; no site deployment is part of this cleanup.
 - Rebuild deployment and preview flows around the individual hosted services after account hosting,
   schema lifecycle and environment authority are defined.
 

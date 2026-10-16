@@ -1,11 +1,9 @@
+import { Button, Disclosure, Input } from "@swarmie/ui-web";
 import { lazy, Suspense, useState } from "react";
 
 import { startAction, errorMessage, errorReporter } from "~/src/action-boundary";
 import { decodeAsset, decodeExport } from "~/src/asset-values";
 import type { PreviewAsset } from "~/src/asset-values";
-import { Button } from "~/src/components/ui/button";
-import { Disclosure } from "~/src/components/ui/disclosure";
-import { Input } from "~/src/components/ui/input";
 import { hasText } from "~/src/value-presence";
 import type { WorkspaceStore } from "~/src/workspace";
 
@@ -158,25 +156,34 @@ export function OutputAssets({ store, files }: { store: WorkspaceStore; files: s
     return null;
   }
   return (
-    <div className="tool-activity">
+    <div data-workspace-part="tool-activity">
       <Disclosure>
-        <Disclosure.Summary>Files changed · {files.length}</Disclosure.Summary>
-        <div className="output-files">
-          {files.map((path) => (
-            <Button
-              variant="ghost"
-              size="sm"
-              key={path}
-              disabled={busy.length > 0}
-              onClick={() => {
-                startAction(read(path), store.setError.bind(store));
-              }}
-            >
-              {busy === path ? "Reading…" : path}
-            </Button>
-          ))}
-        </div>
-        {selected !== undefined && <MediaPreview asset={selected} store={store} />}
+        <Disclosure.Heading>
+          <Button slot="trigger" variant="tertiary">
+            <span>Files changed · {files.length}</span>
+            <Disclosure.Indicator />
+          </Button>
+        </Disclosure.Heading>
+        <Disclosure.Content>
+          <Disclosure.Body>
+            <div className="output-files">
+              {files.map((path) => (
+                <Button
+                  variant="tertiary"
+                  size="sm"
+                  key={path}
+                  disabled={busy.length > 0}
+                  onClick={() => {
+                    startAction(read(path), store.setError.bind(store));
+                  }}
+                >
+                  {busy === path ? "Reading…" : path}
+                </Button>
+              ))}
+            </div>
+            {selected !== undefined && <MediaPreview asset={selected} store={store} />}
+          </Disclosure.Body>
+        </Disclosure.Content>
       </Disclosure>
     </div>
   );

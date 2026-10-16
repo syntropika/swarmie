@@ -3,7 +3,7 @@ export function SwarmieLogo() {
     <span className="swarmie-brand">
       <img
         className="brand-logo-light"
-        src="/brand/swarmie-mono-ink.svg"
+        src="/brand/swarmie-ink-coral.svg"
         width={130}
         height={36}
         alt=""
@@ -11,7 +11,7 @@ export function SwarmieLogo() {
       />
       <img
         className="brand-logo-dark"
-        src="/brand/swarmie-mono-white.svg"
+        src="/brand/swarmie-white-coral.svg"
         width={130}
         height={36}
         alt=""

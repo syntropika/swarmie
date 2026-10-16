@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 2,
+  "title": "Swarmie shared design system",
+  "extensions": {
+    "colorMeta": {
+      "ink": {
+        "role": "neutral",
+        "displayName": "Canonical ink"
+      },
+      "coral": {
+        "role": "secondary",
+        "displayName": "Coral identity core"
+      },
+      "mint": {
+        "role": "secondary",
+        "displayName": "Mint category accent"
+      },
+      "lilac": {
+        "role": "secondary",
+        "displayName": "Lilac category accent"
+      },
+      "peach": {
+        "role": "secondary",
+        "displayName": "Peach category accent"
+      },
+      "mustard": {
+        "role": "secondary",
+        "displayName": "Mustard category accent"
+      }
+    },
+    "typographyMeta": {
+      "body": {
+        "displayName": "Google Sans",
+        "purpose": "Shared interface and marketing copy; canonical wordmark remains outlined artwork."
+      }
+    },
+    "motion": [
+      {
+        "name": "vendor-feedback",
+        "value": "var(--ease-smooth)",
+        "purpose": "Use the native component transition and respect reduced motion."
+      }
+    ]
+  },
+  "components": [],
+  "narrative": {
+    "northStar": "A quiet place for shared work.",
+    "overview": "Black, white and gray establish the interface hierarchy. Mint, lilac, peach and mustard identify content while semantic states retain their separate roles. Canonical artwork and Google Sans unite the surfaces.",
+    "keyCharacteristics": [
+      "Neutral semantic depth",
+      "Canonical ink or inverse white artwork with a coral core",
+      "Google Sans",
+      "HeroUI default geometry and compound APIs",
+      "Labeled category accents"
+    ],
+    "rules": [
+      {
+        "name": "Neutral Foundation",
+        "body": "Keep component surfaces and ordinary controls neutral.",
+        "section": "colors"
+      },
+      {
+        "name": "Category Accent",
+        "body": "Use optional tinted category accents with explicit labels and stable assignments.",
+        "section": "colors"
+      },
+      {
+        "name": "Artwork",
+        "body": "Preserve the canonical symbol, coral core and original outlined wordmark.",
+        "section": "typography"
+      }
+    ],
+    "dos": [
+      "Use the shared runtime tokens and component exports.",
+      "Pair every colored surface with a readable foreground."
+    ],
+    "donts": [
+      "Do not generate another runtime token catalog.",
+      "Do not recreate the root .impeccable folder.",
+      "Do not use category colors as semantic status substitutes."
+    ]
+  },
+  "sourceReferences": {
+    "design": "../DESIGN.md",
+    "brandkit": "../brandkit.md",
+    "runtimeTheme": "../../packages/config/tailwind/hero-web.css",
+    "componentCatalog": "../../packages/ui/web/src"
+  }
+}

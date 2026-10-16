@@ -123,6 +123,11 @@ const icons = {
 /** Semantic names for the shared outline icon catalog. */
 export type IconName = keyof typeof icons;
 
+/** Enumerate the shared icon contract for pickers and the foundation catalog. */
+export const iconNames = Object.keys(icons).filter((name): name is keyof typeof icons =>
+  Object.hasOwn(icons, name),
+);
+
 /** Tabler SVG attributes and refs; the adjacent control or text supplies the accessible name. */
 export type IconProps = ComponentPropsWithRef<"svg"> & { name: IconName };
 

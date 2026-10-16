@@ -1,3 +1,4 @@
+import { Button, Input, InputGroup, Switch } from "@swarmie/ui-web";
 import {
   Settings,
   Bell,
@@ -17,10 +18,6 @@ import { AccountSettings } from "~/src/account-settings";
 import { startAction } from "~/src/action-boundary";
 import { ChatDirectorySettings } from "~/src/chat-directory-settings";
 import { CodingAgentsPanel } from "~/src/coding-agents-panel";
-import { Button } from "~/src/components/ui/button";
-import { Input } from "~/src/components/ui/input";
-import { InputGroup } from "~/src/components/ui/input-group";
-import { Switch } from "~/src/components/ui/switch";
 import { ContributionSlot } from "~/src/contribution-host";
 import { McpSettings } from "~/src/mcp-settings";
 import { NativeHistory } from "~/src/native-history";
@@ -99,27 +96,37 @@ function SettingsContent({
       <aside className="settings-navigation" aria-label="Settings navigation">
         <div className="settings-navigation-heading">
           <h2>Settings</h2>
-          <Button variant="ghost" size="icon" aria-label="Back to chat" onClick={onClose}>
+          <Button
+            variant="tertiary"
+            size="md"
+            isIconOnly
+            aria-label="Back to chat"
+            onClick={onClose}
+          >
             <X size={15} />
           </Button>
         </div>
         <div className="settings-search">
-          <InputGroup
-            icon={<Search size={14} />}
-            aria-label="Search settings"
-            placeholder="Search"
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-            }}
-          />
+          <InputGroup>
+            <InputGroup.Prefix aria-hidden="true">
+              <Search size={14} />
+            </InputGroup.Prefix>
+            <InputGroup.Input
+              aria-label="Search settings"
+              placeholder="Search"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+              }}
+            />
+          </InputGroup>
         </div>
         <p className="settings-group-label">Personal</p>
         <nav>
           {matches.map(({ id, title, icon: Icon }) => (
             <Button
               key={id}
-              variant={section === id ? "secondary" : "ghost"}
+              variant={section === id ? "secondary" : "tertiary"}
               className="w-full"
               aria-current={section === id ? "page" : undefined}
               onClick={() => {
@@ -142,8 +149,9 @@ function SettingsContent({
             <div className="settings-error" role="alert">
               <p>{state.error}</p>
               <Button
-                variant="ghost"
-                size="icon"
+                variant="tertiary"
+                size="md"
+                isIconOnly
                 aria-label="Dismiss settings error"
                 onClick={() => {
                   store.dismissError();
@@ -214,8 +222,7 @@ function SettingsContent({
               ).map(([key, label]) => (
                 <Switch
                   key={key}
-                  label={label}
-                  checked={state.notifications[key]}
+                  isSelected={state.notifications[key]}
                   onChange={(value) => {
                     startAction(
                       perform(async () => {
@@ -224,7 +231,15 @@ function SettingsContent({
                       store.setError.bind(store),
                     );
                   }}
-                />
+                  aria-label={label}
+                >
+                  <Switch.Content>
+                    <Switch.Control>
+                      <Switch.Thumb />
+                    </Switch.Control>
+                    {label}
+                  </Switch.Content>
+                </Switch>
               ))}
             </div>
           )}
@@ -267,7 +282,7 @@ function SettingsContent({
                 </label>
               ))}
               <Button
-                variant="ghost"
+                variant="tertiary"
                 size="sm"
                 onClick={() => {
                   localStorage.removeItem("swarmie.shortcuts");

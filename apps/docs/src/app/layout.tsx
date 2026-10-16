@@ -16,12 +16,12 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       {
-        url: "/brand/swarmie-mark-mono-ink.svg",
+        url: "/brand/swarmie-mark-ink-coral.svg",
         type: "image/svg+xml",
         media: "(prefers-color-scheme: light)",
       },
       {
-        url: "/brand/swarmie-mark-mono-white.svg",
+        url: "/brand/swarmie-mark-white-coral.svg",
         type: "image/svg+xml",
         media: "(prefers-color-scheme: dark)",
       },

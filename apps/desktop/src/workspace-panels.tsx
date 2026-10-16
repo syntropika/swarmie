@@ -1,13 +1,10 @@
+import { Button, Input, ResizeHandle, Select, ListBox } from "@swarmie/ui-web";
 import { X, RefreshCw, Check, Plus, Trash2 } from "lucide-react";
+import { isValidElement, useId, lazy, Suspense } from "react";
 // Copyright 2026 Syntropika
 // SPDX-License-Identifier: Apache-2.0
-import { useId, lazy, Suspense } from "react";
 
 import { startAction } from "~/src/action-boundary";
-import { Button } from "~/src/components/ui/button";
-import { Input } from "~/src/components/ui/input";
-import { ResizeHandle } from "~/src/components/ui/resize-handle";
-import { Select } from "~/src/components/ui/select";
 import { ContributionSurface, ContributionSlot } from "~/src/contribution-host";
 import { Conversation, PatchCopy } from "~/src/conversation";
 import { ProjectActions } from "~/src/project-actions";
@@ -63,8 +60,8 @@ export function WorkspaceConversation({
         <output className="undo-banner">
           <span>{undo.title}</span>
           <Button
-            variant="ghost"
-            size="xs"
+            variant="tertiary"
+            size="sm"
             onClick={() => {
               startAction(Promise.resolve(undo.run()), store.setError.bind(store));
               setUndo(undefined);
@@ -73,7 +70,7 @@ export function WorkspaceConversation({
             Undo
           </Button>
           <Button
-            variant="ghost"
+            variant="tertiary"
 
             aria-label="Dismiss undo"
             onClick={() => {
@@ -187,7 +184,7 @@ export function WorkspaceDetailPanel({
       })()}
     >
       <ResizeHandle
-        variant="panel"
+        data-workspace-part="panel-resize"
 
         aria-label="Resize workspace panel"
         aria-valuemin={300}
@@ -399,22 +396,47 @@ function WorkspaceProjectPanel({
           <label htmlFor={worktreeControlId}>
             Worktree
             <Select
-              label="Worktree"
-              id={worktreeControlId}
-              disabled={hasText(active.sessionId)}
+              aria-label="Worktree"
               value={active.worktreeId}
-              onChange={(worktreeId) => {
-                store.updateThread(active.id, { worktreeId });
+              onChange={(key) => {
+                if (typeof key === "string") {
+                  ((worktreeId) => {
+                    store.updateThread(active.id, { worktreeId });
+                  })(key);
+                }
               }}
-              options={project.worktrees
-                .filter((w) => !w.prunable)
-                .map((w) => ({
-                  id: w.id,
-                  label:
-                    (w.branch ?? (project.git === true ? "Detached HEAD" : "Local folder")) +
-                    (w.isMain ? " · main worktree" : ""),
-                }))}
-            />
+              isDisabled={hasText(active.sessionId)}
+              placeholder="Select…"
+            >
+              <Select.Trigger id={worktreeControlId}>
+                <Select.Value />
+                <Select.Indicator />
+              </Select.Trigger>
+              <Select.Popover>
+                <ListBox aria-label="Worktree">
+                  {project.worktrees
+                    .filter((w) => !w.prunable)
+                    .map((w) => ({
+                      id: w.id,
+                      label:
+                        (w.branch ?? (project.git === true ? "Detached HEAD" : "Local folder")) +
+                        (w.isMain ? " · main worktree" : ""),
+                    }))
+                    .map((option) => (
+                      <ListBox.Item
+                        key={option.id}
+                        id={option.id}
+                        textValue={option.label}
+                        isDisabled={"disabled" in option && option.disabled === true}
+                      >
+                        {"icon" in option && isValidElement(option.icon) ? option.icon : null}
+                        {option.label}
+                        <ListBox.ItemIndicator />
+                      </ListBox.Item>
+                    ))}
+                </ListBox>
+              </Select.Popover>
+            </Select>
           </label>
           <form
             onSubmit={(e) => {
@@ -442,8 +464,8 @@ function WorkspaceProjectPanel({
               />
             </label>
             <Button
-              variant="ghost"
-              size="xs"
+              variant="tertiary"
+              size="sm"
               type="submit"
               disabled={
                 !(project.git === true) || hasText(active.sessionId) || working || !branch.trim()
@@ -455,8 +477,8 @@ function WorkspaceProjectPanel({
           </form>
           {sessionOpen ? (
             <Button
-              variant="ghost"
-              size="xs"
+              variant="tertiary"
+              size="sm"
               disabled={working}
               onClick={() => {
                 startAction(
@@ -473,8 +495,8 @@ function WorkspaceProjectPanel({
             tree &&
             !tree.isMain && (
               <Button
-                variant="ghost"
-                size="xs"
+                variant="tertiary"
+                size="sm"
                 disabled={working}
                 onClick={() => {
                   startAction(

@@ -23,6 +23,7 @@ on:
       - "package.json"
       - "Cargo.lock"
       - "Cargo.toml"
+      - ".github/actions/setup-xcode/**"
       - "mise.toml"
       - "justfile"
       - ".github/workflows/mobile-ios.yml"
@@ -53,7 +54,8 @@ env:
 jobs:
   validate:
     name: Validate build tooling
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, docker]
+    container: ruby:3.3.12-bookworm@sha256:b899e7de6ffa6e974d947202d3ce2ac921c12e46c14cff3106214079388dcff4
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -75,10 +77,15 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: ${{ steps.tools.outputs.bun }}
-      - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1
-        with:
-          ruby-version: ${{ steps.tools.outputs.ruby }}
-          bundler-cache: true
+      - name: Verify Ruby and install locked gems
+        env:
+          EXPECTED_RUBY_VERSION: ${{ steps.tools.outputs.ruby }}
+          BUNDLE_PATH: ${{ runner.temp }}/bundle
+          BUNDLE_FROZEN: "true"
+        run: |
+          test "$(ruby -e 'print RUBY_VERSION')" = "$EXPECTED_RUBY_VERSION"
+          echo "BUNDLE_PATH=$BUNDLE_PATH" >> "$GITHUB_ENV"
+          bundle install --jobs 4
       - uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
         with:
           just-version: ${{ steps.tools.outputs.just }}
@@ -90,7 +97,7 @@ jobs:
     name: Build development app
     if: github.event_name == 'pull_request' || github.ref_name == github.event.repository.default_branch
     needs: validate
-    runs-on: macos-26
+    runs-on: [self-hosted, macOS, ARM64, swarmie-macos]
     timeout-minutes: 90
     env:
       APP_VARIANT: development
@@ -110,17 +117,12 @@ jobs:
           config = tomllib.loads(Path("mise.toml").read_text())
           for name in ("ruby", "just", "node", "bun", "rust"):
               print(f"{name}={config['tools'][name]}")
-          print(f"xcode={config['env']['SWARMIE_XCODE_VERSION']}")
           PY
-      - name: Select Xcode and validate the backend setting
-        env:
-          XCODE_VERSION: ${{ steps.tools.outputs.xcode }}
+      - uses: ./.github/actions/setup-xcode
+      - name: Validate the backend setting
         run: |
           set -euo pipefail
           test -n "$MOBILE_API_BASE_URL" || { echo 'Set MOBILE_DEV_API_BASE_URL before building.' >&2; exit 1; }
-          developer_dir="/Applications/Xcode_$XCODE_VERSION.app/Contents/Developer"
-          test -d "$developer_dir"
-          echo "DEVELOPER_DIR=$developer_dir" >> "$GITHUB_ENV"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: ${{ steps.tools.outputs.node }}
@@ -130,6 +132,7 @@ jobs:
       - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1
         with:
           ruby-version: ${{ steps.tools.outputs.ruby }}
+          self-hosted: true
           bundler-cache: true
       - uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
         with:

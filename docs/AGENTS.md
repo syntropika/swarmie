@@ -1,1 +1,1 @@
-client-runtime/AGENTS.md
+../AGENTS.md

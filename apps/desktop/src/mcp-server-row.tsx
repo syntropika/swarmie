@@ -1,8 +1,7 @@
 import type { McpEntry } from "@swarmie/contracts";
+import { Button, Switch } from "@swarmie/ui-web";
 import { Settings2, Trash2 } from "lucide-react";
 
-import { Button } from "~/src/components/ui/button";
-import { Switch } from "~/src/components/ui/switch";
 import { hasText } from "~/src/value-presence";
 
 const statusLabels = new Map<string, string>([
@@ -54,7 +53,7 @@ export function McpServerRow({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-sm font-medium break-words">{entry.name}</h2>
-          <p className="text-muted text-xs">
+          <p className="text-xs text-muted">
             {entry.origin === "swarmie"
               ? `Swarmie · ${entry.harness ?? "all compatible harnesses"}`
               : entry.harness}{" "}
@@ -66,24 +65,30 @@ export function McpServerRow({
         </div>
         {entry.scope !== "session" && (
           <Switch
-            label={`Enable ${entry.name}`}
-            hideLabel
-            checked={entry.enabled}
-            disabled={!!busy || !entry.actions.includes(entry.enabled ? "disable" : "enable")}
+            isSelected={entry.enabled}
+            isDisabled={!!busy || !entry.actions.includes(entry.enabled ? "disable" : "enable")}
             onChange={onToggle}
-          />
+            aria-label={`Enable ${entry.name}`}
+          >
+            <Switch.Content>
+              <Switch.Control>
+                <Switch.Thumb />
+              </Switch.Control>
+              <span className="sr-only">{`Enable ${entry.name}`}</span>
+            </Switch.Content>
+          </Switch>
         )}
       </div>
       <p className="text-sm">
         {desiredStatus(entry)} · Connection: {status(entry.runtimeStatus)} · Authentication:{" "}
         {status(entry.authStatus)}
       </p>
-      {hasText(entry.source) && <p className="text-muted text-xs break-all">{entry.source}</p>}
+      {hasText(entry.source) && <p className="text-xs break-all text-muted">{entry.source}</p>}
       {hasText(entry.projectPath) && (
-        <p className="text-muted text-xs break-all">Project: {entry.projectPath}</p>
+        <p className="text-xs break-all text-muted">Project: {entry.projectPath}</p>
       )}
       {hasText(entry.readOnlyReason) && (
-        <p className="text-muted text-sm">{entry.readOnlyReason}</p>
+        <p className="text-sm text-muted">{entry.readOnlyReason}</p>
       )}
       {entry.requiresRestart && (
         <p className="text-sm">Reopen the native session to apply its saved configuration.</p>

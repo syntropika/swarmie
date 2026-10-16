@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
+import { officialExampleSource } from "../../.storybook/example-sources";
+import { OfficialExample as HeroUIDocumentationExample } from "../../.storybook/examples/separator";
 import { Separator } from "./separator";
 
 const meta = {
@@ -14,7 +16,7 @@ export const Horizontal: Story = {
   render: () => (
     <div className="flex max-w-lg flex-col gap-5">
       <p className="font-medium">Shared work</p>
-      <Separator decorative={false} />
+      <Separator />
       <p className="text-ui text-text-muted">A quiet boundary between related sections.</p>
     </div>
   ),
@@ -28,4 +30,10 @@ export const Vertical: Story = {
       <span className="text-text-muted">by Syntropika</span>
     </div>
   ),
+};
+
+export const OfficialExample: Story = {
+  parameters: { docs: { source: { code: officialExampleSource("separator"), language: "tsx" } } },
+  name: "Official example",
+  render: () => <HeroUIDocumentationExample />,
 };

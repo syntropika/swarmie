@@ -57,8 +57,8 @@ it("shows status on harness hover or focus and opens its selector on click", asy
     }),
   );
   expect(
-    screen.getByRole("menu", {
-      name: "Agent tool",
+    await screen.findByRole("menu", {
+      name: /Agent tool/u,
     }),
   ).toBeTruthy();
   await userEvent.keyboard("{Escape}");
@@ -331,8 +331,8 @@ it("keeps cached controls while busy and refreshes when idle without a session-s
   expect(preview).not.toHaveBeenCalled();
   expect(
     fixtureControl(
-      screen.getByRole("combobox", {
-        name: "Choose model: Native",
+      screen.getByRole("button", {
+        name: /Choose model: Native/u,
       }),
     ).disabled,
   ).toBe(true);
@@ -401,8 +401,8 @@ it("explains unavailable configuration and does not enable it as a truthy capabi
   });
   expect(
     fixtureControl(
-      screen.getByRole("combobox", {
-        name: "Choose model: Native",
+      screen.getByRole("button", {
+        name: /Choose model: Native/u,
       }),
     ).disabled,
   ).toBe(true);

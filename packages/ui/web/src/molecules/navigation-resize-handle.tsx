@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { ResizeHandle } from "../atoms/resize-handle";
 import { NAVIGATION_MAX_TOTAL_WIDTH, NAVIGATION_MIN_TOTAL_WIDTH } from "./navigation-layout";
 
 type NavigationResizeHandleProps = {
@@ -18,12 +19,8 @@ export function NavigationResizeHandle({
 }: NavigationResizeHandleProps) {
   const [dragging, setDragging] = useState(false);
   return (
-    <div
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- This focusable adjustable splitter uses the interactive separator contract, rather than a static thematic break.
-      role="separator"
-      tabIndex={0}
+    <ResizeHandle
       aria-label={label}
-      aria-orientation="vertical"
       aria-valuemin={NAVIGATION_MIN_TOTAL_WIDTH}
       aria-valuemax={NAVIGATION_MAX_TOTAL_WIDTH}
       aria-valuenow={Math.round(totalWidth)}

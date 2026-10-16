@@ -130,7 +130,11 @@ it("keeps an accepted stop request across closing and reopening the same task vi
       name: `Stop ${task.description}`,
     }),
   );
+  await userEvent.tab();
   await userEvent.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(screen.queryByRole("dialog", { name: "Background tasks" })).toBeNull();
+  });
   resolve(null);
   await userEvent.click(
     screen.getByRole("button", {
@@ -240,8 +244,8 @@ it("locks the native history query while reading and discards results after the 
   );
   expect(
     fixtureControl(
-      screen.getByRole("combobox", {
-        name: "Conversation history agent",
+      screen.getByRole("button", {
+        name: /Conversation history agent/u,
       }),
     ).disabled,
   ).toBe(true);
@@ -304,8 +308,8 @@ it("offers Cursor SDK history with accurate source wording and retains the selec
   });
   render(<NativeHistory store={store} />);
   await userEvent.click(
-    screen.getByRole("combobox", {
-      name: "Conversation history agent",
+    screen.getByRole("button", {
+      name: /Conversation history agent/u,
     }),
   );
   await userEvent.click(

@@ -1,13 +1,8 @@
-import { useState, useId } from "react";
+import { Button, Checkbox, Disclosure, Input, TextArea, Select, ListBox } from "@swarmie/ui-web";
+import { isValidElement, useState, useId } from "react";
 
 import { startAction } from "~/src/action-boundary";
 import { extensionResult } from "~/src/components/extension-result";
-import { Button } from "~/src/components/ui/button";
-import { Checkbox } from "~/src/components/ui/checkbox";
-import { Disclosure } from "~/src/components/ui/disclosure";
-import { Input } from "~/src/components/ui/input";
-import { Select } from "~/src/components/ui/select";
-import { Textarea } from "~/src/components/ui/textarea";
 import type { Thread } from "~/src/protocol";
 import { hasText, hasNumber } from "~/src/value-presence";
 import type { WorkspaceStore } from "~/src/workspace";
@@ -194,7 +189,7 @@ export function GitWorkflow({ store, thread }: { store: WorkspaceStore; thread: 
       <h3>Commit and push</h3>
       <label htmlFor={`${fieldPrefix}-field-1`}>
         Commit message
-        <Textarea
+        <TextArea
           id={`${fieldPrefix}-field-1`}
           value={message}
           onChange={(e) => {
@@ -204,7 +199,7 @@ export function GitWorkflow({ store, thread }: { store: WorkspaceStore; thread: 
       </label>
       <div className="permission-actions">
         <Button
-          variant="ghost"
+          variant="tertiary"
           size="sm"
           disabled={busy}
           onClick={() => {
@@ -219,7 +214,7 @@ export function GitWorkflow({ store, thread }: { store: WorkspaceStore; thread: 
           Generate message
         </Button>
         <Button
-          variant="ghost"
+          variant="tertiary"
           size="sm"
           disabled={busy || !message.trim()}
           onClick={() => {
@@ -247,7 +242,7 @@ export function GitWorkflow({ store, thread }: { store: WorkspaceStore; thread: 
           Commit staged changes
         </Button>
         <Button
-          variant="ghost"
+          variant="tertiary"
           size="sm"
           disabled={busy}
           onClick={() => {
@@ -302,7 +297,7 @@ export function GitWorkflow({ store, thread }: { store: WorkspaceStore; thread: 
       </label>
       <label htmlFor={`${fieldPrefix}-field-4`}>
         Description
-        <Textarea
+        <TextArea
           id={`${fieldPrefix}-field-4`}
           value={body}
           onChange={(e) => {
@@ -312,7 +307,7 @@ export function GitWorkflow({ store, thread }: { store: WorkspaceStore; thread: 
       </label>
       <div className="permission-actions">
         <Button
-          variant="ghost"
+          variant="tertiary"
           size="sm"
           disabled={busy || !base.trim()}
           onClick={() => {
@@ -327,7 +322,7 @@ export function GitWorkflow({ store, thread }: { store: WorkspaceStore; thread: 
           Generate title and description
         </Button>
         <Button
-          variant="ghost"
+          variant="tertiary"
           size="sm"
           disabled={busy || !title.trim()}
           onClick={() => {
@@ -387,7 +382,7 @@ export function GitWorkflow({ store, thread }: { store: WorkspaceStore; thread: 
         />
       </label>
       <Button
-        variant="ghost"
+        variant="tertiary"
         size="sm"
         disabled={busy}
         onClick={() => {
@@ -421,52 +416,77 @@ export function GitWorkflow({ store, thread }: { store: WorkspaceStore; thread: 
             ))}
           </div>
           <Disclosure>
-            <Disclosure.Summary>Reviewed files</Disclosure.Summary>
-            {viewed.map((file) => (
-              <Checkbox
-                key={file.path}
-                label={file.path}
-                checked={file.viewerViewedState === "VIEWED"}
-                disabled={busy}
-                onChange={(checked) => {
-                  startAction(
-                    run(async () => {
-                      await store.extension("pr.viewed", {
-                        ...prArgs,
-                        path: file.path,
-                        viewed: checked,
-                      });
-                      await load(pullRequest?.number);
-                    }),
-                    store.setError.bind(store),
-                  );
-                }}
-              />
-            ))}
+            <Disclosure.Heading>
+              <Button slot="trigger" variant="tertiary">
+                <span>Reviewed files</span>
+                <Disclosure.Indicator />
+              </Button>
+            </Disclosure.Heading>
+            <Disclosure.Content>
+              <Disclosure.Body>
+                {viewed.map((file) => (
+                  <Checkbox
+                    key={file.path}
+                    isSelected={file.viewerViewedState === "VIEWED"}
+                    isDisabled={busy}
+                    onChange={(checked) => {
+                      startAction(
+                        run(async () => {
+                          await store.extension("pr.viewed", {
+                            ...prArgs,
+                            path: file.path,
+                            viewed: checked,
+                          });
+                          await load(pullRequest?.number);
+                        }),
+                        store.setError.bind(store),
+                      );
+                    }}
+                    aria-label={file.path}
+                  >
+                    <Checkbox.Content>
+                      <Checkbox.Control>
+                        <Checkbox.Indicator />
+                      </Checkbox.Control>
+                      {file.path}
+                    </Checkbox.Content>
+                  </Checkbox>
+                ))}
+              </Disclosure.Body>
+            </Disclosure.Content>
           </Disclosure>
           <Disclosure>
-            <Disclosure.Summary>Comments and reviews · {comments.length}</Disclosure.Summary>
-            {comments.map((item) => (
-              <div
-                className="pr-comment"
-                key={item.url ?? `${item.author?.login ?? ""}:${item.state ?? ""}:${item.body}`}
-              >
-                <strong>
-                  {item.author?.login ?? "Reviewer"}
-                  {hasText(item.state) ? ` · ${item.state}` : ""}
-                </strong>
-                <p>{item.body}</p>
-                {hasText(item.url) && (
-                  <a href={item.url} target="_blank" rel="noreferrer">
-                    View discussion
-                  </a>
-                )}
-              </div>
-            ))}
+            <Disclosure.Heading>
+              <Button slot="trigger" variant="tertiary">
+                <span>Comments and reviews · {comments.length}</span>
+                <Disclosure.Indicator />
+              </Button>
+            </Disclosure.Heading>
+            <Disclosure.Content>
+              <Disclosure.Body>
+                {comments.map((item) => (
+                  <div
+                    className="pr-comment"
+                    key={item.url ?? `${item.author?.login ?? ""}:${item.state ?? ""}:${item.body}`}
+                  >
+                    <strong>
+                      {item.author?.login ?? "Reviewer"}
+                      {hasText(item.state) ? ` · ${item.state}` : ""}
+                    </strong>
+                    <p>{item.body}</p>
+                    {hasText(item.url) && (
+                      <a href={item.url} target="_blank" rel="noreferrer">
+                        View discussion
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </Disclosure.Body>
+            </Disclosure.Content>
           </Disclosure>
           <label htmlFor={`${fieldPrefix}-field-6`}>
             Comment or review
-            <Textarea
+            <TextArea
               id={`${fieldPrefix}-field-6`}
               value={comment}
               onChange={(e) => {
@@ -476,7 +496,7 @@ export function GitWorkflow({ store, thread }: { store: WorkspaceStore; thread: 
           </label>
           <div className="permission-actions">
             <Button
-              variant="ghost"
+              variant="tertiary"
               size="sm"
               disabled={busy || !comment.trim()}
               onClick={() => {
@@ -496,17 +516,42 @@ export function GitWorkflow({ store, thread }: { store: WorkspaceStore; thread: 
               Post comment
             </Button>
             <Select
-              label="Review decision"
+              aria-label="Review decision"
               value={reviewEvent}
-              onChange={setReviewEvent}
-              options={[
-                { id: "comment", label: "Comment review" },
-                { id: "approve", label: "Approve review" },
-                { id: "request_changes", label: "Request changes" },
-              ]}
-            />
+              onChange={(key) => {
+                if (typeof key === "string") {
+                  setReviewEvent(key);
+                }
+              }}
+              placeholder="Select…"
+            >
+              <Select.Trigger>
+                <Select.Value />
+                <Select.Indicator />
+              </Select.Trigger>
+              <Select.Popover>
+                <ListBox aria-label="Review decision">
+                  {[
+                    { id: "comment", label: "Comment review" },
+                    { id: "approve", label: "Approve review" },
+                    { id: "request_changes", label: "Request changes" },
+                  ].map((option) => (
+                    <ListBox.Item
+                      key={option.id}
+                      id={option.id}
+                      textValue={option.label}
+                      isDisabled={"disabled" in option && option.disabled === true}
+                    >
+                      {"icon" in option && isValidElement(option.icon) ? option.icon : null}
+                      {option.label}
+                      <ListBox.ItemIndicator />
+                    </ListBox.Item>
+                  ))}
+                </ListBox>
+              </Select.Popover>
+            </Select>
             <Button
-              variant="ghost"
+              variant="tertiary"
               size="sm"
               disabled={busy || (reviewEvent !== "approve" && !comment.trim())}
               onClick={() => {

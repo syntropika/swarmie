@@ -1,11 +1,8 @@
+import { Button, Dropdown, Switch, Tabs, Tooltip, TooltipContent } from "@swarmie/ui-web";
 import { KeyRound, Monitor, MoreHorizontal, RefreshCw } from "lucide-react";
-import { useId, useState } from "react";
+import { useState } from "react";
 
 import { startAction, errorMessage, errorReporter } from "~/src/action-boundary";
-import { Button } from "~/src/components/ui/button";
-import { Dropdown } from "~/src/components/ui/dropdown";
-import { Switch } from "~/src/components/ui/switch";
-import { Tooltip, TooltipContent } from "~/src/components/ui/tooltip";
 import {
   AddNodeDialog,
   LocalAccessDialog,
@@ -23,7 +20,6 @@ const views = [
 type View = (typeof views)[number]["id"] | "ssh";
 
 export function NodeSettings({ client, nodes }: { client: NodeClient; nodes: NodesState }) {
-  const id = useId();
   const [view, setView] = useState<View>("computer");
   const [dialog, setDialog] = useState<
     { kind: "add" | "access" } | { kind: "details"; id: string }
@@ -49,133 +45,107 @@ export function NodeSettings({ client, nodes }: { client: NodeClient; nodes: Nod
   const remoteView = activeView !== "computer";
   return (
     <div>
-      <div
-        role="tablist"
-        aria-label="Connections view"
-        className="bg-control-secondary mb-7 flex w-fit max-w-full gap-1 overflow-x-auto rounded-lg p-1"
+      <Tabs
+        selectedKey={activeView}
+        onSelectionChange={(next) => {
+          if (next === "computer" || next === "devices" || next === "ssh") {
+            setView(next);
+          }
+        }}
       >
-        {tabs.map((tab, index) => (
-          <Button
-            key={tab.id}
-            id={`${id}-${tab.id}`}
-            role="tab"
-            aria-selected={activeView === tab.id}
-            aria-controls={`${id}-panel`}
-            tabIndex={activeView === tab.id ? 0 : -1}
-            variant={activeView === tab.id ? "secondary" : "ghost"}
-            size="sm"
-            className="shrink-0"
-            onClick={() => {
-              setView(tab.id);
-            }}
-            onKeyDown={(event) => {
-              const next = (() => {
-                if (event.key === "ArrowRight") {
-                  return (index + 1) % tabs.length;
+        <Tabs.ListContainer>
+          <Tabs.List aria-label="Connections view">
+            {tabs.map((tab) => (
+              <Tabs.Tab key={tab.id} id={tab.id}>
+                {tab.label}
+                <Tabs.Indicator />
+              </Tabs.Tab>
+            ))}
+          </Tabs.List>
+        </Tabs.ListContainer>
+        <Tabs.Panel id={activeView}>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-medium">
+              {(() => {
+                if (activeView === "computer") {
+                  return "This computer";
                 }
-                if (event.key === "ArrowLeft") {
-                  return (index + tabs.length - 1) % tabs.length;
+                if (activeView === "ssh") {
+                  return "SSH connections from this computer";
                 }
-                if (event.key === "Home") {
-                  return 0;
-                }
-                if (event.key === "End") {
-                  return tabs.length - 1;
-                }
-                return undefined;
-              })();
-              if (next !== undefined) {
-                event.preventDefault();
-                setView(tabs[next].id);
-                document.querySelector<HTMLElement>(`[id="${id}-${tabs[next].id}"]`)?.focus();
-              }
-            }}
-          >
-            {tab.label}
-          </Button>
-        ))}
-      </div>
-      <section id={`${id}-panel`} role="tabpanel" aria-labelledby={`${id}-${activeView}`}>
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-sm font-medium">
-            {(() => {
-              if (activeView === "computer") {
-                return "This computer";
-              }
-              if (activeView === "ssh") {
-                return "SSH connections from this computer";
-              }
-              return "Devices you can control from this computer";
-            })()}
-          </h2>
-          {remoteView && (
-            <div className="flex shrink-0 items-center gap-1">
-              <Tooltip>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Refresh nodes"
-                  disabled={busy || nodes.loading || !local.connected}
-                  onClick={() => {
-                    startAction(
-                      run(async () => {
-                        await client.refresh();
-                      }),
-                      errorReporter(setIssue),
-                    );
-                  }}
-                >
-                  <RefreshCw
-                    size={15}
-                    className={nodes.loading ? "animate-spin motion-reduce:animate-none" : ""}
-                  />
-                </Button>
-                <TooltipContent>Refresh</TooltipContent>
-              </Tooltip>
-              {!!visible.length && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  disabled={busy || !local.connected}
-                  onClick={() => {
-                    setDialog({ kind: "add" });
-                  }}
-                >
-                  Add
-                </Button>
-              )}
-            </div>
+                return "Devices you can control from this computer";
+              })()}
+            </h2>
+            {remoteView && (
+              <div className="flex shrink-0 items-center gap-1">
+                <Tooltip>
+                  <Button
+                    variant="tertiary"
+                    size="sm"
+                    isIconOnly
+                    aria-label="Refresh nodes"
+                    disabled={busy || nodes.loading || !local.connected}
+                    onClick={() => {
+                      startAction(
+                        run(async () => {
+                          await client.refresh();
+                        }),
+                        errorReporter(setIssue),
+                      );
+                    }}
+                  >
+                    <RefreshCw
+                      size={15}
+                      className={nodes.loading ? "animate-spin motion-reduce:animate-none" : ""}
+                    />
+                  </Button>
+                  <TooltipContent>Refresh</TooltipContent>
+                </Tooltip>
+                {!!visible.length && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={busy || !local.connected}
+                    onClick={() => {
+                      setDialog({ kind: "add" });
+                    }}
+                  >
+                    Add
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+          {(hasText(issue) || hasText(nodes.error)) && (
+            <p className="mb-4 text-sm break-words text-danger" role="alert">
+              {nonEmptyText(issue) ?? nodes.error}
+            </p>
           )}
-        </div>
-        {(hasText(issue) || hasText(nodes.error)) && (
-          <p className="mb-4 text-sm break-words text-danger" role="alert">
-            {nonEmptyText(issue) ?? nodes.error}
-          </p>
-        )}
-        <NodeList
-          client={client}
-          visible={visible}
-          remoteView={remoteView}
-          busy={busy}
-          run={run}
-          setDialog={setDialog}
-          local={local}
-          reportError={errorReporter(setIssue)}
-        />
+          <NodeList
+            client={client}
+            visible={visible}
+            remoteView={remoteView}
+            busy={busy}
+            run={run}
+            setDialog={setDialog}
+            local={local}
+            reportError={errorReporter(setIssue)}
+          />
 
-        {activeView === "computer" && (
-          <p className="text-muted mt-4 text-xs leading-relaxed">
-            The app connects to this computer automatically and retries after a temporary connection
-            loss. Remote access from other devices is not configured here yet.
-          </p>
-        )}
-        {remoteView && (
-          <p className="text-muted mt-4 text-xs leading-relaxed">
-            Add a running runtime by address or through configured SSH access. Existing chats keep
-            their original node.
-          </p>
-        )}
-      </section>
+          {activeView === "computer" && (
+            <p className="mt-4 text-xs leading-relaxed text-muted">
+              The app connects to this computer automatically and retries after a temporary
+              connection loss. Remote access from other devices is not configured here yet.
+            </p>
+          )}
+          {remoteView && (
+            <p className="mt-4 text-xs leading-relaxed text-muted">
+              Add a running runtime by address or through configured SSH access. Existing chats keep
+              their original node.
+            </p>
+          )}
+        </Tabs.Panel>
+      </Tabs>
       {dialog?.kind === "add" && (
         <AddNodeDialog
           client={client}
@@ -245,21 +215,20 @@ function NodeList({
         })();
         return (
           <li key={node.identity.environmentId} className="flex items-center gap-3 py-4">
-            <Monitor size={19} className="text-muted shrink-0" />
+            <Monitor size={19} className="shrink-0 text-muted" />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium" title={node.displayName}>
                 {node.displayName}
               </p>
-              <p className="text-muted mt-1 truncate text-xs" title={description}>
+              <p className="mt-1 truncate text-xs text-muted" title={description}>
                 {description}
               </p>
-              <p className="text-muted mt-1 text-xs">{status}</p>
+              <p className="mt-1 text-xs text-muted">{status}</p>
             </div>
             {!node.local && (
               <Switch
-                label={`Connect ${node.displayName}`}
-                checked={connected}
-                disabled={busy || !node.registered}
+                isSelected={connected}
+                isDisabled={busy || !node.registered}
                 onChange={(value) => {
                   if (value) {
                     startAction(
@@ -272,13 +241,21 @@ function NodeList({
                     client.disconnect(node.identity.environmentId);
                   }
                 }}
-                hideLabel
-              />
+                aria-label={`Connect ${node.displayName}`}
+              >
+                <Switch.Content>
+                  <Switch.Control>
+                    <Switch.Thumb />
+                  </Switch.Control>
+                  <span className="sr-only">{`Connect ${node.displayName}`}</span>
+                </Switch.Content>
+              </Switch>
             )}
             <Dropdown>
               <Button
-                variant="ghost"
-                size="icon-sm"
+                variant="tertiary"
+                size="sm"
+                isIconOnly
                 aria-label={`${node.displayName} actions`}
                 disabled={busy}
               >
@@ -317,7 +294,7 @@ function NodeList({
       {!visible.length && (
         <li className="flex flex-col items-center gap-3 py-8 text-center">
           <Monitor size={24} className="text-muted" />
-          <p className="text-muted text-sm">
+          <p className="text-sm text-muted">
             {remoteView
               ? "No devices added yet"
               : (nonEmptyText(local.error) ?? "Connecting automatically…")}

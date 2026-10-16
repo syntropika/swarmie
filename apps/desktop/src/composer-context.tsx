@@ -1,8 +1,7 @@
+import { Button, Modal } from "@swarmie/ui-web";
 import { useEffect, useState } from "react";
 
 import { startAction } from "~/src/action-boundary";
-import { Button } from "~/src/components/ui/button";
-import { Dialog } from "~/src/components/ui/dialog";
 import { fileLocation, mentionAt } from "~/src/context";
 import type { ContextItem } from "~/src/context";
 import type { Thread } from "~/src/protocol";
@@ -59,32 +58,44 @@ export function ComposerContext({
   return (
     <>
       {preview && (
-        <Dialog
-          variant="context-dialog"
-          label="Selected message context"
-          onClose={() => {
-            setPreview(undefined);
+        <Modal
+          isOpen
+          onOpenChange={(next) => {
+            if (!next) {
+              (() => {
+                setPreview(undefined);
+              })();
+            }
           }}
         >
-          <h3>{preview?.label}</h3>
-          <pre className="action-output">{preview?.text}</pre>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setPreview(undefined);
-            }}
-          >
-            Close
-          </Button>
-        </Dialog>
+          <Modal.Backdrop isDismissable>
+            <Modal.Container>
+              <Modal.Dialog
+                aria-label="Selected message context"
+                data-workspace-part="context-dialog"
+              >
+                <h3>{preview?.label}</h3>
+                <pre className="action-output">{preview?.text}</pre>
+                <Button
+                  variant="tertiary"
+                  size="sm"
+                  onClick={() => {
+                    setPreview(undefined);
+                  }}
+                >
+                  Close
+                </Button>
+              </Modal.Dialog>
+            </Modal.Container>
+          </Modal.Backdrop>
+        </Modal>
       )}
       {hasNumber(thread.contextItems?.length) && (
         <div className="context-chips">
           {thread.contextItems.map((item) => (
             <div className="context-chip" key={item.id}>
               <Button
-                variant="ghost"
+                variant="tertiary"
                 size="sm"
                 title={item.text.slice(0, 300)}
                 onClick={() => {
@@ -106,7 +117,7 @@ export function ComposerContext({
                 {item.label}
               </Button>
               <Button
-                variant="ghost"
+                variant="tertiary"
                 size="sm"
                 aria-label={`Remove context ${item.label}`}
                 onClick={() => {
@@ -126,7 +137,7 @@ export function ComposerContext({
           {files.map((path) => (
             <Button
               key={path}
-              variant="ghost"
+              variant="tertiary"
               className="w-full"
               onClick={() => {
                 const add = async () => {

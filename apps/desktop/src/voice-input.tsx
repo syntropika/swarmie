@@ -1,7 +1,7 @@
+import { Button } from "@swarmie/ui-web";
 import { Mic, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { Button } from "~/src/components/ui/button";
 import { browserTranscription } from "~/src/dictation";
 import type { DictationSession } from "~/src/dictation";
 
@@ -58,9 +58,10 @@ function VoiceSession({ disabled, onText, onError }: VoiceProps) {
   };
   return (
     <Button
-      variant="composer"
-      shape="pill"
-      size="icon-sm"
+      variant="tertiary"
+
+      size="sm"
+      isIconOnly
       aria-label={listening ? "Stop dictation" : "Dictate message"}
       aria-pressed={listening}
       disabled={disabled === true || !available}

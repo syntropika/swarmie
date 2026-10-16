@@ -1,0 +1,120 @@
+/* Load after @heroui/styles. Use neutral surface depth with upstream warning colors.
+ * Monochrome actions use the theme builder's medium radius scale. */
+:root,
+[data-theme],
+[data-heroui-palette="swarmie"] {
+  --font-sans: "Google Sans", ui-sans-serif, system-ui, sans-serif;
+  --accent: light-dark(var(--black), var(--white));
+  --accent-foreground: light-dark(var(--white), var(--black));
+  --radius: 0.5rem;
+  --field-radius: 0.5rem;
+
+  --success: #008635;
+  --success-foreground: var(--white);
+  --success-soft: light-dark(#d9f4e4, color-mix(in oklab, #04b84c 15%, transparent));
+  --success-soft-foreground: light-dark(#008635, #40c977);
+
+  --danger: light-dark(#ba2623, #ff6764);
+  --danger-foreground: light-dark(var(--white), #1f0909);
+  --danger-solid: #e02e2a;
+  --danger-solid-foreground: var(--white);
+  --danger-soft: light-dark(#ffd9d9, color-mix(in oklab, #fa423e 16%, transparent));
+  --danger-soft-foreground: light-dark(#ba2623, #ff6764);
+}
+
+.button--secondary {
+  --button-bg: var(--default);
+  --button-bg-hover: var(--default-hover);
+  --button-bg-pressed: var(--default-hover);
+  --button-fg: var(--default-foreground);
+}
+
+/* Tertiary carries the same transparent, neutral treatment as the upstream ghost variant. */
+.button--tertiary {
+  --button-bg: transparent;
+  --button-bg-hover: var(--default);
+  --button-bg-pressed: var(--default);
+  --button-fg: var(--default-foreground);
+}
+
+/* Solid destructive actions and validation text use their own readable color pairs. */
+.button--danger {
+  --button-bg: var(--danger-solid);
+  --button-bg-hover: color-mix(in oklab, var(--danger-solid) 90%, var(--black));
+  --button-bg-pressed: var(--button-bg-hover);
+  --button-fg: var(--danger-solid-foreground);
+}
+
+/* Solid dark layers express component depth; semantic aliases preserve each control’s role. */
+.dark,
+[data-theme="dark"] {
+  --background: #181818;
+  --foreground: var(--snow);
+
+  --surface: #212121;
+  --surface-foreground: var(--foreground);
+  --surface-secondary: #282828;
+  --surface-secondary-foreground: var(--foreground);
+  --surface-tertiary: var(--surface-secondary);
+  --surface-tertiary-foreground: var(--foreground);
+
+  --overlay: var(--surface-secondary);
+  --overlay-foreground: var(--foreground);
+  --field-background: var(--surface-secondary);
+  --field-foreground: var(--foreground);
+  --field-placeholder: var(--muted);
+  --default: color-mix(in oklab, var(--surface-secondary) 82%, var(--foreground));
+  --default-foreground: var(--foreground);
+  --segment: var(--surface-secondary);
+  --segment-foreground: var(--foreground);
+
+  --muted: #b4b4b4;
+  --border: color-mix(in oklab, var(--foreground) 14%, transparent);
+  --separator: color-mix(in oklab, var(--foreground) 8%, transparent);
+  --focus: var(--accent);
+}
+
+@theme inline {
+  --color-danger-solid: var(--danger-solid);
+  --color-danger-solid-foreground: var(--danger-solid-foreground);
+}
+
+/* Text links retain the vendor focus behavior and have no filled hover surface. */
+.swarmie-text-link {
+  color: var(--foreground);
+  border-radius: 0;
+}
+.swarmie-text-link:hover,
+.swarmie-text-link[data-hovered="true"],
+.swarmie-text-link:active {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+/* Brand accents use the vendor color slots and preserve its geometry and variants. */
+.chip[data-brand-color] {
+  --chip-fg: var(--foreground);
+  --chip-bg: color-mix(in oklab, var(--brand-chip-color) 75%, var(--surface));
+}
+.chip[data-brand-color="mint"] {
+  --brand-chip-color: var(--color-mint);
+}
+.chip[data-brand-color="lilac"] {
+  --brand-chip-color: var(--color-lilac);
+}
+.chip[data-brand-color="peach"] {
+  --brand-chip-color: var(--color-peach);
+}
+.chip[data-brand-color="mustard"] {
+  --brand-chip-color: var(--color-butter);
+}
+.chip[data-brand-color].chip--primary {
+  --chip-bg: var(--brand-chip-color);
+}
+.chip[data-brand-color].chip--soft {
+  --chip-bg: color-mix(in oklab, var(--brand-chip-color) 45%, var(--surface));
+}
+.chip[data-brand-color].chip--tertiary {
+  --chip-bg: transparent;
+  --chip-fg: color-mix(in oklab, var(--brand-chip-color) 25%, var(--foreground));
+}

@@ -1,0 +1,46 @@
+/* Scope both palettes to working surfaces; color-scheme resolves explicit or system choices. */
+[data-theme] {
+  color-scheme: light;
+  --color-reference-canvas: light-dark(#ffffff, #181818);
+  scrollbar-color: var(--color-drawing-line) var(--color-canvas);
+  --color-canvas: var(--background);
+  --color-rail: var(--surface);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--default);
+  --color-surface-hover: var(--default-hover);
+  --color-ink: var(--foreground);
+  --color-text-muted: var(--muted);
+  --color-border: var(--border);
+  --color-control-border: var(--field-border);
+  --color-border-subtle: var(--separator);
+  --color-overlay-shadow: light-dark(rgb(39 43 51 / 12%), rgb(0 0 0 / 40%));
+  --color-primary: var(--accent);
+  --color-primary-hover: var(--accent-hover);
+  --color-primary-soft: var(--accent-soft);
+  --color-on-primary: var(--accent-foreground);
+  --color-drawing-line: light-dark(#a5abb2, #868686);
+  --color-mint: light-dark(#cde9de, #263e34);
+  --color-peach: light-dark(#ffd2be, #473027);
+  --color-butter: light-dark(#f6e6a6, #433d24);
+  --color-lilac: light-dark(#ded9f2, #363047);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-attention: var(--warning);
+  --color-attention-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-footer: #181818;
+  --color-footer-text: light-dark(#fcfaf7, #f3f3f1);
+  --color-inverse: light-dark(#272b33, #111111);
+  --color-inverse-text: light-dark(#f4f1ec, #f3f3f1);
+  --color-inverse-muted: light-dark(#bdc4ce, #bebeba);
+  --color-inverse-link: light-dark(#aac1e0, #aac1e0);
+}
+
+[data-theme="system"] {
+  color-scheme: light dark;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+}

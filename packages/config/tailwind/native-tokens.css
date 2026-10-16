@@ -1,4 +1,4 @@
-/* Native neutral surfaces follow assets/brandkit/tokens/colors.json. */
+/* Native runtime neutrals are owned here; canonical artwork lives in assets/brandkit. */
 @theme static {
   --color-native-canvas: #ffffff;
   --color-native-ink: #1a1c1f;

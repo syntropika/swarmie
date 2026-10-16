@@ -1,8 +1,7 @@
+import { Button, Switch } from "@swarmie/ui-web";
 import { useState } from "react";
 
 import { startAction } from "~/src/action-boundary";
-import { Button } from "~/src/components/ui/button";
-import { Switch } from "~/src/components/ui/switch";
 import type { ClientNode, NodeClient, NodeStartup } from "~/src/nodes";
 import { hasText } from "~/src/value-presence";
 
@@ -50,7 +49,7 @@ export function NodeStartupControls({
   return (
     <section aria-label="Runtime startup" className="mb-5 border-t border-border pt-4">
       <h3 className="mb-2 text-sm font-medium">Runtime startup</h3>
-      <p className="text-muted mb-3 text-xs leading-relaxed">
+      <p className="mb-3 text-xs leading-relaxed text-muted">
         Keep the runtime available when the app is closed. Changing future startup does not stop or
         restart active work.
       </p>
@@ -69,28 +68,37 @@ export function NodeStartupControls({
             Check startup
           </Button>
           {uncertain && (
-            <output className="text-muted mt-3 block text-xs">
+            <output className="mt-3 block text-xs text-muted">
               Check the current configuration before trying again.
             </output>
           )}
           {startup && (
             <div className="mt-3 grid gap-3">
               <Switch
-                label={
-                  startup.trigger === "boot"
-                    ? "Start runtime when the computer boots"
-                    : "Start runtime when you sign in"
-                }
-                checked={startup.enabled === true}
-                disabled={busy || !startup.available || startup.enabled === null}
+                isSelected={startup.enabled === true}
+                isDisabled={busy || !startup.available || startup.enabled === null}
                 onChange={(enabled) => {
                   startAction(configure(enabled), () => {
                     setUncertain(true);
                   });
                 }}
-              />
+                aria-label={
+                  startup.trigger === "boot"
+                    ? "Start runtime when the computer boots"
+                    : "Start runtime when you sign in"
+                }
+              >
+                <Switch.Content>
+                  <Switch.Control>
+                    <Switch.Thumb />
+                  </Switch.Control>
+                  {startup.trigger === "boot"
+                    ? "Start runtime when the computer boots"
+                    : "Start runtime when you sign in"}
+                </Switch.Content>
+              </Switch>
               {(startup.reason || startup.notice) && (
-                <output className="text-muted block text-xs leading-relaxed">
+                <output className="block text-xs leading-relaxed text-muted">
                   {startup.reason || startup.notice}
                 </output>
               )}
@@ -109,13 +117,13 @@ export function NodeStartupControls({
                 </Button>
               )}
               {startup.enabled === true && !(startup.running === true) && (
-                <p className="text-muted text-xs leading-relaxed">
+                <p className="text-xs leading-relaxed text-muted">
                   Automatic startup is enabled for the next sign-in or boot. The current runtime
                   keeps running as it is; service supervision starts with the next service launch.
                 </p>
               )}
               {startup.running === true && (
-                <p className="text-muted text-xs">
+                <p className="text-xs text-muted">
                   The operating system is supervising the runtime.
                 </p>
               )}
@@ -123,7 +131,7 @@ export function NodeStartupControls({
           )}
         </>
       ) : (
-        <p className="text-muted text-xs">
+        <p className="text-xs text-muted">
           Manage startup on this computer or through a saved SSH connection to its default runtime.
         </p>
       )}

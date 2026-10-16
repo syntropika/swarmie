@@ -1,0 +1,378 @@
+# Shared frontend engineering rules
+
+These rules apply to TypeScript, React, shared UI, and frontend tooling in `swarmie`.
+Run development commands from this repository's root. Package-specific compiler projects
+and build inputs stay beside their consumers.
+
+Read [Swarmie design principles](design-principles.md) before changing frontend interfaces
+or shared controls. Apply that guidance alongside the engineering rules below.
+
+For the native UI trial, read and use the repository-local
+[HeroUI Native skill](../.agents/skills/heroui-native/SKILL.md). Shared web and desktop work
+uses the separate [HeroUI React skill](../.agents/skills/heroui-react/SKILL.md).
+Keep each skill scoped to its platform. HeroUI React is the shared DOM primitive base;
+the native choice remains provisional.
+
+## Root configuration and package ownership
+
+The root owns `oxlint.config.ts`, `oxfmt.config.ts`, `bun.lock`, shared TypeScript presets
+in `packages/config/ts`, `mise.toml`, `justfile`, `rustfmt.toml`, and
+`cliff.toml`. Do not introduce another formatter, linter, toolchain configuration, or
+copy of a shared preset inside an application or package.
+
+Use the pinned Bun 1.4.3 with the root `bunfig.toml` isolated linker and
+`bun install --frozen-lockfile`. Shared compiler settings, fonts, Tailwind setup, and
+theme tokens belong in `packages/config`. Neutral components, presentation contracts,
+and stories belong in the separate `packages/ui/web` (`@swarmie/ui-web`) and
+`packages/ui/native` (`@swarmie/ui-native`) workspace packages. Their dependency graphs,
+compiler projects, and Storybooks remain platform-specific within the same root workspace
+and lockfile. Runtime wire contracts remain in
+`packages/contracts`. Language SDKs and their generation
+and packaging tools belong in `sdk/`; the executable npm runtime package belongs in
+`packages/runtime`. The TypeScript SDK joins the root Bun workspace from `sdk/typescript`.
+
+This repository owns all TypeScript source: desktop, mobile, the product website in
+`apps/web`, the public documentation site in `apps/docs`, and shared UI. All consume the root
+Bun workspace, lockfile, compiler references, and lint/format policy. A package manifest
+declares its own direct dependencies for the isolated linker; it does not create a separate
+installation or lockfile. Internal dependencies use `workspace:*`. New application compiler
+projects inherit the shared presets and retain only their framework-specific settings.
+Application lint and formatting aliases delegate to the root commands. Each application
+has one `src` tree; framework routes live in `src/app` for mobile and documentation.
+Desktop React code, its isolated demo, and native shell entries share `apps/desktop/src`.
+
+`swarmie-cloud` is an independent Rust backend repository with its own toolchain,
+service tests, deployment configuration, and release lifecycle. It contains no TypeScript
+workspace, frontend copies, or frontend lint/format configuration. Neither source repository
+needs the other's checkout to install, verify, or build. Keep backend authority, session
+verification, billing, and commercial entitlements in hosted services. Native account
+transport and protected credentials belong to the Rust account capability; clients render
+sanitized observations. Browser account pages are owned by the hosted account service.
+The public runtime and its SDK remain independent of account UI and hosted credentials.
+
+## Project-local imports
+
+Use `~/` for application source imports, resolved from the owning project's root:
+
+| Project | Root-relative examples |
+| --- | --- |
+| Mobile (`apps/mobile`) | `~/src`, `~/assets` |
+| Desktop (`apps/desktop`) | `~/src`, `~/src/demo` |
+| Documentation site (`apps/docs`) | `~/src/app`, `~/src/components`, `~/src/lib` |
+| Website (`apps/web`) | `~/src` |
+
+There is no monorepo-wide `~` root. Vite 8 uses `resolve.tsconfigPaths: true` to resolve
+each importer against its owning compiler project; Expo and Next consume their project's
+TypeScript paths. The desktop compiler includes both main and demo source. Keep public `@swarmie/*` package imports.
+Node configuration and runtime filesystem references retain appropriate relative paths,
+including Expo's configuration import of `locales.json`. Do not blanket-rewrite vendored
+internal imports. Backend changes stay in their independent repository; builds require
+neither another source checkout nor documentation contents.
+
+## TypeScript and lint policy
+
+Shared packages use strict TypeScript with checked indexed access, exact
+optional property contracts, explicit type-only imports, and the shared compiler presets.
+The desktop and SDK retain their existing strict compiler projects during this relocation;
+applying additional compiler flags requires updating their consumers together. Preserve each consumer's
+module target, environment types, emission settings, and source inclusion boundaries.
+Validate untrusted data at its owning boundary before updating application state.
+Prefer precise types and discriminated unions over `any`, chained assertions, widening
+then asserting, or optional access used to conceal an invalid state.
+
+The root Oxlint policy extends Ultracite core, React, and TanStack rules and includes
+anti-slop, shared UI, and Tailwind enforcement. Type-aware rules reject floating promises,
+unsafe operations, invalid asynchronous contracts, and non-exhaustive union handling.
+Do not silence a rejected promise with `void`. Handle its failure at the boundary that
+owns the operation. Ban `ts-ignore` and `ts-nocheck`; `ts-expect-error` needs a meaningful
+description. Type assertions need a safety explanation and must not replace validation.
+Do not mock modules as a substitute for adapters with explicit contracts.
+
+Function declarations and arrow functions are both valid. Preserve intentional object
+insertion order. Keep rule exceptions narrow, tied to a concrete contract, and documented
+in English. JavaScript tooling has no checked TypeScript contract; native JavaScript rules
+still apply. Tests can implement synchronous fixture adapters without fake awaits.
+Do not disable shared rules to make new violations disappear.
+
+## Capability ownership and application workflows
+
+Organize code by the capability that owns it. Routes compose capability entries;
+presentation components receive data and callbacks; hooks or controllers own behavior.
+Avoid global collections of unrelated hooks or views and generic `domain` or `infra`
+directories. Keep provider SDKs behind application-owned adapters.
+
+Use Effect where an application workflow needs typed failures, external validation,
+and adapter coordination. Adapt promise dependencies once at their I/O boundary.
+Use TanStack Query for reads and mutations with pending, error, success, caching,
+or invalidation state. Do not mirror that lifecycle in separate `useState` variables.
+Local state is appropriate for editable input, open panels, and presentation choices.
+Pure formatting and static JSX do not require Effect wrappers.
+
+Model multi-step workflows with discriminated unions and exhaustive matching. Define
+cancellation, stale-result handling, retries, and duplicate-submission guards at the
+workflow boundary. One-use authentication proofs and subscription submissions have no
+automatic retry. Isolate Query clients per server request and clear account-scoped
+caches when identity changes. Use `type-fest` only when an existing type makes an
+invariant clearer; keep the import type-only.
+
+## Shared UI and composition
+
+Inspect the relevant `@swarmie/ui-web` or `@swarmie/ui-native` exports and stories before
+adding a control or repeated pattern.
+Reuse a primitive, extend its coherent contract, or add a neutral shared primitive when
+actual consumers establish the responsibility. Avoid duplicated fields, selectors,
+notices, and buttons across frontends.
+
+Native clients use `@swarmie/ui-native`. Keep native and DOM dependencies and compiler
+projects separate so platform ambient types do not change web contracts. The native
+package owns its React Native Web and Uniwind Storybook tooling; the web package has no
+native renderer or styling dependencies. Each package has its own Storybook and checks
+its actual platform props. The mobile entry owns its Uniwind stylesheet and must include
+`packages/ui/native/src` in Tailwind scanning.
+
+Shared token stylesheets live in `packages/config/tailwind`, exported as
+`@swarmie/config/tailwind/web-tokens.css`, `native-tokens.css`, and `tooling-tokens.css`.
+The tooling stylesheet combines the two token sets for shared tooling. Keep the existing
+`base.css` foundation in that package; do not create another token package. Mobile currently
+loads both palettes because its existing runtime screens use web semantic colors while
+account onboarding uses the monochrome native tokens.
+
+The reversible HeroUI Native 1.0.10 trial stays behind `@swarmie/ui-native` wrappers for
+buttons, inputs, labels, and text fields. `NativeProvider` wraps the raw vendor provider
+and disables its animations when reduced motion is requested; applications own gesture,
+safe-area, and keyboard roots. `@swarmie/config/tailwind/hero-native.css` maps vendor
+semantics to existing native neutrals. The native stylesheet emits utilities after the
+vendor's unlayered component rules so wrapper overrides also apply in React Native Web.
+Keep this adaptation replaceable and preserve the existing web implementation.
+
+The shared web package has one public component entry, `@swarmie/ui-web`, for web and desktop.
+HeroUI React is the mandatory primitive base. Atoms expose the vendor controls and their
+compound APIs, including Alert, Surface, Disclosure, InputGroup, Checkbox, Switch, RadioGroup
+and Dropdown. Do not add a second wrapper or catalog entry that only renames these APIs.
+Molecules add behavior such as the responsive, resizable NavigationShell and VirtualList.
+Applications compose Modal, Select, ComboBox and TextField directly rather than retaining
+Dialog, OptionSelect, SuggestionField or Field wrappers. TextField provides labels,
+descriptions and validation; Dropdown handles action menus and Popover handles free-form
+floating content. Theme choices use Select with application-owned persistence. Do not recreate equivalent
+controls with native HTML or a second UI library. The application owns data, copy and layout.
+A resizing handle remains a semantic splitter because the vendor has no resizing primitive.
+
+There is no separate Workbench category, package entry, palette, control collection or
+compact type scale. Desktop and web use the same semantic theme, Google Sans, type scale,
+control variants, radii and focus treatment. Desktop consumers import the same atoms and
+molecules as the website. Stateful dialogs, menus and selectors use the vendor's accessibility,
+keyboard handling and overlays. Icons and canonical artwork remain presentation assets.
+
+The web catalog documents the shared preset in `Foundations/Colors`, using HeroUI React
+and Styles 3.2.6. The Button, TextField, Input, Checkbox, and Switch
+components use the Swarmie preset in
+`@swarmie/config/tailwind/hero-web.css`. The [HeroUI Theme Builder](https://heroui.com/en/themes)
+defines the visual baseline: Inter, vivid semantic status colors, and the upstream neutral
+palette. The Swarmie preset uses monochrome actions and selection controls based on the
+account prototype. In light mode, primary actions use black fills and white labels; secondary actions use light gray fills and dark labels.
+These neutral pairs invert in dark mode to preserve contrast. The Theme Builder Medium
+radius preset uses a 0.5rem base and field radius. Tertiary actions use a transparent background and neutral hover feedback. The shared Button
+contract excludes the ghost variant; consumers use tertiary for that action role.
+The preset uses solid green success (`#008635`) and red destructive actions (`#e02e2a`),
+each with white labels. Validation uses a separate danger text pair (`#ba2623` in light mode,
+`#ff6764` in dark mode); soft status variants use tinted backgrounds. The solid action fill
+is exposed through `danger-solid` so it can differ from validation text. Swarmie specimens
+use the self-hosted Google Sans typeface.
+The dark preset uses three solid neutral depth layers: `background` (`#181818`),
+`surface` (`#212121`), and `surface-secondary` (`#282828`). These describe visual hierarchy
+across components rather than fixed application regions. A card can use `surface`, while
+nested content uses `surface-secondary`; choose by placement and emphasis. Fields and overlays
+keep their semantic tokens, currently aliased to the secondary surface. The color reference documents the surface roles. `foreground` supplies primary
+text; each surface, overlay, field and neutral control declares its corresponding foreground
+alias. `muted` supplies supporting text and placeholders, `border` outlines containers, and
+`separator` divides their contents. Keyboard focus uses `focus`, derived from `accent`.
+Neutral controls derive a lighter `default` fill by mixing the secondary surface with
+foreground, so they remain distinct on component surfaces. Upstream hover calculations
+derive from the mapped surface and foreground pairs.
+`Foundations/Colors` documents these roles in semantic tables. Light surfaces, warning,
+sizing and motion remain upstream. Selected checkbox indicators and switch thumbs use the matching accent
+foreground for each mode. The supplied
+[HeroUI Figma kit](https://www.figma.com/community/file/1546526812159103429/heroui-figma-kit-v3)
+is an additional visual reference for the intended base.
+
+The shared web stylesheet loads HeroUI styles and the Swarmie preset globally. Desktop loads
+the same vendor styles and preset. Storybook specimens
+use the same stylesheet as consumers, without a separate shadow-root theme. Select and
+Tooltip expose the vendor compound APIs, including accessible collections and overlays.
+Button keeps a small integration for announced loading state; Link composes HeroUI Link
+for text navigation with foreground-only hover feedback.
+The public entry reexports upstream root and part prop types. Adapted Button, Link and Chip retain
+compound parts, render callbacks and upstream props; their exported types include the local
+extensions. Chip supports decorative mint, lilac, peach and mustard colors across primary,
+secondary, soft and tertiary variants. These category colors do not replace semantic statuses.
+Tests cover shared extensions and application integration; direct vendor reexports use visual
+stories without duplicating upstream behavior tests.
+HeroUI owns press behavior, focus and geometry. Keep its default dimensions, padding,
+line heights, radii, shadows and component spacing. Molecules must not force a different
+size or add compact, large, plain or raised variants to an existing vendor primitive.
+Use an upstream size or variant explicitly when the product needs it; wrappers do not
+silently choose one. Layout wrappers may arrange independent controls without changing
+their geometry. Shared customizations stay in the approved color, font and theme preset.
+Remove redundant wrappers and stories instead of retaining compatibility aliases.
+
+The shared web catalog contains Foundations, Atoms and Molecules. The former
+Assistant component collection, stories, exports, and exclusive renderer dependencies have
+been removed. Desktop retains its application-owned assistant-ui conversation integrations.
+
+The web Storybook's Foundations reference covers canonical brand assets, font roles,
+semantic light/dark colors, spacing, control sizing, radii, borders, shadows, layout,
+stacking, motion, iconography, and interaction states. Samples read their computed CSS
+values rather than maintaining a second palette. Shared theme overrides live with the
+web tokens in `packages/config`, not in the UI component stylesheet.
+The shared `font-sans` uses self-hosted Google Sans for headings, controls and reading.
+`font-brand` reuses that family. Desktop loads the same font entry and type scale; applications
+do not retain a separate interface typeface or density scale. Code uses the system monospace
+stack across web and desktop. Canonical logo assets keep
+their original lettering. The catalog uses these product defaults and no longer includes
+font-trial overrides or a typography selector. The optional Inter, Anek Malayalam and
+Manrope font assets have been removed. The documentation reader also loads the shared
+Google Sans entry while retaining its reading framework.
+
+Use Atomic Design as a practical vocabulary: atoms are neutral controls, molecules
+compose presentation or accessibility contracts, and domain organisms and pages remain
+with their capability. Do not create empty taxonomy levels. Compose using children,
+explicit variants, named parts, slots, and context only when parts actually share state.
+Avoid components with unrelated boolean modes. Native props such as `disabled` and
+focused lifecycle props such as `loading` remain appropriate.
+
+Pass refs and native props through primitives. Preserve semantics, accessible labels,
+descriptions, keyboard behavior, and focus restoration. Keep labels, translations,
+routing, transport, and domain actions with the consumer. Shared UI must not import
+hosted capabilities, TanStack routing or Query state, or API transports. Add meaningful
+Storybook examples when a shared contract introduces interaction or accessibility
+behavior. A static Storybook build does not execute play functions.
+
+## Styling and accessibility
+
+Use Tailwind for component layout, typography, colors, responsiveness, focus, and motion.
+Shared theme tokens, fonts, keyframes, and unsupported utility behavior belong in owned
+stylesheets. Frontend entries may load their own stylesheet; the desktop terminal may
+load the terminal renderer's required vendor stylesheet. Ordinary component CSS and
+CSS-in-JS are prohibited. Explain necessary exceptions near their owner.
+
+Use semantic theme utilities and shared UI contracts. Do not add inline styles, `css`
+props, style elements, independent palettes, raw colors, conflicting utility classes,
+or concatenated class fragments. Arbitrary values must follow the narrow root policy.
+Keep token definitions consistent with their documented meaning. Native SVG geometry
+attributes remain appropriate; decorative art needs correct accessibility treatment.
+
+Keep labels persistent, focus visible, feedback announced, and controls keyboard
+accessible. Color alone must not express state. Honor reduced motion. Check overflow,
+long labels, touch targets, and control sizing at narrow widths when changing an interface.
+Keep implementation and provider terminology out of product copy unless it helps users
+decide what to do.
+
+## Localization and telemetry
+
+When a frontend supports localization, keep copy in typed catalogs owned by its consumer,
+including accessible names,
+metadata, placeholders, validation, pending messages, and errors. English defines the
+key and interpolation contract. Update every supported catalog together and
+verify key and placeholder coverage. Preserve canonical language tags. Use locale-aware
+number and date formatting; do not concatenate translated sentence fragments.
+
+Resolve locale deterministically with English fallback. Keep initial server HTML and
+hydrated client locale consistent. Browser storage failure must not prevent switching
+languages. Preserve user-generated names and other user content. Comments, identifiers,
+documentation, and translation keys are English; explicitly supported catalog values
+may use their target language.
+
+Mobile language metadata lives in `apps/mobile/locales.json`: `en`, `es`, `fr`, `de`,
+`pt`, `it`, `ja`, and `zh-CN`, matching the supported web languages. Its platform-owned
+typed catalogs cover UI copy, errors, notices, and accessible names. Locale-aware dates
+and numbers come from the locale provider. Keep domain feedback as message keys so an
+already-visible error changes language without losing editable input. Shared primitives
+receive localized labels from consumers; `NativeCodeField` requires its accessible label.
+OS detection, preference persistence, script matching, and failure behavior are described
+in [the mobile foundation](mobile/foundation.md#localization).
+
+Keep instrumentation at transport, workflow, routing, and error boundaries. Use bounded
+operation names, route templates, timing, status, and safe error types. Do not put
+credentials, proofs, raw provider responses, sensitive URLs, request bodies, or arbitrary
+exception text into Query keys, caches, errors shown to users, or telemetry. Export remains
+optional and must not fail the user's operation. Separate public frontend configuration
+from server secrets.
+
+## Formatting and verification
+
+Oxfmt owns formatting: two spaces, a 100-column target, trailing commas, import ordering,
+and Tailwind class ordering against the shared stylesheet. Format edited code with the
+root configuration. Do not leave compressed JSX or divergent manual formatting.
+
+Run `bun run format:check`, `bun run typecheck`, `bun run lint`, and affected tests from
+the root. `bun run check` combines formatting, types, lint, and tests. Package
+scripts delegate shared policy to this root. Package moves require affected builds,
+including both shared UI Storybooks and the desktop web build for client consumers. Report existing violations accurately; do not
+claim clean checks when the inherited policy exposes them.
+
+Run meaningful behavior tests for invalid external data, failure handling, cancellation,
+authentication, and accessibility. Avoid tests that merely mirror trivial implementation
+details. Inspect responsive and keyboard behavior for interface changes. Keep temporary
+reports, screenshots, traces, and browser profiles outside the repositories.
+
+## Continuous integration
+
+The root shared-UI workflow installs the frozen dependency graph, verifies shared
+formatting and lint, checks TypeScript projects, runs frontend and SDK behavior tests,
+and compiles the application frontends and both Storybooks. The website, native clients
+and documentation site share that root install; there is no separate
+documentation dependency lock or npm install step.
+Root type checks include both UI compiler projects;
+`bun run storybook` starts the web catalog and `bun run storybook:native` starts the native
+catalog. `bun run build:storybook` builds both. This does not initialize another source repository or deploy a
+hosted service. Runtime release jobs also install dependencies from the root with Bun.
+The hosted repository owns its backend CI and publishing credentials. Frontend jobs build the current website, clients, shared UI and documentation reader.
+Hosted-service deployment workflows and secrets remain owned by the hosted repository.
+
+Linux x86_64 jobs target self-hosted runners with the `linux`, `x64` and `docker` labels.
+Their job containers use official language images pinned by version and digest: Rust for
+SDK compilation and shared frontend checks, Node for documentation and release assembly,
+and Ruby for platform-independent signing/build validation. Shared frontend tests compile
+the native SDK, so their container also needs the Rust compiler. Ruby validation checks the
+container version against the root toolchain and installs the locked gems in a job-local
+bundle directory. Native macOS, Windows and Linux ARM jobs retain their platform-specific
+runner requirements.
+
+## Design reference and brand assets
+
+The accepted visual system is documented in [DESIGN.md](DESIGN.md), with canonical brand
+applications in [brandkit.md](brandkit.md). Derived Impeccable metadata lives beside those
+references at `.impeccable/design.json`. Keep root and application source directories free
+of duplicate metadata; when automatic discovery misses the documentation layout, read the
+explicit paths. Runtime themes and controls must not depend on documentation files.
+
+BrandLogo exposes the canonical full lockup; BrandMark exposes its standalone symbol.
+Both use static asset imports so server rendering and browser hydration resolve the same
+artwork. The default is ink with a coral core, with inverse white/coral and optional
+monochrome treatments. Preserve the custom wordmark instead of composing a typed name.
+The website keeps its editorial composition and pastel illustration accents; its footer
+uses warm black with one inverse full lockup at the far right.
+
+## Foundation organization
+
+Foundations directly contains Overview, Brand, Responsive Design, Typography, Colors,
+Spacing, Shadows, Motion and Icons. There is no Swarmie nesting, Design Tokens page or
+complete vendor token catalog. Spacing and Shadows are focused guides with rendered values
+and examples. Colors presents semantic light/dark roles and the approved mint, lilac, peach
+and mustard accents; Chip extends HeroUI Chip with these optional category colors.
+
+The shared typography has one scale for web and desktop. Text links use HeroUI Link with a
+foreground change on hover and no filled surface. Control shapes, focus, selection and
+motion remain based on HeroUI with the shared Swarmie preset.
+
+The Table atom exposes the official HeroUI compound API. Foundations reuses it to present
+color roles, typography, spacing and interaction information. Filtering, pagination and
+application behavior are composed by consumers when needed.
+
+The Atoms catalog includes all 72 entries from the HeroUI React component index. Each
+entry includes an official documentation example. These examples live under the web
+Storybook configuration, outside the production component implementations. Example-only
+layouts come from the upstream demos; they do not change the shared primitive geometry.
+HeroUI Badge is the positioned notification indicator. HeroUI Chip provides inline status
+and category labels, including the approved brand accent extension. TextArea and TextField
+retain the upstream component names and compound APIs.

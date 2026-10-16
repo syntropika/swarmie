@@ -1,9 +1,6 @@
+import { Tooltip, Button, Dropdown, TooltipContent } from "@swarmie/ui-web";
 import { ChevronDown, Check, ListFilter } from "lucide-react";
 import type { ReactNode } from "react";
-
-import { Button } from "~/src/components/ui/button";
-import { Dropdown } from "~/src/components/ui/dropdown";
-import { TooltipContent } from "~/src/components/ui/tooltip";
 
 export type SidebarSort = "manual" | "updated_at";
 
@@ -17,10 +14,13 @@ export function SidebarSortMenu({
   onChange: (value: SidebarSort) => void;
 }) {
   return (
-    <Dropdown triggerTooltip={<TooltipContent>{label} options</TooltipContent>}>
-      <Button variant="ghost" size="icon-sm" aria-label={`${label} options`} tone="muted">
-        <ListFilter size={14} />
-      </Button>
+    <Dropdown>
+      <Tooltip>
+        <Button variant="tertiary" size="sm" isIconOnly aria-label={`${label} options`}>
+          <ListFilter size={14} />
+        </Button>
+        <TooltipContent>{label} options</TooltipContent>
+      </Tooltip>
       <Dropdown.Popover placement="bottom end">
         <Dropdown.Menu
           aria-label={`${label} sorting`}
@@ -32,7 +32,7 @@ export function SidebarSortMenu({
             }
           }}
         >
-          <div className="text-muted px-2 py-1 text-xs">Sort by</div>
+          <div className="px-2 py-1 text-xs text-muted">Sort by</div>
           <Dropdown.Item id="updated_at" textValue="Recent activity">
             Recent activity{value === "updated_at" && <Check size={14} className="ml-auto" />}
           </Dropdown.Item>
@@ -63,7 +63,7 @@ export function SidebarSection({
       <div className="mb-1 flex h-7 items-center gap-1 px-2">
         <h2 className="min-w-0 flex-1">
           <Button
-            variant="section"
+            variant="tertiary"
             size="sm"
             onClick={onToggle}
             aria-expanded={!collapsed}

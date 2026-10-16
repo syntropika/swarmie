@@ -14,6 +14,7 @@ import type {
   ThreadComposerRuntime,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
+import { Button, Disclosure, Tooltip, TooltipContent } from "@swarmie/ui-web";
 import {
   ArrowUp,
   Square,
@@ -42,9 +43,6 @@ import { MediaPreview, OutputAssets } from "~/src/asset-preview";
 import { attachmentBytes, readAttachment } from "~/src/attachments";
 import { MessageActions } from "~/src/components/assistant-ui/elements/message-actions";
 import { hasCount, hasText, scalarLabel } from "~/src/components/presentation-values";
-import { Button } from "~/src/components/ui/button";
-import { Disclosure } from "~/src/components/ui/disclosure";
-import { Tooltip, TooltipContent } from "~/src/components/ui/tooltip";
 import { ComposerContext } from "~/src/composer-context";
 import { fileLocation, markdownUrl } from "~/src/context";
 import { ContributionSlot, useContributions } from "~/src/contribution-host";
@@ -70,34 +68,54 @@ function ToolActivity() {
     return null;
   }
   return (
-    <Disclosure variant="activity">
-      <Disclosure.Summary>
-        <span>{running ? "Working" : "Work completed"}</span>
-        <span className="muted">
-          {tools.length} {tools.length === 1 ? "tool" : "tools"}
-        </span>
-      </Disclosure.Summary>
-      <div className="tool-list">
-        {tools.map((tool) => (
-          <Disclosure key={tool.id}>
-            <Disclosure.Summary>
-              <span className={`status-dot ${tool.status === "running" ? "working" : ""}`} />
-              {tool.name}
-              <span className="muted">{tool.status}</span>
-            </Disclosure.Summary>
-            {tool.input !== undefined && tool.input !== null && (
-              <pre>{JSON.stringify(tool.input, null, 2)}</pre>
-            )}
-            {tool.output !== undefined && tool.output !== null && (
-              <pre>
-                {typeof tool.output === "string"
-                  ? tool.output
-                  : JSON.stringify(tool.output, null, 2)}
-              </pre>
-            )}
-          </Disclosure>
-        ))}
-      </div>
+    <Disclosure data-workspace-part="tool-activity">
+      <Disclosure.Heading>
+        <Button slot="trigger" variant="tertiary">
+          <span>
+            <span>{running ? "Working" : "Work completed"}</span>
+            <span className="muted">
+              {tools.length} {tools.length === 1 ? "tool" : "tools"}
+            </span>
+          </span>
+          <Disclosure.Indicator />
+        </Button>
+      </Disclosure.Heading>
+      <Disclosure.Content>
+        <Disclosure.Body>
+          <div className="tool-list">
+            {tools.map((tool) => (
+              <Disclosure key={tool.id}>
+                <Disclosure.Heading>
+                  <Button slot="trigger" variant="tertiary">
+                    <span>
+                      <span
+                        className={`status-dot ${tool.status === "running" ? "working" : ""}`}
+                      />
+                      {tool.name}
+                      <span className="muted">{tool.status}</span>
+                    </span>
+                    <Disclosure.Indicator />
+                  </Button>
+                </Disclosure.Heading>
+                <Disclosure.Content>
+                  <Disclosure.Body>
+                    {tool.input !== undefined && tool.input !== null && (
+                      <pre>{JSON.stringify(tool.input, null, 2)}</pre>
+                    )}
+                    {tool.output !== undefined && tool.output !== null && (
+                      <pre>
+                        {typeof tool.output === "string"
+                          ? tool.output
+                          : JSON.stringify(tool.output, null, 2)}
+                      </pre>
+                    )}
+                  </Disclosure.Body>
+                </Disclosure.Content>
+              </Disclosure>
+            ))}
+          </div>
+        </Disclosure.Body>
+      </Disclosure.Content>
     </Disclosure>
   );
 }
@@ -216,12 +234,12 @@ function UserMessage() {
     <MessagePrimitive.Root className="group/user-message mt-1 mb-8 ml-auto flex w-fit max-w-[88%] min-w-0 flex-col items-end gap-1">
       <div
         data-slot="user-message-bubble"
-        className="bg-control-secondary min-w-0 rounded-2xl px-4 py-3 text-sm leading-5 wrap-anywhere whitespace-pre-wrap"
+        className="min-w-0 rounded-2xl bg-default px-4 py-3 text-sm leading-5 wrap-anywhere whitespace-pre-wrap"
       >
         <MessagePrimitive.Content components={{ Image: MessageImage }} />
       </div>
       <ContributionSlot name="message.details" context={{ messageId }} />
-      <ActionBarPrimitive.Root className="text-muted pointer-events-none flex h-7 items-center gap-1 text-xs opacity-0 transition-opacity duration-150 group-focus-within/user-message:pointer-events-auto group-focus-within/user-message:opacity-100 group-hover/user-message:pointer-events-auto group-hover/user-message:opacity-100 motion-reduce:transition-none">
+      <ActionBarPrimitive.Root className="pointer-events-none flex h-7 items-center gap-1 text-xs text-muted opacity-0 transition-opacity duration-150 group-focus-within/user-message:pointer-events-auto group-focus-within/user-message:opacity-100 group-hover/user-message:pointer-events-auto group-hover/user-message:opacity-100 motion-reduce:transition-none">
         {validDate && (
           <time
             dateTime={validDate.toISOString()}
@@ -237,10 +255,10 @@ function UserMessage() {
         )}
         <Tooltip>
           <Button
-            variant="ghost"
-            size="icon-sm"
-            shape="pill"
-            tone={copied ? "success" : "muted"}
+            variant="tertiary"
+            size="sm"
+            isIconOnly
+
             aria-label={copied ? "Copied" : "Copy"}
             onClick={copy}
           >
@@ -282,10 +300,9 @@ function AssistantMessage() {
           host.thread.state === "idle" && (
             <Tooltip>
               <Button
-                shape="pill"
-                tone="muted"
-                variant="ghost"
-                size="icon-sm"
+                variant="tertiary"
+                size="sm"
+                isIconOnly
 
                 aria-label="Fork from here"
                 disabled={forking}
@@ -356,25 +373,45 @@ function ConversationTimeline({
           {({ message }) => (message.role === "user" ? <UserMessage /> : <AssistantMessage />)}
         </ThreadPrimitive.Messages>
         {hasText(thread.reasoning) && (
-          <Disclosure variant="activity">
-            <Disclosure.Summary>Thinking</Disclosure.Summary>
-            <p className="reasoning-text">{thread.reasoning}</p>
+          <Disclosure data-workspace-part="tool-activity">
+            <Disclosure.Heading>
+              <Button slot="trigger" variant="tertiary">
+                <span>Thinking</span>
+                <Disclosure.Indicator />
+              </Button>
+            </Disclosure.Heading>
+            <Disclosure.Content>
+              <Disclosure.Body>
+                <p className="reasoning-text">{thread.reasoning}</p>
+              </Disclosure.Body>
+            </Disclosure.Content>
           </Disclosure>
         )}
         {thread.plan !== undefined && thread.plan !== null && <Plan value={thread.plan} />}
         <OutputAssets store={store} files={thread.outputFiles ?? []} />
         {hasCount(thread.subagents?.length) && (
-          <Disclosure variant="activity" defaultOpen>
-            <Disclosure.Summary>Agents · {thread.subagents.length}</Disclosure.Summary>
-            {thread.subagents.map((agent, i) => (
-              <div className="subagent-row" key={scalarLabel(agent._id, `agent-${i}`)}>
-                <strong>{scalarLabel(agent.name ?? agent.role ?? agent.agentId, "Agent")}</strong>
-                <span>{scalarLabel(agent.status ?? agent.state, "Working")}</span>
-                {agent.progress !== undefined && agent.progress !== null && (
-                  <p>{scalarLabel(agent.progress, "")}</p>
-                )}
-              </div>
-            ))}
+          <Disclosure data-workspace-part="tool-activity" defaultExpanded>
+            <Disclosure.Heading>
+              <Button slot="trigger" variant="tertiary">
+                <span>Agents · {thread.subagents.length}</span>
+                <Disclosure.Indicator />
+              </Button>
+            </Disclosure.Heading>
+            <Disclosure.Content>
+              <Disclosure.Body>
+                {thread.subagents.map((agent, i) => (
+                  <div className="subagent-row" key={scalarLabel(agent._id, `agent-${i}`)}>
+                    <strong>
+                      {scalarLabel(agent.name ?? agent.role ?? agent.agentId, "Agent")}
+                    </strong>
+                    <span>{scalarLabel(agent.status ?? agent.state, "Working")}</span>
+                    {agent.progress !== undefined && agent.progress !== null && (
+                      <p>{scalarLabel(agent.progress, "")}</p>
+                    )}
+                  </div>
+                ))}
+              </Disclosure.Body>
+            </Disclosure.Content>
           </Disclosure>
         )}
         {running && (
@@ -386,7 +423,7 @@ function ConversationTimeline({
           <output>
             <p>We cannot confirm whether your request finished. Pending work is paused.</p>
             <Button
-              variant="ghost"
+              variant="tertiary"
               disabled={checkingRecovery}
               onClick={() => {
                 checkRecovery().catch(store.setError.bind(store));
@@ -614,7 +651,13 @@ export function Conversation({
             <div className="composer-dock">
               <div className="conversation-width">
                 <ThreadPrimitive.ScrollToBottom asChild>
-                  <Button size="icon" variant="reveal" aria-label="Jump to latest message">
+                  <Button
+                    size="md"
+                    isIconOnly
+                    variant="tertiary"
+                    data-workspace-part="scroll-bottom"
+                    aria-label="Jump to latest message"
+                  >
                     <ChevronDown size={17} />
                   </Button>
                 </ThreadPrimitive.ScrollToBottom>
@@ -657,7 +700,7 @@ export function Conversation({
                           )}
                           <Button
                             size="sm"
-                            variant="ghost"
+                            variant="tertiary"
 
                             onClick={() => {
                               setPreviewAttachment(
@@ -668,8 +711,9 @@ export function Conversation({
                             {file.name}
                           </Button>
                           <Button
-                            size="icon"
-                            variant="ghost"
+                            size="md"
+                            isIconOnly
+                            variant="tertiary"
 
                             aria-label={`Remove ${file.name}`}
                             onClick={() => {
@@ -738,9 +782,9 @@ export function Conversation({
                   />
                   <div className="composer-toolbar">
                     <Button
-                      shape="pill"
-                      variant="ghost"
-                      size="icon-sm"
+                      variant="tertiary"
+                      size="sm"
+                      isIconOnly
 
                       aria-label="Attach files or images"
                       disabled={!ready}
@@ -756,9 +800,9 @@ export function Conversation({
                       <AuiIf condition={(state) => !state.thread.isRunning}>
                         <ComposerPrimitive.Send asChild>
                           <Button
-                            shape="pill"
-                            variant="send"
-                            size="icon-sm"
+                            variant="primary"
+                            size="sm"
+                            isIconOnly
 
                             aria-label="Send message"
                             type="submit"
@@ -770,7 +814,7 @@ export function Conversation({
                       </AuiIf>
                       <AuiIf condition={(state) => state.thread.isRunning}>
                         <Button
-                          variant="ghost"
+                          variant="tertiary"
                           size="sm"
 
                           disabled={
@@ -786,7 +830,7 @@ export function Conversation({
                         </Button>
                         {thread.capabilities?.steering?.availability === "available" && (
                           <Button
-                            variant="ghost"
+                            variant="tertiary"
                             size="sm"
 
                             disabled={sending || !hasText(thread.draft?.trim())}
@@ -800,9 +844,9 @@ export function Conversation({
                         )}
                         <ComposerPrimitive.Cancel asChild>
                           <Button
-                            shape="pill"
-                            variant="stop"
-                            size="icon-sm"
+                            variant="primary"
+                            size="sm"
+                            isIconOnly
 
                             aria-label="Stop generation"
                           >
@@ -853,7 +897,7 @@ export function PatchCopy({ text }: { text: string }) {
   return (
     <span>
       <Button
-        variant="ghost"
+        variant="tertiary"
         size="sm"
         onClick={() => {
           copyPatch().catch(reportCopyFailure);

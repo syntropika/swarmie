@@ -1,9 +1,9 @@
+import { Button } from "@swarmie/ui-web";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { errorMessage, startAction } from "~/src/action-boundary";
 import { isRecord } from "~/src/checked-json";
-import { Button } from "~/src/components/ui/button";
 import { useContributions } from "~/src/contribution-context";
 import type { ContributionContext, ContributionEvent, ScopedClientApi } from "~/src/contributions";
 import { extensionDocument } from "~/src/extension-frame";
@@ -78,7 +78,7 @@ export function CustomExtensionView(props: ViewProps) {
       <div className="review-toolbar">
         <span>{view.title}</span>
         <Button
-          variant="ghost"
+          variant="tertiary"
           size="sm"
           onClick={() => {
             setRevision((value) => value + 1);
