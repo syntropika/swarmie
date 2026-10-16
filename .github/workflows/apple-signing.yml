@@ -63,6 +63,8 @@ jobs:
           for name in ("ruby", "just"):
               print(f"{name}={tools[name]}")
           PY
+      - name: Prepare the self-hosted Ruby tool cache
+        run: sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" /opt/hostedtoolcache
       - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1
         with:
           ruby-version: ${{ steps.tools.outputs.ruby }}

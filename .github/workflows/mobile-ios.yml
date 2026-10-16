@@ -75,6 +75,8 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: ${{ steps.tools.outputs.bun }}
+      - name: Prepare the self-hosted Ruby tool cache
+        run: sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" /opt/hostedtoolcache
       - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1
         with:
           ruby-version: ${{ steps.tools.outputs.ruby }}
