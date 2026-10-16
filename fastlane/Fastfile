@@ -49,6 +49,7 @@ platform :ios do
   lane :upload do
     begin
       settings = MobileIOS.settings(ENV, signing: "signed")
+      MobileIOS.validate_upload!(settings)
       ipa = File.join(settings.fetch(:output), "swarmie.ipa")
       raise ArgumentError, "Build a signed IPA before uploading to TestFlight" unless File.file?(ipa) && File.size?(ipa)
 

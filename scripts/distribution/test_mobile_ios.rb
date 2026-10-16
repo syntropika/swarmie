@@ -5,13 +5,13 @@ require "open3"
 require_relative "../../fastlane/mobile_ios"
 
 class MobileIOSTest < Minitest::Test
-  def with_configuration(variant: "development", identifier: "app.swarmie.mobile.dev", api_url: "https://api.example.com")
+  def with_configuration(variant: "development", identifier: "app.swarmie.mobile.dev", api_url: "https://api.example.com", info_plist: {})
     Dir.mktmpdir("mobile-ios-test") do |root|
       output = File.join(root, "dist", "mobile", "ios")
       native = File.join(root, "apps", "mobile", "ios")
       FileUtils.mkdir_p([output, File.join(native, "Swarmie.xcworkspace"), File.join(native, "Swarmie.xcodeproj")])
       manifest = {
-        "ios" => { "bundleIdentifier" => identifier },
+        "ios" => { "bundleIdentifier" => identifier, "infoPlist" => info_plist },
         "extra" => { "appVariant" => variant, "apiBaseUrl" => api_url },
       }
       File.write(File.join(output, "expo-config.json"), JSON.generate(manifest))
@@ -49,6 +49,37 @@ class MobileIOSTest < Minitest::Test
     with_configuration(variant: "production", identifier: "app.swarmie.mobile") do |root, env|
       settings = MobileIOS.settings(env, signing: "signed", root: root)
       assert_equal "app.swarmie.mobile", settings.fetch(:identifier)
+    end
+  end
+
+  def test_development_uploads_leave_export_questions_to_app_store_connect
+    with_configuration do |root, env|
+      settings = MobileIOS.settings(env, signing: "signed", root: root)
+      assert_nil MobileIOS.validate_upload!(settings)
+    end
+  end
+
+  def test_production_uploads_require_the_approval_in_the_prepared_configuration
+    [nil, "", " ", 123].each do |code|
+      with_configuration(variant: "production", identifier: "app.swarmie.mobile",
+                         info_plist: { "ITSAppUsesNonExemptEncryption" => true,
+                                       "ITSEncryptionExportComplianceCode" => code }) do |root, env|
+        settings = MobileIOS.settings(env, signing: "signed", root: root)
+        error = assert_raises(ArgumentError) { MobileIOS.validate_upload!(settings) }
+        assert_includes error.message, "IOS_PRODUCTION_ENCRYPTION_EXPORT_COMPLIANCE_CODE"
+      end
+    end
+    [false, true].each do |non_exempt|
+      with_configuration(variant: "production", identifier: "app.swarmie.mobile",
+                         info_plist: { "ITSAppUsesNonExemptEncryption" => non_exempt,
+                                       "ITSEncryptionExportComplianceCode" => "fixture-approval-reference" }) do |root, env|
+        settings = MobileIOS.settings(env, signing: "signed", root: root)
+        if non_exempt
+          assert_nil MobileIOS.validate_upload!(settings)
+        else
+          assert_raises(ArgumentError) { MobileIOS.validate_upload!(settings) }
+        end
+      end
     end
   end
 

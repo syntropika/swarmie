@@ -30,15 +30,27 @@ module MobileIOS
     raise ArgumentError, "The generated Xcode project is missing" unless File.directory?(project)
 
     {
+      variant: variant,
       identifier: target.fetch(:identifier),
       project: project,
       workspace: workspace,
       scheme: scheme,
       output: output,
       signed: signing == "signed",
+      uses_non_exempt_encryption: manifest.dig("ios", "infoPlist", "ITSAppUsesNonExemptEncryption"),
+      export_compliance_code: manifest.dig("ios", "infoPlist", "ITSEncryptionExportComplianceCode"),
     }
   rescue Errno::ENOENT, JSON::ParserError
     raise ArgumentError, "Run just mobile-ios-prepare to generate the public Expo configuration"
+  end
+
+  def self.validate_upload!(settings)
+    return unless settings.fetch(:variant) == "production"
+
+    code = settings.fetch(:export_compliance_code)
+    unless settings.fetch(:uses_non_exempt_encryption) == true && code.is_a?(String) && !code.strip.empty?
+      raise ArgumentError, "Production uploads require an Apple-approved export compliance code; set IOS_PRODUCTION_ENCRYPTION_EXPORT_COMPLIANCE_CODE before preparing the app"
+    end
   end
 
   def self.build_options(settings)
