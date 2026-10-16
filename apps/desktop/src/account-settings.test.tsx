@@ -24,12 +24,12 @@ it("requires an explicit choice for session-only sign-in and does not cancel on 
         status: "signingIn",
         loginId: "login",
         persistence: "session",
-        authorizationUrl: "https://accounts.example.com/auth/native/authorize",
+        authorizationUrl: "https://accounts.example.com/auth/handoff/authorize",
       }),
     );
     return {
       loginId: "login",
-      authorizationUrl: "https://accounts.example.com/auth/native/authorize",
+      authorizationUrl: "https://accounts.example.com/auth/handoff/authorize",
       expiresIn: 300,
       persistence: "session",
     };
@@ -167,7 +167,7 @@ it("can reopen a pending browser sign-in after the settings view was closed", as
     accountSnapshot({
       status: "signingIn",
       loginId: "login",
-      authorizationUrl: "https://accounts.example.com/auth/native/authorize?request=pending",
+      authorizationUrl: "https://accounts.example.com/auth/handoff/authorize?request=pending",
     }),
   );
   const view = renderAccount(fixture, <AccountSettings />);

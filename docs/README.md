@@ -24,7 +24,7 @@ The runtime, clients and distribution packages build without either documentatio
 | Extensions | [API](runtime/extension-api.md), [Git](extensions/git.md), [permissions](extensions/permissions.md), [resources](extensions/resources.md), [workspace](extensions/workspace.md) |
 | Testing | [Fixtures and qualification](testing/README.md) |
 | Public documentation site | [Development, content and publishing](public-site.md) |
-| Hosted services (private repository) | [Architecture](https://github.com/syntropika/swarmie-cloud/blob/develop/docs/architecture.md), [accounts](https://github.com/syntropika/swarmie-cloud/blob/develop/docs/account-integration-plan.md) |
+| Hosted services (private repository) | [Architecture](https://github.com/syntropika/swarmie-cloud/blob/develop/docs/architecture.md), [accounts](https://github.com/syntropika/swarmie-cloud/blob/develop/docs/account-integration.md) |
 | Legal | [Third-party notices](legal/THIRD_PARTY_NOTICES.md) |
 
 Keep category folders shallow. Shared references belong directly here; application or
