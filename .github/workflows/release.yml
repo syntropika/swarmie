@@ -34,13 +34,16 @@ jobs:
         include:
           - platform: linux-x86_64
             runner: [self-hosted, linux, x64, docker]
+            container: rust:1.94.0-bookworm@sha256:365468470075493dc4583f47387001854321c5a8583ea9604b297e67f01c5a4f
           - platform: linux-aarch64
             runner: ubuntu-24.04-arm
+            container: rust:1.94.0-bookworm@sha256:365468470075493dc4583f47387001854321c5a8583ea9604b297e67f01c5a4f
           - platform: macos-x86_64
             runner: macos-15-intel
           - platform: macos-aarch64
             runner: macos-15
     runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -63,7 +66,7 @@ jobs:
         run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
       - name: Install Linux desktop prerequisites
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
+        run: apt-get update && apt-get install -y build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
       - name: Verify distribution tooling
         run: |
           python3 -m unittest discover -s scripts/distribution -p 'test_*.py'
@@ -168,6 +171,7 @@ jobs:
     name: Verify and assemble release
     needs: [build, windows]
     runs-on: [self-hosted, linux, x64, docker]
+    container: node:24.14.0-bookworm@sha256:5a593d74b632d1c6f816457477b6819760e13624455d587eef0fa418c8d0777b
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -199,8 +203,11 @@ jobs:
     permissions:
       contents: write
     runs-on: [self-hosted, linux, x64, docker]
+    container: node:24.14.0-bookworm@sha256:5a593d74b632d1c6f816457477b6819760e13624455d587eef0fa418c8d0777b
     timeout-minutes: 10
     steps:
+      - name: Install the GitHub CLI
+        run: apt-get update && apt-get install -y --no-install-recommends gh
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: release-assets

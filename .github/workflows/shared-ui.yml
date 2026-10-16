@@ -48,6 +48,7 @@ concurrency:
 jobs:
   verify:
     runs-on: [self-hosted, linux, x64, docker]
+    container: rust:1.94.0-bookworm@sha256:365468470075493dc4583f47387001854321c5a8583ea9604b297e67f01c5a4f
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

@@ -329,6 +329,15 @@ hosted service. Runtime release jobs also install dependencies from the root wit
 The hosted repository owns its backend CI and publishing credentials. Frontend jobs build the current website, clients, shared UI and documentation reader.
 Hosted-service deployment workflows and secrets remain owned by the hosted repository.
 
+Linux x86_64 jobs target self-hosted runners with the `linux`, `x64` and `docker` labels.
+Their job containers use official language images pinned by version and digest: Rust for
+SDK compilation and shared frontend checks, Node for documentation and release assembly,
+and Ruby for platform-independent signing/build validation. Shared frontend tests compile
+the native SDK, so their container also needs the Rust compiler. Ruby validation checks the
+container version against the root toolchain and installs the locked gems in a job-local
+bundle directory. Native macOS, Windows and Linux ARM jobs retain their platform-specific
+runner requirements.
+
 ## Design reference and brand assets
 
 The accepted visual system is documented in [DESIGN.md](DESIGN.md), with canonical brand
