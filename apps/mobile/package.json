@@ -9,6 +9,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "prebuild": "expo prebuild --no-install",
+    "config:public": "expo config --type public --json",
     "export": "expo export --platform all",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "check:dependencies": "expo install --check"

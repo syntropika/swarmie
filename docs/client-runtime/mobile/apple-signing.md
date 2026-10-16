@@ -15,9 +15,10 @@ delivery. App Store Connect app records are required separately before TestFligh
 | Development | `app.swarmie.mobile.dev` | Swarmie Dev |
 | Production | `app.swarmie.mobile` | Swarmie |
 
-The existing Expo configuration still uses the production identifier. Selecting development
-in signing maintenance does not change the application's build configuration. A subsequent
-build workflow must select the matching identifier, backend and callback scheme together.
+Expo selects the app identifier and link scheme through `APP_VARIANT`, defaulting to
+development for local commands. Signing maintenance does not select the application's build
+environment. The [iOS build workflow](ios-builds.md) selects the matching variant and backend
+configuration explicitly.
 
 The `appstore` profile supports both TestFlight and App Store submission. A development app
 can use an App Store profile while connecting to development services: the app environment

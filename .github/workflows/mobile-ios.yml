@@ -1,0 +1,215 @@
+name: Mobile iOS
+
+on:
+  pull_request:
+    paths:
+      - "apps/mobile/app.config.ts"
+      - "apps/mobile/package.json"
+      - "apps/mobile/metro.config.cjs"
+      - "apps/mobile/babel.config.js"
+      - "sdk/react-native/**"
+      - "sdk/wit/**"
+      - "sdk/tools/build_apple.py"
+      - "sdk/tools/build_mobile.py"
+      - "crates/client*/**"
+      - "fastlane/**"
+      - "scripts/distribution/test_mobile_ios.rb"
+      - "Gemfile"
+      - "Gemfile.lock"
+      - "bun.lock"
+      - "bunfig.toml"
+      - "package.json"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "mise.toml"
+      - "justfile"
+      - ".github/workflows/mobile-ios.yml"
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: Upload the signed development build to TestFlight
+        type: boolean
+        default: true
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-ios-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'development' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CI: "1"
+  EXPO_NO_TELEMETRY: "1"
+  COCOAPODS_DISABLE_STATS: "true"
+  FASTLANE_SKIP_UPDATE_CHECK: "1"
+  FASTLANE_HIDE_CHANGELOG: "1"
+  FASTLANE_DISABLE_COLORS: "1"
+  FASTLANE_OPT_OUT_USAGE: "1"
+
+jobs:
+  validate:
+    name: Validate build tooling
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Read root toolchain
+        id: tools
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import tomllib
+          from pathlib import Path
+          for name, version in tomllib.loads(Path("mise.toml").read_text())["tools"].items():
+              if name in ("ruby", "just", "node", "bun"):
+                  print(f"{name}={version}")
+          PY
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ steps.tools.outputs.node }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ steps.tools.outputs.bun }}
+      - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1
+        with:
+          ruby-version: ${{ steps.tools.outputs.ruby }}
+          bundler-cache: true
+      - uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
+        with:
+          just-version: ${{ steps.tools.outputs.just }}
+      - run: bun install --frozen-lockfile
+      - run: just mobile-build-check
+      - run: just mobile-check
+
+  build:
+    name: Build development app
+    if: github.event_name == 'pull_request' || github.ref_name == github.event.repository.default_branch
+    needs: validate
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      APP_VARIANT: development
+      IOS_BUILD_NUMBER: ${{ github.run_number }}.${{ github.run_attempt }}
+      MOBILE_API_BASE_URL: ${{ vars.MOBILE_DEV_API_BASE_URL || (github.event_name == 'pull_request' && 'https://api.example.invalid') || '' }}
+      SIGNING_MODE: ${{ github.event_name == 'workflow_dispatch' && 'signed' || 'unsigned' }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Read root toolchain
+        id: tools
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import tomllib
+          from pathlib import Path
+          config = tomllib.loads(Path("mise.toml").read_text())
+          for name in ("ruby", "just", "node", "bun", "rust"):
+              print(f"{name}={config['tools'][name]}")
+          print(f"xcode={config['env']['SWARMIE_XCODE_VERSION']}")
+          PY
+      - name: Select Xcode and validate the backend setting
+        env:
+          XCODE_VERSION: ${{ steps.tools.outputs.xcode }}
+        run: |
+          set -euo pipefail
+          test -n "$MOBILE_API_BASE_URL" || { echo 'Set MOBILE_DEV_API_BASE_URL before building.' >&2; exit 1; }
+          developer_dir="/Applications/Xcode_$XCODE_VERSION.app/Contents/Developer"
+          test -d "$developer_dir"
+          echo "DEVELOPER_DIR=$developer_dir" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ steps.tools.outputs.node }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ steps.tools.outputs.bun }}
+      - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1
+        with:
+          ruby-version: ${{ steps.tools.outputs.ruby }}
+          bundler-cache: true
+      - uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
+        with:
+          just-version: ${{ steps.tools.outputs.just }}
+      - name: Install the pinned Rust toolchain
+        env:
+          RUST_VERSION: ${{ steps.tools.outputs.rust }}
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          echo "RUSTUP_TOOLCHAIN=$RUST_VERSION" >> "$GITHUB_ENV"
+          xcodebuild -version
+      - run: bun install --frozen-lockfile
+      - name: Prepare readonly signing access
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MATCH_SSH_KEY: ${{ secrets.MATCH_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$MATCH_SSH_KEY" || { echo 'MATCH_SSH_PRIVATE_KEY is missing.' >&2; exit 1; }
+          umask 077
+          key_path="$RUNNER_TEMP/match-ssh-key"
+          known_hosts="$RUNNER_TEMP/match-known-hosts"
+          metadata_path="$RUNNER_TEMP/match-github-meta.json"
+          printf '%s\n' "$MATCH_SSH_KEY" > "$key_path"
+          ssh-keygen -y -f "$key_path" > /dev/null
+          curl --fail --silent --show-error --retry 3 \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --output "$metadata_path" https://api.github.com/meta
+          python3 - "$metadata_path" > "$known_hosts" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          keys = json.loads(Path(sys.argv[1]).read_text())["ssh_keys"]
+          if not keys:
+              sys.exit("GitHub metadata did not contain SSH host keys.")
+          print("\n".join("github.com " + key for key in keys))
+          PY
+          {
+            echo "MATCH_GIT_PRIVATE_KEY=$key_path"
+            echo "GIT_SSH_COMMAND=ssh -F /dev/null -i $key_path -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known_hosts"
+          } >> "$GITHUB_ENV"
+      - name: Prepare native SDK, Expo project and CocoaPods
+        run: just mobile-ios-prepare
+      - name: Archive the development app
+        id: archive
+        env:
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          MATCH_GIT_URL: ${{ vars.MATCH_GIT_URL }}
+          MATCH_GIT_BRANCH: ${{ vars.MATCH_GIT_BRANCH || 'main' }}
+          MATCH_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && secrets.MATCH_PASSWORD || '' }}
+        run: |
+          just mobile-ios-build "$SIGNING_MODE"
+          app="dist/mobile/ios/Swarmie.xcarchive/Products/Applications/Swarmie.app"
+          test -s "$app/main.jsbundle"
+          test "$(plutil -extract CFBundleIdentifier raw -o - "$app/Info.plist")" = 'app.swarmie.mobile.dev'
+      - name: Upload to TestFlight
+        if: github.event_name == 'workflow_dispatch' && inputs.upload
+        env:
+          ASC_SIGNING_API_KEY_ID: ${{ secrets.ASC_SIGNING_API_KEY_ID }}
+          ASC_SIGNING_API_ISSUER_ID: ${{ secrets.ASC_SIGNING_API_ISSUER_ID }}
+          ASC_SIGNING_API_KEY_P8: ${{ secrets.ASC_SIGNING_API_KEY_P8 }}
+        run: just mobile-ios-upload
+      - name: Save the signed build and symbols
+        if: always() && github.event_name == 'workflow_dispatch' && steps.archive.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ios-development-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            dist/mobile/ios/*.ipa
+            dist/mobile/ios/*.dSYM.zip
+            dist/mobile/ios/expo-config.json
+          retention-days: 14
+          if-no-files-found: error
+      - name: Save Xcode build logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ios-build-logs-${{ github.run_number }}-${{ github.run_attempt }}
+          path: dist/mobile/ios/logs
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Remove temporary SSH credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/match-ssh-key" "$RUNNER_TEMP/match-known-hosts" "$RUNNER_TEMP/match-github-meta.json"
