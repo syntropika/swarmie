@@ -254,8 +254,9 @@ retained events. Stream failures trigger a journal refresh. A disconnected phone
 runtime's independent scheduler. Cancelling a routine does not retract an already queued prompt;
 stop active agent work through its advertised session cancellation control.
 
-Expo CLI entry points disable telemetry with `EXPO_NO_TELEMETRY=1`. OTA updates are disabled and no
-update URL or EAS project is configured. Functional notification modules are installed, but this slice
+Expo CLI entry points disable telemetry with `EXPO_NO_TELEMETRY=1`. New native builds enable
+[signed OTA updates](ota-updates.md) with separate application identities and channels for each
+variant. Functional notification modules are installed, but this slice
 does not request notification permissions, register push tokens or contact the Expo Push Service.
 Audio recording, camera, photo-library and remote-computer access are not requested at launch.
 The image action uses the system document picker. No analytics, attribution, advertising, replay,

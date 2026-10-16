@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - "apps/mobile/app.config.ts"
+      - "apps/mobile/certs/**"
+      - "apps/mobile/fingerprint.config.cjs"
       - "apps/mobile/package.json"
       - "apps/mobile/metro.config.cjs"
       - "apps/mobile/babel.config.js"
@@ -184,6 +186,8 @@ jobs:
           app="dist/mobile/ios/Swarmie.xcarchive/Products/Applications/Swarmie.app"
           test -s "$app/main.jsbundle"
           test "$(plutil -extract CFBundleIdentifier raw -o - "$app/Info.plist")" = 'app.swarmie.mobile.dev'
+          test "$(plutil -extract EXUpdatesEnabled raw -o - "$app/Expo.plist")" = 'true'
+          test "$(plutil -extract EXUpdatesRequestHeaders.expo-channel-name raw -o - "$app/Expo.plist")" = 'development'
       - name: Upload to TestFlight
         if: github.event_name == 'workflow_dispatch' && inputs.upload
         env:

@@ -23,8 +23,8 @@ in public Expo configuration. `IOS_BUILD_NUMBER` is a numeric build string; the 
 uses its run number and attempt so retries receive a different build number.
 
 Both variants compile in Release with bundled JavaScript. Development service selection
-does not depend on `__DEV__`, and installation does not require a Metro server. OTA remains
-disabled until a separate update-server integration is implemented.
+does not depend on `__DEV__`, and installation does not require a Metro server. New native
+builds embed the variant's signed OTA configuration; see [OTA updates](ota-updates.md).
 
 The mobile account adapter is still unconfigured. Embedding the backend URL prepares its
 configuration but does not implement native account sign-in, passkeys or provider access.
