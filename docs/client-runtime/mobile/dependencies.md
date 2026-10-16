@@ -46,7 +46,7 @@ Workspace packages share this repository's source and are not published by this 
 | `expo-splash-screen` | `57.0.10` | Native splash lifecycle |
 | `expo-status-bar` | `57.0.1` | Status bar appearance |
 | `expo-system-ui` | `57.0.4` | Native appearance support |
-| `expo-updates` | `57.0.26` | Installed update capability; OTA disabled, no update endpoint |
+| `expo-updates` | `57.0.26` | Signed OTA updates from the configured update service, isolated by app variant and native runtime fingerprint |
 | `expo-video` | `57.0.5` | Deferred playback; background and picture-in-picture disabled |
 | `expo-web-browser` | `57.0.3` | Deferred browser authentication handoff |
 | `heroui-native` | `1.0.10` | Transitive through shared native UI; button/input/label/text-field trial, with raw provider setup |

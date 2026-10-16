@@ -2,11 +2,25 @@ import type { ExpoConfig } from "expo/config";
 
 import languageNames from "./locales.json";
 
+const updateApplications = {
+  development: {
+    appId: "cbde1ef2-b30c-4203-ad25-e993e6b1d2bd",
+    channel: "development",
+    certificate: "./certs/development.pem",
+  },
+  production: {
+    appId: "1a235ef9-ac36-46a0-b2dc-8b37e8747fea",
+    channel: "production",
+    certificate: "./certs/production.pem",
+  },
+};
+
 export function createAppConfig(environment: Record<string, string | undefined>): ExpoConfig {
   const variant = environment.APP_VARIANT ?? "development";
   if (variant !== "development" && variant !== "production") {
     throw new Error("APP_VARIANT must be development or production");
   }
+  const updateApplication = updateApplications[variant];
   const identifier = variant === "development" ? "app.swarmie.mobile.dev" : "app.swarmie.mobile";
   const scheme = variant === "development" ? "swarmie-dev" : "swarmie";
   const buildNumber = environment.IOS_BUILD_NUMBER ?? "1";
@@ -99,7 +113,21 @@ export function createAppConfig(environment: Record<string, string | undefined>)
       ],
     ],
     experiments: { typedRoutes: true },
-    updates: { enabled: false },
+    runtimeVersion: { policy: "fingerprint" },
+    updates: {
+      enabled: true,
+      url: "https://ota.syntropika.ai/manifest",
+      requestHeaders: {
+        "expo-app-id": updateApplication.appId,
+        "expo-channel-name": updateApplication.channel,
+        "xprem-branch": "",
+      },
+      codeSigningCertificate: updateApplication.certificate,
+      codeSigningMetadata: { keyid: "main", alg: "rsa-v1_5-sha256" },
+      checkAutomatically: "ON_LOAD",
+      fallbackToCacheTimeout: 0,
+      useEmbeddedUpdate: true,
+    },
     extra: {
       appVariant: variant,
       ...(apiBaseUrl === undefined ? {} : { apiBaseUrl }),

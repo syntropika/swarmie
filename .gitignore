@@ -21,6 +21,9 @@
 !.env.example
 !.env.sample
 *.pem
+# Public OTA verification certificates are embedded in native builds.
+!/apps/mobile/certs/development.pem
+!/apps/mobile/certs/production.pem
 *.key
 *.p8
 *.p12
