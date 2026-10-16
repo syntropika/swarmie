@@ -329,14 +329,14 @@ hosted service. Runtime release jobs also install dependencies from the root wit
 The hosted repository owns its backend CI and publishing credentials. Frontend jobs build the current website, clients, shared UI and documentation reader.
 Hosted-service deployment workflows and secrets remain owned by the hosted repository.
 
-Linux x86_64 jobs target self-hosted runners with the `linux`, `x64` and `docker` labels.
-Their job containers use official language images pinned by version and digest: Rust for
-SDK compilation and shared frontend checks, Node for documentation and release assembly,
-and Ruby for platform-independent signing/build validation. Shared frontend tests compile
-the native SDK, so their container also needs the Rust compiler. Ruby validation checks the
-container version against the root toolchain and installs the locked gems in a job-local
-bundle directory. Native macOS, Windows and Linux ARM jobs retain their platform-specific
-runner requirements.
+CI uses standard GitHub-hosted runners. Linux x86_64 jobs use `ubuntu-24.04` with
+version- and digest-pinned official language containers: Rust for SDK compilation and
+shared frontend checks, Node for documentation and release assembly, and Ruby for
+platform-independent signing/build validation. Native Apple ARM jobs use the standard
+`xcode-27` image and select the root-pinned Xcode version. Ruby setup uses GitHub's hosted
+tool cache. Linux ARM, Intel macOS and Windows jobs retain their explicit standard image
+labels. Public repository runner usage does not consume private-repository minutes;
+concurrency, job-duration and artifact-retention limits still apply.
 
 ## Design reference and brand assets
 

@@ -47,7 +47,7 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: [self-hosted, linux, x64, docker]
+    runs-on: ubuntu-24.04
     container: rust:1.94.0-bookworm@sha256:365468470075493dc4583f47387001854321c5a8583ea9604b297e67f01c5a4f
     timeout-minutes: 20
     steps:

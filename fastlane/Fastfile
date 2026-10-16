@@ -1,5 +1,6 @@
 require_relative "apple_signing"
 require_relative "mobile_ios"
+require_relative "signing_identity"
 
 skip_docs
 default_platform(:ios)
@@ -20,6 +21,14 @@ platform :ios do
     if settings.fetch(:signed)
       setup_ci(force: true, timeout: 7200)
       match(app_identifier: [settings.fetch(:identifier)], type: "appstore", readonly: true)
+      keychain = FastlaneCore::Helper.keychain_path(ENV.fetch("MATCH_KEYCHAIN_NAME"))
+      FastlaneCore::CertChecker.install_wwdr_certificate("G3", keychain: keychain)
+      profile_path = ENV.fetch("sigh_#{settings.fetch(:identifier)}_appstore_profile-path")
+      begin
+        AppleSigning.verify_identity!(FastlaneCore::ProvisioningProfile.parse(profile_path), keychain)
+      rescue ArgumentError => error
+        UI.user_error!(error.message)
+      end
       mapping = Actions.lane_context[SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING]
       profile = mapping&.fetch(settings.fetch(:identifier), nil)
       UI.user_error!("Readonly Match did not return a profile for the selected identifier") unless profile

@@ -166,3 +166,15 @@ the production record before release.
 - [Apple build submission](https://developer.apple.com/help/app-store-connect/manage-builds/choose-a-build-to-submit/)
 - [Apple encryption documentation requirements](https://developer.apple.com/help/app-store-connect/reference/export-compliance-documentation-for-encryption/)
 - [Apple export compliance code](https://developer.apple.com/documentation/bundleresources/information-property-list/itsencryptionexportcompliancecode)
+
+## Signed archive qualification
+
+Manual runs on a feature branch may use `upload: false` to qualify the real signing path
+without sending a build to TestFlight or recording a release baseline. Uploads remain
+restricted to the default branch. Pull requests validate unsigned archives.
+
+The signed lane installs the current software-signing WWDR G3 intermediate in its temporary
+keychain after readonly Match. Before archiving, it checks that a certificate in the selected
+profile has a trusted signing identity and signs a disposable executable with that identity.
+Trust-chain and private-key access failures therefore stop before the full Xcode archive.
+This does not regenerate signing material or change system trust settings.

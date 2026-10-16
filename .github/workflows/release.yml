@@ -33,7 +33,7 @@ jobs:
       matrix:
         include:
           - platform: linux-x86_64
-            runner: [self-hosted, linux, x64, docker]
+            runner: ubuntu-24.04
             container: rust:1.94.0-bookworm@sha256:365468470075493dc4583f47387001854321c5a8583ea9604b297e67f01c5a4f
           - platform: linux-aarch64
             runner: ubuntu-24.04-arm
@@ -41,7 +41,7 @@ jobs:
           - platform: macos-x86_64
             runner: macos-15-intel
           - platform: macos-aarch64
-            runner: [self-hosted, macOS, ARM64, swarmie-macos]
+            runner: xcode-27
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.container }}
     timeout-minutes: 60
@@ -173,7 +173,7 @@ jobs:
   assemble:
     name: Verify and assemble release
     needs: [build, windows]
-    runs-on: [self-hosted, linux, x64, docker]
+    runs-on: ubuntu-24.04
     container: node:24.14.0-bookworm@sha256:5a593d74b632d1c6f816457477b6819760e13624455d587eef0fa418c8d0777b
     timeout-minutes: 10
     steps:
@@ -202,7 +202,7 @@ jobs:
     needs: assemble
     permissions:
       contents: write
-    runs-on: [self-hosted, linux, x64, docker]
+    runs-on: ubuntu-24.04
     container: node:24.14.0-bookworm@sha256:5a593d74b632d1c6f816457477b6819760e13624455d587eef0fa418c8d0777b
     timeout-minutes: 10
     steps:

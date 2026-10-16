@@ -41,7 +41,8 @@ contents.
 Documentation uses English. Describe accepted behavior and open decisions without naming
 external comparison products. Preserve user-owned files and working directories.
 
-Both source repositories are private. Do not change visibility without explicit user authorization.
+This client/runtime repository is public. The independent hosted-service repository remains private.
+Do not change repository visibility without explicit user authorization.
 Never merge a pull request. Every commit message must follow Conventional Commits and be entirely lowercase.
 
 ## Shared TypeScript and frontend rules
