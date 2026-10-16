@@ -44,13 +44,13 @@ describe("mobile build variants", () => {
     expect(config.extra).toEqual({ appVariant: "development" });
   });
 
-  test("development keeps its own manual export declaration", () => {
+  test("development declares its documentation exemption without inheriting production approval", () => {
     const config = createAppConfig({
       APP_VARIANT: "development",
       IOS_PRODUCTION_ENCRYPTION_EXPORT_COMPLIANCE_CODE: "fixture-approval-reference",
     });
     expect(config.ios?.infoPlist?.ITSEncryptionExportComplianceCode).toBeUndefined();
-    expect(config.ios?.infoPlist?.ITSAppUsesNonExemptEncryption).toBeUndefined();
+    expect(config.ios?.infoPlist?.ITSAppUsesNonExemptEncryption).toBe(false);
   });
 
   test("production embeds its supplied approval without inventing an exemption", () => {

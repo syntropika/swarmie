@@ -52,10 +52,38 @@ class MobileIOSTest < Minitest::Test
     end
   end
 
-  def test_development_uploads_leave_export_questions_to_app_store_connect
-    with_configuration do |root, env|
+  def test_development_uploads_require_the_prepared_documentation_exemption
+    with_configuration(info_plist: { "ITSAppUsesNonExemptEncryption" => false }) do |root, env|
       settings = MobileIOS.settings(env, signing: "signed", root: root)
       assert_nil MobileIOS.validate_upload!(settings)
+    end
+    [nil, true].each do |non_exempt|
+      with_configuration(info_plist: { "ITSAppUsesNonExemptEncryption" => non_exempt }) do |root, env|
+        settings = MobileIOS.settings(env, signing: "signed", root: root)
+        assert_raises(ArgumentError) { MobileIOS.validate_upload!(settings) }
+      end
+    end
+  end
+
+  def test_upload_waits_for_processing_and_distributes_internally_without_beta_review
+    options = MobileIOS.upload_options
+    refute options.fetch(:skip_submission)
+    refute options.fetch(:skip_waiting_for_build_processing)
+    refute options.fetch(:distribute_external)
+    refute options.fetch(:submit_beta_review)
+    assert_equal 1200, options.fetch(:wait_processing_timeout_duration)
+    require "pilot"
+    FastlaneCore::Configuration.create(Pilot::Options.available_options, options)
+  end
+
+  def test_group_selection_requires_an_existing_unambiguous_internal_group
+    group = Struct.new(:id, :name, :is_internal_group)
+    app = Struct.new(:get_beta_groups)
+    target = group.new("internal-id", "Release team", true)
+    assert_equal "internal-id", MobileIOS.internal_group!(app.new([target]), "Release team")
+    [nil, app.new([]), app.new([group.new("external-id", "Release team", false)]),
+     app.new([target, target])].each do |invalid|
+      assert_raises(ArgumentError) { MobileIOS.internal_group!(invalid, "Release team") }
     end
   end
 

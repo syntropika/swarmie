@@ -45,12 +45,38 @@ module MobileIOS
   end
 
   def self.validate_upload!(settings)
-    return unless settings.fetch(:variant) == "production"
+    if settings.fetch(:variant) == "development"
+      unless settings.fetch(:uses_non_exempt_encryption) == false
+        raise ArgumentError, "Prepare the development app with its export documentation exemption before uploading"
+      end
+      return
+    end
 
     code = settings.fetch(:export_compliance_code)
     unless settings.fetch(:uses_non_exempt_encryption) == true && code.is_a?(String) && !code.strip.empty?
       raise ArgumentError, "Production uploads require an Apple-approved export compliance code; set IOS_PRODUCTION_ENCRYPTION_EXPORT_COMPLIANCE_CODE before preparing the app"
     end
+  end
+
+  def self.upload_options
+    {
+      skip_submission: false,
+      skip_waiting_for_build_processing: false,
+      distribute_external: false,
+      submit_beta_review: false,
+      notify_external_testers: false,
+      wait_processing_interval: 30,
+      wait_processing_timeout_duration: 1200,
+    }
+  end
+
+  def self.internal_group!(app, name)
+    groups = app ? app.get_beta_groups.select { |group| group.name == name } : []
+    unless groups.one? && groups.first.is_internal_group == true
+      raise ArgumentError, "The selected app must have exactly one internal TestFlight group named #{name}"
+    end
+
+    groups.first.id
   end
 
   def self.build_options(settings)

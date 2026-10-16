@@ -113,7 +113,7 @@ export function createAppConfig(environment: Record<string, string | undefined>)
         "expo-build-properties",
         {
           android: { usesCleartextTraffic: false, buildArchs: ["arm64-v8a", "x86_64"] },
-          ios: { deploymentTarget: "16.4" },
+          ios: { deploymentTarget: "16.4", enableSceneSupport: true },
         },
       ],
     ],
@@ -146,7 +146,8 @@ function iosEncryptionConfiguration(
   variant: "development" | "production",
 ): Pick<NonNullable<ExpoConfig["ios"]>, "infoPlist"> {
   if (variant !== "production") {
-    return {};
+    // Development distribution excludes France and is exempt from documentation.
+    return { infoPlist: { ITSAppUsesNonExemptEncryption: false } };
   }
   const code = environment.IOS_PRODUCTION_ENCRYPTION_EXPORT_COMPLIANCE_CODE?.trim();
   if (code === undefined) {

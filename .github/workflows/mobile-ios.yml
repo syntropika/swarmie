@@ -216,6 +216,8 @@ jobs:
           app="dist/mobile/ios/Swarmie.xcarchive/Products/Applications/Swarmie.app"
           test -s "$app/main.jsbundle"
           test "$(plutil -extract CFBundleIdentifier raw -o - "$app/Info.plist")" = 'app.swarmie.mobile.dev'
+          test "$(plutil -extract ITSAppUsesNonExemptEncryption raw -o - "$app/Info.plist")" = 'false'
+          test "$(plutil -extract UIApplicationSceneManifest.UISceneConfigurations.UIWindowSceneSessionRoleApplication.0.UISceneDelegateClassName raw -o - "$app/Info.plist")" = 'EXExpoAppSceneDelegate'
           test "$(plutil -extract EXUpdatesEnabled raw -o - "$app/Expo.plist")" = 'true'
           test "$(plutil -extract EXUpdatesRequestHeaders.expo-channel-name raw -o - "$app/Expo.plist")" = 'development'
       - name: Record the signed binary runtime
@@ -228,6 +230,7 @@ jobs:
           ASC_SIGNING_API_KEY_ID: ${{ secrets.ASC_SIGNING_API_KEY_ID }}
           ASC_SIGNING_API_ISSUER_ID: ${{ secrets.ASC_SIGNING_API_ISSUER_ID }}
           ASC_SIGNING_API_KEY_P8: ${{ secrets.ASC_SIGNING_API_KEY_P8 }}
+          IOS_TESTFLIGHT_INTERNAL_GROUP: ${{ vars.MOBILE_DEV_TESTFLIGHT_GROUP }}
         run: just mobile-ios-upload
       - name: Save the uploaded native runtime baseline
         if: github.event_name == 'workflow_dispatch' && inputs.upload && steps.upload.outcome == 'success'
