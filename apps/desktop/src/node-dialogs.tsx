@@ -1,5 +1,5 @@
-import { Button, Input, Modal } from "@swarmie/ui-web";
-import { KeyRound, Monitor, Trash2, X } from "lucide-react";
+import { Button, Input, ListBox, Modal, Select } from "@swarmie/ui-web";
+import { ChevronDown, KeyRound, Monitor, Trash2, X } from "lucide-react";
 import { useState, useId } from "react";
 import type { ReactNode } from "react";
 
@@ -44,7 +44,7 @@ function Frame({
               </h2>
               <Button
                 variant="tertiary"
-                size="sm"
+                size="md"
                 isIconOnly
                 aria-label="Close node dialog"
                 disabled={busy}
@@ -204,13 +204,11 @@ export function AddNodeDialog({
         </label>
         <label className="grid gap-1.5 text-xs font-medium" htmlFor={`${fieldId}-2`}>
           Connection method
-          <select
-            id={`${fieldId}-2`}
-            className="h-9 rounded-md border border-border bg-background px-3 text-sm"
-            disabled={busy}
+          <Select
+            aria-label="Connection method"
+            isDisabled={busy}
             value={method}
-            onChange={(event) => {
-              const next = event.target.value;
+            onChange={(next) => {
               if (next !== "direct" && next !== "ssh") {
                 return;
               }
@@ -220,9 +218,25 @@ export function AddNodeDialog({
               setToken("");
             }}
           >
-            <option value="direct">Address</option>
-            <option value="ssh">SSH</option>
-          </select>
+            <Button id={`${fieldId}-2`} variant="secondary" className="w-full">
+              <span className="min-w-0 flex-1 truncate text-left">
+                <Select.Value />
+              </span>
+              <ChevronDown size={16} className="shrink-0" aria-hidden="true" />
+            </Button>
+            <Select.Popover>
+              <ListBox aria-label="Connection methods">
+                <ListBox.Item id="direct" textValue="Address">
+                  Address
+                  <ListBox.ItemIndicator />
+                </ListBox.Item>
+                <ListBox.Item id="ssh" textValue="SSH">
+                  SSH
+                  <ListBox.ItemIndicator />
+                </ListBox.Item>
+              </ListBox>
+            </Select.Popover>
+          </Select>
         </label>
         {ssh ? (
           <>
@@ -531,7 +545,7 @@ export function NodeDetailsDialog({
                 </div>
                 <Button
                   variant="tertiary"
-                  size="sm"
+                  size="md"
                   isIconOnly
                   aria-label={`Remove connection ${route.name}`}
                   disabled={busy}
@@ -570,7 +584,7 @@ export function NodeDetailsDialog({
               <Button
                 className="ml-auto"
                 variant="tertiary"
-                size="sm"
+                size="md"
                 disabled={busy || !state.connected}
                 onClick={() => {
                   startAction(
@@ -599,7 +613,7 @@ export function NodeDetailsDialog({
         )}
       </section>
       {node.local && (
-        <Button variant="tertiary" size="sm" className="mt-4" disabled={busy} onClick={onAccess}>
+        <Button variant="tertiary" size="md" className="mt-4" disabled={busy} onClick={onAccess}>
           <KeyRound size={14} />
           Connection access
         </Button>

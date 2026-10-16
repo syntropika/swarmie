@@ -94,17 +94,19 @@ export function AccountMenu({
         <TooltipContent placement="right">{label}</TooltipContent>
       </Tooltip>
       <Dropdown.Popover placement="top end">
-        <div className="max-w-64 px-2 py-2 text-sm">
-          <p className="font-medium break-words">{label}</p>
-          {hasText(profile?.displayName) && (
-            <p className="text-xs break-all text-muted">{profile.email}</p>
-          )}
-          {observationError && (
-            <p className="mt-1 text-xs text-danger">
-              Account updates unavailable. Open your profile to try again.
-            </p>
-          )}
-        </div>
+        {(profile !== null || hasText(observationError)) && (
+          <div className="max-w-64 px-2 py-2 text-sm">
+            {profile && <p className="font-medium break-words">{label}</p>}
+            {hasText(profile?.displayName) && (
+              <p className="text-xs break-all text-muted">{profile.email}</p>
+            )}
+            {observationError && (
+              <p className="mt-1 text-xs text-danger">
+                Account updates unavailable. Open your profile to try again.
+              </p>
+            )}
+          </div>
+        )}
         <Dropdown.Menu aria-label="Account menu">
           <Dropdown.Item
             id="profile"

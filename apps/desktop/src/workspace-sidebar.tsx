@@ -1,13 +1,12 @@
-import { Button, Dropdown, Input, ResizeHandle, Tooltip, TooltipContent } from "@swarmie/ui-web";
 import {
-  ChevronDown,
-  Check,
-  Search,
-  SquarePen,
-  Plus,
-  FolderOpen,
-  MoreHorizontal,
-} from "lucide-react";
+  BrandWordmark,
+  Button,
+  Dropdown,
+  ResizeHandle,
+  Tooltip,
+  TooltipContent,
+} from "@swarmie/ui-web";
+import { ChevronDown, Search, SquarePen, Plus, FolderOpen, MoreHorizontal } from "lucide-react";
 // Copyright 2026 Syntropika
 // SPDX-License-Identifier: Apache-2.0
 import { useRef } from "react";
@@ -27,20 +26,14 @@ export function WorkspaceSidebar({
 }: {
   view: Pick<
     WorkspaceViewState,
-    | "nodes"
     | "state"
     | "sidebarWidth"
     | "setSidebarWidth"
     | "organization"
-    | "setOrganization"
     | "now"
-    | "showSnoozed"
-    | "setShowSnoozed"
     | "archived"
-    | "query"
-    | "setQuery"
-    | "search"
-    | "setSearch"
+    | "searchScope"
+    | "setSearchScope"
     | "setProjectDialog"
     | "collapsed"
     | "sidebarSort"
@@ -53,27 +46,19 @@ export function WorkspaceSidebar({
     | "store"
     | "setUndo"
     | "setRenaming"
-    | "setTitle"
     | "active"
     | "perform"
     | "select"
   >;
 }) {
   const {
-    nodes,
-    state,
     sidebarWidth,
     setSidebarWidth,
     organization,
-    setOrganization,
     now,
-    showSnoozed,
-    setShowSnoozed,
     archived,
-    query,
-    setQuery,
-    search,
-    setSearch,
+    searchScope,
+    setSearchScope,
     setProjectDialog,
     collapsed,
     sidebarSort,
@@ -116,64 +101,15 @@ export function WorkspaceSidebar({
         }}
       />
       <div className="sidebar-heading">
-        <Dropdown>
-          <Button
-            variant="tertiary"
-            data-workspace-part="workspace-wordmark"
-            aria-label="Workspace menu"
-          >
-            swarmie
-            <ChevronDown size={12} />
-          </Button>
-          <Dropdown.Popover>
-            <Dropdown.Menu aria-label="Workspace organization">
-              <Dropdown.Item
-                id="projects"
-                textValue="Group by project"
-                onAction={() => {
-                  setOrganization("projects");
-                }}
-              >
-                Projects{organization === "projects" && <Check size={14} />}
-              </Dropdown.Item>
-              <Dropdown.Item
-                id="time"
-                textValue="Group by recent activity"
-                onAction={() => {
-                  setOrganization("time");
-                }}
-              >
-                Recent activity{organization === "time" && <Check size={14} />}
-              </Dropdown.Item>
-              <Dropdown.Item
-                id="working"
-                textValue="Group by working status"
-                onAction={() => {
-                  setOrganization("working");
-                }}
-              >
-                Working{organization === "working" && <Check size={14} />}
-              </Dropdown.Item>
-              <Dropdown.Item
-                id="settled"
-                textValue={showSnoozed ? "Hide settled conversations" : "Show all conversations"}
-                onAction={() => {
-                  setShowSnoozed((value) => !value);
-                }}
-              >
-                {showSnoozed ? "Hide settled conversations" : "Show all conversations"}
-              </Dropdown.Item>
-            </Dropdown.Menu>
-          </Dropdown.Popover>
-        </Dropdown>
+        <div className="pl-3" data-workspace-part="workspace-wordmark">
+          <span className="sr-only">Swarmie</span>
+          <BrandWordmark className="w-24" />
+        </div>
         <IconButton
           label="Search chats"
-          active={search}
+          active={searchScope !== null}
           onClick={() => {
-            setSearch((value) => !value);
-            if (search) {
-              setQuery("");
-            }
+            setSearchScope("chats");
           }}
         >
           <Search size={16} />
@@ -191,18 +127,6 @@ export function WorkspaceSidebar({
           <span>New chat</span>
         </Button>
       </div>
-      {search && (
-        <Input
-          data-workspace-part="sidebar-search"
-          autoFocus
-          aria-label="Search chats"
-          placeholder="Search chats…"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-          }}
-        />
-      )}
       <div className="sidebar-scroll">
         {organization !== "projects" && (
           <section className="sidebar-section">
@@ -421,27 +345,6 @@ export function WorkspaceSidebar({
       </div>
       <div className="sidebar-footer">
         <ContributionSlot name="sidebar.footer" />
-        <output className="workspace-status">
-          <span className={`connection-dot ${state.connected ? "connected" : ""}`} />
-          <span>
-            {(() => {
-              if (state.cacheSaving) {
-                return "Saving draft…";
-              }
-              if (state.connected) {
-                return (
-                  nodes.nodes.find(
-                    (node) => node.identity.environmentId === state.node?.environmentId,
-                  )?.displayName ?? "Connected"
-                );
-              }
-              if (state.busy) {
-                return "Connecting…";
-              }
-              return "Disconnected";
-            })()}
-          </span>
-        </output>
       </div>
     </aside>
   );
@@ -458,15 +361,13 @@ function ThreadRow({
     | "state"
     | "setUndo"
     | "setRenaming"
-    | "setTitle"
     | "setSidebarSort"
     | "active"
     | "perform"
     | "select"
   >;
 }) {
-  const { store, state, setUndo, setRenaming, setTitle, setSidebarSort, active, perform, select } =
-    view;
+  const { store, state, setUndo, setRenaming, setSidebarSort, active, perform, select } = view;
   const threadDrag = useRef<
     { id: string; x: number; y: number; moved: boolean; before?: string } | undefined
   >(undefined);
@@ -557,8 +458,7 @@ function ThreadRow({
         }}
         onRename={() => {
           select(thread.id);
-          setTitle(thread.title);
-          setRenaming(true);
+          setRenaming({ id: thread.id, title: thread.title });
         }}
         onArchive={() => {
           startAction(

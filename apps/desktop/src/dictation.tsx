@@ -98,7 +98,6 @@ export function createDictationExtension(
           when: ["composerReady"],
           shortcut: "Mod+Shift+d",
         },
-        { id: "settings", title: "Dictation settings", when: [] },
       ],
       slots: [
         {
@@ -135,13 +134,10 @@ export function createDictationExtension(
           clients: [],
         },
       ],
-      screens: [{ id: "settings", title: "Dictation settings", clients: [] }],
+      screens: [],
       panels: [],
     },
     handlers: {
-      settings: (api) => {
-        api.openScreen("settings");
-      },
       toggle: async (api) => {
         if (state === "recording") {
           state = "processing";
@@ -226,7 +222,7 @@ export function DictationSettings({ api }: { api: ScopedClientApi }) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   return (
-    <div className="dictation-settings">
+    <div className="grid gap-4">
       <p>
         Capture speech on the client where you use Swarmie. Dictation works independently of the
         selected harness.

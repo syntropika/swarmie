@@ -1,16 +1,17 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode, useState } from "react";
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from "vitest";
 
-import { CommandPalette } from "~/src/command-palette";
 import { ContributionHost, ContributionSlot, ContributionSurface } from "~/src/contribution-host";
 import { Conversation } from "~/src/conversation";
 import { contributionDemo } from "~/src/demo/contributions";
 import { newThread } from "~/src/protocol";
+import { renderWithQuery as render } from "~/src/test-fixtures";
 import { WorkspaceStore } from "~/src/workspace";
 import type { Workspace } from "~/src/workspace";
+import { WorkspaceSearch } from "~/src/workspace-search";
 
 afterEach(() => {
   cleanup();
@@ -60,7 +61,7 @@ it("renders slots, filters commands into the palette, and routes buttons and sho
           <ContributionSlot name="composer.actions" />
           <ContributionSlot name="composer.status" />
           {paletteOpen && (
-            <CommandPalette
+            <WorkspaceSearch
               store={store}
               onClose={() => {
                 setPaletteOpen(false);

@@ -30,6 +30,13 @@ it("shares toggle dispatch, processes final text, and discards callbacks after c
     composerReady: true,
   });
   const off = registry.registerBuiltin(createDictationExtension(registry, error, provider));
+  expect(registry.entries("settings.sections").map((entry) => entry.key)).toContain(
+    "@swarmie.dictation/settings",
+  );
+  expect(registry.surfaces("screen")).toHaveLength(0);
+  expect(registry.commands().map((entry) => entry.key)).not.toContain(
+    "@swarmie.dictation/settings",
+  );
   const pending = registry.execute("@swarmie.dictation/toggle");
   expect(registry.entries("composer.actions")[0].title).toBe("Stop dictation");
   await registry.execute("@swarmie.dictation/toggle");

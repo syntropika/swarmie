@@ -142,7 +142,7 @@ function AgentToolsPanel({ store, nodeName }: { store: WorkspaceStore; nodeName:
                 {!pending && (
                   <Button
                     variant="outline"
-                    size="sm"
+                    size="md"
                     aria-expanded={expanded === item.harness}
                     onClick={() => {
                       setExpanded(expanded === item.harness ? undefined : item.harness);
@@ -199,7 +199,7 @@ function AgentToolsPanel({ store, nodeName }: { store: WorkspaceStore; nodeName:
                           <code>{guide.command}</code>
                           <Button
                             variant="tertiary"
-                            size="sm"
+                            size="md"
                             aria-label={`Copy ${guide.name} command`}
                             onClick={() => {
                               const { command } = guide;
@@ -233,7 +233,7 @@ function AgentToolsPanel({ store, nodeName }: { store: WorkspaceStore; nodeName:
                         )}
                         <Button
                           variant="secondary"
-                          size="sm"
+                          size="md"
                           disabled={!state.connected || pending}
                           onClick={() => {
                             startAction(check([item.harness]), store.setError.bind(store));
@@ -278,7 +278,7 @@ function AgentToolsPanel({ store, nodeName }: { store: WorkspaceStore; nodeName:
             return (
               <Button
                 variant="tertiary"
-                size="sm"
+                size="md"
                 onClick={() => {
                   setShowAll(true);
                 }}
@@ -291,7 +291,7 @@ function AgentToolsPanel({ store, nodeName }: { store: WorkspaceStore; nodeName:
             return (
               <Button
                 variant="tertiary"
-                size="sm"
+                size="md"
                 onClick={() => {
                   setShowAll(false);
                 }}
@@ -304,7 +304,7 @@ function AgentToolsPanel({ store, nodeName }: { store: WorkspaceStore; nodeName:
         })()}
         <Button
           variant="tertiary"
-          size="sm"
+          size="md"
           disabled={!state.connected || checking.length > 0}
           onClick={() => {
             startAction(

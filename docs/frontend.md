@@ -149,7 +149,18 @@ The shared web package has one public component entry, `@swarmie/ui-web`, for we
 HeroUI React is the mandatory primitive base. Atoms expose the vendor controls and their
 compound APIs, including Alert, Surface, Disclosure, InputGroup, Checkbox, Switch, RadioGroup
 and Dropdown. Do not add a second wrapper or catalog entry that only renames these APIs.
-Molecules add behavior such as the responsive, resizable NavigationShell and VirtualList.
+Molecules add behavior such as the responsive, resizable NavigationShell, VirtualList and
+SearchDialog. SearchDialog owns modal search interaction, integrated field layout, grouped
+collections and keyboard navigation. Its collection and input use cmdk; HeroUI Modal owns
+overlay dismissal, focus containment and restoration. This specialized search integration is
+the approved exception to the single primitive library rule. Consumers own filtering, section
+labels, result IDs, descriptions, optional metadata, empty actions and transport state. Results are externally
+filtered so message-content matches and remote results are not discarded by label filtering.
+Item IDs must be unique across sections. The molecule passes stable IDs to cmdk and
+disables its internal filtering and sorting, preserving domain results and group ordering.
+Tab and Shift+Tab move to adjacent result groups, arrow keys wrap through rows, and
+Backspace on an empty scoped input returns to the complete collection. Header controls
+retain their normal keyboard activation without running a selected command.
 Applications compose Modal, Select, ComboBox and TextField directly rather than retaining
 Dialog, OptionSelect, SuggestionField or Field wrappers. TextField provides labels,
 descriptions and validation; Dropdown handles action menus and Popover handles free-form
@@ -171,7 +182,10 @@ defines the visual baseline: Inter, vivid semantic status colors, and the upstre
 palette. The Swarmie preset uses monochrome actions and selection controls based on the
 account prototype. In light mode, primary actions use black fills and white labels; secondary actions use light gray fills and dark labels.
 These neutral pairs invert in dark mode to preserve contrast. The Theme Builder Medium
-radius preset uses a 0.5rem base and field radius. Tertiary actions use a transparent background and neutral hover feedback. The shared Button
+radius preset uses a 0.5rem base and field radius. SearchField groups use the shared
+`radius-3xl` action radius for their rounded search silhouette. Modal and popover dialog
+surfaces use a shared 1rem content inset through `--dialog-padding`; close controls align
+with that inset and headers reserve space for them. Tertiary actions use a transparent background and neutral hover feedback. The shared Button
 contract excludes the ghost variant; consumers use tertiary for that action role.
 The preset uses solid green success (`#008635`) and red destructive actions (`#e02e2a`),
 each with white labels. Validation uses a separate danger text pair (`#ba2623` in light mode,
@@ -213,6 +227,12 @@ size or add compact, large, plain or raised variants to an existing vendor primi
 Use an upstream size or variant explicitly when the product needs it; wrappers do not
 silently choose one. Layout wrappers may arrange independent controls without changing
 their geometry. Shared customizations stay in the approved color, font and theme preset.
+The approved SearchDialog preset is a scoped exception: its 520px maximum surface has no
+outer content inset, a 56px integrated search header, and a scrollable result zone capped
+at 440px and the available viewport. Its top position stays stable as results change.
+It consumes shared menu spacing roles: 4px list inset, 8px horizontal and 6px vertical row
+insets, 12px between groups and 10px header inset. These roles live in web-tokens.css;
+their scoped geometry lives in hero-web.css. Other primitives retain their normal geometry.
 Remove redundant wrappers and stories instead of retaining compatibility aliases.
 
 The shared web catalog contains Foundations, Atoms and Molecules. The former

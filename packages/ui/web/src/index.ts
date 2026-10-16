@@ -6,9 +6,22 @@ export { Button, type ButtonProps } from "./atoms/button";
 export { Input, type InputProps } from "./atoms/input";
 export { Icon, iconNames, type IconName, type IconProps } from "./atoms/icon";
 export { LoadingStatus, type LoadingStatusProps } from "./atoms/loading-status";
-export { BrandMark, BrandLogo, type BrandMarkProps, type BrandLogoProps } from "./brand/brand-mark";
+export {
+  BrandMark,
+  BrandLogo,
+  BrandWordmark,
+  type BrandMarkProps,
+  type BrandLogoProps,
+  type BrandWordmarkProps,
+} from "./brand/brand-mark";
 export { Separator, type SeparatorProps } from "./atoms/separator";
 export { cn } from "./classes";
+export {
+  SearchDialog,
+  type SearchDialogProps,
+  type SearchDialogItem,
+  type SearchDialogSection,
+} from "./molecules/search-dialog";
 
 export {
   THEME_PREFERENCE_BOOTSTRAP,

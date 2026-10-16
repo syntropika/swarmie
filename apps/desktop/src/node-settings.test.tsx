@@ -175,14 +175,16 @@ it("submits from the keyboard and preserves inputs on failed verification, then 
   const user = userEvent.setup();
   await openAdd(user);
   await user.type(screen.getByLabelText("Connection name"), "Remote route");
-  await user.type(screen.getByLabelText("Address"), "http://localhost:7490");
+  await user.type(screen.getByRole("textbox", { name: "Address" }), "http://localhost:7490");
   await user.type(screen.getByLabelText("Access token"), "secret");
   await user.keyboard("{Enter}");
   await waitFor(() => {
     expect(screen.getByRole("alert").textContent).toContain("could not be verified");
   });
   expect(pair).toHaveBeenCalledWith("Remote route", "http://localhost:7490", "secret");
-  expect(fixtureControl(screen.getByLabelText("Address")).value).toBe("http://localhost:7490");
+  expect(fixtureControl(screen.getByRole("textbox", { name: "Address" })).value).toBe(
+    "http://localhost:7490",
+  );
   await user.click(
     screen.getByRole("button", {
       name: "Cancel",
@@ -210,7 +212,7 @@ it("closes a successful add dialog and prevents dismissal or repeat submission d
   });
   await openAdd(user);
   await user.type(screen.getByLabelText("Connection name"), "Route");
-  await user.type(screen.getByLabelText("Address"), "http://localhost:7490");
+  await user.type(screen.getByRole("textbox", { name: "Address" }), "http://localhost:7490");
   await user.keyboard("{Enter}{Escape}{Enter}");
   expect(screen.getByRole("dialog")).toBeTruthy();
   expect(pair).toHaveBeenCalledOnce();
@@ -307,7 +309,8 @@ it("checks SSH readiness before pairing and clears a prepared target when connec
   const user = userEvent.setup();
   await openAdd(user);
   await user.type(screen.getByLabelText("Connection name"), "Remote SSH");
-  await user.selectOptions(screen.getByLabelText("Connection method"), "ssh");
+  await user.click(screen.getByRole("button", { name: /Connection method/u }));
+  await user.click(screen.getByRole("option", { name: "SSH" }));
   await user.type(screen.getByLabelText("SSH host"), "remote-host");
   await user.click(screen.getByText("Advanced"));
   await user.type(screen.getByLabelText("Runtime socket path"), "/private/runtime/node.sock");
@@ -378,7 +381,8 @@ it("keeps SSH enrollment unavailable when installation or runtime readiness is m
   const user = userEvent.setup();
   await openAdd(user);
   await user.type(screen.getByLabelText("Connection name"), "Remote");
-  await user.selectOptions(screen.getByLabelText("Connection method"), "ssh");
+  await user.click(screen.getByRole("button", { name: /Connection method/u }));
+  await user.click(screen.getByRole("option", { name: "SSH" }));
   await user.type(screen.getByLabelText("SSH host"), "remote-host");
   await user.click(screen.getByText("Advanced"));
   await user.type(screen.getByLabelText("Runtime socket path"), "/runtime/node.sock");
@@ -415,7 +419,7 @@ it("offers SSH before any node is enrolled and opens its account-free flow direc
       name: "Add",
     }),
   );
-  expect(fixtureControl(screen.getByLabelText("Connection method")).value).toBe("ssh");
+  expect(screen.getByRole("button", { name: /Connection method/u }).textContent).toContain("SSH");
   expect(screen.getByLabelText("SSH host")).toBeTruthy();
   expect(screen.getByText(/No account is required/u)).toBeTruthy();
   expect(screen.queryByLabelText("Access token")).toBeNull();

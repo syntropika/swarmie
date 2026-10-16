@@ -1,4 +1,5 @@
-import { Select, ListBox } from "@swarmie/ui-web";
+import { Button, Select, ListBox } from "@swarmie/ui-web";
+import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 
 import { startAction } from "~/src/action-boundary";
@@ -40,11 +41,11 @@ export function ModelPicker({
         }
       }}
     >
-      <Select.Trigger>
+      <Button variant="secondary" className="w-full">
         {hasText(effort) && <span className="capitalize">{effort}</span>}
         <Select.Value>{label}</Select.Value>
-        <Select.Indicator />
-      </Select.Trigger>
+        <ChevronDown size={14} aria-hidden="true" />
+      </Button>
       <Select.Popover placement="top end" className="w-80">
         <ListBox aria-label="Available models">
           {choices.map((choice) => (

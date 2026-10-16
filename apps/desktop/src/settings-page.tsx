@@ -1,52 +1,30 @@
-import { Button, Input, InputGroup, Switch } from "@swarmie/ui-web";
-import {
-  Settings,
-  Bell,
-  Keyboard,
-  Download,
-  Plug,
-  Search,
-  X,
-  UserRound,
-  ShieldCheck,
-  Terminal,
-} from "lucide-react";
-import { useState, useId } from "react";
+import { Button, SearchField, Switch } from "@swarmie/ui-web";
+import { X } from "lucide-react";
+import { useState } from "react";
 
 import { AccountSecurity } from "~/src/account-security";
 import { AccountSettings } from "~/src/account-settings";
+import { useAccount } from "~/src/account-state";
 import { startAction } from "~/src/action-boundary";
 import { ChatDirectorySettings } from "~/src/chat-directory-settings";
 import { CodingAgentsPanel } from "~/src/coding-agents-panel";
 import { ContributionSlot } from "~/src/contribution-host";
 import { McpSettings } from "~/src/mcp-settings";
-import { NativeHistory } from "~/src/native-history";
 import { NodeSettings } from "~/src/node-settings";
 import type { NodeClient, NodesState } from "~/src/nodes";
-import { shortcutBinding, defaultShortcuts } from "~/src/shortcuts";
+import { settingsSections, visibleSettingsSections } from "~/src/settings-sections";
+import type { SettingsSection } from "~/src/settings-sections";
+import { ShortcutSettings } from "~/src/shortcut-settings";
 import type { Shortcuts } from "~/src/shortcuts";
 import { hasText } from "~/src/value-presence";
 import type { WorkspaceStore, Workspace } from "~/src/workspace";
-
-const sections = [
-  { id: "account", title: "Account", icon: UserRound },
-  { id: "security", title: "Account security", icon: ShieldCheck },
-  { id: "general", title: "General", icon: Settings },
-  { id: "agents", title: "Agent tools", icon: Terminal },
-  { id: "notifications", title: "Notifications", icon: Bell },
-  { id: "import", title: "Import", icon: Download },
-  { id: "shortcuts", title: "Keyboard shortcuts", icon: Keyboard },
-  { id: "mcps", title: "MCP servers", icon: Plug },
-  { id: "extensions", title: "Extensions", icon: Plug },
-  { id: "connections", title: "Nodes", icon: Plug },
-] as const;
 
 export function SettingsPage(props: SettingsProps) {
   return <SettingsContent key={props.initialSection ?? "general"} {...props} />;
 }
 
 type SettingsProps = {
-  initialSection?: "general" | "account" | "security";
+  initialSection?: SettingsSection;
   client: NodeClient;
   nodes: NodesState;
   store: WorkspaceStore;
@@ -68,7 +46,7 @@ function SettingsContent({
   nodes,
   initialSection = "general",
 }: {
-  initialSection?: "general" | "account" | "security";
+  initialSection?: SettingsSection;
   client: NodeClient;
   nodes: NodesState;
   store: WorkspaceStore;
@@ -78,8 +56,10 @@ function SettingsContent({
   onClose: () => void;
   onSetup: () => void;
 }) {
-  const [section, setSection] = useState<string>(initialSection);
-  const inputId = useId();
+  const { account } = useAccount();
+  const signedIn = account?.status === "signedIn";
+  const [selectedSection, setSelectedSection] = useState<string>(initialSection);
+  const section = selectedSection === "security" && !signedIn ? "account" : selectedSection;
   const [query, setQuery] = useState("");
   const perform = async (action: () => Promise<unknown>) => {
     try {
@@ -88,7 +68,7 @@ function SettingsContent({
       store.setError(error);
     }
   };
-  const matches = sections.filter((entry) =>
+  const matches = visibleSettingsSections(signedIn).filter((entry) =>
     entry.title.toLowerCase().includes(query.toLowerCase()),
   );
   return (
@@ -107,44 +87,50 @@ function SettingsContent({
           </Button>
         </div>
         <div className="settings-search">
-          <InputGroup>
-            <InputGroup.Prefix aria-hidden="true">
-              <Search size={14} />
-            </InputGroup.Prefix>
-            <InputGroup.Input
-              aria-label="Search settings"
-              placeholder="Search"
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-              }}
-            />
-          </InputGroup>
+          <SearchField fullWidth aria-label="Search settings" value={query} onChange={setQuery}>
+            <SearchField.Group>
+              <SearchField.SearchIcon />
+              <SearchField.Input className="min-w-0" placeholder="Search" />
+              <SearchField.ClearButton aria-label="Clear settings search" />
+            </SearchField.Group>
+          </SearchField>
         </div>
-        <p className="settings-group-label">Personal</p>
-        <nav>
-          {matches.map(({ id, title, icon: Icon }) => (
-            <Button
-              key={id}
-              variant={section === id ? "secondary" : "tertiary"}
-              className="w-full"
-              aria-current={section === id ? "page" : undefined}
-              onClick={() => {
-                setSection(id);
-              }}
-            >
-              <span className="flex w-full items-center gap-2">
-                <Icon size={14} />
-                <span>{title}</span>
-              </span>
-            </Button>
-          ))}
-        </nav>
+        <div className="settings-navigation-groups">
+          {(["Personal", "Integrations", "Coding"] as const).map((group) => {
+            const entries = matches.filter((entry) => entry.group === group);
+            if (!entries.length) {
+              return null;
+            }
+            return (
+              <div key={group} className="settings-navigation-group">
+                <p className="settings-group-label">{group}</p>
+                <nav aria-label={`${group} settings`}>
+                  {entries.map(({ id, title, icon: Icon }) => (
+                    <Button
+                      key={id}
+                      variant={section === id ? "secondary" : "tertiary"}
+                      className="w-full"
+                      aria-current={section === id ? "page" : undefined}
+                      onClick={() => {
+                        setSelectedSection(id);
+                      }}
+                    >
+                      <span className="flex w-full items-center gap-2">
+                        <Icon size={14} />
+                        <span>{title}</span>
+                      </span>
+                    </Button>
+                  ))}
+                </nav>
+              </div>
+            );
+          })}
+        </div>
         {!matches.length && <p className="muted">No matching settings.</p>}
       </aside>
       <main className="settings-content" aria-label="Settings">
         <div className="settings-content-width">
-          <h1>{sections.find((entry) => entry.id === section)?.title}</h1>
+          <h1>{settingsSections.find((entry) => entry.id === section)?.title}</h1>
           {state.error && (
             <div className="settings-error" role="alert">
               <p>{state.error}</p>
@@ -175,7 +161,7 @@ function SettingsContent({
             <div className="settings-section">
               <AccountSecurity
                 onProfile={() => {
-                  setSection("account");
+                  setSelectedSection("account");
                 }}
               />
             </div>
@@ -244,59 +230,7 @@ function SettingsContent({
             </div>
           )}
           {section === "shortcuts" && (
-            <div className="settings-section">
-              {(["palette", "newChat", "files", "tools"] as const).map((key) => (
-                <label key={key} htmlFor={`${inputId}-${key}`}>
-                  {
-                    {
-                      palette: "Command palette",
-                      newChat: "New conversation",
-                      files: "Find file",
-                      tools: "Workspace tools",
-                    }[key]
-                  }
-                  <Input
-                    id={`${inputId}-${key}`}
-                    aria-label={`Shortcut for ${key}`}
-                    value={shortcuts[key]}
-                    readOnly
-                    onKeyDown={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      try {
-                        const binding = shortcutBinding(e.nativeEvent);
-                        if (!hasText(binding)) {
-                          return;
-                        }
-                        const next = { ...shortcuts, [key]: binding };
-                        if (Object.values(next).filter((v) => v === binding).length > 1) {
-                          throw new Error("Choose a shortcut not assigned to another action.");
-                        }
-                        localStorage.setItem("swarmie.shortcuts", JSON.stringify(next));
-                        setShortcuts(next);
-                      } catch (error) {
-                        store.setError(error);
-                      }
-                    }}
-                  />
-                </label>
-              ))}
-              <Button
-                variant="tertiary"
-                size="sm"
-                onClick={() => {
-                  localStorage.removeItem("swarmie.shortcuts");
-                  setShortcuts({ ...defaultShortcuts });
-                }}
-              >
-                Reset shortcuts
-              </Button>
-            </div>
-          )}
-          {section === "import" && (
-            <div className="settings-section">
-              <NativeHistory store={store} />
-            </div>
+            <ShortcutSettings shortcuts={shortcuts} onChange={setShortcuts} />
           )}
           {section === "connections" && <NodeSettings client={client} nodes={nodes} />}
         </div>

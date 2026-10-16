@@ -3,10 +3,10 @@ import userEvent from "@testing-library/user-event";
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from "vitest";
 
-import { CommandPalette } from "~/src/command-palette";
 import { Conversation } from "~/src/conversation";
 import { renderWithQuery as render } from "~/src/test-fixtures";
 import { WorkspaceStore } from "~/src/workspace";
+import { WorkspaceSearch } from "~/src/workspace-search";
 
 afterEach(() => {
   cleanup();
@@ -19,18 +19,18 @@ async function workspace() {
   store.createThread();
   return store;
 }
-it("filters the Elements palette, navigates with wrapping and runs the chosen action once", async () => {
+it("filters the shared palette, navigates with wrapping and runs the chosen action once", async () => {
   const store = await workspace();
   const close = vi.fn<(...args: unknown[]) => void>();
   const project = vi.fn<(...args: unknown[]) => void>();
   const panel = vi.fn<(...args: unknown[]) => void>();
-  render(<CommandPalette store={store} onClose={close} onOpenProject={project} onPanel={panel} />);
+  render(<WorkspaceSearch store={store} onClose={close} onOpenProject={project} onPanel={panel} />);
   const input = screen.getByRole("combobox", {
-    name: "Type a command",
+    name: "Search workspace",
   });
   expect(
     screen.getByRole("listbox", {
-      name: "Commands",
+      name: "Search workspace",
     }),
   ).toBeTruthy();
   await userEvent.type(input, "project");
@@ -39,12 +39,12 @@ it("filters the Elements palette, navigates with wrapping and runs the chosen ac
   expect(project).toHaveBeenCalledOnce();
   expect(close).toHaveBeenCalledOnce();
 });
-it("keeps an empty search open and supports keyboard wrap through grouped commands", async () => {
+it("keeps an empty search open and supports keyboard wrap through commands", async () => {
   const store = await workspace();
   const close = vi.fn<(...args: unknown[]) => void>();
   const panel = vi.fn<(...args: unknown[]) => void>();
   render(
-    <CommandPalette
+    <WorkspaceSearch
       store={store}
       onClose={close}
       onOpenProject={vi.fn<(...args: unknown[]) => void>()}
@@ -52,12 +52,12 @@ it("keeps an empty search open and supports keyboard wrap through grouped comman
     />,
   );
   const input = screen.getByRole("combobox", {
-    name: "Type a command",
+    name: "Search workspace",
   });
   await userEvent.type(input, "no-such-command");
   await userEvent.keyboard("{Enter}");
   expect(close).not.toHaveBeenCalled();
-  expect(screen.getByText("No command matches “no-such-command”")).toBeTruthy();
+  expect(screen.getByText("No results for “no-such-command”.")).toBeTruthy();
   await userEvent.clear(input);
   await userEvent.keyboard("{ArrowUp}{Enter}");
   expect(panel).toHaveBeenCalledExactlyOnceWith("settings");

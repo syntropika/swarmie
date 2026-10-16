@@ -6,6 +6,8 @@ import inkCoralMark from "../../../../../assets/brandkit/marks/swarmie-mark-ink-
 import inkMark from "../../../../../assets/brandkit/marks/swarmie-mark-mono-ink.svg";
 import whiteMark from "../../../../../assets/brandkit/marks/swarmie-mark-mono-white.svg";
 import whiteCoralMark from "../../../../../assets/brandkit/marks/swarmie-mark-white-coral.svg";
+import inkWordmark from "../../../../../assets/brandkit/wordmarks/swarmie-wordmark-ink.svg";
+import whiteWordmark from "../../../../../assets/brandkit/wordmarks/swarmie-wordmark-white.svg";
 import { cn } from "../classes";
 import { Reference, Section } from "./reference";
 
@@ -151,6 +153,21 @@ export function BrandReference() {
                 />
               </figure>
             ))}
+        </div>
+      </Section>
+      <Section
+        title="Standalone lettering"
+        description="Original monochrome lettering for compact navigation headers, without the symbol. Preserve its proportions and surrounding clear space."
+      >
+        <div className="grid gap-6 @lg:grid-cols-2">
+          <figure data-theme="light" className={brandPreview("light")}>
+            <figcaption className="text-label">Monochrome · dark ink</figcaption>
+            <img src={inkWordmark} alt="Swarmie dark ink wordmark" className="h-auto w-24" />
+          </figure>
+          <figure data-theme="dark" className={brandPreview("dark")}>
+            <figcaption className="text-label">Monochrome · white</figcaption>
+            <img src={whiteWordmark} alt="Swarmie white wordmark" className="h-auto w-24" />
+          </figure>
         </div>
       </Section>
       <Section

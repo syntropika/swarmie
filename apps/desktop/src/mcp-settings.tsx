@@ -6,7 +6,7 @@ import type {
 } from "@swarmie/contracts";
 import { Button, Input, Select, ListBox } from "@swarmie/ui-web";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Plus, RefreshCw } from "lucide-react";
+import { ChevronDown, Plus, RefreshCw } from "lucide-react";
 import { isValidElement, useId, useState } from "react";
 
 import { errorMessage } from "~/src/action-boundary";
@@ -203,10 +203,12 @@ function McpContent({
             }}
             placeholder="Select…"
           >
-            <Select.Trigger id={`${fieldPrefix}-harness`}>
-              <Select.Value />
-              <Select.Indicator />
-            </Select.Trigger>
+            <Button variant="secondary" className="w-full" id={`${fieldPrefix}-harness`}>
+              <span className="min-w-0 flex-1 truncate text-left">
+                <Select.Value />
+              </span>
+              <ChevronDown size={16} className="shrink-0" aria-hidden="true" />
+            </Button>
             <Select.Popover>
               <ListBox aria-label="MCP harness">
                 {[
@@ -245,10 +247,12 @@ function McpContent({
             }}
             placeholder="Select…"
           >
-            <Select.Trigger id={`${fieldPrefix}-session`}>
-              <Select.Value />
-              <Select.Indicator />
-            </Select.Trigger>
+            <Button variant="secondary" className="w-full" id={`${fieldPrefix}-session`}>
+              <span className="min-w-0 flex-1 truncate text-left">
+                <Select.Value />
+              </span>
+              <ChevronDown size={16} className="shrink-0" aria-hidden="true" />
+            </Button>
             <Select.Popover>
               <ListBox aria-label="MCP native session">
                 {[

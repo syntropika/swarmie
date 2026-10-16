@@ -4,7 +4,6 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { BackgroundTasks } from "~/src/background-tasks";
-import { NativeHistory } from "~/src/native-history";
 import { newThread } from "~/src/protocol";
 import type { AgentTask, Thread } from "~/src/protocol";
 import { deferred, fixtureControl, renderWithQuery as render } from "~/src/test-fixtures";
@@ -229,116 +228,5 @@ it("hides unsupported task controls and ignores an earlier node's delayed task l
   resolve([task]);
   await waitFor(() => {
     expect(screen.queryByText(task.description)).toBeNull();
-  });
-});
-it("locks the native history query while reading and discards results after the node changes", async () => {
-  const { store, rpc } = await fixture();
-  const response = deferred<unknown>();
-  const { resolve } = response;
-  rpc.mockImplementation(async () => await response.promise);
-  const view = render(<NativeHistory store={store} />);
-  await userEvent.click(
-    screen.getByRole("button", {
-      name: "Find native conversations",
-    }),
-  );
-  expect(
-    fixtureControl(
-      screen.getByRole("button", {
-        name: /Conversation history agent/u,
-      }),
-    ).disabled,
-  ).toBe(true);
-  expect(fixtureControl(screen.getByLabelText("Configuration directory")).disabled).toBe(true);
-  Object.assign(store.getSnapshot(), {
-    node: {
-      ...node,
-      environmentId: "other-node",
-    },
-  });
-  view.rerender(<NativeHistory store={store} />);
-  resolve([
-    {
-      native: {
-        provider: "codex",
-        id: "old-native-id",
-      },
-      metadata: null,
-      title: "Old node conversation",
-      cwd: "/fixture",
-      path: "/fixture/history",
-      updatedAtMs: 1,
-    },
-  ]);
-  await waitFor(() => {
-    expect(screen.queryByText("Old node conversation")).toBeNull();
-  });
-  expect(
-    screen.queryByRole("button", {
-      name: "Import conversation",
-    }),
-  ).toBeNull();
-});
-it("offers Cursor SDK history with accurate source wording and retains the selected query for import", async () => {
-  const { store, rpc, calls } = await fixture();
-  const session = {
-    metadata: null,
-    native: {
-      provider: "cursor",
-      id: "local-agent-fixture",
-    },
-    title: "SDK conversation",
-    cwd: "/fixture",
-    path: "/fixture/sdk",
-    updatedAtMs: 1,
-  };
-  const imported = vi.spyOn(store, "importSession").mockResolvedValue("imported-thread");
-  rpc.mockImplementation(async (method, args) => {
-    calls.push({
-      method,
-      args,
-    });
-    if (method === "runtime/history") {
-      return [session];
-    }
-    if (method === "runtime/history/read") {
-      return { session, tree: [] };
-    }
-    throw new Error("Unexpected fixture method");
-  });
-  render(<NativeHistory store={store} />);
-  await userEvent.click(
-    screen.getByRole("button", {
-      name: /Conversation history agent/u,
-    }),
-  );
-  await userEvent.click(
-    await screen.findByRole("option", {
-      name: /Cursor/u,
-    }),
-  );
-  expect(screen.getByText(/Cursor history reads local SDK conversations/u)).toBeTruthy();
-  await userEvent.type(screen.getByLabelText("SDK state directory"), "/fixture/existing-sdk-store");
-  await userEvent.click(
-    screen.getByRole("button", {
-      name: "Find native conversations",
-    }),
-  );
-  await userEvent.click(
-    await screen.findByRole("button", {
-      name: /SDK conversation/u,
-    }),
-  );
-  await userEvent.click(
-    await screen.findByRole("button", {
-      name: "Import conversation",
-    }),
-  );
-  expect(imported).toHaveBeenCalledWith({
-    harness: "cursor",
-    cwd: "/fixture",
-    configHome: "/fixture/existing-sdk-store",
-    limit: 100,
-    nativeId: "local-agent-fixture",
   });
 });

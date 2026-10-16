@@ -9,6 +9,18 @@ import { AccountProfileEditor } from "~/src/account-profile-editor";
 import { useAccountService, useAccount } from "~/src/account-state";
 import { hasText } from "~/src/value-presence";
 
+function AccountConnectionIntro() {
+  return (
+    <div className="grid gap-2">
+      <h2 className="text-lg font-medium">Connect your Swarmie account</h2>
+      <p className="text-sm leading-relaxed text-muted">
+        Sign in to connect your account. Your projects, files and nodes stay private until you
+        choose to share them.
+      </p>
+    </div>
+  );
+}
+
 function AccountSignIn({ account }: { account: AccountSnapshot }) {
   const service = useAccountService();
   const [notice, setNotice] = useState("");
@@ -159,18 +171,21 @@ export function AccountSettings() {
   const { run, busy } = useAccountAction(setNotice);
   if (!service.available()) {
     return (
-      <p className="text-sm text-muted">
-        Open the desktop app to manage your account. You can continue using local projects without
-        signing in.
-      </p>
+      <section className="grid gap-5" aria-label="Swarmie account">
+        <AccountConnectionIntro />
+        <div>
+          <Button disabled>Sign in</Button>
+        </div>
+        <p className="text-sm text-muted">
+          Open the desktop app to connect your account. You can continue using local projects
+          without signing in.
+        </p>
+      </section>
     );
   }
   return (
     <section className="grid gap-5" aria-label="Swarmie account">
-      <p className="text-sm leading-relaxed text-muted">
-        Sign in to connect your account. Your projects, files and nodes stay private until you
-        choose to share them.
-      </p>
+      {account?.status !== "signedIn" && <AccountConnectionIntro />}
       {observationError && (
         <p role="alert" className="text-sm text-danger">
           {observationError}

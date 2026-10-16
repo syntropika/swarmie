@@ -1,9 +1,8 @@
-import { Button, Dropdown, Input } from "@swarmie/ui-web";
+import { Button, Dropdown } from "@swarmie/ui-web";
 import {
   ArrowLeft,
   ArrowRight,
   PanelLeft,
-  Settings,
   Folder,
   PanelRight,
   GitBranch,
@@ -38,13 +37,8 @@ export function WorkspaceHeader({
     | "setSidebar"
     | "panel"
     | "setPanel"
-    | "setPalette"
-    | "setFinder"
+    | "setSearchScope"
     | "setUndo"
-    | "renaming"
-    | "setRenaming"
-    | "title"
-    | "setTitle"
     | "navigation"
     | "active"
     | "project"
@@ -62,13 +56,8 @@ export function WorkspaceHeader({
     setSidebar,
     panel,
     setPanel,
-    setPalette,
-    setFinder,
+    setSearchScope,
     setUndo,
-    renaming,
-    setRenaming,
-    title,
-    setTitle,
     navigation,
     active,
     project,
@@ -114,50 +103,11 @@ export function WorkspaceHeader({
         </IconButton>
       </div>
       <div className="titlebar-topic">
-        {panel === "settings" ? <Settings size={14} /> : <Folder size={14} />}
-        {renaming ? (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              startAction(
-                perform(async () => {
-                  await store.rename(active.id, title);
-                  setRenaming(false);
-                }),
-                store.setError.bind(store),
-              );
-            }}
-          >
-            <Input
-              aria-label="Conversation title"
-              autoFocus
-              value={title}
-              onChange={(e) => {
-                setTitle(e.target.value);
-              }}
-              onBlur={() => {
-                startAction(
-                  perform(async () => {
-                    await store.rename(active.id, title);
-                  }),
-                  store.setError.bind(store),
-                );
-                setRenaming(false);
-              }}
-            />
-          </form>
-        ) : (
-          <h1>
-            {(() => {
-              if (panel === "settings") {
-                return "Settings";
-              }
-              if (active.title === "New chat" && project) {
-                return project.name;
-              }
-              return active.title;
-            })()}
-          </h1>
+        {panel !== "settings" && (
+          <>
+            <Folder size={14} />
+            <h1>{active.title === "New chat" && project ? project.name : active.title}</h1>
+          </>
         )}
       </div>
       <div className="titlebar-actions">
@@ -275,7 +225,7 @@ export function WorkspaceHeader({
                 id="files"
                 textValue="Find file"
                 onAction={() => {
-                  setFinder(true);
+                  setSearchScope("files");
                 }}
               >
                 <Search size={14} />
@@ -285,7 +235,7 @@ export function WorkspaceHeader({
                 id="commands"
                 textValue="Command palette"
                 onAction={() => {
-                  setPalette(true);
+                  setSearchScope("all");
                 }}
               >
                 <Command size={14} />

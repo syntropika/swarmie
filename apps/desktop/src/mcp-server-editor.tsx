@@ -1,5 +1,6 @@
 import type { McpEntry, InputMcpDefinition as McpDefinition } from "@swarmie/contracts";
 import { Button, Input, TextArea, Select, ListBox } from "@swarmie/ui-web";
+import { ChevronDown } from "lucide-react";
 import { isValidElement, useId } from "react";
 
 import type { Thread } from "~/src/protocol";
@@ -128,10 +129,12 @@ export function McpServerEditor({
             }}
             placeholder="Select…"
           >
-            <Select.Trigger>
-              <Select.Value />
-              <Select.Indicator />
-            </Select.Trigger>
+            <Button variant="secondary" className="w-full">
+              <span className="min-w-0 flex-1 truncate text-left">
+                <Select.Value />
+              </span>
+              <ChevronDown size={16} className="shrink-0" aria-hidden="true" />
+            </Button>
             <Select.Popover>
               <ListBox aria-label="MCP configuration owner">
                 {[
@@ -171,10 +174,12 @@ export function McpServerEditor({
             }}
             placeholder="Select…"
           >
-            <Select.Trigger>
-              <Select.Value />
-              <Select.Indicator />
-            </Select.Trigger>
+            <Button variant="secondary" className="w-full">
+              <span className="min-w-0 flex-1 truncate text-left">
+                <Select.Value />
+              </span>
+              <ChevronDown size={16} className="shrink-0" aria-hidden="true" />
+            </Button>
             <Select.Popover>
               <ListBox aria-label="MCP configuration scope">
                 {[
@@ -235,10 +240,12 @@ export function McpServerEditor({
         isDisabled={!!edit.entry}
         placeholder="Select…"
       >
-        <Select.Trigger>
-          <Select.Value />
-          <Select.Indicator />
-        </Select.Trigger>
+        <Button variant="secondary" className="w-full">
+          <span className="min-w-0 flex-1 truncate text-left">
+            <Select.Value />
+          </span>
+          <ChevronDown size={16} className="shrink-0" aria-hidden="true" />
+        </Button>
         <Select.Popover>
           <ListBox aria-label="MCP transport">
             {[

@@ -57,7 +57,7 @@ export function NodeStartupControls({
         <>
           <Button
             variant="outline"
-            size="sm"
+            size="md"
             disabled={busy}
             onClick={() => {
               startAction(inspect(), () => {
@@ -105,7 +105,7 @@ export function NodeStartupControls({
               {startup.available && startup.canEnableBoot && !startup.bootReady && (
                 <Button
                   variant="outline"
-                  size="sm"
+                  size="md"
                   disabled={busy}
                   onClick={() => {
                     startAction(configure(true, true), () => {

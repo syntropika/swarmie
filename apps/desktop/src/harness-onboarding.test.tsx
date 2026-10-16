@@ -412,7 +412,7 @@ it("activates agents independently and shares their state with the Settings sect
   );
   await userEvent.click(
     screen.getByRole("button", {
-      name: "Agent tools",
+      name: "Harnesses",
     }),
   );
   expect(
