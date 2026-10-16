@@ -108,7 +108,9 @@ just mobile-signing sync development appstore
 Maintenance requires macOS with Xcode and the environment variables above, plus
 `MATCH_GIT_PRIVATE_KEY` pointing to the selected SSH private-key file. GitHub Actions prepares
 that file from its selected secret, verifies GitHub's SSH host keys using the HTTPS metadata
-endpoint, and removes temporary SSH files after the job. Match uses a temporary CI keychain.
+endpoint authenticated with the automatic job token, and removes temporary SSH files after
+the job. Metadata retrieval does not require another repository secret. Match uses a
+temporary CI keychain.
 
 `fastlane/apple_signing.rb` validates operation, variant and credentials before network work.
 It also overrides Match's storage commit-message hook so generated commits remain lowercase

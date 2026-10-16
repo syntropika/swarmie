@@ -101,6 +101,7 @@ jobs:
           just-version: ${{ steps.tools.outputs.just }}
       - name: Prepare the selected Match SSH identity
         env:
+          GH_TOKEN: ${{ github.token }}
           MATCH_SSH_KEY: ${{ secrets[inputs.operation == 'sync' && 'MATCH_MAINTENANCE_SSH_PRIVATE_KEY' || 'MATCH_SSH_PRIVATE_KEY'] }}
         run: |
           set -euo pipefail
@@ -108,10 +109,21 @@ jobs:
           umask 077
           key_path="$RUNNER_TEMP/match-ssh-key"
           known_hosts="$RUNNER_TEMP/match-known-hosts"
+          metadata_path="$RUNNER_TEMP/match-github-meta.json"
           printf '%s\n' "$MATCH_SSH_KEY" > "$key_path"
           ssh-keygen -y -f "$key_path" > /dev/null
-          curl --fail --silent --show-error --retry 3 https://api.github.com/meta |
-            python3 -c 'import json, sys; print("\n".join("github.com " + key for key in json.load(sys.stdin)["ssh_keys"]))' > "$known_hosts"
+          curl --fail --silent --show-error --retry 3 \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --output "$metadata_path" https://api.github.com/meta
+          python3 - "$metadata_path" > "$known_hosts" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          keys = json.loads(Path(sys.argv[1]).read_text())["ssh_keys"]
+          if not keys:
+              sys.exit("GitHub metadata did not contain SSH host keys.")
+          print("\n".join("github.com " + key for key in keys))
+          PY
           {
             echo "MATCH_GIT_PRIVATE_KEY=$key_path"
             echo "GIT_SSH_COMMAND=ssh -F /dev/null -i $key_path -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known_hosts"
@@ -131,4 +143,4 @@ jobs:
         run: just mobile-signing "$SIGNING_OPERATION" "$SIGNING_VARIANT" "$SIGNING_PROFILE"
       - name: Remove temporary SSH credentials
         if: always()
-        run: rm -f "$RUNNER_TEMP/match-ssh-key" "$RUNNER_TEMP/match-known-hosts"
+        run: rm -f "$RUNNER_TEMP/match-ssh-key" "$RUNNER_TEMP/match-known-hosts" "$RUNNER_TEMP/match-github-meta.json"
