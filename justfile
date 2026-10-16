@@ -83,6 +83,9 @@ mobile-check:
 mobile-config:
     EXPO_NO_TELEMETRY=1 bun run --cwd apps/mobile config:public
 
+mobile-runtime platform:
+    EXPO_NO_TELEMETRY=1 bun run --cwd apps/mobile expo-updates runtimeversion:resolve --platform {{platform}}
+
 mobile-ios-prepare:
     mkdir -p dist/mobile/ios
     just mobile-config > dist/mobile/ios/expo-config.json
@@ -99,6 +102,7 @@ mobile-ios-upload:
 
 mobile-build-check: mobile-signing-check
     bundle exec ruby scripts/distribution/test_mobile_ios.rb
+    python3 -m unittest discover -s scripts/distribution -p test_mobile_build.py
 
 # Apple signing runs on a macOS host with the root Ruby dependencies installed.
 mobile-signing operation="inspect" variant="development" profile="appstore":

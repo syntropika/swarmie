@@ -32,21 +32,34 @@ The initial native build qualifies packaging and native linking, not live authen
 
 ## Workflow behavior
 
-Pull requests that change native code, dependencies or build configuration run tooling and
-mobile checks, then create an unsigned Release archive on macOS. Presentation-only changes
-keep the existing frontend checks without automatically starting this native build.
-This path receives no signing password, SSH identity or Apple API key and does not
+Every relevant pull request and manual run checks the tooling and mobile code, exports
+Expo, then resolves the development iOS runtime fingerprint. If it matches the last
+successfully uploaded signed build, the run finishes after Expo export and does not
+allocate a macOS runner. Otherwise, it creates a native Release archive.
+
+The baseline is the `ios-development-native-baseline` artifact from a successful manual
+run on the default branch. It records the fingerprint read from the signed IPA, which
+must match the Linux planning step before upload. Pull-request, failed, expired and
+other-branch artifacts cannot establish a baseline. The first run without a retained
+baseline requires a native build. Missing API access or invalid metadata fails planning
+rather than assuming compatibility. Baseline metadata is retained for 90 days.
+
+Pull-request native builds are unsigned. This path receives no signing password, SSH
+identity or Apple API key and does not
 produce a distributable IPA. The archive check verifies the development identifier and
 that JavaScript is bundled inside the app.
 
 Manual execution is allowed only from the default branch. It selects development explicitly,
 imports existing signing material through readonly Match and exports an App Store-signed
-IPA. It cannot create certificates, register identifiers or modify signing storage. Use the
+IPA when the native runtime has changed. It cannot create certificates, register identifiers or modify signing storage. Use the
 separate [signing maintenance workflow](apple-signing.md) for those operations.
 
 The `upload` input defaults to true. Upload uses the existing `ASC_SIGNING_API_*` credentials
 only in the TestFlight upload step. The compiler does not receive that API key. Setting
-`upload` to false still produces a signed IPA without contacting App Store Connect.
+`upload` to false produces a signed IPA when rebuilding is necessary without contacting
+App Store Connect. Such a run does not replace the uploaded-build baseline. A matching
+runtime skips native compilation and TestFlight upload regardless of this input. Expo
+exports are retained for seven days; export alone does not publish an OTA update.
 
 The workflow uploads the build without waiting for Apple processing or distributing it to
 testers. Configure internal testing in App Store Connect after processing. It does not
