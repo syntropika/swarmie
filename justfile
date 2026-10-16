@@ -80,6 +80,26 @@ mobile-export:
 mobile-check:
     bun run check:mobile
 
+mobile-config:
+    EXPO_NO_TELEMETRY=1 bun run --cwd apps/mobile config:public
+
+mobile-ios-prepare:
+    mkdir -p dist/mobile/ios
+    just mobile-config > dist/mobile/ios/expo-config.json
+    python3 -m json.tool dist/mobile/ios/expo-config.json > /dev/null
+    just sdk-build-mobile ios
+    just mobile-prebuild ios
+    bundle exec pod install --project-directory=apps/mobile/ios
+
+mobile-ios-build signing="unsigned":
+    bundle exec fastlane ios build signing:{{ quote(signing) }}
+
+mobile-ios-upload:
+    bundle exec fastlane ios upload
+
+mobile-build-check: mobile-signing-check
+    bundle exec ruby scripts/distribution/test_mobile_ios.rb
+
 # Apple signing runs on a macOS host with the root Ruby dependencies installed.
 mobile-signing operation="inspect" variant="development" profile="appstore":
     bundle exec fastlane ios signing operation:{{ quote(operation) }} variant:{{ quote(variant) }} profile:{{ quote(profile) }}
