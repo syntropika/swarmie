@@ -22,6 +22,12 @@
 !.env.sample
 *.pem
 *.key
+*.p8
+*.p12
+*.mobileprovision
+/.bundle/
+/vendor/bundle/
+/fastlane/report.xml
 **/.impeccable/live/
 **/.impeccable/config.local.json
 **/.impeccable/hook.cache.json

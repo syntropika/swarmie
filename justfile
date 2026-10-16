@@ -80,6 +80,15 @@ mobile-export:
 mobile-check:
     bun run check:mobile
 
+# Apple signing runs on a macOS host with the root Ruby dependencies installed.
+mobile-signing operation="inspect" variant="development" profile="appstore":
+    bundle exec fastlane ios signing operation={{ quote(operation) }} variant={{ quote(variant) }} profile={{ quote(profile) }}
+
+mobile-signing-check:
+    bundle exec ruby -c fastlane/Fastfile
+    bundle exec ruby -c fastlane/Matchfile
+    bundle exec ruby scripts/distribution/test_apple_signing.rb
+
 resources-check:
     cargo fmt -p swarmie-resources -- --check
     cargo clippy --locked -p swarmie-resources --all-targets -- -D warnings
