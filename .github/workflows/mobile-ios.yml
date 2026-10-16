@@ -80,6 +80,7 @@ jobs:
         env:
           EXPECTED_RUBY_VERSION: ${{ steps.tools.outputs.ruby }}
           BUNDLE_PATH: ${{ runner.temp }}/bundle
+          BUNDLE_FROZEN: "true"
         run: |
           test "$(ruby -e 'print RUBY_VERSION')" = "$EXPECTED_RUBY_VERSION"
           echo "BUNDLE_PATH=$BUNDLE_PATH" >> "$GITHUB_ENV"
