@@ -73,7 +73,7 @@ jobs:
       - run: just mobile-signing-check
 
   signing:
-    name: ${{ inputs.operation }} ${{ inputs.variant }} signing
+    name: Manage certificates and profiles
     if: github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch
     needs: validate
     runs-on: macos-26
