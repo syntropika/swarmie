@@ -38,7 +38,12 @@ export function createAppConfig(environment: Record<string, string | undefined>)
     orientation: "default",
     userInterfaceStyle: "light",
     // SDK 57 uses Hermes and the New Architecture without a legacy engine switch.
-    ios: { bundleIdentifier: identifier, buildNumber, supportsTablet: true },
+    ios: {
+      bundleIdentifier: identifier,
+      buildNumber,
+      supportsTablet: true,
+      ...iosEncryptionConfiguration(environment, variant),
+    },
     android: {
       package: identifier,
       // Functional modules are installed ahead of their UI. Ask only at the action that needs access.
@@ -100,6 +105,28 @@ export function createAppConfig(environment: Record<string, string | undefined>)
       ...(apiBaseUrl === undefined ? {} : { apiBaseUrl }),
     },
     web: { bundler: "metro", output: "single" },
+  };
+}
+
+function iosEncryptionConfiguration(
+  environment: Record<string, string | undefined>,
+  variant: "development" | "production",
+): Pick<NonNullable<ExpoConfig["ios"]>, "infoPlist"> {
+  if (variant !== "production") {
+    return {};
+  }
+  const code = environment.IOS_PRODUCTION_ENCRYPTION_EXPORT_COMPLIANCE_CODE?.trim();
+  if (code === undefined) {
+    return {};
+  }
+  if (code.length === 0) {
+    throw new Error("IOS_PRODUCTION_ENCRYPTION_EXPORT_COMPLIANCE_CODE must not be blank");
+  }
+  return {
+    infoPlist: {
+      ITSAppUsesNonExemptEncryption: true,
+      ITSEncryptionExportComplianceCode: code,
+    },
   };
 }
 

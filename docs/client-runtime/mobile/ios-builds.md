@@ -100,6 +100,38 @@ selected environment, and a signed build requires an explicit backend URL. Raw F
 build calls require `signing:unsigned` or `signing:signed`; the root command forwards this
 option using Fastlane's colon syntax.
 
+## Encryption declarations and France
+
+The shared Rust client includes a TLS implementation through `reqwest` and `rustls`.
+Its encryption is not limited to Apple's operating-system APIs. Distribution geography
+and encryption declarations are managed in App Store Connect; the app variant alone does
+not restrict which countries can receive a build.
+
+Development currently targets internal testing outside France. Complete its export
+questionnaire in App Store Connect according to that distribution. The generated app does
+not declare an unverified exemption or inherit the production app's approval. Review the
+declaration before extending development distribution to France.
+
+Production is intended to include France. Complete the applicable French encryption
+declaration and submit the required documentation for the production app record in App
+Store Connect. After Apple approves the documentation, use its supplied code as
+`IOS_PRODUCTION_ENCRYPTION_EXPORT_COMPLIANCE_CODE` when preparing the production app.
+This is an approval reference embedded in the app, not an API credential. Do not invent a
+code or reuse the development app's declaration.
+
+With `APP_VARIANT=production` and that value present, Expo writes
+`ITSAppUsesNonExemptEncryption=true` and `ITSEncryptionExportComplianceCode` into the native
+Info.plist. Without it, configuration and archives remain available for preparation, but
+the Fastlane upload lane rejects production uploads before contacting Apple. The guard
+checks the prepared Expo configuration, so adding an environment variable after prebuild
+does not qualify an older build. It verifies the presence of the reference, not Apple's
+approval status or the contents of the signed IPA.
+
+The future production workflow must pass this variable throughout configuration, prebuild
+and archive steps. The current development workflow does not consume it. Neither this
+configuration nor merging it submits documents, obtains approval, changes country
+availability or modifies an already uploaded build.
+
 ## Production release path
 
 The app configuration and Fastlane build/upload lanes also support the production variant.
@@ -119,3 +151,5 @@ the production record before release.
 - [Fastlane build_app](https://docs.fastlane.tools/actions/build_app/)
 - [Fastlane TestFlight upload](https://docs.fastlane.tools/actions/testflight/)
 - [Apple build submission](https://developer.apple.com/help/app-store-connect/manage-builds/choose-a-build-to-submit/)
+- [Apple encryption documentation requirements](https://developer.apple.com/help/app-store-connect/reference/export-compliance-documentation-for-encryption/)
+- [Apple export compliance code](https://developer.apple.com/documentation/bundleresources/information-property-list/itsencryptionexportcompliancecode)

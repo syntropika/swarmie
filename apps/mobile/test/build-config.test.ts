@@ -42,6 +42,35 @@ describe("mobile build variants", () => {
     expect(config.extra).toEqual({ appVariant: "development" });
   });
 
+  test("development keeps its own manual export declaration", () => {
+    const config = createAppConfig({
+      APP_VARIANT: "development",
+      IOS_PRODUCTION_ENCRYPTION_EXPORT_COMPLIANCE_CODE: "fixture-approval-reference",
+    });
+    expect(config.ios?.infoPlist?.ITSEncryptionExportComplianceCode).toBeUndefined();
+    expect(config.ios?.infoPlist?.ITSAppUsesNonExemptEncryption).toBeUndefined();
+  });
+
+  test("production embeds its supplied approval without inventing an exemption", () => {
+    const pending = createAppConfig({ APP_VARIANT: "production" });
+    expect(pending.ios?.infoPlist?.ITSEncryptionExportComplianceCode).toBeUndefined();
+    expect(pending.ios?.infoPlist?.ITSAppUsesNonExemptEncryption).toBeUndefined();
+    const approved = createAppConfig({
+      APP_VARIANT: "production",
+      IOS_PRODUCTION_ENCRYPTION_EXPORT_COMPLIANCE_CODE: " fixture-approval-reference ",
+    });
+    expect(approved.ios?.infoPlist).toEqual({
+      ITSAppUsesNonExemptEncryption: true,
+      ITSEncryptionExportComplianceCode: "fixture-approval-reference",
+    });
+    expect(() =>
+      createAppConfig({
+        APP_VARIANT: "production",
+        IOS_PRODUCTION_ENCRYPTION_EXPORT_COMPLIANCE_CODE: " ",
+      }),
+    ).toThrow("IOS_PRODUCTION_ENCRYPTION_EXPORT_COMPLIANCE_CODE");
+  });
+
   test("invalid environment choices fail before generating a native project", () => {
     expect(() => createAppConfig({ APP_VARIANT: "staging" })).toThrow("APP_VARIANT");
     for (const number of ["0", "abc", "1.2.3.4", "-1", "1;echo secret"]) {
