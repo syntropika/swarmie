@@ -900,7 +900,7 @@ it("restores the effort selection without giving the lightning a minimum-effort 
     }),
   ).toBeNull();
 });
-it("uses server permission profiles and keeps selected and observed permissions separate", async () => {
+it("shows only server permission presets and preserves their availability and selection", async () => {
   const { SessionControls } = await import("~/src/session-controls");
   localStorage.clear();
   const store = new WorkspaceStore();
@@ -974,13 +974,15 @@ it("uses server permission profiles and keeps selected and observed permissions 
   ).toBeNull();
   await waitFor(() => {
     expect(
-      screen.getByRole<HTMLButtonElement>("radio", {
-        name: "Approve for me",
-      }).disabled,
-    ).toBe(false);
+      screen
+        .getByRole("option", {
+          name: "Approve for me",
+        })
+        .getAttribute("aria-disabled"),
+    ).not.toBe("true");
   });
   await userEvent.click(
-    screen.getByRole("radio", {
+    screen.getByRole("option", {
       name: "Approve for me",
     }),
   );
@@ -1007,7 +1009,10 @@ it("uses server permission profiles and keeps selected and observed permissions 
       name: "Change permissions: Full access",
     }),
   ).toBeTruthy();
-  expect(screen.getByText("Current native permissions: Custom permissions")).toBeTruthy();
+  expect(screen.getByRole("option", { name: "Full access" }).getAttribute("aria-selected")).toBe(
+    "true",
+  );
+  expect(screen.queryByText("Current native permissions: Custom permissions")).toBeNull();
   view.rerender(
     <SessionControls
       kind="settings"
@@ -1056,17 +1061,17 @@ it("uses server permission profiles and keeps selected and observed permissions 
     />,
   );
   expect(
-    screen.getByRole<HTMLButtonElement>("radio", {
-      name: "Full access",
-    }).disabled,
-  ).toBe(true);
+    screen
+      .getByRole("option", {
+        name: "Full access",
+      })
+      .getAttribute("aria-disabled"),
+  ).toBe("true");
   expect(screen.getByText("Native deny rules remain unobserved")).toBeTruthy();
-  await userEvent.click(screen.getByText("Native permission settings"));
-  await userEvent.click(screen.getByRole("button", { name: /Native Permission mode/u }));
-  await userEvent.click(screen.getByRole("option", { name: "Bypass prompts" }));
-  expect(configure).toHaveBeenLastCalledWith(thread.id, {
-    permissionMode: "bypassPermissions",
-  });
+  expect(screen.queryByText("Native permission settings")).toBeNull();
+  expect(screen.queryByRole("button", { name: /Native Permission mode/u })).toBeNull();
+  expect(screen.getAllByRole("option")).toHaveLength(3);
+  expect(configure).toHaveBeenCalledExactlyOnceWith(thread.id, { executionProfile: "review" });
 });
 function requireFixtureValue<T>(value: T | null | undefined): T {
   if (value === undefined || value === null) {

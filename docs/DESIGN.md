@@ -158,6 +158,8 @@ and section-heading roles rather than applying control typography to editorial h
 **The Artwork Rule.** The swarmie wordmark is the custom lettering in the canonical SVG.
 Never recreate it by typing the name in Google Sans or another font. Keep the symbol,
 coral core, lettering, spacing and proportions together in the full lockup.
+Compact navigation headers may use the standalone monochrome wordmark asset, which
+retains the original lettering without the symbol.
 
 ## Layout
 
@@ -167,7 +169,15 @@ rail and resizable navigation compose the shared primitives without introducing 
 control collection. Dense information can use layout grouping and progressive disclosure
 without forcing smaller primitive padding, heights or line spacing.
 
-Use the shared spacing rhythm and upstream defaults. Reading regions usually stay near
+Use the shared spacing rhythm and upstream defaults. Search workflows use the shared
+SearchDialog molecule with cmdk collections inside HeroUI Modal and its approved zone-based preset: no outer content inset,
+4px list inset, 8px horizontal and 6px vertical row insets, 12px group separation and a
+10px horizontal field inset. Its surface is at most 520px wide; the integrated header
+is 56px tall and the results scroll within a viewport-bounded 440px maximum. The title
+remains available to assistive technology without adding a separate visible heading.
+Generic dialogs retain their 16px content inset. Use semantic menu tokens from
+packages/config/tailwind/web-tokens.css rather than application-specific spacing overrides.
+Reading regions usually stay near
 65-75 characters. The marketing page keeps its existing bounded content width, generous
 section spacing and responsive illustration layout. Layout classes may arrange controls;
 they do not redefine the dimensions of those controls.

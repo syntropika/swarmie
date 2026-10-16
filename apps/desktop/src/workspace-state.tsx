@@ -1,7 +1,7 @@
-import { Select, ListBox } from "@swarmie/ui-web";
+import { Button, Dropdown } from "@swarmie/ui-web";
 import { useMutation } from "@tanstack/react-query";
-import { Monitor } from "lucide-react";
-import { isValidElement, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { ChevronDown, Monitor } from "lucide-react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 // Copyright 2026 Syntropika
 // SPDX-License-Identifier: Apache-2.0
 
@@ -17,12 +17,14 @@ import type { NodeClient, NodesState } from "~/src/nodes";
 import { hasConversation } from "~/src/protocol";
 import type { Thread } from "~/src/protocol";
 import { SessionControls } from "~/src/session-controls";
+import type { SettingsSection } from "~/src/settings-sections";
 import { readShortcuts, matchesShortcut } from "~/src/shortcuts";
 import { readSidebarSorting, sortThreads, projectActivity } from "~/src/sidebar-preferences";
 import type { SidebarSorting } from "~/src/sidebar-preferences";
 import { watchThreadTimes } from "~/src/thread-clock";
 import { hasText, hasNumber } from "~/src/value-presence";
 import type { WorkspaceStore } from "~/src/workspace";
+import type { SearchScope } from "~/src/workspace-search-items";
 
 export type Panel = "project" | "settings" | "review" | "extensions" | "client" | null;
 
@@ -125,11 +127,8 @@ export function useWorkspaceState({
     };
   }, []);
 
-  const [settingsSection, setSettingsSection] = useState<"general" | "account" | "security">(
-    "general",
-  );
-  const [palette, setPalette] = useState(false);
-  const [finder, setFinder] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
+  const [searchScope, setSearchScope] = useState<SearchScope | null>(null);
   const [shortcuts, setShortcuts] = useState(readShortcuts);
   const [organization, setOrganization] = useState<"projects" | "time" | "working">(() => {
     try {
@@ -146,10 +145,7 @@ export function useWorkspaceState({
     run: () => Promise<unknown> | undefined;
   }>();
   const [archived, setArchived] = useState(false);
-  const [renaming, setRenaming] = useState(false);
-  const [title, setTitle] = useState("");
-  const [query, setQuery] = useState("");
-  const [search, setSearch] = useState(false);
+  const [renaming, setRenaming] = useState<Pick<Thread, "id" | "title"> | null>(null);
   const [projectDialog, setProjectDialog] = useState(false);
   const [branch, setBranch] = useState("");
   const actionMutation = useMutation({
@@ -203,15 +199,7 @@ export function useWorkspaceState({
       hasConversation(t) &&
       (t.archived === true) === archived &&
       (showSnoozed ||
-        (!(t.settled === true) && (!hasNumber(t.snoozeUntil) || t.snoozeUntil <= now))) &&
-      (t.title.toLowerCase().includes(query.toLowerCase()) ||
-        t.messages.some((m) =>
-          typeof m.content === "string"
-            ? m.content.toLowerCase().includes(query.toLowerCase())
-            : m.content.some(
-                (p) => p.type === "text" && p.text.toLowerCase().includes(query.toLowerCase()),
-              ),
-        )),
+        (!(t.settled === true) && (!hasNumber(t.snoozeUntil) || t.snoozeUntil <= now))),
   );
   const pinned = sortThreads(
     filtered.filter((t) => t.pinned),
@@ -301,7 +289,7 @@ export function useWorkspaceState({
       }
       if (matchesShortcut(event, shortcuts.palette)) {
         event.preventDefault();
-        setPalette((v) => !v);
+        setSearchScope((current) => (current === null ? "all" : null));
       }
       if (matchesShortcut(event, shortcuts.newChat)) {
         event.preventDefault();
@@ -310,7 +298,7 @@ export function useWorkspaceState({
       }
       if (matchesShortcut(event, shortcuts.files)) {
         event.preventDefault();
-        setFinder(true);
+        setSearchScope("files");
       }
       if (matchesShortcut(event, shortcuts.tools)) {
         event.preventDefault();
@@ -318,13 +306,10 @@ export function useWorkspaceState({
       }
       if (event.key === "Escape") {
         setPanel(null);
-        setSearch(false);
-        setQuery("");
+        setSearchScope(null);
         if (window.innerWidth <= 760) {
           setSidebar(false);
         }
-        setPalette(false);
-        setFinder(false);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -367,8 +352,7 @@ export function useWorkspaceState({
     }
   };
   const renameActive = () => {
-    setTitle(active.title);
-    setRenaming(true);
+    setRenaming({ id: active.id, title: active.title });
   };
   const archiveDisabled =
     active === blank || ["running", "needs_input", "starting"].includes(active.state);
@@ -426,51 +410,45 @@ export function useWorkspaceState({
         disabledHarnesses={state.disabledHarnesses}
       />
       <div className="composer-spacer" />
-      <Select
-        aria-label="View node"
-        value={state.node?.environmentId ?? ""}
-        onChange={(key) => {
-          if (typeof key === "string") {
-            ((id) => {
-              startAction(client.select(id), store.setError.bind(store));
-            })(key);
-          }
-        }}
-        placeholder="Select…"
-        className="max-w-[50%]"
-      >
-        <Select.Trigger>
-          <Monitor size={14} />
-          <Select.Value />
-          <Select.Indicator />
-        </Select.Trigger>
-        <Select.Popover>
-          <ListBox aria-label="View node">
+      <Dropdown>
+        <Button variant="tertiary" size="sm" aria-label="View node" className="max-w-[50%]">
+          <Monitor size={14} className="shrink-0" aria-hidden="true" />
+          <span className="truncate">
+            {nodes.nodes.find((node) => node.identity.environmentId === state.node?.environmentId)
+              ?.displayName ?? "Select node"}
+          </span>
+          <ChevronDown size={14} className="shrink-0" aria-hidden="true" />
+        </Button>
+        <Dropdown.Popover placement="top end" className="min-w-44">
+          <Dropdown.Menu
+            aria-label="View node"
+            selectionMode="single"
+            selectedKeys={state.node ? [state.node.environmentId] : []}
+            onAction={(key) => {
+              if (typeof key === "string" && key !== state.node?.environmentId) {
+                startAction(client.select(key), store.setError.bind(store));
+              }
+            }}
+          >
             {nodes.nodes
               .filter(
                 (node) =>
                   node.registered || node.identity.environmentId === state.node?.environmentId,
               )
-              .map((node) => ({
-                id: node.identity.environmentId,
-                label: node.displayName,
-                disabled: !node.registered,
-              }))
-              .map((option) => (
-                <ListBox.Item
-                  key={option.id}
-                  id={option.id}
-                  textValue={option.label}
-                  isDisabled={"disabled" in option && option.disabled}
+              .map((node) => (
+                <Dropdown.Item
+                  key={node.identity.environmentId}
+                  id={node.identity.environmentId}
+                  textValue={node.displayName}
+                  isDisabled={!node.registered}
                 >
-                  {"icon" in option && isValidElement(option.icon) ? option.icon : null}
-                  {option.label}
-                  <ListBox.ItemIndicator />
-                </ListBox.Item>
+                  {node.displayName}
+                  <Dropdown.ItemIndicator />
+                </Dropdown.Item>
               ))}
-          </ListBox>
-        </Select.Popover>
-      </Select>
+          </Dropdown.Menu>
+        </Dropdown.Popover>
+      </Dropdown>
     </>
   );
   const composerControls = (
@@ -486,13 +464,10 @@ export function useWorkspaceState({
     setSidebar,
     panel,
     setPanel,
-    setPalette,
-    setFinder,
+    setSearchScope,
     setUndo,
     renaming,
     setRenaming,
-    title,
-    setTitle,
     navigation,
     active,
     project,
@@ -511,10 +486,7 @@ export function useWorkspaceState({
     showSnoozed,
     setShowSnoozed,
     archived,
-    query,
-    setQuery,
-    search,
-    setSearch,
+    searchScope,
     setProjectDialog,
     collapsed,
     sidebarSort,
@@ -550,8 +522,6 @@ export function useWorkspaceState({
     setSurfaceContext,
     settingsSection,
     setSettingsSection,
-    palette,
-    finder,
     shortcuts,
     setShortcuts,
     setArchived,

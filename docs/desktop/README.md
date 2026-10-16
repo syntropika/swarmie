@@ -53,7 +53,7 @@ The default desktop URL is `http://127.0.0.1:7447`. To use another local listene
 
 ### Agent tool setup
 
-The first verified connection opens **Set up your agent tools** when setup has not been completed for that node. All seven named tools have primary placement and independent enable/disable toggles; additional ACP tools are expandable. **Settings → Agent tools** exposes the same controls and **Open setup** reopens the dialog. Installation and authentication are separate from enablement: an executable can be installed while its login status is unknown. The inline connection form supports existing logins, provider API keys, available browser/device authorization flows, progress, cancellation, disconnection, and **Check again**. The seven named tools offer explicit managed installation on supported platforms, including required SDK execution and sign-in support. OpenCode exposes native ChatGPT and Copilot authorization; Antigravity exposes native Google URL/code sign-in on Linux and macOS. Managed npm installations require Node.js 22.19 or later and npm on the execution node. The dialog can be skipped.
+The first verified connection opens **Set up your agent tools** when setup has not been completed for that node. All seven named tools have primary placement and independent enable/disable toggles; additional ACP tools are expandable. **Settings → Harnesses** exposes the same controls and **Open setup** reopens the dialog. Installation and authentication are separate from enablement: an executable can be installed while its login status is unknown. The inline connection form supports existing logins, provider API keys, available browser/device authorization flows, progress, cancellation, disconnection, and **Check again**. The seven named tools offer explicit managed installation on supported platforms, including required SDK execution and sign-in support. OpenCode exposes native ChatGPT and Copilot authorization; Antigravity exposes native Google URL/code sign-in on Linux and macOS. Managed npm installations require Node.js 22.19 or later and npm on the execution node. The dialog can be skipped.
 
 Disabled agents are excluded from new work and checked again before session creation. Existing chats keep their agent tool and remain usable. Completion and disabled-agent preferences are scoped to retained node identity and contain no provider credentials. Connection values travel through transient RPC to the selected runtime; API keys use its system credential vault or explicitly selected session-only memory. Native authorization retains provider-owned credential storage. Public setup receipts contain no credentials. Extra accounts, rotation, inference request metrics, and replay remain outside this screen. See [agent tool support and setup](../runtime/coding-agent-support.md) for supported methods and remaining work.
 
@@ -83,7 +83,7 @@ Outgoing user messages appear in a right-aligned bubble with a separate action r
 
 Assistant response actions use the official Elements **Copy** control inside assistant-ui's action bar. Copy includes only the selected response's text and uses the existing clipboard/document-copy fallback. A green check confirms success for three seconds; repeated copies reset the timer, unmounting clears it, and failures surface as workspace errors. **Fork from here** is an icon-only Lucide GitFork control with a named tooltip, appearing alongside copy only for an idle session with advertised fork support and a native message anchor. The assistant action row is hidden by default, revealing copy and supported fork on hover over the whole assistant message or keyboard focus within. Its reserved 28px height avoids layout shift and its 150ms opacity transition honors reduced motion; it stays hidden while running. Both copy controls use **Copy**/**Copied** for their accessible names and hover/focus tooltips, muted color with foreground hover, and a green success check. User and assistant copies share `useMessageCopy`, including fallback copying, three-second confirmation, timer cleanup, and protection against late updates after unmount.
 
-Saved conversations replay the daemon's durable event journal and resume the same native provider reference after restart. Unsupported resume fails clearly and keeps the old conversation. A new chat is the explicit way to start fresh. Project navigation and draft text use lightweight local storage. Attachment drafts, image history and queue cache use IndexedDB. Draft writes finish asynchronously with a visible saving indicator; storage failures remain visible and retain unsent content in memory. Newer local edits win over delayed cache hydration. Tokens and question answers are not persisted.
+Saved conversations replay the daemon's durable event journal and resume the same native provider reference after restart. Unsupported resume fails clearly and keeps the old conversation. A new chat is the explicit way to start fresh. Project navigation and draft text use lightweight local storage. Attachment drafts, image history and queue cache use IndexedDB. Draft writes finish asynchronously; storage failures remain visible and retain unsent content in memory. Newer local edits win over delayed cache hydration. Tokens and question answers are not persisted.
 
 Client Projects, chats, selection, drafts, attachments, transcript projections, event cursors, and pending operations belong to a state instance pinned to the full retained node identity. Lightweight storage uses version 3 node keys; IndexedDB uses separate node keys with checked identity envelopes. Route associations restore the correct node cache while offline. Equal paths and session IDs across nodes remain separate, and owner restarts retain the cache namespace. Responses or transport failures from an earlier attachment are discarded without redirecting work or declaring that the original command had no effects. Notification tags include the node identity. Previous unscoped development entries remain untouched and are not imported. The composer cap's View node selector reuses these state instances, and the local gateway forwards commands to their verified destinations. Connected hidden nodes continue to be polled.
 
@@ -120,15 +120,14 @@ package.
 
 Settings replaces the sidebar and conversation while retaining the activity rail and toolbar.
 Section navigation sits beside bounded content and moves above it in narrow windows.
-Import provides native history, Keyboard shortcuts provides binding editing and reset,
-and Nodes groups local and remote connection management. The Settings gear remains
-at the bottom of the rail.
+Keyboard shortcuts provides binding editing and reset, while Nodes groups local and remote connection management. Open Settings from the user menu at the bottom of the rail.
 
 The official [assistant-ui Elements](https://github.com/assistant-ui/assistant-ui/tree/main/packages/ui/src/components/react/assistant-ui/elements)
-command-palette, message-actions and surface modules remain application-owned integrations
+message-actions and surface modules remain application-owned integrations
 under `src/components/assistant-ui/elements`, with their
 [upstream MIT license](../../apps/desktop/src/components/assistant-ui/elements/LICENSE).
-The command palette uses cmdk for search and keyboard navigation inside the shared Modal.
+The shared SearchDialog molecule uses cmdk for search and keyboard navigation inside HeroUI
+Modal. The desktop WorkspaceSearch workflow supplies chat, file, command and settings contexts.
 Only implemented response actions are exposed. These conversation integrations do not
 supply another general-purpose control collection.
 
@@ -155,7 +154,7 @@ Frontend tests cover ordered replay, native text item boundaries, concurrent req
 
 Extensions are compiled into the daemon. View descriptors keep their headless commands usable without a desktop. Runtime loading of arbitrary third-party code is not provided. Events are polled in bounded pages every 250 ms across open chats. Review and terminal output have explicit bounds. Provider-specific features remain capability dependent. Guided SSH preparation, account pairing and relay, cross-device access grants and permission management, and managed-cloud provisioning remain pending. Pull request merging is exclusively the user's responsibility.
 
-The titlebar exposes **Background tasks** for live sessions advertising task control. Its popover lists native task status, refreshes while open, and can stop an individual task without cancelling the parent turn. A stop request waits for native confirmation. Import offers Cursor local SDK conversations alongside supported native CLI history; its source hint distinguishes the Cursor CLI store.
+The titlebar exposes **Background tasks** for live sessions advertising task control. Its popover lists native task status, refreshes while open, and can stop an individual task without cancelling the parent turn. A stop request waits for native confirmation.
 
 ## MCP servers
 

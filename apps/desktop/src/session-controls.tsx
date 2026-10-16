@@ -1,13 +1,13 @@
-import { Button, Popover, Tooltip, TooltipContent } from "@swarmie/ui-web";
+import { Button, Link, Popover, Tooltip, TooltipContent } from "@swarmie/ui-web";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, Shield, Zap } from "lucide-react";
+import { ChevronDown, Zap } from "lucide-react";
 import { useState } from "react";
 
 import { startAction, errorMessage } from "~/src/action-boundary";
 import { scalarLabel } from "~/src/components/presentation-values";
 import { ModelPicker } from "~/src/model-picker";
 import { nodeKey } from "~/src/node-scope";
-import { PermissionPicker } from "~/src/permission-picker";
+import { PermissionIcon, PermissionPicker } from "~/src/permission-picker";
 import type { Thread, Configuration } from "~/src/protocol";
 import { ReasoningEffort } from "~/src/reasoning-effort";
 import { sessionPermissions } from "~/src/session-permissions";
@@ -139,7 +139,7 @@ export function SessionControls(props: ControlProps) {
         <span
           className={`flex items-center gap-2 ${settings && permission.selected === "full" ? "text-permission-full-access" : ""}`}
         >
-          {settings && <Shield size={14} />}
+          {settings && <PermissionIcon mode={permission.selected} size={14} />}
           <span className="model-trigger-label">
             {settings ? permission.label : controls.modelLabel}
             {!settings && hasText(controls.effortLabel) && ` · ${controls.effortLabel}`}
@@ -149,15 +149,30 @@ export function SessionControls(props: ControlProps) {
       </Button>
 
       <Popover.Content
+        data-session-control={kind}
         placement={settings ? "top start" : "top end"}
         className={settings ? "w-[440px]" : "w-72"}
         aria-label={settings ? "Permissions" : "Model and session settings"}
       >
         <Popover.Dialog aria-label={settings ? "Permissions" : "Model and session settings"}>
-          <div className="session-controls">
-            <h2 className={settings ? "mb-1 text-sm text-muted" : "sr-only"}>
-              {settings ? "How should actions be approved?" : "Model and reasoning effort"}
-            </h2>
+          <div className={settings ? "session-controls session-permissions" : "session-controls"}>
+            {settings ? (
+              <div className="flex items-start gap-4 px-3 py-2">
+                <p className="min-w-0 flex-1 text-sm text-muted">
+                  Choose how Swarmie actions are approved.
+                </p>
+                <Link
+                  className="shrink-0"
+                  href="https://github.com/syntropika/swarmie/blob/develop/docs/runtime/execution-policy.md"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Learn more
+                </Link>
+              </div>
+            ) : (
+              <h2 className="sr-only">Model and reasoning effort</h2>
+            )}
             <SessionControlStatus thread={thread} controls={controls} settings={settings} />
             {settings ? (
               <PermissionPicker

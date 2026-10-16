@@ -1,20 +1,18 @@
 import { Button } from "@swarmie/ui-web";
-import { Home, History, GitBranch, Layers, Settings } from "lucide-react";
+import { Home, GitBranch } from "lucide-react";
 // Copyright 2026 Syntropika
 // SPDX-License-Identifier: Apache-2.0
 import { useEffect, useSyncExternalStore } from "react";
 
 import { AccountMenu } from "~/src/account-menu";
 import { startAction } from "~/src/action-boundary";
-import { CommandPalette } from "~/src/command-palette";
 import { ContributionHost, ContributionSlot } from "~/src/contribution-host";
-import { FileFinder } from "~/src/file-finder";
 import { HarnessOnboarding } from "~/src/harness-onboarding";
 import { nodeKey } from "~/src/node-scope";
-import { ProjectDialog } from "~/src/project-dialog";
 import { NodeQueryBoundary } from "~/src/query-boundary";
 import { SettingsPage } from "~/src/settings-page";
-import { hasText, hasNumber } from "~/src/value-presence";
+import { hasText } from "~/src/value-presence";
+import { WorkspaceDialogs } from "~/src/workspace-dialogs";
 import { WorkspaceHeader } from "~/src/workspace-header";
 import { IconButton } from "~/src/workspace-icon-button";
 import { nodeClient } from "~/src/workspace-instance";
@@ -79,16 +77,10 @@ function WorkspaceView(props: NodeWorkspaceProps) {
     closeScreen,
     settingsSection,
     setSettingsSection,
-    palette,
-    setPalette,
-    finder,
-    setFinder,
     shortcuts,
     setShortcuts,
     archived,
     setArchived,
-    projectDialog,
-    setProjectDialog,
     active,
     project,
     ready,
@@ -135,16 +127,6 @@ function WorkspaceView(props: NodeWorkspaceProps) {
           >
             <Home size={18} />
           </IconButton>
-          <IconButton
-            label="Archived chats"
-            active={archived}
-            onClick={() => {
-              setArchived((value) => !value);
-              setSidebar(true);
-            }}
-          >
-            <History size={18} />
-          </IconButton>
           <div className="rail-divider" />
           <IconButton
             label="Review changes"
@@ -162,16 +144,6 @@ function WorkspaceView(props: NodeWorkspaceProps) {
           >
             <GitBranch size={18} />
           </IconButton>
-          <IconButton
-            label="Workspace tools"
-            active={panel === "extensions"}
-            disabled={!state.extensions.some((e) => hasNumber(e.views?.length))}
-            onClick={() => {
-              setPanel(panel === "extensions" ? null : "extensions");
-            }}
-          >
-            <Layers size={18} />
-          </IconButton>
           <ContributionSlot name="sidebar.primary" />
           <div className="rail-spacer" />
           <AccountMenu
@@ -183,16 +155,6 @@ function WorkspaceView(props: NodeWorkspaceProps) {
               store.setError(message);
             }}
           />
-          <IconButton
-            label="Settings"
-            active={panel === "settings"}
-            onClick={() => {
-              setSettingsSection("general");
-              setPanel(panel === "settings" ? null : "settings");
-            }}
-          >
-            <Settings size={18} />
-          </IconButton>
         </nav>
         <WorkspaceSidebar view={view} />
         {sidebar && (
@@ -206,38 +168,11 @@ function WorkspaceView(props: NodeWorkspaceProps) {
           />
         )}
         <WorkspaceConversation view={view} />
-        {palette && (
-          <CommandPalette
-            store={store}
-            onClose={() => {
-              setPalette(false);
-            }}
-            onPanel={setPanel}
-            onOpenProject={() => {
-              setPanel(null);
-              setProjectDialog(true);
-            }}
-          />
-        )}
-        {finder && (
-          <FileFinder
-            store={store}
-            onClose={() => {
-              setFinder(false);
-            }}
-          />
-        )}
-        {projectDialog && (
-          <ProjectDialog
-            store={store}
-            onClose={() => {
-              setProjectDialog(false);
-            }}
-          />
-        )}
+        <WorkspaceDialogs view={view} />
         {panel === "settings" && (
           <SettingsPage
-            initialSection={settingsSection}
+            section={settingsSection}
+            onSectionChange={setSettingsSection}
             client={client}
             nodes={nodes}
             store={store}

@@ -1067,31 +1067,6 @@ export class WorkspaceStore {
       throw error;
     }
   }
-  async importSession(query: unknown) {
-    const result = await this.rpc("client/sessionImport", query);
-    let thread = this.snapshot.threads.find((t) => t.sessionId === result.snapshot.id);
-    if (!thread) {
-      const { snapshot } = result;
-      const source = snapshot.workingContext?.source;
-      thread = {
-        ...newThread(
-          source?.kind === "project_folder" ? source.projectId : "",
-          snapshot.options.cwd,
-          snapshot.options.harness,
-        ),
-        sessionId: snapshot.id,
-        title: snapshot.metadata?.title ?? "Recovered chat",
-        model: snapshot.options.model ?? "",
-        config: isRecord(snapshot.options.config) ? snapshot.options.config : {},
-      };
-      this.publish({
-        threads: [thread, ...this.snapshot.threads],
-      });
-    }
-    await this.applyProjection(thread.id, result);
-    this.select(thread.id);
-    return thread.id;
-  }
   private async resolveChatDirectory() {
     const directory = await this.rpc("client/chatDirectory");
     this.publish({

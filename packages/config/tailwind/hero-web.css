@@ -8,6 +8,7 @@
   --accent-foreground: light-dark(var(--white), var(--black));
   --radius: 0.5rem;
   --field-radius: 0.5rem;
+  --dialog-padding: 1rem;
 
   --success: #008635;
   --success-foreground: var(--white);
@@ -27,6 +28,162 @@
   --button-bg-hover: var(--default-hover);
   --button-bg-pressed: var(--default-hover);
   --button-fg: var(--default-foreground);
+}
+
+/* Search controls share the rounded action geometry across web and desktop. */
+.search-field__group {
+  border-radius: var(--radius-3xl);
+}
+
+/* Modal and popover surfaces share the same default content inset. */
+.popover__dialog,
+.modal__dialog {
+  padding: var(--dialog-padding);
+}
+
+.modal__close-trigger {
+  inset-block-start: var(--dialog-padding);
+  inset-inline-end: var(--dialog-padding);
+}
+
+.modal__header {
+  padding-inline-end: 2rem;
+}
+
+/* The search molecule uses zone insets instead of the generic dialog inset.
+ * This approved preset keeps vendor overlay, collection and focus behavior. */
+.search-dialog__container {
+  --search-results-max-height: min(27.5rem, max(7.5rem, calc(90dvh - 4rem)));
+  --search-header-height: calc(var(--spacing-control-entry) + 2 * var(--spacing-menu-row-y));
+  width: 100%;
+  padding: 1rem;
+  padding-block-start: max(
+    1rem,
+    calc((100dvh - var(--search-results-max-height) - var(--search-header-height)) / 2)
+  );
+}
+
+.search-dialog__surface {
+  max-width: var(--container-search);
+  padding: 0;
+  overflow: hidden;
+}
+
+.search-dialog__header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--spacing-menu-inset);
+  padding: var(--spacing-menu-row-y) var(--spacing-search-inset);
+  box-shadow: inset 0 -1px var(--separator);
+}
+
+.search-dialog__command {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.search-dialog__header [cmdk-input] {
+  height: var(--spacing-control-entry);
+  min-width: 0;
+  flex: 1;
+  padding: var(--spacing-menu-row-y) var(--spacing-menu-row-x);
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: var(--text-ui);
+  outline: none;
+}
+
+.search-dialog__header [cmdk-input]::placeholder {
+  color: var(--muted);
+}
+
+.search-dialog__header:has([cmdk-input]:focus-visible) > svg {
+  color: var(--foreground);
+}
+
+.search-dialog__navigation {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--spacing-menu-row-x);
+  padding: var(--spacing-menu-inset) var(--spacing-menu-row-x);
+}
+
+.search-dialog__close {
+  position: static;
+  flex-shrink: 0;
+}
+
+.search-dialog__results {
+  max-height: var(--search-results-max-height);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--spacing-menu-inset);
+}
+
+.search-dialog__results [cmdk-list-sizer],
+.search-dialog__results [cmdk-group-items] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-menu-inset);
+}
+
+.search-dialog__results [cmdk-list-sizer] {
+  gap: var(--spacing-menu-section-gap);
+}
+
+.search-dialog__results [cmdk-item] {
+  display: flex;
+  min-height: var(--spacing-control);
+  align-items: center;
+  gap: var(--spacing-menu-row-x);
+  padding: var(--spacing-menu-row-y) var(--spacing-menu-row-x);
+  border-radius: var(--radius-2xl);
+  cursor: var(--cursor-interactive);
+  outline: none;
+}
+
+.search-dialog__results [cmdk-item][aria-selected="true"],
+.search-dialog__results [cmdk-item]:hover {
+  background: var(--default);
+}
+
+.search-dialog__results [cmdk-group-heading] {
+  padding: var(--spacing-menu-row-x);
+  color: var(--muted);
+  font-size: var(--text-caption);
+}
+
+.search-dialog__empty {
+  display: grid;
+  min-height: 9rem;
+  place-content: center;
+  padding: var(--spacing-panel-inset);
+  color: var(--muted);
+  text-align: center;
+}
+
+.search-dialog__empty-action {
+  display: flex;
+  justify-content: center;
+  padding: 0 var(--spacing-panel-inset) var(--spacing-panel-inset);
+}
+
+.search-dialog__surface:has(.search-dialog__empty-action) .search-dialog__empty {
+  min-height: 6rem;
+  place-content: end center;
+  padding-block-end: var(--spacing-menu-section-gap);
+}
+
+.search-dialog__status {
+  padding: var(--spacing-menu-row-x) var(--spacing-panel-inset);
+  border-block-start: 1px solid var(--separator);
+  font-size: var(--text-caption);
 }
 
 /* Tertiary carries the same transparent, neutral treatment as the upstream ghost variant. */

@@ -132,11 +132,13 @@ export function HarnessSelect({
       placeholder={installed.length ? "Choose an agent" : emptyLabel}
       className={className}
     >
-      <Select.Trigger id={id}>
+      <Button variant="secondary" className="w-full" id={id}>
         {selected && <HarnessIcon harness={selected.harness} />}
-        <Select.Value />
-        <Select.Indicator />
-      </Select.Trigger>
+        <span className="min-w-0 flex-1 truncate text-left">
+          <Select.Value />
+        </span>
+        <ChevronDown size={16} className="shrink-0" aria-hidden="true" />
+      </Button>
       <Select.Popover className="min-w-44">
         <ListBox aria-label={label}>
           {[

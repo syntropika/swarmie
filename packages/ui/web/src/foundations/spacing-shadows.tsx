@@ -15,6 +15,14 @@ const steps = [
   ["16", "w-16"],
 ] as const;
 
+const menuSpacing = [
+  ["menu-inset", "w-menu-inset", "List boundary"],
+  ["menu-row-x", "w-menu-row-x", "Horizontal row inset"],
+  ["menu-row-y", "w-menu-row-y", "Vertical row inset"],
+  ["menu-section-gap", "w-menu-section-gap", "Between result groups"],
+  ["search-inset", "w-search-inset", "Integrated search header inset"],
+] as const;
+
 function SpacingSample({ width }: { width: string }) {
   const sample = useRef<HTMLDivElement>(null);
   const [value, setValue] = useState("");
@@ -63,6 +71,37 @@ export function SpacingReference({ theme }: { theme: "light" | "dark" }) {
             </Table.Content>
           </Table.ScrollContainer>
         </Table>
+        <section className="grid gap-3">
+          <h2 className="font-semibold">Menu spacing roles</h2>
+          <p className="text-sm text-muted">
+            SearchDialog consumes these semantic roles. General dialogs keep their 16px content
+            inset; search separates the field, list and rows into their own zones.
+          </p>
+          <Table>
+            <Table.ScrollContainer>
+              <Table.Content aria-label="Menu spacing roles">
+                <Table.Header>
+                  <Table.Column isRowHeader>Token</Table.Column>
+                  <Table.Column>Relationship</Table.Column>
+                  <Table.Column>Rendered distance</Table.Column>
+                </Table.Header>
+                <Table.Body>
+                  {menuSpacing.map(([token, width, use]) => (
+                    <Table.Row id={token} key={token}>
+                      <Table.Cell>
+                        <code>--spacing-{token}</code>
+                      </Table.Cell>
+                      <Table.Cell>{use}</Table.Cell>
+                      <Table.Cell>
+                        <SpacingSample width={width} />
+                      </Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table.Content>
+            </Table.ScrollContainer>
+          </Table>
+        </section>
         <div className="grid gap-6 @lg:grid-cols-3">
           <div className="grid gap-2 rounded-2xl bg-surface p-4">
             <h2 className="font-semibold">Related content · gap-2</h2>

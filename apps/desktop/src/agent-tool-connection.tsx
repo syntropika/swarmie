@@ -1,6 +1,6 @@
 import { Button, Input, Select, ListBox } from "@swarmie/ui-web";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, ExternalLink, LoaderCircle, X } from "lucide-react";
+import { ChevronDown, Check, Copy, ExternalLink, LoaderCircle, X } from "lucide-react";
 import {
   isValidElement,
   useCallback,
@@ -52,7 +52,7 @@ export function AgentToolConnection(props: ConnectionProps) {
         <h3>Connect {name}</h3>
         <Button
           variant="tertiary"
-          size="sm"
+          size="md"
           isIconOnly
           aria-label={`Close ${name} connection setup`}
           onClick={onClose}
@@ -508,7 +508,7 @@ function ConnectionView({
         </h3>
         <Button
           variant="tertiary"
-          size="sm"
+          size="md"
           isIconOnly
           aria-label={`Close ${name} connection setup`}
           onClick={onClose}
@@ -525,7 +525,7 @@ function ConnectionView({
           <p>{storageLabel(setup.connection.storage, nodeName)}</p>
           <Button
             variant="tertiary"
-            size="sm"
+            size="md"
             disabled={busy || pending}
             onClick={() => {
               startAction(disconnect(), errorReporter(setError));
@@ -646,10 +646,12 @@ function ConnectionEditor({
               isDisabled={busy || pending}
               placeholder="Select…"
             >
-              <Select.Trigger id={`${id}-provider`}>
-                <Select.Value />
-                <Select.Indicator />
-              </Select.Trigger>
+              <Button variant="secondary" className="w-full" id={`${id}-provider`}>
+                <span className="min-w-0 flex-1 truncate text-left">
+                  <Select.Value />
+                </span>
+                <ChevronDown size={16} className="shrink-0" aria-hidden="true" />
+              </Button>
               <Select.Popover>
                 <ListBox aria-label={`${name} model provider`}>
                   {setup.providers
@@ -695,10 +697,12 @@ function ConnectionEditor({
               isDisabled={busy || pending}
               placeholder="Select…"
             >
-              <Select.Trigger id={`${id}-method`}>
-                <Select.Value />
-                <Select.Indicator />
-              </Select.Trigger>
+              <Button variant="secondary" className="w-full" id={`${id}-method`}>
+                <span className="min-w-0 flex-1 truncate text-left">
+                  <Select.Value />
+                </span>
+                <ChevronDown size={16} className="shrink-0" aria-hidden="true" />
+              </Button>
               <Select.Popover>
                 <ListBox aria-label={`${name} connection method`}>
                   {provider.methods
@@ -753,7 +757,7 @@ function ConnectionEditor({
         />
         <div className="agent-tool-connection-actions">
           {(!pending || hasNumber(fields?.length)) && (
-            <Button type="submit" size="sm" disabled={busy}>
+            <Button type="submit" size="md" disabled={busy}>
               {busy && (
                 <LoaderCircle size={13} className="animate-spin motion-reduce:animate-none" />
               )}
@@ -763,7 +767,7 @@ function ConnectionEditor({
           {pending && (
             <Button
               variant="outline"
-              size="sm"
+              size="md"
               disabled={busy}
               onClick={() => {
                 startAction(cancel(), errorReporter(setError));
@@ -775,7 +779,7 @@ function ConnectionEditor({
           {pending && error && (
             <Button
               variant="secondary"
-              size="sm"
+              size="md"
               disabled={busy}
               onClick={() => {
                 setError("");
@@ -795,7 +799,7 @@ function ConnectionEditor({
           </p>
           <Button
             variant="outline"
-            size="sm"
+            size="md"
             disabled={busy}
             onClick={() => {
               startAction(install(), errorReporter(setError));
@@ -831,7 +835,7 @@ function ConnectionInstall({
               </output>
               <Button
                 variant="outline"
-                size="sm"
+                size="md"
                 disabled={busy}
                 onClick={() => {
                   startAction(cancel(), errorReporter(setError));
@@ -842,7 +846,7 @@ function ConnectionInstall({
             </>
           ) : (
             <Button
-              size="sm"
+              size="md"
               disabled={busy}
               onClick={() => {
                 startAction(install(), errorReporter(setError));
@@ -901,7 +905,7 @@ function ConnectionLoading({
         <p role="alert" className="agent-tool-connection-error">
           Connection options could not be loaded. Reconnect and try again.
         </p>
-        <Button size="sm" variant="secondary" onClick={retry}>
+        <Button size="md" variant="secondary" onClick={retry}>
           Try again
         </Button>
       </>
@@ -941,7 +945,7 @@ function LoginProgress({ controller, name }: { controller: ConnectionController;
           <code>{flow?.userCode}</code>
           <Button
             variant="tertiary"
-            size="sm"
+            size="md"
             aria-label={`Copy ${name} sign-in code`}
             onClick={() => {
               const code = flow?.userCode;
@@ -998,10 +1002,12 @@ function CredentialStorage({
           isDisabled={busy}
           placeholder="Select…"
         >
-          <Select.Trigger id={`${id}-storage`}>
-            <Select.Value />
-            <Select.Indicator />
-          </Select.Trigger>
+          <Button variant="secondary" className="w-full" id={`${id}-storage`}>
+            <span className="min-w-0 flex-1 truncate text-left">
+              <Select.Value />
+            </span>
+            <ChevronDown size={16} className="shrink-0" aria-hidden="true" />
+          </Button>
           <Select.Popover>
             <ListBox aria-label={`${name} credential storage`}>
               {[

@@ -16,6 +16,12 @@ The full lockup includes its custom wordmark. Do not rebuild it from a symbol pl
 stretch it, recolor its lettering or reintroduce the retired blue multicolor applications.
 Leave clear space around it and use a neutral surface with sufficient contrast.
 
+For compact navigation headers, the original lettering is also available on its own in
+`wordmarks/swarmie-wordmark-ink.svg` and `wordmarks/swarmie-wordmark-white.svg`. These
+monochrome assets preserve the canonical wordmark paths and crop the view box to the
+lettering. Use `BrandWordmark` from `@swarmie/ui-web`; do not substitute a font or hide
+part of the full logo with CSS.
+
 `BrandLogo` and `BrandMark` from `@swarmie/ui-web` load these assets using bundle-safe imports
 for both server-rendered and browser interfaces. Both default to coral-core artwork;
 `treatment="monochrome"` selects single-color reproduction and `tone="inverse"` selects
@@ -59,6 +65,7 @@ tokens remain authoritative for implementation.
 
 - `logos/`: approved full lockups, SVG and PNG.
 - `marks/`: approved standalone symbols and coral core, SVG and PNG.
+- `wordmarks/`: original standalone lettering in monochrome ink and white, SVG.
 - `source/`: canonical full logo and geometry data.
 - `tokens/`: identity/editorial color primitives and usage metadata.
 - `typography/`: reference to the maintained font and license.

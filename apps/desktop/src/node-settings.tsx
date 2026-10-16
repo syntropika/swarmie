@@ -81,7 +81,7 @@ export function NodeSettings({ client, nodes }: { client: NodeClient; nodes: Nod
                 <Tooltip>
                   <Button
                     variant="tertiary"
-                    size="sm"
+                    size="md"
                     isIconOnly
                     aria-label="Refresh nodes"
                     disabled={busy || nodes.loading || !local.connected}
@@ -104,7 +104,7 @@ export function NodeSettings({ client, nodes }: { client: NodeClient; nodes: Nod
                 {!!visible.length && (
                   <Button
                     variant="secondary"
-                    size="sm"
+                    size="md"
                     disabled={busy || !local.connected}
                     onClick={() => {
                       setDialog({ kind: "add" });
@@ -254,7 +254,7 @@ function NodeList({
             <Dropdown>
               <Button
                 variant="tertiary"
-                size="sm"
+                size="md"
                 isIconOnly
                 aria-label={`${node.displayName} actions`}
                 disabled={busy}
