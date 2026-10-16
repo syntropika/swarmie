@@ -217,6 +217,7 @@ jobs:
           test -s "$app/main.jsbundle"
           test "$(plutil -extract CFBundleIdentifier raw -o - "$app/Info.plist")" = 'app.swarmie.mobile.dev'
           test "$(plutil -extract ITSAppUsesNonExemptEncryption raw -o - "$app/Info.plist")" = 'false'
+          test "$(plutil -extract UIApplicationSceneManifest.UISceneConfigurations.UIWindowSceneSessionRoleApplication.0.UISceneDelegateClassName raw -o - "$app/Info.plist")" = 'EXExpoAppSceneDelegate'
           test "$(plutil -extract EXUpdatesEnabled raw -o - "$app/Expo.plist")" = 'true'
           test "$(plutil -extract EXUpdatesRequestHeaders.expo-channel-name raw -o - "$app/Expo.plist")" = 'development'
       - name: Record the signed binary runtime

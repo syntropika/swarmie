@@ -113,7 +113,7 @@ export function createAppConfig(environment: Record<string, string | undefined>)
         "expo-build-properties",
         {
           android: { usesCleartextTraffic: false, buildArchs: ["arm64-v8a", "x86_64"] },
-          ios: { deploymentTarget: "16.4" },
+          ios: { deploymentTarget: "16.4", enableSceneSupport: true },
         },
       ],
     ],

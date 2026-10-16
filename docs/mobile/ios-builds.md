@@ -5,6 +5,14 @@ GitHub-hosted macOS. It uses local Expo prebuild, CocoaPods and the shared Rust 
 EAS infrastructure. Ruby, Node, Bun, Rust, Just and the Xcode selection come from the root
 `mise.toml`; Ruby dependencies are locked in the root `Gemfile.lock`.
 
+The iOS build-properties plugin enables scene support for Expo SDK 57. Prebuild generates
+an `ExpoReactNativeFactoryProvider` app delegate and a scene manifest using
+`EXExpoAppSceneDelegate`, which owns window creation and React Native startup. This is
+required for launch when linking the iOS 27 SDK. CI checks the scene delegate configuration
+inside the archive; changing this native setup requires a new binary rather than an OTA.
+See [Expo scene support](https://docs.expo.dev/versions/v57.0.0/sdk/build-properties/#pluginconfigtypeios)
+and [Apple scene lifecycle requirements](https://developer.apple.com/documentation/uikit/transitioning-to-the-uikit-scene-based-life-cycle).
+
 ## App environments
 
 | Variant | Bundle identifier | URL scheme |
