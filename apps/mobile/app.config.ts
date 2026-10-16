@@ -146,7 +146,8 @@ function iosEncryptionConfiguration(
   variant: "development" | "production",
 ): Pick<NonNullable<ExpoConfig["ios"]>, "infoPlist"> {
   if (variant !== "production") {
-    return {};
+    // Development distribution excludes France and is exempt from documentation.
+    return { infoPlist: { ITSAppUsesNonExemptEncryption: false } };
   }
   const code = environment.IOS_PRODUCTION_ENCRYPTION_EXPORT_COMPLIANCE_CODE?.trim();
   if (code === undefined) {

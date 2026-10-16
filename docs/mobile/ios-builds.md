@@ -61,8 +61,9 @@ App Store Connect. Such a run does not replace the uploaded-build baseline. A ma
 runtime skips native compilation and TestFlight upload regardless of this input. Expo
 exports are retained for seven days; export alone does not publish an OTA update.
 
-The workflow uploads the build without waiting for Apple processing or distributing it to
-testers. Configure internal testing in App Store Connect after processing. It does not
+The upload lane validates the configured internal group before uploading, waits up to
+20 minutes for Apple processing, then assigns that build to the group. Missing or external
+groups fail before upload. Beta review and external distribution are disabled. It does not
 submit an App Store version for review or publish a store release. Signed IPA files,
 symbols and public build metadata are retained as GitHub artifacts for 14 days; Xcode build
 logs are retained for seven days, including failed builds when logs are available.
@@ -72,7 +73,11 @@ logs are retained for seven days, including failed builds when logs are availabl
 Use the existing signing secrets and variables from the maintenance workflow. Builds need
 the read-only `MATCH_SSH_PRIVATE_KEY`, not the maintenance write key. Set the repository
 variable `MOBILE_DEV_API_BASE_URL` to the development backend's HTTPS URL. The backend URL
-is public configuration and does not require a GitHub secret.
+is public configuration and does not require a GitHub secret. Set
+`MOBILE_DEV_TESTFLIGHT_GROUP` to the exact name of an existing internal TestFlight group.
+The workflow passes it as `IOS_TESTFLIGHT_INTERNAL_GROUP` to the upload lane; local uploads
+require that environment variable as well. Testers must already belong to the group.
+Automatic installation on a device also depends on its TestFlight automatic-update setting.
 
 An App Store Connect app record must exist for `app.swarmie.mobile.dev` before upload.
 Its display name may differ from the name registered for the identifier in the Developer
@@ -84,7 +89,7 @@ After the workflow reaches the default branch:
 1. Open **Actions → Mobile iOS → Run workflow**.
 2. Choose the default branch and enable `upload` to build and upload to TestFlight.
 3. Check the signed build artifact and the TestFlight processing state in App Store Connect.
-4. Add the processed build to an internal test group to install it on a device.
+4. Confirm the processed build was assigned to the configured internal group, then install it through TestFlight.
 
 ## Root commands
 
@@ -120,10 +125,13 @@ Its encryption is not limited to Apple's operating-system APIs. Distribution geo
 and encryption declarations are managed in App Store Connect; the app variant alone does
 not restrict which countries can receive a build.
 
-Development currently targets internal testing outside France. Complete its export
-questionnaire in App Store Connect according to that distribution. The generated app does
-not declare an unverified exemption or inherit the production app's approval. Review the
-declaration before extending development distribution to France.
+Development targets internal testing outside France using standard encryption. For this
+distribution scope, the app declares its exemption from documentation with
+`ITSAppUsesNonExemptEncryption=false`. This does not claim that the app has no encryption.
+The upload lane requires this declaration in the prepared configuration, and CI checks
+it in the archived app. Previously uploaded builds still need their questionnaire completed
+manually. Review this declaration before extending development distribution to France;
+the development variant does not restrict countries or testers by itself.
 
 Production is intended to include France. Complete the applicable French encryption
 declaration and submit the required documentation for the production app record in App
