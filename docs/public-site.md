@@ -41,7 +41,11 @@ Public pages describe user workflows, observable product behavior, supported con
 
 Source documentation reflects the current development checkout. Examples must not imply published installers or registry packages unless a corresponding release actually exists. Keep persisted prose in English. Screenshots with simulated data must say so.
 
-This public application lives in `apps/docs/`. Product and technical documentation is tracked in the repository-root `docs/` folder; public builds do not read it. Repository visibility and site deployment are separate actions from maintaining these public source files.
+This public application lives in `apps/docs/`. Client/runtime product and technical documentation
+is tracked in this repository's root `docs/` folder; public builds do not read it. Private
+hosted-service documentation belongs to `swarmie-cloud/docs/` and must not be copied into this
+application. Repository visibility and site deployment are separate actions from maintaining
+these public source files.
 
 ## Publishing
 

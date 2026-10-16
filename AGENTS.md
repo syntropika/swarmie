@@ -25,13 +25,16 @@ account-linked enrollment, hosted relay routing, cloud allocation, collaboration
 hosted synchronization, billing, and commercial entitlements belong to that repository.
 A private implementation may consume public contracts; public code must not depend on private packages.
 
-Keep all project documentation in the root `docs/` folder, tracked directly in this repository.
+Keep client/runtime project documentation in this repository's root `docs/` folder.
+Hosted-service architecture, policies, specifications and delivery plans belong in the
+independent `swarmie-cloud` repository's root `docs/` folder, tracked with that service.
+Do not copy private hosted-service documentation into this repository.
 The root `AGENTS.md` is the canonical agent policy; `docs/AGENTS.md` links to it.
 There is no separate documentation repository, checkout, or submodule. The independent
-hosted-service repository does not mount another copy. Shared design and engineering guides
-live directly in `docs/`. Runtime, desktop, mobile, SDK, extension and testing references
-use direct category folders; hosted-service documentation is in `docs/cloud/`. Keep technical
-README files, specifications, plans, and generated API documentation under `docs/`, outside source
+hosted-service repository maintains its own documentation without mounting another checkout.
+Shared design and engineering guides live directly in `docs/`. Runtime, desktop, mobile, SDK,
+extension and testing references use direct category folders. Keep technical README files,
+specifications, plans, and generated API documentation under `docs/`, outside source
 package directories and distribution packages. Source checkouts must build without documentation
 contents.
 

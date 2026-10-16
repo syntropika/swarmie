@@ -151,7 +151,8 @@ Service-authorized disablement blocks native and browser authority without delet
 or local resources. Re-enabling does not restore previous cookies, grants or codes; a new sign-in
 establishes authority for the same stable account. Administration belongs to the private service and
 is not exposed through the desktop or execution nodes. See the hosted
-[session policy](../cloud/native-account-sessions.md) for the operator workflow.
+[session policy](https://github.com/syntropika/swarmie-cloud/blob/develop/docs/native-account-sessions.md)
+in the private hosted-service repository for the operator workflow.
 
 The session delivery passed 175 frontend tests, twelve account-core lifecycle tests, owner integration,
 thirty-nine PostgreSQL browser/native/passkey/limit tests, and actual service/CLI acceptance using two
@@ -194,4 +195,5 @@ Profile and avatar request IDs are UUIDv7 values whose issuance time bounds the 
 window. The desktop creates and retains an ID with each edit; the CLI creates one if --request-id
 is omitted. Expired IDs are rejected even after receipt cleanup, so old writes cannot execute again.
 Refresh profile reads confirmed state and clears retained name/image receipts before a new explicit
-edit. See [account policy](../cloud/native-account-policy.md) for configuration and retention rules.
+edit. See [account policy](https://github.com/syntropika/swarmie-cloud/blob/develop/docs/native-account-policy.md)
+in the private hosted-service repository for configuration and retention rules.

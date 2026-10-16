@@ -7,7 +7,8 @@ independently installable execution runtime. This repository also owns the produ
 client account presentation, shared UI and public documentation site. The independent `swarmie-cloud` repository owns operator-managed services.
 It is not a submodule or workspace member of the client/runtime repository. Both source
 repositories remain private until publication is explicitly authorized. Documentation is
-tracked directly under the client/runtime repository's root `docs/` folder.
+tracked in each owning source repository's root `docs/` folder: client/runtime guides here,
+and hosted-service architecture, policies and plans in `swarmie-cloud`.
 
 | Capability | Parent repository | Private repository |
 | --- | --- | --- |
@@ -26,7 +27,8 @@ tracked directly under the client/runtime repository's root `docs/` folder.
 These are responsibility boundaries, not a requirement to deploy each capability as a
 microservice. The account-linked pairing, relay, managed cloud and hosted collaboration
 services remain future work. Account identity and native handoff follow the
-[hosted-service architecture](cloud/architecture.md). Conversation execution belongs to the
+[hosted-service architecture](https://github.com/syntropika/swarmie-cloud/blob/develop/docs/architecture.md)
+in the private repository. Conversation execution belongs to the
 independently installable runtime; clients observe it through the native gateway or explicit
 browser adapter.
 
@@ -60,10 +62,12 @@ Hosted-service jobs run from their own root and need no client/runtime checkout.
 ## Documentation and data
 
 Project manuals, architecture documents, specifications, plans, and component README files
-belong in the normal root `docs/` folder, tracked with source in this repository. There is
-no documentation gitlink, separate checkout, or mounted documentation repository. The
-hosted-service repository does not mount another copy. Shared guides live directly in `docs/`; runtime, desktop, mobile, SDK, extensions and testing
-use direct category folders. Hosted-service documentation lives under `docs/cloud/`.
+belong in the owning source repository's root `docs/` folder. Client/runtime and shared
+product guides are tracked here; private hosted-service architecture, policies and delivery
+plans are tracked in `swarmie-cloud/docs/`. Do not duplicate those private documents here.
+There is no documentation gitlink, separate documentation repository, mounted checkout or
+build-time documentation dependency between repositories. Shared guides live directly in
+`docs/`; runtime, desktop, mobile, SDK, extensions and testing use direct category folders.
 License files remain alongside source packages. Distribution packages do not require or
 copy project documentation; source builds remain independent of its contents.
 
@@ -77,7 +81,7 @@ Hosted features require explicit transfer and authorization. The runtime control
 execution; hosted services control account authority, memberships, cloud allocation and plans.
 Secrets and production data must not be committed to any repository.
 
-Consolidating documentation does not change repository visibility or erase previous Git
+Moving documentation does not change repository visibility or erase previous Git
 history. Historical content must be reviewed before any future change to public visibility;
 publication remains separate work and is not authorized by this reorganization.
 

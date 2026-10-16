@@ -47,7 +47,8 @@ user-scoped runtime process when those lifecycle guarantees hold; otherwise it r
 independent headless hosting boundary. Account operations target their authorized owner rather
 than the node selected for a chat. User account credentials and explicitly enrolled runtime/device
 grants are distinct authorities; connecting to a remote node does not transfer a human refresh token.
-See the [native account integration plan](../cloud/account-integration-plan.md).
+See the [native account integration plan](https://github.com/syntropika/swarmie-cloud/blob/develop/docs/account-integration-plan.md)
+in the private hosted-service repository.
 
 ## Runtime-only installation
 
