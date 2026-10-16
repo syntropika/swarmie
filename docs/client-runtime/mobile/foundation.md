@@ -109,6 +109,9 @@ React Native 0.86, React 19.2, TypeScript and Hermes. It connects to an independ
 runtime through HTTPS and an existing device credential. This slice does not enroll accounts,
 allocate hosts, publish updates, configure store products or activate hosted services.
 
+Apple certificates and provisioning profiles are managed separately through the manual
+[Apple signing maintenance workflow](apple-signing.md).
+
 ## Implemented slice
 
 - Persistent runtime connection with on-device SecureStore credentials and runtime-scoped Query caches.

@@ -1,0 +1,134 @@
+name: Apple signing maintenance
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/apple-signing.yml"
+      - "fastlane/**"
+      - "Gemfile"
+      - "Gemfile.lock"
+      - "mise.toml"
+      - "justfile"
+      - "scripts/distribution/test_apple_signing*.rb"
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Inspect access or synchronize certificates and profiles
+        type: choice
+        options: [inspect, sync]
+        default: inspect
+        required: true
+      variant:
+        description: App variant to inspect or synchronize
+        type: choice
+        options: [development, production]
+        default: development
+        required: true
+      profile:
+        description: App Store profiles support TestFlight; other profiles require registered devices
+        type: choice
+        options: [appstore, development, adhoc]
+        default: appstore
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apple-signing-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'maintenance' }}
+  cancel-in-progress: false
+
+env:
+  FASTLANE_SKIP_UPDATE_CHECK: "1"
+  FASTLANE_HIDE_CHANGELOG: "1"
+  FASTLANE_DISABLE_COLORS: "1"
+  FASTLANE_OPT_OUT_USAGE: "1"
+
+jobs:
+  validate:
+    name: Verify signing tooling
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Read root toolchain versions
+        id: tools
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import tomllib
+          from pathlib import Path
+          tools = tomllib.loads(Path("mise.toml").read_text())["tools"]
+          for name in ("ruby", "just"):
+              print(f"{name}={tools[name]}")
+          PY
+      - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1
+        with:
+          ruby-version: ${{ steps.tools.outputs.ruby }}
+          bundler-cache: true
+      - uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
+        with:
+          just-version: ${{ steps.tools.outputs.just }}
+      - run: just mobile-signing-check
+
+  signing:
+    name: Manage certificates and profiles
+    if: github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch
+    needs: validate
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Read root toolchain versions
+        id: tools
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import tomllib
+          from pathlib import Path
+          tools = tomllib.loads(Path("mise.toml").read_text())["tools"]
+          for name in ("ruby", "just"):
+              print(f"{name}={tools[name]}")
+          PY
+      - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1
+        with:
+          ruby-version: ${{ steps.tools.outputs.ruby }}
+          bundler-cache: true
+      - uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
+        with:
+          just-version: ${{ steps.tools.outputs.just }}
+      - name: Prepare the selected Match SSH identity
+        env:
+          MATCH_SSH_KEY: ${{ secrets[inputs.operation == 'sync' && 'MATCH_MAINTENANCE_SSH_PRIVATE_KEY' || 'MATCH_SSH_PRIVATE_KEY'] }}
+        run: |
+          set -euo pipefail
+          test -n "$MATCH_SSH_KEY" || { echo 'The selected Match SSH secret is missing.' >&2; exit 1; }
+          umask 077
+          key_path="$RUNNER_TEMP/match-ssh-key"
+          known_hosts="$RUNNER_TEMP/match-known-hosts"
+          printf '%s\n' "$MATCH_SSH_KEY" > "$key_path"
+          ssh-keygen -y -f "$key_path" > /dev/null
+          curl --fail --silent --show-error --retry 3 https://api.github.com/meta |
+            python3 -c 'import json, sys; print("\n".join("github.com " + key for key in json.load(sys.stdin)["ssh_keys"]))' > "$known_hosts"
+          {
+            echo "MATCH_GIT_PRIVATE_KEY=$key_path"
+            echo "GIT_SSH_COMMAND=ssh -F /dev/null -i $key_path -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known_hosts"
+          } >> "$GITHUB_ENV"
+      - name: Run signing maintenance
+        env:
+          SIGNING_OPERATION: ${{ inputs.operation }}
+          SIGNING_VARIANT: ${{ inputs.variant }}
+          SIGNING_PROFILE: ${{ inputs.profile }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          MATCH_GIT_URL: ${{ vars.MATCH_GIT_URL }}
+          MATCH_GIT_BRANCH: ${{ vars.MATCH_GIT_BRANCH || 'main' }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          ASC_SIGNING_API_KEY_ID: ${{ secrets.ASC_SIGNING_API_KEY_ID }}
+          ASC_SIGNING_API_ISSUER_ID: ${{ secrets.ASC_SIGNING_API_ISSUER_ID }}
+          ASC_SIGNING_API_KEY_P8: ${{ secrets.ASC_SIGNING_API_KEY_P8 }}
+        run: just mobile-signing "$SIGNING_OPERATION" "$SIGNING_VARIANT" "$SIGNING_PROFILE"
+      - name: Remove temporary SSH credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/match-ssh-key" "$RUNNER_TEMP/match-known-hosts"
