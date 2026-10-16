@@ -1,5 +1,6 @@
 require_relative "apple_signing"
 
+skip_docs
 default_platform(:ios)
 
 platform :ios do
@@ -7,13 +8,16 @@ platform :ios do
   lane :signing do |options|
     begin
       selection = AppleSigning.selection(
-        operation: options.fetch(:operation, "inspect"),
-        variant: options.fetch(:variant, "development"),
-        profile: options.fetch(:profile, "appstore"),
+        operation: options.fetch(:operation),
+        variant: options.fetch(:variant),
+        profile: options.fetch(:profile),
       )
+      UI.message("Signing request: #{selection.fetch(:operation)} / #{options.fetch(:variant)} / #{selection.fetch(:profile)}")
       AppleSigning.validate_storage!(ENV)
       api_options = AppleSigning.api_options(ENV)
       verified_files = AppleSigning.verify_storage!(ENV)
+    rescue KeyError
+      UI.user_error!("Signing requires operation:, variant: and profile: parameters; use just mobile-signing.")
     rescue ArgumentError => error
       UI.user_error!(error.message)
     end

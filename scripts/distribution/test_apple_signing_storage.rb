@@ -131,7 +131,9 @@ class AppleSigningStorageTest < Minitest::Test
       end
       FastlaneCore::Helper.with_env_values(env) do
         error = assert_raises(FastlaneCore::Interface::FastlaneError) do
-          fastfile.runner.execute(:signing, :ios, { operation: operation })
+          fastfile.runner.execute(:signing, :ios, {
+            operation: operation, variant: "development", profile: "appstore",
+          })
         end
         assert_includes error.message, expected_error
       end
