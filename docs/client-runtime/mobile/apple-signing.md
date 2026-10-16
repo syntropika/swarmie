@@ -117,6 +117,11 @@ It also overrides Match's storage commit-message hook so generated commits remai
 Conventional Commits. Match's root README generation is disabled; project documentation
 remains under `docs/`. No private signing material belongs in the source repository.
 
+The root signing command forwards options using Fastlane's `name:value` syntax and supplies
+the inspection defaults. Direct Fastlane calls must provide all three options explicitly;
+missing parameters fail before credential access. The lane logs its selected operation,
+variant and profile before proceeding.
+
 ## References
 
 - [Fastlane Match](https://docs.fastlane.tools/actions/match/)
