@@ -46,7 +46,7 @@ export function createAppConfig(environment: Record<string, string | undefined>)
   return {
     name: "Swarmie",
     slug: "swarmie-mobile",
-    icon: "../desktop/assets/icon.png",
+    icon: "./assets/app-icon.png",
     scheme,
     version: "0.1.0",
     orientation: "default",
@@ -60,6 +60,11 @@ export function createAppConfig(environment: Record<string, string | undefined>)
     },
     android: {
       package: identifier,
+      adaptiveIcon: {
+        foregroundImage: "./assets/adaptive-icon-foreground.png",
+        monochromeImage: "./assets/adaptive-icon-foreground.png",
+        backgroundColor: "#ffffff",
+      },
       // Functional modules are installed ahead of their UI. Ask only at the action that needs access.
       blockedPermissions: [
         "android.permission.RECORD_AUDIO",

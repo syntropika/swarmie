@@ -11,7 +11,8 @@ runs:
         selected=""
         for candidate in "/Applications/Xcode_$expected.app/Contents/Developer" "/Applications/Xcode.app/Contents/Developer" "$(xcode-select -p)"; do
           test -d "$candidate" || continue
-          actual=$(DEVELOPER_DIR="$candidate" /usr/bin/xcodebuild -version | head -n 1)
+          version_output=$(DEVELOPER_DIR="$candidate" /usr/bin/xcodebuild -version)
+          actual=${version_output%%$'\n'*}
           if test "$actual" = "Xcode $expected"; then
             selected="$candidate"
             break

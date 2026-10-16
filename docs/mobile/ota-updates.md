@@ -22,6 +22,11 @@ with the corresponding private key using `rsa-v1_5-sha256`, key ID `main`. Publi
 are tracked in source; publishing tokens and private signing keys are not app configuration.
 Changing the endpoint, app identity, channel or certificate requires a new native build.
 
+Launcher icons also require a native build. The app uses a 1024-pixel opaque black-on-white
+icon exported from the canonical monochrome symbol. Android adaptive and themed icons use
+the same symbol on a transparent foreground with additional safe-area padding and a white
+adaptive background. The artwork has no baked-in rounded corners or shadows.
+
 The app checks for updates on launch and starts its cached or embedded bundle without
 waiting for the network (`fallbackToCacheTimeout: 0`). A compatible downloaded update is
 available on a subsequent launch. Embedded updates and the default update recovery measures

@@ -3,12 +3,9 @@ name: Mobile iOS
 on:
   pull_request:
     paths:
-      - "apps/mobile/app.config.ts"
-      - "apps/mobile/certs/**"
-      - "apps/mobile/fingerprint.config.cjs"
-      - "apps/mobile/package.json"
-      - "apps/mobile/metro.config.cjs"
-      - "apps/mobile/babel.config.js"
+      - "apps/mobile/**"
+      - "packages/ui/native/**"
+      - "packages/config/**"
       - "sdk/react-native/**"
       - "sdk/wit/**"
       - "sdk/tools/build_apple.py"
@@ -16,6 +13,8 @@ on:
       - "crates/client*/**"
       - "fastlane/**"
       - "scripts/distribution/test_mobile_ios.rb"
+      - "scripts/distribution/mobile_build.py"
+      - "scripts/distribution/test_mobile_build.py"
       - "Gemfile"
       - "Gemfile.lock"
       - "bun.lock"
@@ -37,6 +36,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: mobile-ios-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'development' }}
@@ -53,10 +53,16 @@ env:
 
 jobs:
   validate:
-    name: Validate build tooling
+    name: Validate and export Expo
     runs-on: [self-hosted, linux, x64, docker]
     container: ruby:3.3.12-bookworm@sha256:b899e7de6ffa6e974d947202d3ce2ac921c12e46c14cff3106214079388dcff4
     timeout-minutes: 15
+    outputs:
+      rebuild: ${{ steps.plan.outputs.rebuild }}
+      runtime: ${{ steps.plan.outputs.runtime }}
+    env:
+      APP_VARIANT: development
+      MOBILE_API_BASE_URL: ${{ vars.MOBILE_DEV_API_BASE_URL || (github.event_name == 'pull_request' && 'https://api.example.invalid') || '' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -92,10 +98,31 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: just mobile-build-check
       - run: just mobile-check
+      - name: Export the Expo application
+        run: just mobile-export
+      - name: Resolve the native runtime
+        run: |
+          mkdir -p dist/mobile
+          just mobile-runtime ios > dist/mobile/runtime-ios.json
+      - name: Compare with the last signed build
+        id: plan
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: python3 scripts/distribution/mobile_build.py plan --current dist/mobile/runtime-ios.json
+      - name: Save the Expo export and runtime
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mobile-expo-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            apps/mobile/dist
+            dist/mobile/runtime-ios.json
+          retention-days: 7
+          if-no-files-found: error
 
   build:
-    name: Build development app
-    if: github.event_name == 'pull_request' || github.ref_name == github.event.repository.default_branch
+    name: Rebuild native development app
+    if: needs.validate.outputs.rebuild == 'true' && (github.event_name == 'pull_request' || github.ref_name == github.event.repository.default_branch)
     needs: validate
     runs-on: [self-hosted, macOS, ARM64, swarmie-macos]
     timeout-minutes: 90
@@ -104,6 +131,7 @@ jobs:
       IOS_BUILD_NUMBER: ${{ github.run_number }}.${{ github.run_attempt }}
       MOBILE_API_BASE_URL: ${{ vars.MOBILE_DEV_API_BASE_URL || (github.event_name == 'pull_request' && 'https://api.example.invalid') || '' }}
       SIGNING_MODE: ${{ github.event_name == 'workflow_dispatch' && 'signed' || 'unsigned' }}
+      EXPECTED_RUNTIME_VERSION: ${{ needs.validate.outputs.runtime }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -191,13 +219,25 @@ jobs:
           test "$(plutil -extract CFBundleIdentifier raw -o - "$app/Info.plist")" = 'app.swarmie.mobile.dev'
           test "$(plutil -extract EXUpdatesEnabled raw -o - "$app/Expo.plist")" = 'true'
           test "$(plutil -extract EXUpdatesRequestHeaders.expo-channel-name raw -o - "$app/Expo.plist")" = 'development'
+      - name: Record the signed binary runtime
+        if: github.event_name == 'workflow_dispatch'
+        run: python3 scripts/distribution/mobile_build.py record --ipa dist/mobile/ios/swarmie.ipa --output dist/mobile/ios/native-build.json
       - name: Upload to TestFlight
+        id: upload
         if: github.event_name == 'workflow_dispatch' && inputs.upload
         env:
           ASC_SIGNING_API_KEY_ID: ${{ secrets.ASC_SIGNING_API_KEY_ID }}
           ASC_SIGNING_API_ISSUER_ID: ${{ secrets.ASC_SIGNING_API_ISSUER_ID }}
           ASC_SIGNING_API_KEY_P8: ${{ secrets.ASC_SIGNING_API_KEY_P8 }}
         run: just mobile-ios-upload
+      - name: Save the uploaded native runtime baseline
+        if: github.event_name == 'workflow_dispatch' && inputs.upload && steps.upload.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ios-development-native-baseline
+          path: dist/mobile/ios/native-build.json
+          retention-days: 90
+          if-no-files-found: error
       - name: Save the signed build and symbols
         if: always() && github.event_name == 'workflow_dispatch' && steps.archive.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
