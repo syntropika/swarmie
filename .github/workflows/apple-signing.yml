@@ -7,6 +7,7 @@ on:
       - "fastlane/**"
       - "Gemfile"
       - "Gemfile.lock"
+      - ".github/actions/setup-xcode/**"
       - "mise.toml"
       - "justfile"
       - "scripts/distribution/test_apple_signing*.rb"
@@ -82,12 +83,13 @@ jobs:
     name: Manage certificates and profiles
     if: github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch
     needs: validate
-    runs-on: macos-26
+    runs-on: [self-hosted, macOS, ARM64, swarmie-macos]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - uses: ./.github/actions/setup-xcode
       - name: Read root toolchain versions
         id: tools
         run: |
@@ -101,6 +103,7 @@ jobs:
       - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1
         with:
           ruby-version: ${{ steps.tools.outputs.ruby }}
+          self-hosted: true
           bundler-cache: true
       - uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
         with:

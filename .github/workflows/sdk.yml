@@ -9,6 +9,8 @@ on:
       - "scripts/client-conformance.py"
       - "Cargo.lock"
       - "Cargo.toml"
+      - "mise.toml"
+      - ".github/actions/setup-xcode/**"
       - ".github/workflows/sdk.yml"
   workflow_dispatch:
 
@@ -30,7 +32,7 @@ jobs:
             runner: [self-hosted, linux, x64, docker]
             container: rust:1.94.0-bookworm@sha256:365468470075493dc4583f47387001854321c5a8583ea9604b297e67f01c5a4f
           - platform: macos-aarch64
-            runner: macos-15
+            runner: [self-hosted, macOS, ARM64, swarmie-macos]
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.container }}
     timeout-minutes: 60
@@ -44,10 +46,8 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "24"
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        if: runner.os != 'Linux'
-        with:
-          python-version: "3.12"
+      - uses: ./.github/actions/setup-xcode
+        if: runner.os == 'macOS'
       - name: Verify the Python prerequisite
         run: python3 -c 'import sys; assert sys.version_info >= (3, 11)'
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2

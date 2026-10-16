@@ -1,0 +1,22 @@
+name: Select the pinned Xcode
+description: Select an installed Xcode matching the root toolchain without changing the host default
+runs:
+  using: composite
+  steps:
+    - name: Select and verify Xcode
+      shell: bash
+      run: |
+        set -euo pipefail
+        expected=$(python3 -c 'import tomllib; print(tomllib.load(open("mise.toml", "rb"))["env"]["SWARMIE_XCODE_VERSION"])')
+        selected=""
+        for candidate in "/Applications/Xcode_$expected.app/Contents/Developer" "/Applications/Xcode.app/Contents/Developer" "$(xcode-select -p)"; do
+          test -d "$candidate" || continue
+          actual=$(DEVELOPER_DIR="$candidate" /usr/bin/xcodebuild -version | head -n 1)
+          if test "$actual" = "Xcode $expected"; then
+            selected="$candidate"
+            break
+          fi
+        done
+        test -n "$selected" || { echo "Install Xcode $expected before running this job." >&2; exit 1; }
+        echo "DEVELOPER_DIR=$selected" >> "$GITHUB_ENV"
+        DEVELOPER_DIR="$selected" /usr/bin/xcodebuild -version

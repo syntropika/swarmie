@@ -23,6 +23,7 @@ on:
       - "package.json"
       - "Cargo.lock"
       - "Cargo.toml"
+      - ".github/actions/setup-xcode/**"
       - "mise.toml"
       - "justfile"
       - ".github/workflows/mobile-ios.yml"
@@ -96,7 +97,7 @@ jobs:
     name: Build development app
     if: github.event_name == 'pull_request' || github.ref_name == github.event.repository.default_branch
     needs: validate
-    runs-on: macos-26
+    runs-on: [self-hosted, macOS, ARM64, swarmie-macos]
     timeout-minutes: 90
     env:
       APP_VARIANT: development
@@ -116,17 +117,12 @@ jobs:
           config = tomllib.loads(Path("mise.toml").read_text())
           for name in ("ruby", "just", "node", "bun", "rust"):
               print(f"{name}={config['tools'][name]}")
-          print(f"xcode={config['env']['SWARMIE_XCODE_VERSION']}")
           PY
-      - name: Select Xcode and validate the backend setting
-        env:
-          XCODE_VERSION: ${{ steps.tools.outputs.xcode }}
+      - uses: ./.github/actions/setup-xcode
+      - name: Validate the backend setting
         run: |
           set -euo pipefail
           test -n "$MOBILE_API_BASE_URL" || { echo 'Set MOBILE_DEV_API_BASE_URL before building.' >&2; exit 1; }
-          developer_dir="/Applications/Xcode_$XCODE_VERSION.app/Contents/Developer"
-          test -d "$developer_dir"
-          echo "DEVELOPER_DIR=$developer_dir" >> "$GITHUB_ENV"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: ${{ steps.tools.outputs.node }}
@@ -136,6 +132,7 @@ jobs:
       - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1
         with:
           ruby-version: ${{ steps.tools.outputs.ruby }}
+          self-hosted: true
           bundler-cache: true
       - uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
         with:

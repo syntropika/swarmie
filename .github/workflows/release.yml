@@ -41,7 +41,7 @@ jobs:
           - platform: macos-x86_64
             runner: macos-15-intel
           - platform: macos-aarch64
-            runner: macos-15
+            runner: [self-hosted, macOS, ARM64, swarmie-macos]
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.container }}
     timeout-minutes: 60
@@ -52,9 +52,11 @@ jobs:
           persist-credentials: false
           submodules: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        if: runner.os != 'Linux'
+        if: runner.os == 'macOS' && runner.arch == 'X64'
         with:
           python-version: "3.12"
+      - uses: ./.github/actions/setup-xcode
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
       - name: Validate release version
         run: python3 scripts/distribution/release.py validate-tag --tag "$RELEASE_TAG"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
