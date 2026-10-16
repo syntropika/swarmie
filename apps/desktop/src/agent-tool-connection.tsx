@@ -1,12 +1,18 @@
+import { Button, Input, Select, ListBox } from "@swarmie/ui-web";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, ExternalLink, LoaderCircle, X } from "lucide-react";
+import {
+  isValidElement,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { ReactNode, SubmitEvent } from "react";
-import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 
 import { startAction, errorReporter } from "~/src/action-boundary";
-import { Button } from "~/src/components/ui/button";
-import { Input } from "~/src/components/ui/input";
-import { Select } from "~/src/components/ui/select";
 import { nodeKey } from "~/src/node-scope";
 import { copyText } from "~/src/protocol";
 import { preferredConnectionMethod, setupAuthorizationUrl } from "~/src/provider-setup";
@@ -45,8 +51,9 @@ export function AgentToolConnection(props: ConnectionProps) {
       <div className="agent-tool-connection-heading">
         <h3>Connect {name}</h3>
         <Button
-          variant="ghost"
-          size="icon-xs"
+          variant="tertiary"
+          size="sm"
+          isIconOnly
           aria-label={`Close ${name} connection setup`}
           onClick={onClose}
         >
@@ -500,8 +507,9 @@ function ConnectionView({
           {installing ? "Install" : "Connect"} {name}
         </h3>
         <Button
-          variant="ghost"
-          size="icon-xs"
+          variant="tertiary"
+          size="sm"
+          isIconOnly
           aria-label={`Close ${name} connection setup`}
           onClick={onClose}
         >
@@ -516,7 +524,7 @@ function ConnectionView({
           </p>
           <p>{storageLabel(setup.connection.storage, nodeName)}</p>
           <Button
-            variant="link"
+            variant="tertiary"
             size="sm"
             disabled={busy || pending}
             onClick={() => {
@@ -628,39 +636,91 @@ function ConnectionEditor({
           <label htmlFor={`${id}-provider`} className="agent-tool-field">
             Model provider
             <Select
-              id={`${id}-provider`}
-              label={`${name} model provider`}
+              aria-label={`${name} model provider`}
               value={provider.id}
-              onChange={chooseProvider}
-              options={setup.providers.map((item) => ({
-                id: item.id,
-                label: item.label,
-              }))}
-              disabled={busy || pending}
-            />
+              onChange={(key) => {
+                if (typeof key === "string") {
+                  chooseProvider(key);
+                }
+              }}
+              isDisabled={busy || pending}
+              placeholder="Select…"
+            >
+              <Select.Trigger id={`${id}-provider`}>
+                <Select.Value />
+                <Select.Indicator />
+              </Select.Trigger>
+              <Select.Popover>
+                <ListBox aria-label={`${name} model provider`}>
+                  {setup.providers
+                    .map((item) => ({
+                      id: item.id,
+                      label: item.label,
+                    }))
+                    .map((option) => (
+                      <ListBox.Item
+                        key={option.id}
+                        id={option.id}
+                        textValue={option.label}
+                        isDisabled={"disabled" in option && option.disabled === true}
+                      >
+                        {"icon" in option && isValidElement(option.icon) ? option.icon : null}
+                        {option.label}
+                        <ListBox.ItemIndicator />
+                      </ListBox.Item>
+                    ))}
+                </ListBox>
+              </Select.Popover>
+            </Select>
           </label>
         )}
         {provider.methods.length > 1 && (
           <label htmlFor={`${id}-method`} className="agent-tool-field">
             Connection method
             <Select
-              id={`${id}-method`}
-              label={`${name} connection method`}
+              aria-label={`${name} connection method`}
               value={method.id}
-              onChange={(value) => {
-                clearInputs();
-                setMethodId(value);
-                setFlow(undefined);
-                flowRef.current = undefined;
-                setError("");
-                setNotice("");
+              onChange={(key) => {
+                if (typeof key === "string") {
+                  ((value) => {
+                    clearInputs();
+                    setMethodId(value);
+                    setFlow(undefined);
+                    flowRef.current = undefined;
+                    setError("");
+                    setNotice("");
+                  })(key);
+                }
               }}
-              options={provider.methods.map((item) => ({
-                id: item.id,
-                label: item.label,
-              }))}
-              disabled={busy || pending}
-            />
+              isDisabled={busy || pending}
+              placeholder="Select…"
+            >
+              <Select.Trigger id={`${id}-method`}>
+                <Select.Value />
+                <Select.Indicator />
+              </Select.Trigger>
+              <Select.Popover>
+                <ListBox aria-label={`${name} connection method`}>
+                  {provider.methods
+                    .map((item) => ({
+                      id: item.id,
+                      label: item.label,
+                    }))
+                    .map((option) => (
+                      <ListBox.Item
+                        key={option.id}
+                        id={option.id}
+                        textValue={option.label}
+                        isDisabled={"disabled" in option && option.disabled === true}
+                      >
+                        {"icon" in option && isValidElement(option.icon) ? option.icon : null}
+                        {option.label}
+                        <ListBox.ItemIndicator />
+                      </ListBox.Item>
+                    ))}
+                </ListBox>
+              </Select.Popover>
+            </Select>
           </label>
         )}
         {hasText(method.help) && !pending && <p>{method.help}</p>}
@@ -880,7 +940,7 @@ function LoginProgress({ controller, name }: { controller: ConnectionController;
         <div className="onboarding-command">
           <code>{flow?.userCode}</code>
           <Button
-            variant="ghost"
+            variant="tertiary"
             size="sm"
             aria-label={`Copy ${name} sign-in code`}
             onClick={() => {
@@ -924,24 +984,48 @@ function CredentialStorage({
       <label htmlFor={`${id}-storage`} className="agent-tool-field">
         Credential storage
         <Select
-          id={`${id}-storage`}
-          label={`${name} credential storage`}
+          aria-label={`${name} credential storage`}
           value={storage}
-          onChange={(value) => {
-            if (value === "secure" || value === "session") {
-              setStorage(value);
+          onChange={(key) => {
+            if (typeof key === "string") {
+              ((value) => {
+                if (value === "secure" || value === "session") {
+                  setStorage(value);
+                }
+              })(key);
             }
           }}
-          options={[
-            {
-              id: "secure",
-              label: "Secure storage",
-              disabled: !setup.storage.persistent,
-            },
-            { id: "session", label: "This runtime session only" },
-          ]}
-          disabled={busy}
-        />
+          isDisabled={busy}
+          placeholder="Select…"
+        >
+          <Select.Trigger id={`${id}-storage`}>
+            <Select.Value />
+            <Select.Indicator />
+          </Select.Trigger>
+          <Select.Popover>
+            <ListBox aria-label={`${name} credential storage`}>
+              {[
+                {
+                  id: "secure",
+                  label: "Secure storage",
+                  disabled: !setup.storage.persistent,
+                },
+                { id: "session", label: "This runtime session only" },
+              ].map((option) => (
+                <ListBox.Item
+                  key={option.id}
+                  id={option.id}
+                  textValue={option.label}
+                  isDisabled={"disabled" in option && option.disabled === true}
+                >
+                  {"icon" in option && isValidElement(option.icon) ? option.icon : null}
+                  {option.label}
+                  <ListBox.ItemIndicator />
+                </ListBox.Item>
+              ))}
+            </ListBox>
+          </Select.Popover>
+        </Select>
       </label>
       <p className="agent-tool-storage-note">
         {credentialStorageLabel(storage, harness, method.kind, nodeName, setup)} Swarmie never saves

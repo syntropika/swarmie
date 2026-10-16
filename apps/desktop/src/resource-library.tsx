@@ -1,12 +1,9 @@
+import { Button, Disclosure, Input, TextArea } from "@swarmie/ui-web";
 import { useEffect, useState, useCallback, useId } from "react";
 
 import { useExtensionQuery } from "~/src/components/extension-query";
 import { extensionResult } from "~/src/components/extension-result";
 import { hasCount, hasText } from "~/src/components/presentation-values";
-import { Button } from "~/src/components/ui/button";
-import { Disclosure } from "~/src/components/ui/disclosure";
-import { Input } from "~/src/components/ui/input";
-import { Textarea } from "~/src/components/ui/textarea";
 import type { Thread } from "~/src/protocol";
 import type { WorkspaceStore } from "~/src/workspace";
 
@@ -178,69 +175,78 @@ function ResourcePreview({
   thread: Thread;
 }) {
   return (
-    <Disclosure defaultOpen>
-      <Disclosure.Summary>{read.path}</Disclosure.Summary>
-      <pre className="action-output">{read.text}</pre>
-      {read.resource.diagnostics?.map((message) => (
-        <p key={message} className="panel-note">
-          {message}
-        </p>
-      ))}
-      {(read.resource.conflicts?.length ?? 0) > 0 && (
-        <p className="panel-note">
-          Other skills share this name. Inspect their paths before choosing a native skill.
-        </p>
-      )}
-      {read.resource.kind === "skill" && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          disabled={
-            read.resource.availability !== "advertised" ||
-            read.resource.userInvocable === false ||
-            thread.capabilities?.nativeSkillInputs?.availability !== "available"
-          }
-          onClick={() => {
-            selectNativeSkill(store, thread, {
-              ...read.resource,
-              ...read.resource.selection,
-              source: "skill",
-            });
-            const current = store.getSnapshot().threads.find((item) => item.id === thread.id);
-            if (current && !hasText(current.draft?.trim())) {
-              store.updateThread(thread.id, {
-                draft: read.resource.invocation ?? `$${read.resource.name} `,
-              });
-            }
-            window.dispatchEvent(
-              new CustomEvent("swarmie:composer-text", { detail: { threadId: thread.id } }),
-            );
-          }}
-        >
-          Use native skill
+    <Disclosure defaultExpanded>
+      <Disclosure.Heading>
+        <Button slot="trigger" variant="tertiary">
+          <span>{read.path}</span>
+          <Disclosure.Indicator />
         </Button>
-      )}
-      <Button
-        size="sm"
-        type="button"
-        variant="ghost"
+      </Disclosure.Heading>
+      <Disclosure.Content>
+        <Disclosure.Body>
+          <pre className="action-output">{read.text}</pre>
+          {read.resource.diagnostics?.map((message) => (
+            <p key={message} className="panel-note">
+              {message}
+            </p>
+          ))}
+          {(read.resource.conflicts?.length ?? 0) > 0 && (
+            <p className="panel-note">
+              Other skills share this name. Inspect their paths before choosing a native skill.
+            </p>
+          )}
+          {read.resource.kind === "skill" && (
+            <Button
+              type="button"
+              variant="tertiary"
+              size="sm"
+              disabled={
+                read.resource.availability !== "advertised" ||
+                read.resource.userInvocable === false ||
+                thread.capabilities?.nativeSkillInputs?.availability !== "available"
+              }
+              onClick={() => {
+                selectNativeSkill(store, thread, {
+                  ...read.resource,
+                  ...read.resource.selection,
+                  source: "skill",
+                });
+                const current = store.getSnapshot().threads.find((item) => item.id === thread.id);
+                if (current && !hasText(current.draft?.trim())) {
+                  store.updateThread(thread.id, {
+                    draft: read.resource.invocation ?? `$${read.resource.name} `,
+                  });
+                }
+                window.dispatchEvent(
+                  new CustomEvent("swarmie:composer-text", { detail: { threadId: thread.id } }),
+                );
+              }}
+            >
+              Use native skill
+            </Button>
+          )}
+          <Button
+            size="sm"
+            type="button"
+            variant="tertiary"
 
-        onClick={() => {
-          try {
-            store.addContext(thread.id, {
-              kind: "resource",
-              label: read.path.split("/").at(-1) ?? read.path,
-              text: read.text,
-              path: read.path,
-            });
-          } catch (error) {
-            store.setError(error);
-          }
-        }}
-      >
-        Attach instructions as text
-      </Button>
+            onClick={() => {
+              try {
+                store.addContext(thread.id, {
+                  kind: "resource",
+                  label: read.path.split("/").at(-1) ?? read.path,
+                  text: read.text,
+                  path: read.path,
+                });
+              } catch (error) {
+                store.setError(error);
+              }
+            }}
+          >
+            Attach instructions as text
+          </Button>
+        </Disclosure.Body>
+      </Disclosure.Content>
     </Disclosure>
   );
 }
@@ -398,7 +404,7 @@ function ResourceLibraryContent({ store, thread }: { store: WorkspaceStore; thre
         <Button
           size="sm"
           type="button"
-          variant="ghost"
+          variant="tertiary"
 
           disabled={busy}
           onClick={() => {
@@ -422,7 +428,8 @@ function ResourceLibraryContent({ store, thread }: { store: WorkspaceStore; thre
           <Button
             type="button"
             key={r.id}
-            variant="command"
+            variant="tertiary"
+            data-workspace-part="command-result"
 
             title={r.path}
             onClick={() => {
@@ -464,7 +471,8 @@ function ResourceLibraryContent({ store, thread }: { store: WorkspaceStore; thre
           <div className="resource-row" key={template.id}>
             <Button
               type="button"
-              variant="command"
+              variant="tertiary"
+              data-workspace-part="command-result"
 
               onClick={() => {
                 run(async () => {
@@ -482,7 +490,7 @@ function ResourceLibraryContent({ store, thread }: { store: WorkspaceStore; thre
             <Button
               size="sm"
               type="button"
-              variant="ghost"
+              variant="tertiary"
 
               onClick={() => {
                 setSelected(template);
@@ -506,7 +514,7 @@ function ResourceLibraryContent({ store, thread }: { store: WorkspaceStore; thre
           <Button
             size="sm"
             type="button"
-            variant="ghost"
+            variant="tertiary"
 
             disabled={busy}
             onClick={() => {
@@ -520,7 +528,7 @@ function ResourceLibraryContent({ store, thread }: { store: WorkspaceStore; thre
           <Button
             size="sm"
             type="button"
-            variant="ghost"
+            variant="tertiary"
 
             onClick={() => {
               setPendingTemplate(undefined);
@@ -531,109 +539,116 @@ function ResourceLibraryContent({ store, thread }: { store: WorkspaceStore; thre
         </div>
       )}
       <Disclosure>
-        <Disclosure.Summary>
-          {selected ? `Edit ${selected.name}` : "New prompt template"}
-        </Disclosure.Summary>
-        <label htmlFor={`${fieldPrefix}-field-2`}>
-          Name
-          <Input
-            id={`${fieldPrefix}-field-2`}
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-            }}
-          />
-        </label>
-        <label htmlFor={`${fieldPrefix}-field-3`}>
-          Slash aliases
-          <Input
-            id={`${fieldPrefix}-field-3`}
-            value={aliases}
-            onChange={(event) => {
-              setAliases(event.target.value);
-            }}
-            placeholder="review, inspect"
-          />
-        </label>
-        <label htmlFor={`${fieldPrefix}-field-4`}>
-          Prompt
-          <Textarea
-            id={`${fieldPrefix}-field-4`}
-            value={text}
-            onChange={(e) => {
-              setText(e.target.value);
-            }}
-            placeholder="Use {{variable}} for required parameters."
-          />
-        </label>
-        <div className="permission-actions">
-          <Button
-            size="sm"
-            type="button"
-            variant="ghost"
-
-            disabled={busy || !name.trim() || !text.trim()}
-            onClick={() => {
-              run(async () => {
-                await store.invokeExtension("resources", "templates.put", {
-                  id: selected?.id ?? crypto.randomUUID(),
-                  name,
-                  text,
-                  aliases: parseTemplateAliases(aliases),
-                });
-                setSelected(undefined);
-                setName("");
-                setText("");
-                setAliases("");
-                window.dispatchEvent(new CustomEvent("swarmie:templates"));
-                await reload();
-              }).catch(store.setError.bind(store));
-            }}
-          >
-            Save template
+        <Disclosure.Heading>
+          <Button slot="trigger" variant="tertiary">
+            <span>{selected ? `Edit ${selected.name}` : "New prompt template"}</span>
+            <Disclosure.Indicator />
           </Button>
-          <Button
-            size="sm"
-            type="button"
-            variant="ghost"
+        </Disclosure.Heading>
+        <Disclosure.Content>
+          <Disclosure.Body>
+            <label htmlFor={`${fieldPrefix}-field-2`}>
+              Name
+              <Input
+                id={`${fieldPrefix}-field-2`}
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                }}
+              />
+            </label>
+            <label htmlFor={`${fieldPrefix}-field-3`}>
+              Slash aliases
+              <Input
+                id={`${fieldPrefix}-field-3`}
+                value={aliases}
+                onChange={(event) => {
+                  setAliases(event.target.value);
+                }}
+                placeholder="review, inspect"
+              />
+            </label>
+            <label htmlFor={`${fieldPrefix}-field-4`}>
+              Prompt
+              <TextArea
+                id={`${fieldPrefix}-field-4`}
+                value={text}
+                onChange={(e) => {
+                  setText(e.target.value);
+                }}
+                placeholder="Use {{variable}} for required parameters."
+              />
+            </label>
+            <div className="permission-actions">
+              <Button
+                size="sm"
+                type="button"
+                variant="tertiary"
 
-            onClick={() => {
-              setName(`${thread.title} prompt`);
-              setText(thread.draft ?? "");
-              setSelected(undefined);
-              setAliases("");
-            }}
-          >
-            Use current draft
-          </Button>
-          {selected && (
-            <Button
-              size="sm"
-              type="button"
-              variant="destructive"
+                disabled={busy || !name.trim() || !text.trim()}
+                onClick={() => {
+                  run(async () => {
+                    await store.invokeExtension("resources", "templates.put", {
+                      id: selected?.id ?? crypto.randomUUID(),
+                      name,
+                      text,
+                      aliases: parseTemplateAliases(aliases),
+                    });
+                    setSelected(undefined);
+                    setName("");
+                    setText("");
+                    setAliases("");
+                    window.dispatchEvent(new CustomEvent("swarmie:templates"));
+                    await reload();
+                  }).catch(store.setError.bind(store));
+                }}
+              >
+                Save template
+              </Button>
+              <Button
+                size="sm"
+                type="button"
+                variant="tertiary"
 
-              onClick={() => {
-                run(async () => {
-                  await store.invokeExtension("resources", "templates.remove", {
-                    id: selected.id,
-                  });
+                onClick={() => {
+                  setName(`${thread.title} prompt`);
+                  setText(thread.draft ?? "");
                   setSelected(undefined);
-                  setName("");
-                  setText("");
                   setAliases("");
-                  setPendingTemplate(undefined);
-                  window.dispatchEvent(new CustomEvent("swarmie:templates"));
-                  await reload();
-                }).catch(store.setError.bind(store));
-              }}
-            >
-              Remove template
-            </Button>
-          )}
-        </div>
+                }}
+              >
+                Use current draft
+              </Button>
+              {selected && (
+                <Button
+                  size="sm"
+                  type="button"
+                  variant="danger"
+
+                  onClick={() => {
+                    run(async () => {
+                      await store.invokeExtension("resources", "templates.remove", {
+                        id: selected.id,
+                      });
+                      setSelected(undefined);
+                      setName("");
+                      setText("");
+                      setAliases("");
+                      setPendingTemplate(undefined);
+                      window.dispatchEvent(new CustomEvent("swarmie:templates"));
+                      await reload();
+                    }).catch(store.setError.bind(store));
+                  }}
+                >
+                  Remove template
+                </Button>
+              )}
+            </div>
+          </Disclosure.Body>
+        </Disclosure.Content>
       </Disclosure>
       <Disclosure
-        onOpenChange={(open) => {
+        onExpandedChange={(open) => {
           if (open) {
             run(async () => {
               const result = await store.invokeExtension<{
@@ -674,27 +689,37 @@ function ResourceLibraryContent({ store, thread }: { store: WorkspaceStore; thre
           }
         }}
       >
-        <Disclosure.Summary>Prompt history</Disclosure.Summary>
-        {history.map((item) => (
-          <Button
-            type="button"
-            key={`${item.sessionId}:${item.sequence}`}
-            variant="command"
-
-            onClick={() => {
-              store.updateThread(thread.id, { draft: item.text });
-              window.dispatchEvent(
-                new CustomEvent("swarmie:composer-text", {
-                  detail: { threadId: thread.id },
-                }),
-              );
-            }}
-          >
-            {item.text.slice(0, 140)}
-            <span className="muted">{new Date(item.timestampMs).toLocaleString()}</span>
+        <Disclosure.Heading>
+          <Button slot="trigger" variant="tertiary">
+            <span>Prompt history</span>
+            <Disclosure.Indicator />
           </Button>
-        ))}
-        {!history.length && <p className="panel-note">No recorded prompts for this project.</p>}
+        </Disclosure.Heading>
+        <Disclosure.Content>
+          <Disclosure.Body>
+            {history.map((item) => (
+              <Button
+                type="button"
+                key={`${item.sessionId}:${item.sequence}`}
+                variant="tertiary"
+                data-workspace-part="command-result"
+
+                onClick={() => {
+                  store.updateThread(thread.id, { draft: item.text });
+                  window.dispatchEvent(
+                    new CustomEvent("swarmie:composer-text", {
+                      detail: { threadId: thread.id },
+                    }),
+                  );
+                }}
+              >
+                {item.text.slice(0, 140)}
+                <span className="muted">{new Date(item.timestampMs).toLocaleString()}</span>
+              </Button>
+            ))}
+            {!history.length && <p className="panel-note">No recorded prompts for this project.</p>}
+          </Disclosure.Body>
+        </Disclosure.Content>
       </Disclosure>
     </div>
   );
@@ -850,7 +875,7 @@ function SlashCommandsContent({
           <Button
             size="sm"
             type="button"
-            variant="ghost"
+            variant="tertiary"
 
             disabled={rendering}
             onClick={() => {
@@ -862,7 +887,7 @@ function SlashCommandsContent({
           <Button
             size="sm"
             type="button"
-            variant="ghost"
+            variant="tertiary"
 
             onClick={() => {
               setPendingSelection(undefined);
@@ -885,7 +910,8 @@ function SlashCommandsContent({
           <Button
             type="button"
             key={`${command.name}:${command.path ?? command.source}`}
-            variant="command"
+            variant="tertiary"
+            data-workspace-part="command-result"
             title={command.path ?? command.availability}
             disabled={
               command.source === "skill" &&
@@ -915,7 +941,8 @@ function SlashCommandsContent({
           <Button
             type="button"
             key={template.id}
-            variant="command"
+            variant="tertiary"
+            data-workspace-part="command-result"
 
             disabled={rendering}
             onClick={() => {

@@ -1,14 +1,12 @@
 // Copyright 2026 Syntropika
 // SPDX-License-Identifier: Apache-2.0
 import type { AccountSnapshot } from "@swarmie/contracts";
+import { Button, Input, Switch } from "@swarmie/ui-web";
 import { useId, useState } from "react";
 
 import { useAccountAction } from "~/src/account-action";
 import { AccountProfileEditor } from "~/src/account-profile-editor";
 import { useAccountService, useAccount } from "~/src/account-state";
-import { Button } from "~/src/components/ui/button";
-import { Input } from "~/src/components/ui/input";
-import { Switch } from "~/src/components/ui/switch";
 import { hasText } from "~/src/value-presence";
 
 function AccountSignIn({ account }: { account: AccountSnapshot }) {
@@ -21,10 +19,10 @@ function AccountSignIn({ account }: { account: AccountSnapshot }) {
   const { loginId } = account;
   return (
     <div className="grid gap-4">
-      {notice && <output className="text-muted text-sm">{notice}</output>}
+      {notice && <output className="text-sm text-muted">{notice}</output>}
       {account.status === "storageUnavailable" && (
         <>
-          <output className="text-muted text-sm">
+          <output className="text-sm text-muted">
             Your system vault is locked or unavailable. Unlock it and check again, or explicitly
             sign in for this owner session only.
           </output>
@@ -85,13 +83,20 @@ function AccountSignIn({ account }: { account: AccountSnapshot }) {
         account.configured !== false && (
           <>
             <Switch
-              label="Sign in for this owner session only"
-              checked={sessionOnly}
-              disabled={busy}
+              isSelected={sessionOnly}
+              isDisabled={busy}
               onChange={setSessionOnly}
-            />
+              aria-label="Sign in for this owner session only"
+            >
+              <Switch.Content>
+                <Switch.Control>
+                  <Switch.Thumb />
+                </Switch.Control>
+                Sign in for this owner session only
+              </Switch.Content>
+            </Switch>
             {sessionOnly && (
-              <p className="text-muted text-sm">
+              <p className="text-sm text-muted">
                 You will need to sign in again after the account owner stops.
               </p>
             )}
@@ -154,7 +159,7 @@ export function AccountSettings() {
   const { run, busy } = useAccountAction(setNotice);
   if (!service.available()) {
     return (
-      <p className="text-muted text-sm">
+      <p className="text-sm text-muted">
         Open the desktop app to manage your account. You can continue using local projects without
         signing in.
       </p>
@@ -162,7 +167,7 @@ export function AccountSettings() {
   }
   return (
     <section className="grid gap-5" aria-label="Swarmie account">
-      <p className="text-muted text-sm leading-relaxed">
+      <p className="text-sm leading-relaxed text-muted">
         Sign in to connect your account. Your projects, files and nodes stay private until you
         choose to share them.
       </p>
@@ -171,8 +176,8 @@ export function AccountSettings() {
           {observationError}
         </p>
       )}
-      {notice && <output className="text-muted text-sm">{notice}</output>}
-      {!account && <output className="text-muted text-sm">Checking your account…</output>}
+      {notice && <output className="text-sm text-muted">{notice}</output>}
+      {!account && <output className="text-sm text-muted">Checking your account…</output>}
       {account && <AccountSignIn key={account.profile?.id ?? "signed-out"} account={account} />}
       {account?.status === "signedIn" && account.profile && (
         <AccountProfileEditor

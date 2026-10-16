@@ -1,4 +1,4 @@
-import { TooltipContent } from "~/src/components/ui/tooltip";
+import { TooltipContent } from "@swarmie/ui-web";
 
 const states = [
   {
@@ -70,7 +70,7 @@ export function HarnessStatus({ state, connected }: { state: string; connected: 
     <TooltipContent>
       <div className="max-w-72 py-1">
         <p className="font-medium">{label}</p>
-        <p className="text-muted mb-3 text-xs">
+        <p className="mb-3 text-xs text-muted">
           {current?.description ?? "The agent has not reported a recognized state"}
         </p>
         <ul className="grid gap-1.5 text-xs">

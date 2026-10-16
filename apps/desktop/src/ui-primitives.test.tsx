@@ -1,19 +1,22 @@
+import {
+  Button,
+  Checkbox,
+  Disclosure,
+  Input,
+  Switch,
+  TextArea,
+  ComboBox,
+  ListBox,
+  Modal,
+  Select,
+} from "@swarmie/ui-web";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { isValidElement, createRef, useState } from "react";
 // @vitest-environment happy-dom
-import { createRef, useState } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { useConfirmation } from "~/src/components/confirmation";
-import { Button } from "~/src/components/ui/button";
-import { Checkbox } from "~/src/components/ui/checkbox";
-import { ComboBox } from "~/src/components/ui/combobox";
-import { Dialog } from "~/src/components/ui/dialog";
-import { Disclosure } from "~/src/components/ui/disclosure";
-import { Input } from "~/src/components/ui/input";
-import { Select } from "~/src/components/ui/select";
-import { Switch } from "~/src/components/ui/switch";
-import { Textarea } from "~/src/components/ui/textarea";
 import { Conversation } from "~/src/conversation";
 import { HarnessSelect } from "~/src/harness-select";
 import { ReasoningEffort } from "~/src/reasoning-effort";
@@ -31,9 +34,18 @@ afterEach(() => {
 it("keeps initially expanded content and reports disclosure changes for lazy loading", async () => {
   const change = vi.fn<(...args: unknown[]) => void>();
   render(
-    <Disclosure defaultOpen onOpenChange={change}>
-      <Disclosure.Summary>Files</Disclosure.Summary>
-      <p>Project files</p>
+    <Disclosure defaultExpanded onExpandedChange={change}>
+      <Disclosure.Heading>
+        <Button slot="trigger" variant="tertiary">
+          <span>Files</span>
+          <Disclosure.Indicator />
+        </Button>
+      </Disclosure.Heading>
+      <Disclosure.Content>
+        <Disclosure.Body>
+          <p>Project files</p>
+        </Disclosure.Body>
+      </Disclosure.Content>
     </Disclosure>,
   );
   const trigger = screen.getByRole("button", {
@@ -52,14 +64,35 @@ it("accepts suggested branches and custom review references", async () => {
     const [value, setValue] = useState("");
     return (
       <ComboBox
-        label="Review base"
-        value={value}
-        onChange={(next) => {
+        aria-label="Review base"
+        allowsCustomValue
+        inputValue={value}
+        onInputChange={(next) => {
           setValue(next);
           change(next);
         }}
-        options={["main", "release"]}
-      />
+        menuTrigger="manual"
+      >
+        <ComboBox.InputGroup>
+          <Input />
+          <ComboBox.Trigger aria-label="Show review base suggestions" />
+        </ComboBox.InputGroup>
+        <ComboBox.Popover>
+          <ListBox
+            aria-label="Review base suggestions"
+            renderEmptyState={() => "No matching suggestions. You can use the typed reference."}
+          >
+            {["main", "release"]
+              .filter((option) => option.toLocaleLowerCase().includes(value.toLocaleLowerCase()))
+              .map((option) => (
+                <ListBox.Item key={option} id={option} textValue={option}>
+                  {option}
+                  <ListBox.ItemIndicator />
+                </ListBox.Item>
+              ))}
+          </ListBox>
+        </ComboBox.Popover>
+      </ComboBox>
     );
   }
   render(<Branches />);
@@ -85,9 +118,22 @@ it("accepts suggested branches and custom review references", async () => {
 it("closes modal dialogs through Escape", async () => {
   const close = vi.fn<(...args: unknown[]) => void>();
   render(
-    <Dialog label="Find project file" onClose={close}>
-      <Input aria-label="File name" />
-    </Dialog>,
+    <Modal
+      isOpen
+      onOpenChange={(next) => {
+        if (!next) {
+          close();
+        }
+      }}
+    >
+      <Modal.Backdrop isDismissable>
+        <Modal.Container>
+          <Modal.Dialog aria-label="Find project file">
+            <Input aria-label="File name" />
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>,
   );
   await userEvent.click(
     screen.getByRole("textbox", {
@@ -249,7 +295,7 @@ it("keeps editable input and textarea values, focus, and native refs", async () 
             setValue(event.target.value);
           }}
         />
-        <Textarea
+        <TextArea
           ref={ref}
           aria-label="Draft"
           value={value}
@@ -286,33 +332,58 @@ it("returns model identifiers and supports returning to the default choice", asy
     const [value, setValue] = useState("");
     return (
       <Select
-        label="Model"
+        aria-label="Model"
         value={value}
-        onChange={(next) => {
-          change(next);
-          setValue(next);
+        onChange={(key) => {
+          if (typeof key === "string") {
+            ((next) => {
+              change(next);
+              setValue(next);
+            })(key);
+          }
         }}
-        options={[
-          {
-            id: "",
-            label: "Default model",
-          },
-          {
-            id: "provider/model",
-            label: "Custom model",
-          },
-          {
-            id: "unavailable",
-            label: "Unavailable",
-            disabled: true,
-          },
-        ]}
-      />
+        placeholder="Select…"
+      >
+        <Select.Trigger>
+          <Select.Value />
+          <Select.Indicator />
+        </Select.Trigger>
+        <Select.Popover>
+          <ListBox aria-label="Model">
+            {[
+              {
+                id: "",
+                label: "Default model",
+              },
+              {
+                id: "provider/model",
+                label: "Custom model",
+              },
+              {
+                id: "unavailable",
+                label: "Unavailable",
+                disabled: true,
+              },
+            ].map((option) => (
+              <ListBox.Item
+                key={option.id}
+                id={option.id}
+                textValue={option.label}
+                isDisabled={"disabled" in option && option.disabled === true}
+              >
+                {"icon" in option && isValidElement(option.icon) ? option.icon : null}
+                {option.label}
+                <ListBox.ItemIndicator />
+              </ListBox.Item>
+            ))}
+          </ListBox>
+        </Select.Popover>
+      </Select>
     );
   }
   render(<Models />);
   await userEvent.click(
-    screen.getByRole("combobox", {
+    screen.getByRole("button", {
       name: /Model/u,
     }),
   );
@@ -323,7 +394,7 @@ it("returns model identifiers and supports returning to the default choice", asy
   );
   expect(change).toHaveBeenLastCalledWith("provider/model");
   await userEvent.click(
-    screen.getByRole("combobox", {
+    screen.getByRole("button", {
       name: /Model/u,
     }),
   );
@@ -336,7 +407,16 @@ it("returns model identifiers and supports returning to the default choice", asy
 });
 it("reports boolean notification choices through the accessible switch", async () => {
   const change = vi.fn<(...args: unknown[]) => void>();
-  render(<Switch label="Completion notifications" checked={false} onChange={change} />);
+  render(
+    <Switch isSelected={false} onChange={change} aria-label="Completion notifications">
+      <Switch.Content>
+        <Switch.Control>
+          <Switch.Thumb />
+        </Switch.Control>
+        Completion notifications
+      </Switch.Content>
+    </Switch>,
+  );
   await userEvent.click(
     screen.getByRole("switch", {
       name: "Completion notifications",
@@ -346,7 +426,16 @@ it("reports boolean notification choices through the accessible switch", async (
 });
 it("keeps keyboard selection and disabled state for configuration checkboxes", async () => {
   const change = vi.fn<(...args: unknown[]) => void>();
-  const view = render(<Checkbox label="Isolate worktree" checked={false} onChange={change} />);
+  const view = render(
+    <Checkbox isSelected={false} onChange={change} aria-label="Isolate worktree">
+      <Checkbox.Content>
+        <Checkbox.Control>
+          <Checkbox.Indicator />
+        </Checkbox.Control>
+        Isolate worktree
+      </Checkbox.Content>
+    </Checkbox>,
+  );
   screen
     .getByRole("checkbox", {
       name: "Isolate worktree",
@@ -354,7 +443,16 @@ it("keeps keyboard selection and disabled state for configuration checkboxes", a
     .focus();
   await userEvent.keyboard(" ");
   expect(change).toHaveBeenLastCalledWith(true);
-  view.rerender(<Checkbox label="Isolate worktree" checked disabled onChange={change} />);
+  view.rerender(
+    <Checkbox isSelected isDisabled onChange={change} aria-label="Isolate worktree">
+      <Checkbox.Content>
+        <Checkbox.Control>
+          <Checkbox.Indicator />
+        </Checkbox.Control>
+        Isolate worktree
+      </Checkbox.Content>
+    </Checkbox>,
+  );
   await userEvent.click(
     screen.getByRole("checkbox", {
       name: "Isolate worktree",
@@ -366,30 +464,55 @@ it("closes a keyboard-opened selector with Escape and restores trigger focus", a
   const change = vi.fn<(...args: unknown[]) => void>();
   render(
     <Select
-      label="Harness"
+      aria-label="Harness"
       value="codex"
-      onChange={change}
-      options={[
-        {
-          id: "codex",
-          label: "codex",
-        },
-        {
-          id: "unavailable",
-          label: "Not installed",
-          disabled: true,
-        },
-      ]}
-    />,
+      onChange={(key) => {
+        if (typeof key === "string") {
+          change(key);
+        }
+      }}
+      placeholder="Select…"
+    >
+      <Select.Trigger>
+        <Select.Value />
+        <Select.Indicator />
+      </Select.Trigger>
+      <Select.Popover>
+        <ListBox aria-label="Harness">
+          {[
+            {
+              id: "codex",
+              label: "codex",
+            },
+            {
+              id: "unavailable",
+              label: "Not installed",
+              disabled: true,
+            },
+          ].map((option) => (
+            <ListBox.Item
+              key={option.id}
+              id={option.id}
+              textValue={option.label}
+              isDisabled={"disabled" in option && option.disabled === true}
+            >
+              {"icon" in option && isValidElement(option.icon) ? option.icon : null}
+              {option.label}
+              <ListBox.ItemIndicator />
+            </ListBox.Item>
+          ))}
+        </ListBox>
+      </Select.Popover>
+    </Select>,
   );
-  const trigger = screen.getByRole("combobox", {
+  const trigger = screen.getByRole("button", {
     name: /Harness/u,
   });
   trigger.focus();
   await userEvent.keyboard("{Enter}");
   expect(
-    screen.getByRole("listbox", {
-      name: "Harness",
+    await screen.findByRole("listbox", {
+      name: /Harness/u,
     }),
   ).toBeTruthy();
   expect(
@@ -514,7 +637,7 @@ it("shows only installed agent tools with icons and preserves selection", async 
       ]}
     />,
   );
-  const trigger = screen.getByRole("combobox", {
+  const trigger = screen.getByRole("button", {
     name: /Installed agent tool/u,
   });
   expect(trigger.querySelector("svg")).not.toBeNull();
@@ -546,7 +669,7 @@ it("disables an empty installed agent list with an honest placeholder", () => {
     />,
   );
   expect(
-    screen.getByRole<HTMLButtonElement>("combobox", {
+    screen.getByRole<HTMLButtonElement>("button", {
       name: /Installed agent tool/u,
     }).disabled,
   ).toBe(true);
@@ -678,8 +801,8 @@ it("shows the effective model and configures only advertised models and effort l
       name: "Available models",
     }),
   ).toBeNull();
-  const catalogTrigger = screen.getByRole("combobox", {
-    name: "Choose model: Native A",
+  const catalogTrigger = screen.getByRole("button", {
+    name: /Choose model: Native A/u,
   });
   await userEvent.click(catalogTrigger);
   await userEvent.keyboard("{Escape}");
@@ -939,16 +1062,8 @@ it("uses server permission profiles and keeps selected and observed permissions 
   ).toBe(true);
   expect(screen.getByText("Native deny rules remain unobserved")).toBeTruthy();
   await userEvent.click(screen.getByText("Native permission settings"));
-  fireEvent.change(
-    screen.getByRole("combobox", {
-      name: "Native Permission mode",
-    }),
-    {
-      target: {
-        value: "bypassPermissions",
-      },
-    },
-  );
+  await userEvent.click(screen.getByRole("button", { name: /Native Permission mode/u }));
+  await userEvent.click(screen.getByRole("option", { name: "Bypass prompts" }));
   expect(configure).toHaveBeenLastCalledWith(thread.id, {
     permissionMode: "bypassPermissions",
   });

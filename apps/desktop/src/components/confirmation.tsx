@@ -1,7 +1,5 @@
+import { Button, Modal } from "@swarmie/ui-web";
 import { useCallback, useEffect, useRef, useState } from "react";
-
-import { Button } from "~/src/components/ui/button";
-import { Dialog } from "~/src/components/ui/dialog";
 
 type Confirmation = { scope: string; message: string; accept: () => void };
 
@@ -45,32 +43,42 @@ export function useConfirmation(scope: string) {
   };
   const dialog =
     request?.scope === scope ? (
-      <Dialog
-        label="Confirm action"
-        onClose={() => {
-          finish(false);
+      <Modal
+        isOpen
+        onOpenChange={(next) => {
+          if (!next) {
+            (() => {
+              finish(false);
+            })();
+          }
         }}
       >
-        <p>{request.message}</p>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            onClick={() => {
-              finish(false);
-            }}
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={() => {
-              finish(true);
-            }}
-          >
-            Confirm
-          </Button>
-        </div>
-      </Dialog>
+        <Modal.Backdrop isDismissable>
+          <Modal.Container>
+            <Modal.Dialog aria-label="Confirm action">
+              <p>{request.message}</p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="tertiary"
+                  onClick={() => {
+                    finish(false);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={() => {
+                    finish(true);
+                  }}
+                >
+                  Confirm
+                </Button>
+              </div>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
     ) : null;
   return { confirm, dialog };
 }

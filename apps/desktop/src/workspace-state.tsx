@@ -1,12 +1,12 @@
+import { Select, ListBox } from "@swarmie/ui-web";
 import { useMutation } from "@tanstack/react-query";
 import { Monitor } from "lucide-react";
+import { isValidElement, useEffect, useRef, useState, useSyncExternalStore } from "react";
 // Copyright 2026 Syntropika
 // SPDX-License-Identifier: Apache-2.0
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { startAction } from "~/src/action-boundary";
 import { sortedCopy } from "~/src/collection-order";
-import { Select } from "~/src/components/ui/select";
 import { ContextUsage } from "~/src/context-usage";
 import type { ClientContribution } from "~/src/contribution-host";
 import type { ContributionContext } from "~/src/contributions";
@@ -427,24 +427,50 @@ export function useWorkspaceState({
       />
       <div className="composer-spacer" />
       <Select
-        label="View node"
-        variant="composer"
-        className="max-w-[50%]"
+        aria-label="View node"
         value={state.node?.environmentId ?? ""}
-        icon={<Monitor size={14} />}
-        options={nodes.nodes
-          .filter(
-            (node) => node.registered || node.identity.environmentId === state.node?.environmentId,
-          )
-          .map((node) => ({
-            id: node.identity.environmentId,
-            label: node.displayName,
-            disabled: !node.registered,
-          }))}
-        onChange={(id) => {
-          startAction(client.select(id), store.setError.bind(store));
+        onChange={(key) => {
+          if (typeof key === "string") {
+            ((id) => {
+              startAction(client.select(id), store.setError.bind(store));
+            })(key);
+          }
         }}
-      />
+        placeholder="Select…"
+        className="max-w-[50%]"
+      >
+        <Select.Trigger>
+          <Monitor size={14} />
+          <Select.Value />
+          <Select.Indicator />
+        </Select.Trigger>
+        <Select.Popover>
+          <ListBox aria-label="View node">
+            {nodes.nodes
+              .filter(
+                (node) =>
+                  node.registered || node.identity.environmentId === state.node?.environmentId,
+              )
+              .map((node) => ({
+                id: node.identity.environmentId,
+                label: node.displayName,
+                disabled: !node.registered,
+              }))
+              .map((option) => (
+                <ListBox.Item
+                  key={option.id}
+                  id={option.id}
+                  textValue={option.label}
+                  isDisabled={"disabled" in option && option.disabled}
+                >
+                  {"icon" in option && isValidElement(option.icon) ? option.icon : null}
+                  {option.label}
+                  <ListBox.ItemIndicator />
+                </ListBox.Item>
+              ))}
+          </ListBox>
+        </Select.Popover>
+      </Select>
     </>
   );
   const composerControls = (

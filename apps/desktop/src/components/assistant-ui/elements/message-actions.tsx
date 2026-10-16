@@ -1,6 +1,7 @@
 // Adapted from assistant-ui Elements; unsupported host actions are omitted. See LICENSE.
 "use client";
 
+import { Tooltip, TooltipContent } from "@swarmie/ui-web";
 import { cn } from "cn";
 import {
   CheckIcon,
@@ -11,8 +12,6 @@ import {
   ThumbsUpIcon,
 } from "lucide-react";
 import type { ComponentProps } from "react";
-
-import { Tooltip, TooltipContent } from "~/src/components/ui/tooltip";
 
 import { ghostButton, iconSwap, iconSwapIn, iconSwapOut } from "./surfaces";
 

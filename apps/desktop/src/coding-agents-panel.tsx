@@ -1,3 +1,4 @@
+import { Button, Switch } from "@swarmie/ui-web";
 import { useQueries } from "@tanstack/react-query";
 import { Check, Copy, ExternalLink, Info, Monitor, RefreshCw } from "lucide-react";
 import { useState, useSyncExternalStore } from "react";
@@ -5,8 +6,6 @@ import { useState, useSyncExternalStore } from "react";
 import { startAction, errorMessage } from "~/src/action-boundary";
 import { AgentToolConnection } from "~/src/agent-tool-connection";
 import { sortedCopy } from "~/src/collection-order";
-import { Button } from "~/src/components/ui/button";
-import { Switch } from "~/src/components/ui/switch";
 import { HarnessIcon } from "~/src/harness-select";
 import { harnessGuide, harnessReadiness, primaryAgentTools } from "~/src/harness-setup";
 import { nodeKey } from "~/src/node-scope";
@@ -162,10 +161,8 @@ function AgentToolsPanel({ store, nodeName }: { store: WorkspaceStore; nodeName:
                   </Button>
                 )}
                 <Switch
-                  label={`Use ${guide.name}`}
-                  checked={enabled}
-                  hideLabel
-                  disabled={!state.node || !item.available}
+                  isSelected={enabled}
+                  isDisabled={!state.node || !item.available}
                   onChange={(value) => {
                     try {
                       store.setHarnessEnabled(item.harness, value);
@@ -177,7 +174,15 @@ function AgentToolsPanel({ store, nodeName }: { store: WorkspaceStore; nodeName:
                       }));
                     }
                   }}
-                />
+                  aria-label={`Use ${guide.name}`}
+                >
+                  <Switch.Content>
+                    <Switch.Control>
+                      <Switch.Thumb />
+                    </Switch.Control>
+                    <span className="sr-only">{`Use ${guide.name}`}</span>
+                  </Switch.Content>
+                </Switch>
               </div>
               {expanded === item.harness &&
                 (() => {
@@ -193,7 +198,7 @@ function AgentToolsPanel({ store, nodeName }: { store: WorkspaceStore; nodeName:
                         <div className="onboarding-command">
                           <code>{guide.command}</code>
                           <Button
-                            variant="ghost"
+                            variant="tertiary"
                             size="sm"
                             aria-label={`Copy ${guide.name} command`}
                             onClick={() => {
@@ -272,7 +277,7 @@ function AgentToolsPanel({ store, nodeName }: { store: WorkspaceStore; nodeName:
           if (hidden > 0) {
             return (
               <Button
-                variant="ghost"
+                variant="tertiary"
                 size="sm"
                 onClick={() => {
                   setShowAll(true);
@@ -285,7 +290,7 @@ function AgentToolsPanel({ store, nodeName }: { store: WorkspaceStore; nodeName:
           if (showAll) {
             return (
               <Button
-                variant="ghost"
+                variant="tertiary"
                 size="sm"
                 onClick={() => {
                   setShowAll(false);
@@ -298,7 +303,7 @@ function AgentToolsPanel({ store, nodeName }: { store: WorkspaceStore; nodeName:
           return <span />;
         })()}
         <Button
-          variant="ghost"
+          variant="tertiary"
           size="sm"
           disabled={!state.connected || checking.length > 0}
           onClick={() => {

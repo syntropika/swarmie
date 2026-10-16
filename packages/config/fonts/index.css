@@ -1,15 +1,1 @@
-@font-face {
-  font-family: "DM Sans";
-  font-style: normal;
-  font-weight: 400 700;
-  font-display: swap;
-  src: url("./dm-sans-latin-variable.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "JetBrains Mono";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("./jetbrains-mono-latin-400.woff2") format("woff2");
-}
+@import "./google-sans.css";

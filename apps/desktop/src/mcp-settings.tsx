@@ -4,14 +4,12 @@ import type {
   InputMcpMutation as McpMutation,
   InputMcpQuery as McpQuery,
 } from "@swarmie/contracts";
+import { Button, Input, Select, ListBox } from "@swarmie/ui-web";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Plus, RefreshCw } from "lucide-react";
-import { useId, useState } from "react";
+import { isValidElement, useId, useState } from "react";
 
 import { errorMessage } from "~/src/action-boundary";
-import { Button } from "~/src/components/ui/button";
-import { Input } from "~/src/components/ui/input";
-import { Select } from "~/src/components/ui/select";
 import { McpServerEditor, editor, definition } from "~/src/mcp-server-editor";
 import type { Editor } from "~/src/mcp-server-editor";
 import { McpServerRow } from "~/src/mcp-server-row";
@@ -184,7 +182,7 @@ function McpContent({
   };
   return (
     <section className="grid gap-5" aria-label="MCP management">
-      <p className="text-muted text-sm">
+      <p className="text-sm text-muted">
         Manage servers on this node, including the servers configured in your harnesses.
       </p>
       <div className="flex flex-wrap items-end gap-3">
@@ -193,41 +191,89 @@ function McpContent({
             Harness
           </label>
           <Select
-            label="MCP harness"
-            id={`${fieldPrefix}-harness`}
+            aria-label="MCP harness"
             value={harness}
-            onChange={(value) => {
-              setHarness(value);
-              setSessionId("");
+            onChange={(key) => {
+              if (typeof key === "string") {
+                ((value) => {
+                  setHarness(value);
+                  setSessionId("");
+                })(key);
+              }
             }}
-            options={[
-              { id: "", label: "All harnesses" },
-              { id: "codex", label: "Codex" },
-              { id: "claude", label: "Claude Code" },
-              { id: "opencode", label: "OpenCode" },
-              { id: "pi", label: "Pi" },
-            ]}
-          />
+            placeholder="Select…"
+          >
+            <Select.Trigger id={`${fieldPrefix}-harness`}>
+              <Select.Value />
+              <Select.Indicator />
+            </Select.Trigger>
+            <Select.Popover>
+              <ListBox aria-label="MCP harness">
+                {[
+                  { id: "", label: "All harnesses" },
+                  { id: "codex", label: "Codex" },
+                  { id: "claude", label: "Claude Code" },
+                  { id: "opencode", label: "OpenCode" },
+                  { id: "pi", label: "Pi" },
+                ].map((option) => (
+                  <ListBox.Item
+                    key={option.id}
+                    id={option.id}
+                    textValue={option.label}
+                    isDisabled={"disabled" in option && option.disabled === true}
+                  >
+                    {"icon" in option && isValidElement(option.icon) ? option.icon : null}
+                    {option.label}
+                    <ListBox.ItemIndicator />
+                  </ListBox.Item>
+                ))}
+              </ListBox>
+            </Select.Popover>
+          </Select>
         </div>
         <div className="grid min-w-48 flex-1 gap-2">
           <label className="text-sm" htmlFor={`${fieldPrefix}-session`}>
             Native session
           </label>
           <Select
-            label="MCP native session"
-            id={`${fieldPrefix}-session`}
+            aria-label="MCP native session"
             value={sessionId}
-            onChange={setSessionId}
-            options={[
-              { id: "", label: "Configuration only" },
-              ...sessions
-                .filter((thread) => !harness || thread.harness === harness)
-                .map((thread) => ({
-                  id: thread.sessionId ?? "",
-                  label: `${thread.title} · ${thread.harness}`,
-                })),
-            ]}
-          />
+            onChange={(key) => {
+              if (typeof key === "string") {
+                setSessionId(key);
+              }
+            }}
+            placeholder="Select…"
+          >
+            <Select.Trigger id={`${fieldPrefix}-session`}>
+              <Select.Value />
+              <Select.Indicator />
+            </Select.Trigger>
+            <Select.Popover>
+              <ListBox aria-label="MCP native session">
+                {[
+                  { id: "", label: "Configuration only" },
+                  ...sessions
+                    .filter((thread) => !harness || thread.harness === harness)
+                    .map((thread) => ({
+                      id: thread.sessionId ?? "",
+                      label: `${thread.title} · ${thread.harness}`,
+                    })),
+                ].map((option) => (
+                  <ListBox.Item
+                    key={option.id}
+                    id={option.id}
+                    textValue={option.label}
+                    isDisabled={"disabled" in option && option.disabled === true}
+                  >
+                    {"icon" in option && isValidElement(option.icon) ? option.icon : null}
+                    {option.label}
+                    <ListBox.ItemIndicator />
+                  </ListBox.Item>
+                ))}
+              </ListBox>
+            </Select.Popover>
+          </Select>
         </div>
         <Button
           variant="outline"
@@ -374,14 +420,14 @@ function McpContent({
       </div>
       {busy === "load" && !shown && <output className="text-sm">Loading MCP configuration…</output>}
       {shown && !entries.length && (
-        <p className="text-muted text-sm">
+        <p className="text-sm text-muted">
           {search
             ? "No matching MCP servers."
             : "No MCP servers configured. Add a server or select a project to discover its native configuration."}
         </p>
       )}
       {shown?.limitations.map((message) => (
-        <p key={message} className="text-muted text-sm">
+        <p key={message} className="text-sm text-muted">
           {message}
         </p>
       ))}

@@ -210,8 +210,8 @@ export function NavigationShell({
                 revealSidebar,
                 navigationControl: collapsible ? (
                   <Button
-                    variant="ghost"
-                    size="icon"
+                    variant="tertiary"
+                    isIconOnly
                     onClick={closeSidebar}
                     aria-label={labels.collapseNavigation}
                     title={labels.collapseNavigation}
@@ -228,8 +228,8 @@ export function NavigationShell({
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="absolute top-3 left-4 z-20 md:hidden">
           <Button
-            variant="ghost"
-            size="icon"
+            variant="tertiary"
+            isIconOnly
             aria-label={labels.openNavigation}
             title={labels.openNavigation}
             aria-haspopup="dialog"
@@ -285,8 +285,8 @@ export function NavigationShell({
             revealSidebar,
             navigationControl: (
               <Button
-                variant="ghost"
-                size="icon"
+                variant="tertiary"
+                isIconOnly
                 onClick={revealSidebar}
                 aria-label={labels.pinNavigation}
                 title={labels.pinNavigation}
@@ -311,8 +311,8 @@ export function NavigationShell({
             revealSidebar,
             navigationControl: (
               <Button
-                variant="ghost"
-                size="icon"
+                variant="tertiary"
+                isIconOnly
                 onClick={closeNavigation}
                 aria-label={labels.closeNavigation}
                 title={labels.closeNavigation}

@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 
 import { Button } from "../atoms/button";
 import { Icon } from "../atoms/icon";
@@ -25,12 +25,12 @@ function ExampleNavigation({ collapsible = true }: { collapsible?: boolean }) {
           aria-label="Example rail"
           className="flex w-[52px] shrink-0 flex-col items-center gap-2 py-3"
         >
-          <Button variant="ghost" size="icon" aria-label="Workspace" onClick={revealSidebar}>
+          <Button variant="tertiary" isIconOnly aria-label="Workspace" onClick={revealSidebar}>
             <Icon name="workspaces" />
           </Button>
           <Button
-            variant="ghost"
-            size="icon"
+            variant="tertiary"
+            isIconOnly
             aria-label="Home"
             data-navigation-home="true"
             onClick={() => {
@@ -54,8 +54,8 @@ function ExampleNavigation({ collapsible = true }: { collapsible?: boolean }) {
             <Icon name="home" />
           </Button>
           <Button
-            variant="ghost"
-            size="icon"
+            variant="tertiary"
+            isIconOnly
             aria-label="Conversations"
             onClick={() => {
               setSection("conversations");
@@ -66,8 +66,8 @@ function ExampleNavigation({ collapsible = true }: { collapsible?: boolean }) {
             <Icon name="chat" />
           </Button>
           <Button
-            variant="ghost"
-            size="icon"
+            variant="tertiary"
+            isIconOnly
             aria-label="Settings"
             onClick={() => {
               setSection("settings");
@@ -86,7 +86,7 @@ function ExampleNavigation({ collapsible = true }: { collapsible?: boolean }) {
             </h2>
             {navigationControl}
           </div>
-          <Button variant="navigation" size="navigation" onClick={closeNavigation}>
+          <Button variant="tertiary" size="md" onClick={closeNavigation}>
             {section === "settings" ? "Appearance" : "Example conversation"}
           </Button>
         </aside>
@@ -108,7 +108,7 @@ function ExampleNavigation({ collapsible = true }: { collapsible?: boolean }) {
 }
 
 const meta = {
-  title: "Molecules/NavigationShell",
+  title: "Molecules/Navigation Shell",
   component: ExampleNavigation,
   parameters: { layout: "fullscreen" },
 } satisfies Meta<typeof ExampleNavigation>;
@@ -130,9 +130,13 @@ export const FixedSidebar: Story = {
     const separator = canvas.getByRole("separator", { name: "Resize navigation" });
     separator.focus();
     await userEvent.keyboard("{End}");
-    await expect(separator).toHaveAttribute("aria-valuenow", "520");
+    await waitFor(async () => {
+      await expect(separator).toHaveAttribute("aria-valuenow", "520");
+    });
     await userEvent.keyboard("{Home}{ArrowLeft}");
-    await expect(separator).toHaveAttribute("aria-valuenow", "290");
+    await waitFor(async () => {
+      await expect(separator).toHaveAttribute("aria-valuenow", "290");
+    });
     await expect(separator).toBeVisible();
   },
 };
@@ -175,10 +179,16 @@ export const KeyboardResizeBounds: Story = {
     const separator = canvas.getByRole("separator", { name: "Resize navigation" });
     separator.focus();
     await userEvent.keyboard("{End}");
-    await expect(separator).toHaveAttribute("aria-valuenow", "520");
+    await waitFor(async () => {
+      await expect(separator).toHaveAttribute("aria-valuenow", "520");
+    });
     await userEvent.keyboard("{Home}");
-    await expect(separator).toHaveAttribute("aria-valuenow", "290");
+    await waitFor(async () => {
+      await expect(separator).toHaveAttribute("aria-valuenow", "290");
+    });
     await userEvent.keyboard("{ArrowRight}");
-    await expect(separator).toHaveAttribute("aria-valuenow", "298");
+    await waitFor(async () => {
+      await expect(separator).toHaveAttribute("aria-valuenow", "298");
+    });
   },
 };

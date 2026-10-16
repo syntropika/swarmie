@@ -1,12 +1,9 @@
 import type { InputNativeHistoryQuery, NativeHistorySession } from "@swarmie/contracts";
+import { Button, Disclosure, Input, Switch } from "@swarmie/ui-web";
 import { useIsFetching, useIsMutating, useMutation, useQuery } from "@tanstack/react-query";
 import { useId, useState, useSyncExternalStore } from "react";
 
 import { startAction } from "~/src/action-boundary";
-import { Button } from "~/src/components/ui/button";
-import { Disclosure } from "~/src/components/ui/disclosure";
-import { Input } from "~/src/components/ui/input";
-import { Switch } from "~/src/components/ui/switch";
 import { HarnessSelect } from "~/src/harness-select";
 import { nodeKey } from "~/src/node-scope";
 import { nonEmptyText } from "~/src/value-presence";
@@ -55,7 +52,7 @@ export function NativeHistory({ store }: { store: WorkspaceStore }) {
         />
       </fieldset>
       {selectedHarness === "cursor" && (
-        <p className="text-muted text-sm">
+        <p className="text-sm text-muted">
           Cursor history reads local SDK conversations. Cursor CLI conversations use a separate
           store.
         </p>
@@ -77,11 +74,18 @@ export function NativeHistory({ store }: { store: WorkspaceStore }) {
         />
       </label>
       <Switch
-        label="Include other projects"
-        checked={allProjects}
+        isSelected={allProjects}
         onChange={setAllProjects}
-        disabled={busy || !state.connected}
-      />
+        isDisabled={busy || !state.connected}
+        aria-label="Include other projects"
+      >
+        <Switch.Content>
+          <Switch.Control>
+            <Switch.Thumb />
+          </Switch.Control>
+          Include other projects
+        </Switch.Content>
+      </Switch>
       <HistoryResults
         key={selection}
         store={store}
@@ -142,7 +146,7 @@ function HistoryResults({
   return (
     <>
       <Button
-        variant="ghost"
+        variant="tertiary"
         size="sm"
         disabled={busy || query.harness.length === 0 || !connected}
         onClick={() => {
@@ -164,7 +168,7 @@ function HistoryResults({
         {sessions.data?.map((session) => (
           <Button
             key={session.native.id}
-            variant={selected?.native.id === session.native.id ? "secondary" : "ghost"}
+            variant={selected?.native.id === session.native.id ? "secondary" : "tertiary"}
             className="w-full"
             title={session.cwd}
             disabled={busy || !connected}
@@ -176,7 +180,7 @@ function HistoryResults({
               <span className="truncate">
                 {session.title.length > 0 ? session.title : session.native.id}
               </span>
-              <span className="text-muted text-xs">
+              <span className="text-xs text-muted">
                 {new Date(session.updatedAtMs).toLocaleDateString()}
               </span>
             </span>
@@ -185,9 +189,9 @@ function HistoryResults({
       </div>
       {selected !== undefined && (
         <>
-          <p className="text-muted font-mono text-xs break-all">{selected.cwd}</p>
+          <p className="font-mono text-xs break-all text-muted">{selected.cwd}</p>
           <Button
-            variant="ghost"
+            variant="tertiary"
             disabled={busy || !connected}
             onClick={() => {
               startAction(importing.mutateAsync(selected.native.id), () => {
@@ -198,25 +202,41 @@ function HistoryResults({
             Import conversation
           </Button>
           <Disclosure>
-            <Disclosure.Summary>
-              Native message tree · {tree.data?.tree.length ?? 0} entries
-            </Disclosure.Summary>
-            <div className="grid gap-2">
-              {tree.data?.tree.map((node) => (
-                <Disclosure key={node.id}>
-                  <Disclosure.Summary>
-                    {node.role} · {node.id.slice(0, 10)}
-                    {node.active ? " · active branch" : ""}
-                  </Disclosure.Summary>
-                  {node.parentId !== null && node.parentId.length > 0 && (
-                    <p className="text-muted">Parent: {node.parentId}</p>
-                  )}
-                  <pre className="overflow-x-auto">{node.text}</pre>
-                </Disclosure>
-              ))}
-            </div>
+            <Disclosure.Heading>
+              <Button slot="trigger" variant="tertiary">
+                <span>Native message tree · {tree.data?.tree.length ?? 0} entries</span>
+                <Disclosure.Indicator />
+              </Button>
+            </Disclosure.Heading>
+            <Disclosure.Content>
+              <Disclosure.Body>
+                <div className="grid gap-2">
+                  {tree.data?.tree.map((node) => (
+                    <Disclosure key={node.id}>
+                      <Disclosure.Heading>
+                        <Button slot="trigger" variant="tertiary">
+                          <span>
+                            {node.role} · {node.id.slice(0, 10)}
+                            {node.active ? " · active branch" : ""}
+                          </span>
+                          <Disclosure.Indicator />
+                        </Button>
+                      </Disclosure.Heading>
+                      <Disclosure.Content>
+                        <Disclosure.Body>
+                          {node.parentId !== null && node.parentId.length > 0 && (
+                            <p className="text-muted">Parent: {node.parentId}</p>
+                          )}
+                          <pre className="overflow-x-auto">{node.text}</pre>
+                        </Disclosure.Body>
+                      </Disclosure.Content>
+                    </Disclosure>
+                  ))}
+                </div>
+              </Disclosure.Body>
+            </Disclosure.Content>
           </Disclosure>
-          <p className="text-muted text-sm">
+          <p className="text-sm text-muted">
             Import reads local history. Sending a message resumes the native session when supported.
           </p>
         </>

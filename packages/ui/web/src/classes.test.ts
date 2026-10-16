@@ -3,6 +3,10 @@ import { describe, expect, test } from "bun:test";
 import { cn } from "./classes";
 
 describe("semantic typography class merging", () => {
+  test("keeps shared type independent of its color and replaces semantic sizing", () => {
+    expect(cn("text-ui text-ink", "text-sm text-foreground")).toBe("text-sm text-foreground");
+  });
+
   test("keeps independent font size, color, and line height", () => {
     expect(cn("text-ui leading-ui", "text-ink")).toBe("text-ui leading-ui text-ink");
     expect(cn("text-code leading-code", "text-inverse-text")).toBe(

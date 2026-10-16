@@ -1,4 +1,5 @@
-import { Tooltip, TooltipContent } from "~/src/components/ui/tooltip";
+import { Button, Tooltip, TooltipContent } from "@swarmie/ui-web";
+
 import type { Thread } from "~/src/protocol";
 
 const formatTokens = (value: number) =>
@@ -28,11 +29,7 @@ export function ContextUsage({ context }: { context: Thread["context"] }) {
       : `Context window: ${Math.round(percent)}% full`;
   return (
     <Tooltip>
-      <button
-        type="button"
-        aria-label={label}
-        className="text-muted hover:bg-control-hover focus-visible:ring-focus flex size-7 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2"
-      >
+      <Button variant="tertiary" isIconOnly aria-label={label}>
         <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" className="-rotate-90">
           <circle
             cx="8"
@@ -55,7 +52,7 @@ export function ContextUsage({ context }: { context: Thread["context"] }) {
             strokeLinecap="round"
           />
         </svg>
-      </button>
+      </Button>
       <TooltipContent>
         <div className="py-1 text-center tabular-nums">
           <p className="text-muted">Context window:</p>

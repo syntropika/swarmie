@@ -1,10 +1,9 @@
+import { Button, Slider } from "@swarmie/ui-web";
 import { Circle, RotateCcw } from "lucide-react";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { startAction } from "~/src/action-boundary";
-import { Button } from "~/src/components/ui/button";
-import { Slider } from "~/src/components/ui/slider";
 
 export function ReasoningEffort({
   choices,
@@ -44,6 +43,12 @@ export function ReasoningEffort({
       updateDraft(index);
     });
   };
+  const inputRef = useRef<HTMLInputElement>(null);
+  const valueLabel = choices[Math.max(0, draft)]?.label ?? "Select effort";
+  useLayoutEffect(() => {
+    // The vendor formats numeric values; this discrete domain announces the corresponding choice.
+    inputRef.current?.setAttribute("aria-valuetext", valueLabel);
+  }, [valueLabel]);
   const reset = choices.find((choice) => choice.id === selection.initialValue);
   return (
     <div className="grid gap-3">
@@ -54,8 +59,9 @@ export function ReasoningEffort({
             {fastControl ?? <span className="size-7" />}
             {renderModel(choices[draft]?.label ?? "Select effort")}
             <Button
-              variant="ghost"
-              size="icon-sm"
+              variant="tertiary"
+              size="sm"
+              isIconOnly
               aria-label={`Reset effort to ${reset?.label ?? "previous selection"}`}
               title="Restore the effort selected when this menu opened"
               disabled={disabled || !reset || reset.id === value}
@@ -76,33 +82,37 @@ export function ReasoningEffort({
         </div>
       )}
       <Slider
-        label="Reasoning effort"
-        valueText={choices[Math.max(0, draft)]?.label ?? "Select effort"}
-        min={0}
-        max={Math.max(1, choices.length - 1)}
+        aria-label="Reasoning effort"
+        minValue={0}
+        maxValue={Math.max(1, choices.length - 1)}
         step={1}
         value={[Math.max(0, draft)]}
-        disabled={disabled || choices.length < 2}
-        onValueChange={([next]) => {
-          updateDraft(next);
+        isDisabled={disabled || choices.length < 2}
+        onChange={(nextValue) => {
+          updateDraft(Array.isArray(nextValue) ? (nextValue[0] ?? 0) : nextValue);
         }}
-        onValueCommit={([next]) => {
+        onChangeEnd={(nextValue) => {
+          const next = Array.isArray(nextValue) ? (nextValue[0] ?? 0) : nextValue;
           const choice = choices.at(next);
           if (choice !== undefined) {
             choose(choice.id);
           }
         }}
       >
-        <div
-          className="pointer-events-none absolute inset-0 flex items-center justify-between px-3"
-          aria-hidden="true"
-        >
-          {choices.map((choice) => (
-            <span key={choice.id} className="opacity-45">
-              <Circle size={4} fill="currentColor" />
-            </span>
-          ))}
-        </div>
+        <Slider.Track>
+          <Slider.Fill />
+          <div
+            className="pointer-events-none absolute inset-0 flex items-center justify-between px-3"
+            aria-hidden="true"
+          >
+            {choices.map((choice) => (
+              <span key={choice.id} className="opacity-45">
+                <Circle size={4} fill="currentColor" />
+              </span>
+            ))}
+          </div>
+          <Slider.Thumb inputRef={inputRef} />
+        </Slider.Track>
       </Slider>
     </div>
   );

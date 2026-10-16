@@ -1,13 +1,8 @@
+import { Button, Checkbox, Dropdown, Input, InputGroup, Modal } from "@swarmie/ui-web";
 import { ChevronDown, Folder, FolderPlus, X } from "lucide-react";
 import { useState, useId } from "react";
 
 import { startAction, errorMessage, errorReporter } from "~/src/action-boundary";
-import { Button } from "~/src/components/ui/button";
-import { Checkbox } from "~/src/components/ui/checkbox";
-import { Dialog } from "~/src/components/ui/dialog";
-import { Dropdown } from "~/src/components/ui/dropdown";
-import { Input } from "~/src/components/ui/input";
-import { InputGroup } from "~/src/components/ui/input-group";
 import { nonEmptyText } from "~/src/value-presence";
 import type { WorkspaceStore } from "~/src/workspace";
 
@@ -80,207 +75,233 @@ export function ProjectDialog({ store, onClose }: { store: WorkspaceStore; onClo
   };
 
   return (
-    <Dialog label="Create project" onClose={onClose} busy={busy} className="max-w-[522px]">
-      <div className="project-dialog">
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            startAction(submit(), errorReporter(setIssue));
-          }}
-          aria-busy={busy}
-        >
-          <header className="project-dialog-header">
-            <h2 className="text-xl font-semibold">Create project</h2>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Close project dialog"
-              disabled={busy}
-              onClick={onClose}
-            >
-              <X size={15} />
-            </Button>
-          </header>
-          <div className="project-dialog-body">
-            <div className="project-name-field">
-              <InputGroup
-                icon={<Folder size={15} />}
-                autoFocus
-                aria-label="Project name"
-                placeholder="Project name"
-                value={name}
-                disabled={busy}
-                onChange={(event) => {
-                  setName(event.target.value);
+    <Modal
+      isOpen
+      onOpenChange={(next) => {
+        if (!next && !busy) {
+          onClose();
+        }
+      }}
+    >
+      <Modal.Backdrop isDismissable={!busy} isKeyboardDismissDisabled={busy}>
+        <Modal.Container>
+          <Modal.Dialog aria-label="Create project" className="max-w-[522px]">
+            <div className="project-dialog">
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  startAction(submit(), errorReporter(setIssue));
                 }}
-              />
-            </div>
-            <p className="project-source-label" id={`${fieldId}-source`}>
-              Source folders
-            </p>
-            <fieldset className="project-source-box" aria-labelledby={`${fieldId}-source`}>
-              <Dropdown>
-                <Button variant="ghost" className="max-w-full" disabled={busy}>
-                  {(() => {
-                    if (source === "existing") {
-                      return "Add a folder on this computer";
-                    }
-                    if (source === "create") {
-                      return "Create a new folder";
-                    }
-                    return "Clone a repository";
-                  })()}
-                  <ChevronDown size={13} />
-                </Button>
-                <Dropdown.Popover className="min-w-44">
-                  <Dropdown.Menu aria-label="Project source">
-                    <Dropdown.Item
-                      id="existing"
-                      onAction={() => {
-                        chooseSource("existing");
-                      }}
-                    >
-                      Add an existing folder
-                    </Dropdown.Item>
-                    <Dropdown.Item
-                      id="create"
-                      isDisabled={!workspace}
-                      onAction={() => {
-                        chooseSource("create");
-                      }}
-                    >
-                      Create a new folder
-                    </Dropdown.Item>
-                    <Dropdown.Item
-                      id="clone"
-                      isDisabled={!workspace}
-                      onAction={() => {
-                        chooseSource("clone");
-                      }}
-                    >
-                      Clone a repository
-                    </Dropdown.Item>
-                  </Dropdown.Menu>
-                </Dropdown.Popover>
-              </Dropdown>
-              {(() => {
-                if (source === "existing" && folder && !editing) {
-                  return (
-                    <div className="project-source-folder">
-                      <Folder size={17} aria-hidden="true" />
-                      <span title={folder}>
-                        {folderName(folder)}
-                        <small>{folder}</small>
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label="Remove source folder"
+                aria-busy={busy}
+              >
+                <header className="project-dialog-header">
+                  <h2 className="text-xl font-semibold">Create project</h2>
+                  <Button
+                    variant="tertiary"
+                    size="md"
+                    isIconOnly
+                    aria-label="Close project dialog"
+                    disabled={busy}
+                    onClick={onClose}
+                  >
+                    <X size={15} />
+                  </Button>
+                </header>
+                <div className="project-dialog-body">
+                  <div className="project-name-field">
+                    <InputGroup>
+                      <InputGroup.Prefix aria-hidden="true">
+                        <Folder size={15} />
+                      </InputGroup.Prefix>
+                      <InputGroup.Input
+                        autoFocus
+                        aria-label="Project name"
+                        placeholder="Project name"
+                        value={name}
                         disabled={busy}
-                        onClick={() => {
-                          setFolder("");
-                          setDraftPath("");
+                        onChange={(event) => {
+                          setName(event.target.value);
                         }}
-                      >
-                        <X size={14} />
+                      />
+                    </InputGroup>
+                  </div>
+                  <p className="project-source-label" id={`${fieldId}-source`}>
+                    Source folders
+                  </p>
+                  <fieldset className="project-source-box" aria-labelledby={`${fieldId}-source`}>
+                    <Dropdown>
+                      <Button variant="tertiary" className="max-w-full" disabled={busy}>
+                        {(() => {
+                          if (source === "existing") {
+                            return "Add a folder on this computer";
+                          }
+                          if (source === "create") {
+                            return "Create a new folder";
+                          }
+                          return "Clone a repository";
+                        })()}
+                        <ChevronDown size={13} />
                       </Button>
-                    </div>
-                  );
-                }
-                if (editing) {
-                  return (
-                    <div className="project-source-fields">
-                      <label htmlFor={`${fieldId}-path`}>
-                        {source === "existing" ? "Folder path" : "Parent folder"}
-                        <Input
-                          id={`${fieldId}-path`}
-                          autoFocus
-                          aria-label={source === "existing" ? "Folder path" : "Parent folder"}
-                          placeholder="Absolute directory path"
-                          value={draftPath}
-                          disabled={busy}
-                          onChange={(event) => {
-                            setDraftPath(event.target.value);
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" && source === "existing") {
-                              event.preventDefault();
-                              addFolder();
-                            }
-                          }}
-                        />
-                      </label>
-                      {source === "existing" && (
+                      <Dropdown.Popover className="min-w-44">
+                        <Dropdown.Menu aria-label="Project source">
+                          <Dropdown.Item
+                            id="existing"
+                            onAction={() => {
+                              chooseSource("existing");
+                            }}
+                          >
+                            Add an existing folder
+                          </Dropdown.Item>
+                          <Dropdown.Item
+                            id="create"
+                            isDisabled={!workspace}
+                            onAction={() => {
+                              chooseSource("create");
+                            }}
+                          >
+                            Create a new folder
+                          </Dropdown.Item>
+                          <Dropdown.Item
+                            id="clone"
+                            isDisabled={!workspace}
+                            onAction={() => {
+                              chooseSource("clone");
+                            }}
+                          >
+                            Clone a repository
+                          </Dropdown.Item>
+                        </Dropdown.Menu>
+                      </Dropdown.Popover>
+                    </Dropdown>
+                    {(() => {
+                      if (source === "existing" && folder && !editing) {
+                        return (
+                          <div className="project-source-folder">
+                            <Folder size={17} aria-hidden="true" />
+                            <span title={folder}>
+                              {folderName(folder)}
+                              <small>{folder}</small>
+                            </span>
+                            <Button
+                              variant="tertiary"
+                              size="md"
+                              isIconOnly
+                              aria-label="Remove source folder"
+                              disabled={busy}
+                              onClick={() => {
+                                setFolder("");
+                                setDraftPath("");
+                              }}
+                            >
+                              <X size={14} />
+                            </Button>
+                          </div>
+                        );
+                      }
+                      if (editing) {
+                        return (
+                          <div className="project-source-fields">
+                            <label htmlFor={`${fieldId}-path`}>
+                              {source === "existing" ? "Folder path" : "Parent folder"}
+                              <Input
+                                id={`${fieldId}-path`}
+                                autoFocus
+                                aria-label={source === "existing" ? "Folder path" : "Parent folder"}
+                                placeholder="Absolute directory path"
+                                value={draftPath}
+                                disabled={busy}
+                                onChange={(event) => {
+                                  setDraftPath(event.target.value);
+                                }}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter" && source === "existing") {
+                                    event.preventDefault();
+                                    addFolder();
+                                  }
+                                }}
+                              />
+                            </label>
+                            {source === "existing" && (
+                              <Button
+                                variant="secondary"
+                                disabled={busy || !draftPath.trim()}
+                                onClick={addFolder}
+                              >
+                                Add folder
+                              </Button>
+                            )}
+                            {source === "create" && (
+                              <Checkbox
+                                isSelected={git}
+                                isDisabled={busy}
+                                onChange={setGit}
+                                aria-label="Initialize a Git repository"
+                              >
+                                <Checkbox.Content>
+                                  <Checkbox.Control>
+                                    <Checkbox.Indicator />
+                                  </Checkbox.Control>
+                                  Initialize a Git repository
+                                </Checkbox.Content>
+                              </Checkbox>
+                            )}
+                            {source === "clone" && (
+                              <label htmlFor={`${fieldId}-url`}>
+                                Repository URL
+                                <Input
+                                  id={`${fieldId}-url`}
+                                  aria-label="Repository URL"
+                                  placeholder="Repository URL"
+                                  value={url}
+                                  disabled={busy}
+                                  onChange={(event) => {
+                                    setUrl(event.target.value);
+                                  }}
+                                />
+                              </label>
+                            )}
+                          </div>
+                        );
+                      }
+                      return (
                         <Button
                           variant="secondary"
-                          disabled={busy || !draftPath.trim()}
-                          onClick={addFolder}
+                          disabled={busy || !enabled}
+                          onClick={() => {
+                            setEditing(true);
+                          }}
                         >
-                          Add folder
+                          <FolderPlus size={14} />
+                          Add
                         </Button>
-                      )}
-                      {source === "create" && (
-                        <Checkbox
-                          label="Initialize a Git repository"
-                          checked={git}
-                          disabled={busy}
-                          onChange={setGit}
-                        />
-                      )}
-                      {source === "clone" && (
-                        <label htmlFor={`${fieldId}-url`}>
-                          Repository URL
-                          <Input
-                            id={`${fieldId}-url`}
-                            aria-label="Repository URL"
-                            placeholder="Repository URL"
-                            value={url}
-                            disabled={busy}
-                            onChange={(event) => {
-                              setUrl(event.target.value);
-                            }}
-                          />
-                        </label>
-                      )}
-                    </div>
-                  );
-                }
-                return (
-                  <Button
-                    variant="secondary"
-                    disabled={busy || !enabled}
-                    onClick={() => {
-                      setEditing(true);
-                    }}
-                  >
-                    <FolderPlus size={14} />
-                    Add
+                      );
+                    })()}
+                  </fieldset>
+                  {!enabled && (
+                    <p className="project-dialog-error" role="alert">
+                      Connect to a daemon with the Workspace or Git extension to add a project.
+                    </p>
+                  )}
+                  {issue && (
+                    <p className="project-dialog-error" role="alert">
+                      {issue}
+                    </p>
+                  )}
+                </div>
+                <footer className="project-dialog-footer">
+                  <Button variant="tertiary" disabled={busy} onClick={onClose}>
+                    Cancel
                   </Button>
-                );
-              })()}
-            </fieldset>
-            {!enabled && (
-              <p className="project-dialog-error" role="alert">
-                Connect to a daemon with the Workspace or Git extension to add a project.
-              </p>
-            )}
-            {issue && (
-              <p className="project-dialog-error" role="alert">
-                {issue}
-              </p>
-            )}
-          </div>
-          <footer className="project-dialog-footer">
-            <Button variant="ghost" disabled={busy} onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" className="min-w-32" disabled={busy || !enabled || !valid}>
-              {busy ? "Creating…" : "Create project"}
-            </Button>
-          </footer>
-        </form>
-      </div>
-    </Dialog>
+                  <Button type="submit" className="min-w-32" disabled={busy || !enabled || !valid}>
+                    {busy ? "Creating…" : "Create project"}
+                  </Button>
+                </footer>
+              </form>
+            </div>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
   );
 }
 

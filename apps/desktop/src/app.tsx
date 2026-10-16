@@ -1,3 +1,4 @@
+import { Button } from "@swarmie/ui-web";
 import { Home, History, GitBranch, Layers, Settings } from "lucide-react";
 // Copyright 2026 Syntropika
 // SPDX-License-Identifier: Apache-2.0
@@ -6,7 +7,6 @@ import { useEffect, useSyncExternalStore } from "react";
 import { AccountMenu } from "~/src/account-menu";
 import { startAction } from "~/src/action-boundary";
 import { CommandPalette } from "~/src/command-palette";
-import { Button } from "~/src/components/ui/button";
 import { ContributionHost, ContributionSlot } from "~/src/contribution-host";
 import { FileFinder } from "~/src/file-finder";
 import { HarnessOnboarding } from "~/src/harness-onboarding";
@@ -197,7 +197,8 @@ function WorkspaceView(props: NodeWorkspaceProps) {
         <WorkspaceSidebar view={view} />
         {sidebar && (
           <Button
-            variant="backdrop"
+            variant="tertiary"
+            data-workspace-part="sidebar-backdrop"
             aria-label="Close sidebar"
             onClick={() => {
               setSidebar(false);

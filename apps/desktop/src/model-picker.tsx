@@ -1,11 +1,7 @@
-import * as Primitive from "@radix-ui/react-select";
-import { cn } from "cn";
-import { Check, ChevronRight } from "lucide-react";
+import { Select, ListBox } from "@swarmie/ui-web";
 import { useState } from "react";
 
 import { startAction } from "~/src/action-boundary";
-import { Button } from "~/src/components/ui/button";
-import { floatingClasses, itemClasses } from "~/src/components/ui/floating";
 import { hasText } from "~/src/value-presence";
 
 export function ModelPicker({
@@ -30,67 +26,35 @@ export function ModelPicker({
     }
   };
   return (
-    <Primitive.Root
-      open={open}
+    <Select
+      isOpen={open}
       onOpenChange={setOpen}
-      value={value}
-      onValueChange={(next) => {
-        if (next !== value) {
+      value={value || null}
+      isDisabled={disabled || choices.length === 0}
+      aria-label={`Choose model: ${label}`}
+      onChange={(next) => {
+        if (typeof next === "string" && next !== value) {
           startAction(choose(next), () => {
             setOpen(true);
           });
         }
       }}
     >
-      <Primitive.Trigger asChild>
-        <Button
-          variant="secondary"
-          size={hasText(effort) ? "lg" : "sm"}
-          className="max-w-full min-w-0 justify-self-center"
-          aria-label={`Choose model: ${label}`}
-          disabled={disabled || !choices.length}
-        >
-          <span className="flex min-w-0 flex-col items-center">
-            {hasText(effort) && <span className="text-focus capitalize">{effort}</span>}
-            <span className="text-muted flex max-w-full items-center gap-1 text-xs">
-              {label}
-              <ChevronRight size={12} />
-            </span>
-          </span>
-        </Button>
-      </Primitive.Trigger>
-      <Primitive.Portal>
-        <Primitive.Content
-          position="popper"
-          side="top"
-          align="end"
-          sideOffset={8}
-          collisionPadding={20}
-          aria-label="Available models"
-          className={cn(
-            floatingClasses,
-            "max-h-[var(--radix-select-content-available-height)] w-80 p-1.5",
-          )}
-        >
-          <div className="text-muted px-2.5 py-1.5 text-sm">Select model</div>
-          <Primitive.Viewport className="max-h-65 overflow-y-auto">
-            {choices.map((choice) => (
-              <Primitive.Item
-                key={choice.id}
-                value={choice.id}
-                textValue={choice.label}
-                disabled={disabled}
-                className={itemClasses}
-              >
-                <Primitive.ItemText>{choice.label}</Primitive.ItemText>
-                <Primitive.ItemIndicator className="ml-auto">
-                  <Check size={14} />
-                </Primitive.ItemIndicator>
-              </Primitive.Item>
-            ))}
-          </Primitive.Viewport>
-        </Primitive.Content>
-      </Primitive.Portal>
-    </Primitive.Root>
+      <Select.Trigger>
+        {hasText(effort) && <span className="capitalize">{effort}</span>}
+        <Select.Value>{label}</Select.Value>
+        <Select.Indicator />
+      </Select.Trigger>
+      <Select.Popover placement="top end" className="w-80">
+        <ListBox aria-label="Available models">
+          {choices.map((choice) => (
+            <ListBox.Item key={choice.id} id={choice.id} textValue={choice.label}>
+              {choice.label}
+              <ListBox.ItemIndicator />
+            </ListBox.Item>
+          ))}
+        </ListBox>
+      </Select.Popover>
+    </Select>
   );
 }

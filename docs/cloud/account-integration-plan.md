@@ -16,7 +16,7 @@ rail menu, Profile and Account security in full Settings, and owner-backed accou
 open clients. Production-preparation deliveries add shared admission/retention controls, native session
 listing and revocation, and service-authorized account disablement. See [native grants](native-accounts.md),
 [session policy](native-account-sessions.md) and
-[native client ownership](../client-runtime/docs/accounts.md) for the implemented operations and
+[native client ownership](../runtime/accounts.md) for the implemented operations and
 limits. The phases below retain follow-up scope; their presence does not imply each phase is complete.
 The broader account portal, saved accounts, device-code entry and account-linked
 node/hosted authorization remain pending. Production deployment and account policy are not part of
@@ -82,11 +82,12 @@ the core credential interfaces when enrollment is implemented. A system-service 
 implicitly access an interactive user's account vault. Account availability must not depend on
 the readiness of local execution or an unrelated remote connection.
 
-The private authentication library is reused by an account-only browser surface behind the
-approved account origin. This surface hosts no conversation, project or execution application.
-The public desktop does not import private packages. It uses existing public controls for its
-account menu and profile presentation; selected generic UI components may be extracted into
-public source separately.
+The hosted account service owns the browser ceremony behind its approved account origin.
+It provides identity-provider redirection and explicit native consent; a complete
+credential-only account portal remains separate work. This surface hosts no conversation,
+project or execution application. Native clients use their shared platform controls for
+account presentation and consume the Rust account capability rather than a browser-session
+HTTP library.
 
 ## Data and persistence
 
@@ -155,8 +156,8 @@ sequenceDiagram
 2. The account service creates an expiring desktop request bound to the PKCE challenge, permitted
    callback, installation and requested capabilities. Callback validation permits the intended
    loopback address and path; it does not accept arbitrary return URLs.
-3. The account browser surface reuses the existing credential flows. It displays the destination
-   desktop client and intended access before approving the handoff. Authentication alone grants
+3. The hosted account service starts an available authentication ceremony and displays the
+   destination desktop client and intended access before approving the handoff. Authentication alone grants
    no project upload, runtime enrollment or collaboration access.
 4. After browser authentication and approval, the service redirects to the registered callback with
    a short-lived, single-use application authorization code and the bound state. Access credentials,
@@ -279,8 +280,8 @@ The user sees the confirmed saved profile; failed or conflicting writes retain a
 Primary implementation seams are core account interfaces and storage, a persistent account host
 in the native runtime/service layer, forwarding in `crates/app/src/client/client_host.rs`, the
 desktop bridge and `apps/desktop/src/`, public contracts, and the private identity, HTTP and
-profile modules under `cloud/crates/`. The browser surface consumes
-`cloud/packages/auth`; public native clients do not.
+profile modules under `crates/` in the independent `swarmie-cloud` repository. The account
+service owns the browser ceremony; native clients consume sanitized core projections.
 
 Acceptance scenarios include wrong-state callbacks, duplicate completion, port occupation,
 cancellation followed by a late callback, expired or reused codes, unavailable vaults, restart,

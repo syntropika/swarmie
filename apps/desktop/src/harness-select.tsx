@@ -1,8 +1,7 @@
+import { Tooltip, Button, Dropdown, Select, ListBox } from "@swarmie/ui-web";
 import { Asterisk, ChevronDown, Sparkles, Terminal } from "lucide-react";
+import { isValidElement } from "react";
 
-import { Button } from "~/src/components/ui/button";
-import { Dropdown } from "~/src/components/ui/dropdown";
-import { Select } from "~/src/components/ui/select";
 import { harnessGuide } from "~/src/harness-setup";
 import { HarnessStatus, HarnessStatusDot } from "~/src/harness-status";
 import type { Detection } from "~/src/protocol";
@@ -56,47 +55,50 @@ export function HarnessSelect({
   const emptyLabel = available.length > 0 ? "No agents enabled" : "No agents installed";
   if (appearance === "menu") {
     return (
-      <Dropdown triggerTooltip={status && <HarnessStatus {...status} />}>
-        <Button
-          id={id}
-          variant="composer"
-          shape="pill"
-          size="sm"
-          className={className}
-          aria-label={`${label}: ${selected ? harnessGuide(selected.harness).name : emptyLabel}`}
-          disabled={!status && (disabled === true || !installed.length)}
-        >
-          {status ? (
-            <HarnessStatusDot {...status} />
-          ) : (
-            selected && <HarnessIcon harness={selected.harness} />
-          )}
-          <span>
-            {(() => {
-              if (selected) {
-                return harnessGuide(selected.harness).name;
-              }
-              if (installed.length) {
-                return "Choose an agent";
-              }
-              return emptyLabel;
-            })()}
-          </span>
-          <ChevronDown size={14} />
-        </Button>
+      <Dropdown>
+        <Tooltip>
+          <Button
+            id={id}
+            variant="tertiary"
+
+            size="sm"
+            className={className}
+            aria-label={`${label}: ${selected ? harnessGuide(selected.harness).name : emptyLabel}`}
+            disabled={!status && (disabled === true || !installed.length)}
+          >
+            {status ? (
+              <HarnessStatusDot {...status} />
+            ) : (
+              selected && <HarnessIcon harness={selected.harness} />
+            )}
+            <span>
+              {(() => {
+                if (selected) {
+                  return harnessGuide(selected.harness).name;
+                }
+                if (installed.length) {
+                  return "Choose an agent";
+                }
+                return emptyLabel;
+              })()}
+            </span>
+            <ChevronDown size={14} />
+          </Button>
+          {status && <HarnessStatus {...status} />}
+        </Tooltip>
         <Dropdown.Popover className="min-w-44" placement="top end">
           <Dropdown.Menu
             aria-label={label}
             selectionMode="single"
             selectedKeys={selected ? new Set([selected.harness]) : new Set()}
             onAction={(key) => {
-              if (key !== value) {
+              if (typeof key === "string" && key !== value) {
                 onChange(key);
               }
             }}
           >
             {!installed.length && (
-              <p className="text-muted px-2.5 py-2 text-xs">
+              <p className="px-2.5 py-2 text-xs text-muted">
                 Enable an agent tool in Settings to start a new chat.
               </p>
             )}
@@ -119,24 +121,46 @@ export function HarnessSelect({
   }
   return (
     <Select
-      id={id}
-      label={label}
+      aria-label={label}
       value={selected ? value : ""}
-      onChange={onChange}
-      className={className}
-      popoverClassName="min-w-44"
-      disabled={disabled === true || (!installed.length && !hasText(inherited))}
+      onChange={(key) => {
+        if (typeof key === "string") {
+          onChange(key);
+        }
+      }}
+      isDisabled={disabled === true || (!installed.length && !hasText(inherited))}
       placeholder={installed.length ? "Choose an agent" : emptyLabel}
-      icon={selected && <HarnessIcon harness={selected.harness} />}
-      options={[
-        ...(hasText(inherited) ? [{ id: "", label: inherited }] : []),
-        ...installed.map((item) => ({
-          id: item.harness,
-          label: harnessGuide(item.harness).name,
-          icon: <HarnessIcon harness={item.harness} />,
-        })),
-      ]}
-    />
+      className={className}
+    >
+      <Select.Trigger id={id}>
+        {selected && <HarnessIcon harness={selected.harness} />}
+        <Select.Value />
+        <Select.Indicator />
+      </Select.Trigger>
+      <Select.Popover className="min-w-44">
+        <ListBox aria-label={label}>
+          {[
+            ...(hasText(inherited) ? [{ id: "", label: inherited }] : []),
+            ...installed.map((item) => ({
+              id: item.harness,
+              label: harnessGuide(item.harness).name,
+              icon: <HarnessIcon harness={item.harness} />,
+            })),
+          ].map((option) => (
+            <ListBox.Item
+              key={option.id}
+              id={option.id}
+              textValue={option.label}
+              isDisabled={"disabled" in option && option.disabled === true}
+            >
+              {"icon" in option && isValidElement(option.icon) ? option.icon : null}
+              {option.label}
+              <ListBox.ItemIndicator />
+            </ListBox.Item>
+          ))}
+        </ListBox>
+      </Select.Popover>
+    </Select>
   );
 }
 

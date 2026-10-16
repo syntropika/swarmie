@@ -238,7 +238,7 @@ it("redetects a newly installed agent and makes it available for activation", as
   await waitFor(() => {
     expect(toggle.disabled).toBe(false);
   });
-  expect(toggle.getAttribute("aria-checked")).toBe("true");
+  expect(toggle.matches(":checked")).toBe(true);
   await userEvent.click(toggle);
   expect(store.getSnapshot().disabledHarnesses).toContain("pi");
   await userEvent.click(toggle);
@@ -374,15 +374,15 @@ it("activates agents independently and shares their state with the Settings sect
       .getByRole("switch", {
         name: "Use Codex",
       })
-      .getAttribute("aria-checked"),
-  ).toBe("true");
+      .matches(":checked"),
+  ).toBe(true);
   expect(
     screen
       .getByRole("switch", {
         name: "Use Claude Code",
       })
-      .getAttribute("aria-checked"),
-  ).toBe("true");
+      .matches(":checked"),
+  ).toBe(true);
   await userEvent.click(
     screen.getByRole("switch", {
       name: "Use Codex",
@@ -393,8 +393,8 @@ it("activates agents independently and shares their state with the Settings sect
       .getByRole("switch", {
         name: "Use Claude Code",
       })
-      .getAttribute("aria-checked"),
-  ).toBe("true");
+      .matches(":checked"),
+  ).toBe(true);
   expect(defaultHarness(store.getSnapshot().harnesses, node)).toBe("claude");
   view.unmount();
   const client = new NodeClient(store);
@@ -420,15 +420,15 @@ it("activates agents independently and shares their state with the Settings sect
       .getByRole("switch", {
         name: "Use Codex",
       })
-      .getAttribute("aria-checked"),
-  ).toBe("false");
+      .matches(":checked"),
+  ).toBe(false);
   expect(
     screen
       .getByRole("switch", {
         name: "Use Claude Code",
       })
-      .getAttribute("aria-checked"),
-  ).toBe("true");
+      .matches(":checked"),
+  ).toBe(true);
   await userEvent.click(
     screen.getByRole("switch", {
       name: "Use Codex",
@@ -499,7 +499,7 @@ it("excludes disabled agents from new chat selection and preserves an existing s
     />,
   );
   await userEvent.click(
-    screen.getByRole("combobox", {
+    screen.getByRole("button", {
       name: /Agent tool/u,
     }),
   );

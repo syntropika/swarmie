@@ -1,11 +1,9 @@
+import { Button, Input, Modal } from "@swarmie/ui-web";
 import { KeyRound, Monitor, Trash2, X } from "lucide-react";
 import { useState, useId } from "react";
 import type { ReactNode } from "react";
 
 import { startAction, errorReporter } from "~/src/action-boundary";
-import { Button } from "~/src/components/ui/button";
-import { Dialog } from "~/src/components/ui/dialog";
-import { Input } from "~/src/components/ui/input";
 import { HarnessIcon } from "~/src/harness-select";
 import { NodeStartupControls } from "~/src/node-startup-controls";
 import type { ClientNode, NodeClient, NodeRoute, SshReadiness } from "~/src/nodes";
@@ -29,23 +27,37 @@ function Frame({
   children: ReactNode;
 }) {
   return (
-    <Dialog label={title} onClose={onClose} busy={busy} className="max-w-[480px]">
-      <header className="mb-5 flex items-center justify-between gap-3">
-        <h2 className="min-w-0 truncate text-lg font-semibold" title={title}>
-          {title}
-        </h2>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Close node dialog"
-          disabled={busy}
-          onClick={onClose}
-        >
-          <X size={16} />
-        </Button>
-      </header>
-      {children}
-    </Dialog>
+    <Modal
+      isOpen
+      onOpenChange={(next) => {
+        if (!next && !busy) {
+          onClose();
+        }
+      }}
+    >
+      <Modal.Backdrop isDismissable={!busy} isKeyboardDismissDisabled={busy}>
+        <Modal.Container>
+          <Modal.Dialog aria-label={title} className="max-w-[480px]">
+            <header className="mb-5 flex items-center justify-between gap-3">
+              <h2 className="min-w-0 truncate text-lg font-semibold" title={title}>
+                {title}
+              </h2>
+              <Button
+                variant="tertiary"
+                size="sm"
+                isIconOnly
+                aria-label="Close node dialog"
+                disabled={busy}
+                onClick={onClose}
+              >
+                <X size={16} />
+              </Button>
+            </header>
+            {children}
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
   );
 }
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -165,7 +177,7 @@ export function AddNodeDialog({
   };
   return (
     <Frame title="Add node" busy={busy} onClose={onClose}>
-      <p className="text-muted mb-5 text-sm leading-relaxed">
+      <p className="mb-5 text-sm leading-relaxed text-muted">
         Connect a computer or prepare its runtime over SSH.
       </p>
       <form
@@ -194,7 +206,7 @@ export function AddNodeDialog({
           Connection method
           <select
             id={`${fieldId}-2`}
-            className="bg-background h-9 rounded-md border border-border px-3 text-sm"
+            className="h-9 rounded-md border border-border bg-background px-3 text-sm"
             disabled={busy}
             value={method}
             onChange={(event) => {
@@ -229,10 +241,10 @@ export function AddNodeDialog({
               />
             </label>
             <details className="text-xs">
-              <summary className="text-muted cursor-pointer">Advanced</summary>
+              <summary className="cursor-pointer text-muted">Advanced</summary>
               <label className="mt-3 grid gap-1.5 text-xs font-medium" htmlFor={`${fieldId}-4`}>
                 Runtime socket path{" "}
-                <span className="text-muted font-normal">Optional override</span>
+                <span className="font-normal text-muted">Optional override</span>
                 <Input
                   id={`${fieldId}-4`}
                   aria-label="Runtime socket path"
@@ -246,7 +258,7 @@ export function AddNodeDialog({
                 />
               </label>
             </details>
-            <p className="text-muted text-xs leading-relaxed">
+            <p className="text-xs leading-relaxed text-muted">
               Use the SSH access configured on this computer. No account is required. Checking
               leaves the remote runtime unchanged.
             </p>
@@ -269,13 +281,13 @@ export function AddNodeDialog({
               })()}
             </Button>
             {readiness && (
-              <output className="text-muted text-sm">{sshReadinessText(readiness)}</output>
+              <output className="text-sm text-muted">{sshReadinessText(readiness)}</output>
             )}
             {readiness?.preparation && (
               <div className="grid gap-3 rounded-md border border-border p-3">
                 {readiness.preparation.available ? (
                   <>
-                    <p className="text-muted text-xs leading-relaxed">
+                    <p className="text-xs leading-relaxed text-muted">
                       {readiness.preparation.action === "install"
                         ? `Install the runtime for your remote user${hasText(readiness.preparation.installPath) ? ` in ${readiness.preparation.installPath}` : ""}, start it and connect. No administrator access is required.`
                         : "Start or attach to the default runtime and connect. Active work will not be restarted."}{" "}
@@ -299,12 +311,12 @@ export function AddNodeDialog({
                     </Button>
                   </>
                 ) : (
-                  <p className="text-muted text-xs">{readiness.preparation.reason}</p>
+                  <p className="text-xs text-muted">{readiness.preparation.reason}</p>
                 )}
               </div>
             )}
             {preparing && (
-              <output className="text-muted text-sm">
+              <output className="text-sm text-muted">
                 Preparing and verifying the remote runtime…
               </output>
             )}
@@ -325,7 +337,7 @@ export function AddNodeDialog({
               />
             </label>
             <label className="grid gap-1.5 text-xs font-medium" htmlFor={`${fieldId}-6`}>
-              Access token <span className="text-muted font-normal">Optional</span>
+              Access token <span className="font-normal text-muted">Optional</span>
               <Input
                 id={`${fieldId}-6`}
                 type="password"
@@ -345,11 +357,11 @@ export function AddNodeDialog({
             {issue}
           </p>
         )}
-        <p className="text-muted text-xs leading-relaxed">
+        <p className="text-xs leading-relaxed text-muted">
           The connection is verified before it is saved. Credentials stay on this computer.
         </p>
         <footer className="mt-2 flex justify-end gap-2">
-          <Button variant="ghost" disabled={busy} onClick={onClose}>
+          <Button variant="tertiary" disabled={busy} onClick={onClose}>
             Cancel
           </Button>
           <Button
@@ -408,7 +420,7 @@ export function LocalAccessDialog({
   };
   return (
     <Frame title="Local connection access" busy={busy} onClose={onClose}>
-      <p className="text-muted mb-5 text-sm leading-relaxed">
+      <p className="mb-5 text-sm leading-relaxed text-muted">
         This computer connects automatically. If its runtime requires a token, enter it here. The
         token stays in memory.
       </p>
@@ -439,7 +451,7 @@ export function LocalAccessDialog({
           </p>
         )}
         <footer className="mt-2 flex justify-end gap-2">
-          <Button variant="ghost" disabled={busy} onClick={onClose}>
+          <Button variant="tertiary" disabled={busy} onClick={onClose}>
             Cancel
           </Button>
           <Button type="submit" disabled={busy}>
@@ -487,7 +499,7 @@ export function NodeDetailsDialog({
         <Monitor size={20} className="text-muted" />
         <div className="min-w-0">
           <p className="text-sm">{status}</p>
-          <p className="text-muted text-xs">
+          <p className="text-xs text-muted">
             {node.local ? "Connects automatically on this computer" : "Remote node"}
           </p>
         </div>
@@ -515,11 +527,12 @@ export function NodeDetailsDialog({
               <div key={route.name} className="flex items-center gap-3 py-3">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm">{route.name}</p>
-                  <p className="text-muted text-xs break-all">{routeAddress(route)}</p>
+                  <p className="text-xs break-all text-muted">{routeAddress(route)}</p>
                 </div>
                 <Button
-                  variant="ghost"
-                  size="icon-sm"
+                  variant="tertiary"
+                  size="sm"
+                  isIconOnly
                   aria-label={`Remove connection ${route.name}`}
                   disabled={busy}
                   onClick={() => {
@@ -553,10 +566,10 @@ export function NodeDetailsDialog({
             <div key={harness.harness} className="flex flex-wrap items-center gap-2 py-2">
               <HarnessIcon harness={harness.harness} />
               <span className="text-sm">{harness.harness}</span>
-              <span className="text-muted text-xs">{harness.authState ?? "Installed"}</span>
+              <span className="text-xs text-muted">{harness.authState ?? "Installed"}</span>
               <Button
                 className="ml-auto"
-                variant="ghost"
+                variant="tertiary"
                 size="sm"
                 disabled={busy || !state.connected}
                 onClick={() => {
@@ -571,14 +584,14 @@ export function NodeDetailsDialog({
                 Check readiness
               </Button>
               {(hasText(harness.message) || hasText(harness.error)) && (
-                <p className="text-muted w-full text-xs">
+                <p className="w-full text-xs text-muted">
                   {nonEmptyText(harness.message) ?? harness.error}
                 </p>
               )}
             </div>
           ))}
         {!state.harnesses.some((harness) => harness.available) && (
-          <p className="text-muted text-xs leading-relaxed">
+          <p className="text-xs leading-relaxed text-muted">
             {state.connected
               ? "No installed agent tools were found on this node."
               : "Agent information becomes available when this node is connected."}
@@ -586,17 +599,17 @@ export function NodeDetailsDialog({
         )}
       </section>
       {node.local && (
-        <Button variant="ghost" size="sm" className="mt-4" disabled={busy} onClick={onAccess}>
+        <Button variant="tertiary" size="sm" className="mt-4" disabled={busy} onClick={onAccess}>
           <KeyRound size={14} />
           Connection access
         </Button>
       )}
-      <p className="text-muted mt-5 text-xs leading-relaxed">
+      <p className="mt-5 text-xs leading-relaxed text-muted">
         Chats stay on their original node. Removing a connection preserves its execution, history,
         and files.
       </p>
       <footer className="mt-5 flex justify-end gap-2">
-        <Button variant="ghost" disabled={busy} onClick={onClose}>
+        <Button variant="tertiary" disabled={busy} onClick={onClose}>
           Done
         </Button>
         <Button

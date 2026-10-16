@@ -1,9 +1,8 @@
+import { Button, TextArea } from "@swarmie/ui-web";
 import { Pencil, X, Pause, Play, Check } from "lucide-react";
 import { useState } from "react";
 
 import { startAction } from "~/src/action-boundary";
-import { Button } from "~/src/components/ui/button";
-import { Textarea } from "~/src/components/ui/textarea";
 import type { Thread, Queued } from "~/src/protocol";
 import { hasNumber } from "~/src/value-presence";
 import type { WorkspaceStore } from "~/src/workspace";
@@ -35,7 +34,7 @@ function QueueItem({
   return (
     <div className="queue-item">
       {editing ? (
-        <Textarea
+        <TextArea
           aria-label="Edit queued message"
           value={text}
           onChange={(e) => {
@@ -46,8 +45,9 @@ function QueueItem({
         <span>{text || "Attached content"}</span>
       )}
       <Button
-        variant="ghost"
-        size="icon"
+        variant="tertiary"
+        size="md"
+        isIconOnly
         aria-label={editing ? "Save queued message" : "Edit queued message"}
         onClick={() => {
           if (!editing) {
@@ -65,8 +65,9 @@ function QueueItem({
         {editing ? <Check size={13} /> : <Pencil size={13} />}
       </Button>
       <Button
-        variant="ghost"
-        size="icon"
+        variant="tertiary"
+        size="md"
+        isIconOnly
         aria-label="Remove queued message"
         onClick={() => {
           startAction(
@@ -94,7 +95,7 @@ export function Queue({ thread, store }: { thread: Thread; store: WorkspaceStore
           {thread.queue.length > 1 ? "s" : ""}
         </span>
         <Button
-          variant="ghost"
+          variant="tertiary"
           size="sm"
           onClick={() => {
             startAction(

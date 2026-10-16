@@ -1,4 +1,0 @@
-export const floatingClasses =
-  "z-50 overflow-auto rounded-[var(--floating-radius)] bg-[var(--floating-surface)] text-foreground shadow-[var(--floating-shadow)] outline-none supports-[corner-shape:superellipse(1.5)]:rounded-[15px] supports-[corner-shape:superellipse(1.5)]:[corner-shape:superellipse(1.5)]";
-export const itemClasses =
-  "relative flex min-h-8 cursor-default items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none data-[highlighted]:bg-control-hover focus:bg-control-hover hover:bg-control-hover data-[disabled]:pointer-events-none data-[disabled]:opacity-40";

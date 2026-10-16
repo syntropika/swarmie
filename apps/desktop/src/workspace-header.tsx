@@ -1,3 +1,4 @@
+import { Button, Dropdown, Input } from "@swarmie/ui-web";
 import {
   ArrowLeft,
   ArrowRight,
@@ -21,9 +22,6 @@ import {
 // SPDX-License-Identifier: Apache-2.0
 import { startAction } from "~/src/action-boundary";
 import { BackgroundTasks } from "~/src/background-tasks";
-import { Button } from "~/src/components/ui/button";
-import { Dropdown } from "~/src/components/ui/dropdown";
-import { Input } from "~/src/components/ui/input";
 import { ContributionSlot, ContributionNavigation } from "~/src/contribution-host";
 import { hasNumber } from "~/src/value-presence";
 import { IconButton } from "~/src/workspace-icon-button";
@@ -195,8 +193,9 @@ export function WorkspaceHeader({
         </IconButton>
         <Dropdown>
           <Button
-            variant="ghost"
-            size="icon"
+            variant="tertiary"
+            size="md"
+            isIconOnly
 
             aria-label="Conversation actions"
           >

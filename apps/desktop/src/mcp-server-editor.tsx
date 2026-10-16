@@ -1,10 +1,7 @@
 import type { McpEntry, InputMcpDefinition as McpDefinition } from "@swarmie/contracts";
-import { useId } from "react";
+import { Button, Input, TextArea, Select, ListBox } from "@swarmie/ui-web";
+import { isValidElement, useId } from "react";
 
-import { Button } from "~/src/components/ui/button";
-import { Input } from "~/src/components/ui/input";
-import { Select } from "~/src/components/ui/select";
-import { Textarea } from "~/src/components/ui/textarea";
 import type { Thread } from "~/src/protocol";
 import { hasText } from "~/src/value-presence";
 
@@ -120,42 +117,92 @@ export function McpServerEditor({
       {!edit.entry && (
         <div className="@container grid gap-3">
           <Select
-            label="MCP configuration owner"
+            aria-label="MCP configuration owner"
             value={edit.origin}
-            onChange={(value) => {
-              update("origin", value);
+            onChange={(key) => {
+              if (typeof key === "string") {
+                ((value) => {
+                  update("origin", value);
+                })(key);
+              }
             }}
-            options={[
-              { id: "swarmie", label: "Swarmie · shared configuration" },
-              {
-                id: "native",
-                label: "Selected harness · native configuration",
-                disabled:
-                  !hasText(targetHarness) ||
-                  !["codex", "claude", "opencode", "pi"].includes(targetHarness) ||
-                  selectedSession?.capabilities?.metadata?.mcpConfigurationScope === "external",
-              },
-            ]}
-          />
+            placeholder="Select…"
+          >
+            <Select.Trigger>
+              <Select.Value />
+              <Select.Indicator />
+            </Select.Trigger>
+            <Select.Popover>
+              <ListBox aria-label="MCP configuration owner">
+                {[
+                  { id: "swarmie", label: "Swarmie · shared configuration" },
+                  {
+                    id: "native",
+                    label: "Selected harness · native configuration",
+                    disabled:
+                      !hasText(targetHarness) ||
+                      !["codex", "claude", "opencode", "pi"].includes(targetHarness) ||
+                      selectedSession?.capabilities?.metadata?.mcpConfigurationScope === "external",
+                  },
+                ].map((option) => (
+                  <ListBox.Item
+                    key={option.id}
+                    id={option.id}
+                    textValue={option.label}
+                    isDisabled={"disabled" in option && option.disabled === true}
+                  >
+                    {"icon" in option && isValidElement(option.icon) ? option.icon : null}
+                    {option.label}
+                    <ListBox.ItemIndicator />
+                  </ListBox.Item>
+                ))}
+              </ListBox>
+            </Select.Popover>
+          </Select>
           <Select
-            label="MCP configuration scope"
+            aria-label="MCP configuration scope"
             value={edit.scope}
-            onChange={(value) => {
-              update("scope", value);
+            onChange={(key) => {
+              if (typeof key === "string") {
+                ((value) => {
+                  update("scope", value);
+                })(key);
+              }
             }}
-            options={[
-              { id: "user", label: "User" },
-              {
-                id: "project",
-                label: "Project",
-                disabled: !(hasText(selectedSession?.worktreeId) || cwd.trim().length > 0),
-              },
-            ]}
-          />
+            placeholder="Select…"
+          >
+            <Select.Trigger>
+              <Select.Value />
+              <Select.Indicator />
+            </Select.Trigger>
+            <Select.Popover>
+              <ListBox aria-label="MCP configuration scope">
+                {[
+                  { id: "user", label: "User" },
+                  {
+                    id: "project",
+                    label: "Project",
+                    disabled: !(hasText(selectedSession?.worktreeId) || cwd.trim().length > 0),
+                  },
+                ].map((option) => (
+                  <ListBox.Item
+                    key={option.id}
+                    id={option.id}
+                    textValue={option.label}
+                    isDisabled={"disabled" in option && option.disabled === true}
+                  >
+                    {"icon" in option && isValidElement(option.icon) ? option.icon : null}
+                    {option.label}
+                    <ListBox.ItemIndicator />
+                  </ListBox.Item>
+                ))}
+              </ListBox>
+            </Select.Popover>
+          </Select>
         </div>
       )}
       {!edit.entry && (
-        <p className="text-muted text-sm">
+        <p className="text-sm text-muted">
           {targetHarness
             ? `Applies to ${targetHarness} sessions on this node.`
             : "Applies to all compatible harnesses on this node."}
@@ -176,18 +223,43 @@ export function McpServerEditor({
         />
       </label>
       <Select
-        label="MCP transport"
+        aria-label="MCP transport"
         value={edit.transport}
-        disabled={!!edit.entry}
-        onChange={(value) => {
-          update("transport", value);
+        onChange={(key) => {
+          if (typeof key === "string") {
+            ((value) => {
+              update("transport", value);
+            })(key);
+          }
         }}
-        options={[
-          { id: "stdio", label: "STDIO · local process" },
-          { id: "http", label: "Streamable HTTP · server URL" },
-          ...(edit.transport === "sse" ? [{ id: "sse", label: "SSE" }] : []),
-        ]}
-      />
+        isDisabled={!!edit.entry}
+        placeholder="Select…"
+      >
+        <Select.Trigger>
+          <Select.Value />
+          <Select.Indicator />
+        </Select.Trigger>
+        <Select.Popover>
+          <ListBox aria-label="MCP transport">
+            {[
+              { id: "stdio", label: "STDIO · local process" },
+              { id: "http", label: "Streamable HTTP · server URL" },
+              ...(edit.transport === "sse" ? [{ id: "sse", label: "SSE" }] : []),
+            ].map((option) => (
+              <ListBox.Item
+                key={option.id}
+                id={option.id}
+                textValue={option.label}
+                isDisabled={"disabled" in option && option.disabled === true}
+              >
+                {"icon" in option && isValidElement(option.icon) ? option.icon : null}
+                {option.label}
+                <ListBox.ItemIndicator />
+              </ListBox.Item>
+            ))}
+          </ListBox>
+        </Select.Popover>
+      </Select>
       {edit.transport === "stdio" ? (
         <>
           <label className="grid gap-2 text-sm" htmlFor={`${fieldPrefix}-mcp-command`}>
@@ -205,7 +277,7 @@ export function McpServerEditor({
           </label>
           <label className="grid gap-2 text-sm" htmlFor={`${fieldPrefix}-mcp-arguments`}>
             Arguments
-            <Textarea
+            <TextArea
               id={`${fieldPrefix}-mcp-arguments`}
               aria-label="MCP arguments"
               readOnly={edit.entry?.credentialFields.includes("args")}
@@ -221,7 +293,7 @@ export function McpServerEditor({
             htmlFor={`${fieldPrefix}-mcp-environment-variables`}
           >
             Environment variables
-            <Textarea
+            <TextArea
               id={`${fieldPrefix}-mcp-environment-variables`}
               aria-label="MCP environment variables"
               value={edit.envVars}
@@ -265,7 +337,7 @@ export function McpServerEditor({
           </label>
           <label className="grid gap-2 text-sm" htmlFor={`${fieldPrefix}-mcp-header-variables`}>
             Header environment variables
-            <Textarea
+            <TextArea
               id={`${fieldPrefix}-mcp-header-variables`}
               aria-label="MCP header variables"
               value={edit.headers}
@@ -278,9 +350,9 @@ export function McpServerEditor({
         </>
       )}
       {(edit.entry?.credentialFields.length ?? 0) > 0 && (
-        <p className="text-muted text-sm">Saved native credentials are hidden and preserved.</p>
+        <p className="text-sm text-muted">Saved native credentials are hidden and preserved.</p>
       )}
-      <p className="text-muted text-sm">
+      <p className="text-sm text-muted">
         Adding a local MCP registers its command. The executable must already be available on this
         node.
       </p>

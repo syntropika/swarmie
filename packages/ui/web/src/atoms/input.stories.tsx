@@ -1,17 +1,21 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { Field } from "../molecules/field";
+import { officialExampleSource } from "../../.storybook/example-sources";
+import { OfficialExample as HeroUIDocumentationExample } from "../../.storybook/examples/input";
 import { Button } from "./button";
 import { Input } from "./input";
+import { InputGroup } from "./input-group";
+import { TextField, Label } from "./text-field";
 
 const meta = {
   title: "Atoms/Input",
   component: Input,
   args: { placeholder: "name@example.com", type: "email", autoComplete: "email" },
   render: (args) => (
-    <Field id="email-input" label="Email address" className="max-w-sm">
-      {(control) => <Input {...args} {...control} />}
-    </Field>
+    <TextField>
+      <Label>Email address</Label>
+      <Input {...args} />
+    </TextField>
   ),
 } satisfies Meta<typeof Input>;
 
@@ -20,30 +24,28 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-export const EntryField: Story = {
-  args: { controlSize: "large" },
-};
-
 export const ReadOnly: Story = { args: { defaultValue: "alex@example.com", readOnly: true } };
 
 export const Disabled: Story = { args: { defaultValue: "alex@example.com", disabled: true } };
 
 export const TrailingAction: Story = {
   render: () => (
-    <Field id="search-input" label="Search" className="max-w-sm">
-      {(control) => (
-        <div className="relative">
-          <Input {...control} adornment="trailing" type="search" />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute top-1/2 right-0 -translate-y-1/2"
-            aria-label="Submit search"
-          >
+    <TextField>
+      <Label>Search</Label>
+      <InputGroup>
+        <InputGroup.Input type="search" />
+        <InputGroup.Suffix>
+          <Button variant="tertiary" isIconOnly aria-label="Submit search">
             ↵
           </Button>
-        </div>
-      )}
-    </Field>
+        </InputGroup.Suffix>
+      </InputGroup>
+    </TextField>
   ),
+};
+
+export const OfficialExample: Story = {
+  parameters: { docs: { source: { code: officialExampleSource("input"), language: "tsx" } } },
+  name: "Official example",
+  render: () => <HeroUIDocumentationExample />,
 };

@@ -1,19 +1,23 @@
+import {
+  Button,
+  Checkbox,
+  Disclosure,
+  TextArea,
+  Select,
+  ListBox,
+  ComboBox,
+  Input,
+} from "@swarmie/ui-web";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
-import { useEffect, useRef, useState, useCallback, useMemo, useId } from "react";
+import { isValidElement, useEffect, useRef, useState, useCallback, useMemo, useId } from "react";
 
 import { useConfirmation } from "~/src/components/confirmation";
 import { useExtensionQuery } from "~/src/components/extension-query";
 import { extensionResult } from "~/src/components/extension-result";
 import { hasCount, hasText } from "~/src/components/presentation-values";
-import { Button } from "~/src/components/ui/button";
-import { Checkbox } from "~/src/components/ui/checkbox";
-import { ComboBox } from "~/src/components/ui/combobox";
 
 import "@xterm/xterm/css/xterm.css";
-import { Disclosure } from "~/src/components/ui/disclosure";
-import { Select } from "~/src/components/ui/select";
-import { Textarea } from "~/src/components/ui/textarea";
 import { decodeReviewResult } from "~/src/connections";
 import { CustomExtensionView } from "~/src/custom-extension-view";
 import { GitWorkflow } from "~/src/git-workflow";
@@ -236,9 +240,9 @@ function Files({ store, thread, extensionId, view }: Host) {
           {thread.layout.files.map((tab) => (
             <div className="file-tab" key={tab.path}>
               <Button
-                variant="ghost"
+                variant="tertiary"
                 size="sm"
-                selected={file === tab.path}
+                aria-pressed={file === tab.path}
                 onClick={() => {
                   try {
                     store.openFile(tab);
@@ -255,7 +259,7 @@ function Files({ store, thread, extensionId, view }: Host) {
               </Button>
               <Button
                 size="sm"
-                variant="ghost"
+                variant="tertiary"
 
                 aria-label={`Close ${tab.path}`}
                 disabled={saving}
@@ -274,7 +278,7 @@ function Files({ store, thread, extensionId, view }: Host) {
         {path && (
           <Button
             size="sm"
-            variant="ghost"
+            variant="tertiary"
 
             onClick={() => {
               load(path.split("/").slice(0, -1).join("/")).catch(store.setError.bind(store));
@@ -287,9 +291,9 @@ function Files({ store, thread, extensionId, view }: Host) {
       {file ? (
         <>
           <strong>{file}</strong>
-          <Textarea
+          <TextArea
             ref={editor}
-            variant="editor"
+            data-workspace-part="file-editor"
             aria-label={`Edit ${file}`}
             value={content}
             onChange={(event) => {
@@ -307,7 +311,7 @@ function Files({ store, thread, extensionId, view }: Host) {
           <div className="permission-actions">
             <Button
               size="sm"
-              variant="ghost"
+              variant="tertiary"
 
               disabled={!dirty || saving}
               onClick={() => {
@@ -318,7 +322,7 @@ function Files({ store, thread, extensionId, view }: Host) {
             </Button>
             <Button
               size="sm"
-              variant="ghost"
+              variant="tertiary"
 
               disabled={saving}
               onClick={() => {
@@ -336,7 +340,7 @@ function Files({ store, thread, extensionId, view }: Host) {
             </Button>
             <Button
               size="sm"
-              variant="ghost"
+              variant="tertiary"
 
               onClick={() => {
                 store.updateThread(thread.id, {
@@ -348,7 +352,7 @@ function Files({ store, thread, extensionId, view }: Host) {
             </Button>
             <Button
               size="sm"
-              variant="ghost"
+              variant="tertiary"
 
               onClick={() => {
                 const start = editor.current?.selectionStart ?? 0;
@@ -376,7 +380,7 @@ function Files({ store, thread, extensionId, view }: Host) {
         <div className="file-browser">
           {entries.map((entry) => (
             <Button
-              variant="ghost"
+              variant="tertiary"
               key={entry.path}
               disabled={entry.kind === "symlink"}
               onClick={() => {
@@ -567,7 +571,7 @@ function TerminalView({ store, thread, extensionId, view }: Host) {
       <div className="terminal-host" ref={host} />
       <Button
         size="sm"
-        variant="ghost"
+        variant="tertiary"
 
         onClick={() => {
           const terminal = terminalRef.current;
@@ -766,7 +770,7 @@ function Actions({ store, thread, extensionId, view }: Host) {
           <code>{[action.program, ...action.args].join(" ")}</code>
           <Button
             size="sm"
-            variant="ghost"
+            variant="tertiary"
 
             disabled={!!running || starting}
             onClick={() => {
@@ -823,7 +827,7 @@ function Actions({ store, thread, extensionId, view }: Host) {
       {running && (
         <Button
           size="sm"
-          variant="ghost"
+          variant="tertiary"
 
           onClick={() => {
             const id = running;
@@ -991,49 +995,119 @@ function GitReview({ store, thread, extensionId, view }: Host) {
       <label htmlFor={`${fieldPrefix}-field-1`}>
         Review scope
         <Select
-          id={`${fieldPrefix}-field-1`}
-          label="Review scope"
+          aria-label="Review scope"
           value={scope}
-          onChange={(value) => {
-            setScope(value);
-            setFile("");
+          onChange={(key) => {
+            if (typeof key === "string") {
+              ((value) => {
+                setScope(value);
+                setFile("");
+              })(key);
+            }
           }}
-          options={["working", "staged", "unstaged", "base", "turn"].map((value) => ({
-            id: value,
-            label: value,
-          }))}
-        />
+          placeholder="Select…"
+        >
+          <Select.Trigger id={`${fieldPrefix}-field-1`}>
+            <Select.Value />
+            <Select.Indicator />
+          </Select.Trigger>
+          <Select.Popover>
+            <ListBox aria-label="Review scope">
+              {["working", "staged", "unstaged", "base", "turn"]
+                .map((value) => ({
+                  id: value,
+                  label: value,
+                }))
+                .map((option) => (
+                  <ListBox.Item
+                    key={option.id}
+                    id={option.id}
+                    textValue={option.label}
+                    isDisabled={"disabled" in option && option.disabled === true}
+                  >
+                    {"icon" in option && isValidElement(option.icon) ? option.icon : null}
+                    {option.label}
+                    <ListBox.ItemIndicator />
+                  </ListBox.Item>
+                ))}
+            </ListBox>
+          </Select.Popover>
+        </Select>
       </label>
       {scope === "base" && (
         <label htmlFor={`${fieldPrefix}-field-2`}>
           Base ref
           <ComboBox
-            id={`${fieldPrefix}-field-2`}
-            label="Review base"
-            value={base}
-            onChange={setBase}
-            options={branches}
-          />
+            aria-label="Review base"
+            allowsCustomValue
+            inputValue={base}
+            onInputChange={setBase}
+            menuTrigger="manual"
+          >
+            <ComboBox.InputGroup>
+              <Input id={`${fieldPrefix}-field-2`} />
+              <ComboBox.Trigger aria-label="Show review base suggestions" />
+            </ComboBox.InputGroup>
+            <ComboBox.Popover>
+              <ListBox
+                aria-label="Review base suggestions"
+                renderEmptyState={() => "No matching suggestions. You can use the typed reference."}
+              >
+                {branches
+                  .filter((option) => option.toLocaleLowerCase().includes(base.toLocaleLowerCase()))
+                  .map((option) => (
+                    <ListBox.Item key={option} id={option} textValue={option}>
+                      {option}
+                      <ListBox.ItemIndicator />
+                    </ListBox.Item>
+                  ))}
+              </ListBox>
+            </ComboBox.Popover>
+          </ComboBox>
         </label>
       )}
       {scope === "turn" && (
         <label htmlFor={`${fieldPrefix}-field-3`}>
           Turn
           <Select
-            id={`${fieldPrefix}-field-3`}
-            label="Review turn"
+            aria-label="Review turn"
             value={turnId}
-            onChange={setTurnId}
-            options={[
-              { id: "", label: "Select a completed turn" },
-              ...checkpoints
-                .filter((checkpoint) => checkpoint.end !== undefined && checkpoint.end !== "")
-                .map((checkpoint, index) => ({
-                  id: checkpoint.turnId,
-                  label: `Turn ${index + 1} · ${checkpoint.turnId.slice(0, 8)}`,
-                })),
-            ]}
-          />
+            onChange={(key) => {
+              if (typeof key === "string") {
+                setTurnId(key);
+              }
+            }}
+            placeholder="Select…"
+          >
+            <Select.Trigger id={`${fieldPrefix}-field-3`}>
+              <Select.Value />
+              <Select.Indicator />
+            </Select.Trigger>
+            <Select.Popover>
+              <ListBox aria-label="Review turn">
+                {[
+                  { id: "", label: "Select a completed turn" },
+                  ...checkpoints
+                    .filter((checkpoint) => checkpoint.end !== undefined && checkpoint.end !== "")
+                    .map((checkpoint, index) => ({
+                      id: checkpoint.turnId,
+                      label: `Turn ${index + 1} · ${checkpoint.turnId.slice(0, 8)}`,
+                    })),
+                ].map((option) => (
+                  <ListBox.Item
+                    key={option.id}
+                    id={option.id}
+                    textValue={option.label}
+                    isDisabled={"disabled" in option && option.disabled === true}
+                  >
+                    {"icon" in option && isValidElement(option.icon) ? option.icon : null}
+                    {option.label}
+                    <ListBox.ItemIndicator />
+                  </ListBox.Item>
+                ))}
+              </ListBox>
+            </Select.Popover>
+          </Select>
         </label>
       )}
       {scope === "turn" &&
@@ -1041,59 +1115,92 @@ function GitReview({ store, thread, extensionId, view }: Host) {
         project?.worktrees.some((tree) => tree.id === thread.worktreeId && !tree.isMain) ===
           true && (
           <Disclosure>
-            <Disclosure.Summary>Restore files from this checkpoint</Disclosure.Summary>
-            <p className="panel-note">
-              Requires a clean managed worktree and all conversations using it closed. Restores
-              files and the index; the branch and conversation stay in place.
-            </p>
-            <label htmlFor={`${fieldPrefix}-field-4`}>
-              Checkpoint boundary
-              <Select
-                id={`${fieldPrefix}-field-4`}
-                label="Checkpoint boundary"
-                value={boundary}
-                onChange={setBoundary}
-                options={[
-                  { id: "before", label: "Before this turn" },
-                  { id: "after", label: "After this turn" },
-                ]}
-              />
-            </label>
-            <Button
-              size="sm"
-              variant="destructive"
+            <Disclosure.Heading>
+              <Button slot="trigger" variant="tertiary">
+                <span>Restore files from this checkpoint</span>
+                <Disclosure.Indicator />
+              </Button>
+            </Disclosure.Heading>
+            <Disclosure.Content>
+              <Disclosure.Body>
+                <p className="panel-note">
+                  Requires a clean managed worktree and all conversations using it closed. Restores
+                  files and the index; the branch and conversation stay in place.
+                </p>
+                <label htmlFor={`${fieldPrefix}-field-4`}>
+                  Checkpoint boundary
+                  <Select
+                    aria-label="Checkpoint boundary"
+                    value={boundary}
+                    onChange={(key) => {
+                      if (typeof key === "string") {
+                        setBoundary(key);
+                      }
+                    }}
+                    placeholder="Select…"
+                  >
+                    <Select.Trigger id={`${fieldPrefix}-field-4`}>
+                      <Select.Value />
+                      <Select.Indicator />
+                    </Select.Trigger>
+                    <Select.Popover>
+                      <ListBox aria-label="Checkpoint boundary">
+                        {[
+                          { id: "before", label: "Before this turn" },
+                          { id: "after", label: "After this turn" },
+                        ].map((option) => (
+                          <ListBox.Item
+                            key={option.id}
+                            id={option.id}
+                            textValue={option.label}
+                            isDisabled={"disabled" in option && option.disabled === true}
+                          >
+                            {"icon" in option && isValidElement(option.icon) ? option.icon : null}
+                            {option.label}
+                            <ListBox.ItemIndicator />
+                          </ListBox.Item>
+                        ))}
+                      </ListBox>
+                    </Select.Popover>
+                  </Select>
+                </label>
+                <Button
+                  size="sm"
+                  variant="danger"
 
-              disabled={restoring || thread.state !== "closed"}
-              onClick={() => {
-                const restoreConfirmed = async () => {
-                  setRestoring(true);
-                  try {
-                    await store.invokeExtension(extensionId, "checkpoint.restore", {
-                      ...args,
-                      sessionId: thread.sessionId,
-                      turnId,
-                      boundary,
-                    });
-                    await load();
-                  } finally {
-                    setRestoring(false);
-                  }
-                };
-                confirmation.confirm(
-                  `Restore the managed worktree files to ${boundary} this turn?`,
-                  () => {
-                    restoreConfirmed().catch(store.setError.bind(store));
-                  },
-                );
-              }}
-            >
-              Restore worktree files
-            </Button>
+                  disabled={restoring || thread.state !== "closed"}
+                  onClick={() => {
+                    const restoreConfirmed = async () => {
+                      setRestoring(true);
+                      try {
+                        await store.invokeExtension(extensionId, "checkpoint.restore", {
+                          ...args,
+                          sessionId: thread.sessionId,
+                          turnId,
+                          boundary,
+                        });
+                        await load();
+                      } finally {
+                        setRestoring(false);
+                      }
+                    };
+                    confirmation.confirm(
+                      `Restore the managed worktree files to ${boundary} this turn?`,
+                      () => {
+                        restoreConfirmed().catch(store.setError.bind(store));
+                      },
+                    );
+                  }}
+                >
+                  Restore worktree files
+                </Button>
+              </Disclosure.Body>
+            </Disclosure.Content>
           </Disclosure>
         )}
       <Button
         size="sm"
-        variant="ghost"
+        variant="tertiary"
         onClick={() => {
           load().catch(store.setError.bind(store));
         }}
@@ -1105,10 +1212,8 @@ function GitReview({ store, thread, extensionId, view }: Host) {
           <div key={f.path}>
             <div className="reviewed-checkbox">
               <Checkbox
-                label={`Mark ${f.path} reviewed`}
-                hideLabel
-                disabled={!hashes[f.path]}
-                checked={
+                isDisabled={!hashes[f.path]}
+                isSelected={
                   !!hashes[f.path] &&
                   thread.reviewedFiles?.[
                     reviewKey(thread.worktreeId, scope, scope === "turn" ? turnId : base, f.path)
@@ -1131,10 +1236,19 @@ function GitReview({ store, thread, extensionId, view }: Host) {
                   }
                   store.updateThread(thread.id, { reviewedFiles: marks });
                 }}
-              />
+                aria-label={`Mark ${f.path} reviewed`}
+              >
+                <Checkbox.Content>
+                  <Checkbox.Control>
+                    <Checkbox.Indicator />
+                  </Checkbox.Control>
+                  <span className="sr-only">{`Mark ${f.path} reviewed`}</span>
+                </Checkbox.Content>
+              </Checkbox>
             </div>
             <Button
-              variant="file"
+              variant="tertiary"
+              data-workspace-part="file-review-name"
 
               onClick={() => {
                 setFile(file === f.path ? "" : f.path);
@@ -1145,7 +1259,7 @@ function GitReview({ store, thread, extensionId, view }: Host) {
             {["working", "unstaged"].includes(scope) && (
               <Button
                 size="sm"
-                variant="ghost"
+                variant="tertiary"
 
                 onClick={() => {
                   stage(f.path, "stage").catch(store.setError.bind(store));
@@ -1157,7 +1271,7 @@ function GitReview({ store, thread, extensionId, view }: Host) {
             {["working", "staged"].includes(scope) && (
               <Button
                 size="sm"
-                variant="ghost"
+                variant="tertiary"
 
                 onClick={() => {
                   stage(f.path, "unstage").catch(store.setError.bind(store));
@@ -1176,7 +1290,7 @@ function GitReview({ store, thread, extensionId, view }: Host) {
       </pre>
       <Button
         size="sm"
-        variant="ghost"
+        variant="tertiary"
 
         disabled={!hasText(review?.diff)}
         onClick={() => {
@@ -1219,7 +1333,7 @@ function CommandView({ store, thread, extensionId, view }: Host) {
       <h3>{view.title}</h3>
       <label htmlFor={`${fieldPrefix}-field-5`}>
         Command arguments
-        <Textarea
+        <TextArea
           id={`${fieldPrefix}-field-5`}
           aria-label="Extension command arguments"
           value={args}
@@ -1230,7 +1344,7 @@ function CommandView({ store, thread, extensionId, view }: Host) {
       </label>
       <Button
         size="sm"
-        variant="ghost"
+        variant="tertiary"
 
         disabled={busy}
         onClick={() => {
@@ -1367,7 +1481,7 @@ export function ExtensionPanel({
     <>
       <Button
         size="sm"
-        variant="ghost"
+        variant="tertiary"
 
         onClick={() => {
           store.refreshExtensions().catch(store.setError.bind(store));
@@ -1378,22 +1492,46 @@ export function ExtensionPanel({
       <label htmlFor={`${fieldPrefix}-field-6`} className="extension-picker">
         Open tool
         <Select
-          id={`${fieldPrefix}-field-6`}
-          label="Open tool view"
+          aria-label="Open tool view"
           value={selected}
-          onChange={(value) => {
-            if (value) {
-              choose(value);
+          onChange={(key) => {
+            if (typeof key === "string") {
+              ((value) => {
+                if (value) {
+                  choose(value);
+                }
+              })(key);
             }
           }}
-          options={[
-            { id: "", label: "Choose a tool…" },
-            ...views.map(({ view, extensionId }) => ({
-              id: `${extensionId}:${view.id}`,
-              label: view.title,
-            })),
-          ]}
-        />
+          placeholder="Select…"
+        >
+          <Select.Trigger id={`${fieldPrefix}-field-6`}>
+            <Select.Value />
+            <Select.Indicator />
+          </Select.Trigger>
+          <Select.Popover>
+            <ListBox aria-label="Open tool view">
+              {[
+                { id: "", label: "Choose a tool…" },
+                ...views.map(({ view, extensionId }) => ({
+                  id: `${extensionId}:${view.id}`,
+                  label: view.title,
+                })),
+              ].map((option) => (
+                <ListBox.Item
+                  key={option.id}
+                  id={option.id}
+                  textValue={option.label}
+                  isDisabled={"disabled" in option && option.disabled === true}
+                >
+                  {"icon" in option && isValidElement(option.icon) ? option.icon : null}
+                  {option.label}
+                  <ListBox.ItemIndicator />
+                </ListBox.Item>
+              ))}
+            </ListBox>
+          </Select.Popover>
+        </Select>
       </label>
       {opened.length > 0 && (
         <div className="open-view-tabs">
@@ -1403,9 +1541,9 @@ export function ExtensionPanel({
               entry && (
                 <div className="file-tab" key={id}>
                   <Button
-                    variant="ghost"
+                    variant="tertiary"
                     size="sm"
-                    selected={selected === id}
+                    aria-pressed={selected === id}
                     onClick={() => {
                       choose(id);
                     }}
@@ -1414,7 +1552,7 @@ export function ExtensionPanel({
                   </Button>
                   <Button
                     size="sm"
-                    variant="ghost"
+                    variant="tertiary"
 
                     aria-label={`Close ${entry.view.title}`}
                     onClick={() => {

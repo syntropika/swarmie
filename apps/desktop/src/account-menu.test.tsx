@@ -25,10 +25,10 @@ it("keeps settings available without login and directs sign-in to the account pa
   );
   const user = userEvent.setup();
   await user.click(await screen.findByRole("button", { name: "Account: Sign in" }));
-  await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Settings" }));
   expect(onOpen).toHaveBeenCalledWith("general");
   await user.click(screen.getByRole("button", { name: "Account: Sign in" }));
-  await user.click(screen.getByRole("menuitem", { name: "Sign in" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Sign in" }));
   expect(onOpen).toHaveBeenCalledWith("account");
 });
 it("shows identity, opens account security and reports uncertain remote revocation", async () => {
@@ -51,11 +51,11 @@ it("shows identity, opens account security and reports uncertain remote revocati
   renderAccount(fixture, <AccountMenu onOpen={onOpen} onNotice={onNotice} />);
   const user = userEvent.setup();
   await user.click(await screen.findByRole("button", { name: "Account: Example User" }));
-  expect(screen.getByText("user@example.com")).toBeDefined();
-  await user.click(screen.getByRole("menuitem", { name: "Account security" }));
+  expect(await screen.findByText("user@example.com")).toBeDefined();
+  await user.click(await screen.findByRole("menuitem", { name: "Account security" }));
   expect(onOpen).toHaveBeenCalledWith("security");
   await user.click(screen.getByRole("button", { name: "Account: Example User" }));
-  await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Sign out" }));
   await waitFor(() => {
     expect(onNotice).toHaveBeenCalledWith(
       "Signed out locally. Remote revocation could not be confirmed.",
@@ -78,7 +78,7 @@ it("discards a previous account's delayed logout feedback after a principal chan
     />,
   );
   await userEvent.click(await screen.findByRole("button", { name: "Account: Account A" }));
-  await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Sign out" }));
   act(() => {
     fixture.publish(
       accountSnapshot({

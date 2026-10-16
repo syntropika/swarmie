@@ -1,3 +1,4 @@
+import { Button } from "@swarmie/ui-web";
 import type { PDFDocumentProxy, PDFDocumentLoadingTask, RenderTask } from "pdfjs-dist";
 // Vite supplies a URL string default for ?url assets, independent from the underlying JavaScript exports.
 // oxlint-disable-next-line import/default
@@ -5,7 +6,6 @@ import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import { useEffect, useRef, useState } from "react";
 
 import { startAction, errorMessage } from "~/src/action-boundary";
-import { Button } from "~/src/components/ui/button";
 
 export function PdfPreview(props: { data: string; name: string }) {
   return <PdfDocument key={props.data} {...props} />;
@@ -75,7 +75,7 @@ function PdfDocument({ data, name }: { data: string; name: string }) {
         <>
           <div className="permission-actions">
             <Button
-              variant="ghost"
+              variant="tertiary"
               size="sm"
               disabled={page === 1}
               onClick={() => {
@@ -88,7 +88,7 @@ function PdfDocument({ data, name }: { data: string; name: string }) {
               Page {page} of {document.numPages}
             </span>
             <Button
-              variant="ghost"
+              variant="tertiary"
               size="sm"
               disabled={page === document.numPages}
               onClick={() => {
@@ -98,7 +98,7 @@ function PdfDocument({ data, name }: { data: string; name: string }) {
               Next page
             </Button>
             <Button
-              variant="ghost"
+              variant="tertiary"
               size="sm"
               disabled={zoom <= 0.5}
               aria-label="Zoom PDF out"
@@ -109,7 +109,7 @@ function PdfDocument({ data, name }: { data: string; name: string }) {
               −
             </Button>
             <Button
-              variant="ghost"
+              variant="tertiary"
               size="sm"
               disabled={zoom >= 3}
               aria-label="Zoom PDF in"

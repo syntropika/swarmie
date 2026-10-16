@@ -29,7 +29,9 @@ export function SharedSurfacesIllustration() {
 
         <div className="grid gap-5 px-5 py-6 sm:px-6 sm:py-7">
           <div data-motion-part="hero-question" className="flex items-start gap-3">
-            <Avatar kind="person" initials="MC" label="Maya Chen" className="size-9 shrink-0" />
+            <Avatar className="size-9 shrink-0" aria-label="Maya Chen" color="default">
+              <Avatar.Fallback>MC</Avatar.Fallback>
+            </Avatar>
             <div className="min-w-0 flex-1">
               <p className="flex flex-wrap items-baseline gap-x-2 text-ui leading-5">
                 <span className="font-semibold text-ink">Maya Chen</span>
@@ -54,7 +56,9 @@ export function SharedSurfacesIllustration() {
           </div>
 
           <div data-motion-part="hero-answer" className="flex items-start gap-3">
-            <Avatar kind="agent" initials="SW" label="Swarmie" className="size-9 shrink-0" />
+            <Avatar className="size-9 shrink-0" aria-label="Swarmie" color="accent">
+              <Avatar.Fallback>SW</Avatar.Fallback>
+            </Avatar>
             <div className="min-w-0 flex-1">
               <p className="flex flex-wrap items-baseline gap-x-2 text-ui leading-5">
                 <span className="font-semibold text-ink">Swarmie</span>

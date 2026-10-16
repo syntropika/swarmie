@@ -1,14 +1,9 @@
-import { useEffect, useState, useCallback, useId } from "react";
+import { Button, Checkbox, Disclosure, Input, TextArea, Select, ListBox } from "@swarmie/ui-web";
+import { isValidElement, useEffect, useState, useCallback, useId } from "react";
 
 import { useExtensionQuery } from "~/src/components/extension-query";
 import { extensionResult } from "~/src/components/extension-result";
 import { hasCount, hasText } from "~/src/components/presentation-values";
-import { Button } from "~/src/components/ui/button";
-import { Checkbox } from "~/src/components/ui/checkbox";
-import { Disclosure } from "~/src/components/ui/disclosure";
-import { Input } from "~/src/components/ui/input";
-import { Select } from "~/src/components/ui/select";
-import { Textarea } from "~/src/components/ui/textarea";
 import { HarnessSelect } from "~/src/harness-select";
 import type { SessionSnapshot, Thread } from "~/src/protocol";
 import type { WorkspaceStore } from "~/src/workspace";
@@ -87,7 +82,7 @@ export function Schedules({ store, thread }: { store: WorkspaceStore; thread: Th
       </p>
       <Button
         size="sm"
-        variant="ghost"
+        variant="tertiary"
 
         disabled={busy}
         onClick={() => {
@@ -109,7 +104,7 @@ export function Schedules({ store, thread }: { store: WorkspaceStore; thread: Th
           <div className="permission-actions">
             <Button
               size="sm"
-              variant="ghost"
+              variant="tertiary"
 
               disabled={busy}
               onClick={() => {
@@ -125,7 +120,7 @@ export function Schedules({ store, thread }: { store: WorkspaceStore; thread: Th
             </Button>
             <Button
               size="sm"
-              variant="ghost"
+              variant="tertiary"
 
               disabled={busy}
               onClick={() => {
@@ -142,7 +137,7 @@ export function Schedules({ store, thread }: { store: WorkspaceStore; thread: Th
             </Button>
             <Button
               size="sm"
-              variant="ghost"
+              variant="tertiary"
 
               onClick={() => {
                 setEditing(schedule);
@@ -162,7 +157,7 @@ export function Schedules({ store, thread }: { store: WorkspaceStore; thread: Th
             </Button>
             <Button
               size="sm"
-              variant="destructive"
+              variant="danger"
 
               disabled={busy}
               onClick={() => {
@@ -183,7 +178,7 @@ export function Schedules({ store, thread }: { store: WorkspaceStore; thread: Th
       <h3>{editing ? "Edit schedule" : "Schedule this conversation"}</h3>
       <label htmlFor={`${fieldPrefix}-field-1`}>
         Prompt
-        <Textarea
+        <TextArea
           id={`${fieldPrefix}-field-1`}
           value={text}
           onChange={(e) => {
@@ -193,7 +188,7 @@ export function Schedules({ store, thread }: { store: WorkspaceStore; thread: Th
       </label>
       <Button
         size="sm"
-        variant="ghost"
+        variant="tertiary"
         onClick={() => {
           setText(thread.draft ?? "");
         }}
@@ -225,7 +220,7 @@ export function Schedules({ store, thread }: { store: WorkspaceStore; thread: Th
         />
       </label>
       <Button
-        variant="default"
+        variant="primary"
 
         disabled={busy || !text.trim() || !at}
         onClick={() => {
@@ -276,35 +271,44 @@ function ComparisonOutput({
     <>
       {" "}
       {comparison.targets.map((target, i) => (
-        <Disclosure key={target.sessionId ?? i} defaultOpen>
-          <Disclosure.Summary>
-            {target.harness ?? target.model ?? `Model ${i + 1}`} · {target.status}
-          </Disclosure.Summary>
-          <pre className="action-output">
-            {target.text ||
-              (target.error === undefined || target.error === ""
-                ? "Waiting for output…"
-                : target.error)}
-          </pre>
-          {target.truncated === true && (
-            <p className="panel-note">
-              Output truncated; open the conversation for its retained transcript.
-            </p>
-          )}
-          {hasText(target.sessionId) && (
-            <Button
-              size="sm"
-              variant="ghost"
-
-              onClick={() => {
-                if (hasText(target.sessionId)) {
-                  onOpen(target.sessionId);
-                }
-              }}
-            >
-              Open conversation
+        <Disclosure key={target.sessionId ?? i} defaultExpanded>
+          <Disclosure.Heading>
+            <Button slot="trigger" variant="tertiary">
+              <span>
+                {target.harness ?? target.model ?? `Model ${i + 1}`} · {target.status}
+              </span>
+              <Disclosure.Indicator />
             </Button>
-          )}
+          </Disclosure.Heading>
+          <Disclosure.Content>
+            <Disclosure.Body>
+              <pre className="action-output">
+                {target.text ||
+                  (target.error === undefined || target.error === ""
+                    ? "Waiting for output…"
+                    : target.error)}
+              </pre>
+              {target.truncated === true && (
+                <p className="panel-note">
+                  Output truncated; open the conversation for its retained transcript.
+                </p>
+              )}
+              {hasText(target.sessionId) && (
+                <Button
+                  size="sm"
+                  variant="tertiary"
+
+                  onClick={() => {
+                    if (hasText(target.sessionId)) {
+                      onOpen(target.sessionId);
+                    }
+                  }}
+                >
+                  Open conversation
+                </Button>
+              )}
+            </Disclosure.Body>
+          </Disclosure.Content>
         </Disclosure>
       ))}
     </>
@@ -546,7 +550,7 @@ export function Peers({ store, thread }: { store: WorkspaceStore; thread: Thread
       <h3>Peer conversations</h3>
       <Button
         size="sm"
-        variant="ghost"
+        variant="tertiary"
 
         disabled={busy}
         onClick={() => {
@@ -558,7 +562,8 @@ export function Peers({ store, thread }: { store: WorkspaceStore; thread: Thread
       {sessions.map((session) => (
         <div className="resource-row" key={session.id}>
           <Button
-            variant="command"
+            variant="tertiary"
+            data-workspace-part="command-result"
 
             onClick={() => {
               run(async () => {
@@ -573,7 +578,7 @@ export function Peers({ store, thread }: { store: WorkspaceStore; thread: Thread
           </Button>
           <Button
             size="sm"
-            variant="ghost"
+            variant="tertiary"
             onClick={() => {
               setPeerId(session.id);
             }}
@@ -585,22 +590,46 @@ export function Peers({ store, thread }: { store: WorkspaceStore; thread: Thread
       <label htmlFor={`${fieldPrefix}-field-4`}>
         Selected conversation
         <Select
-          id={`${fieldPrefix}-field-4`}
-          label="Selected conversation"
+          aria-label="Selected conversation"
           value={peerId}
-          onChange={setPeerId}
-          options={[
-            { id: "", label: "New peer" },
-            ...sessions.map((session) => ({
-              id: session.id,
-              label: session.metadata?.title ?? session.id,
-            })),
-          ]}
-        />
+          onChange={(key) => {
+            if (typeof key === "string") {
+              setPeerId(key);
+            }
+          }}
+          placeholder="Select…"
+        >
+          <Select.Trigger id={`${fieldPrefix}-field-4`}>
+            <Select.Value />
+            <Select.Indicator />
+          </Select.Trigger>
+          <Select.Popover>
+            <ListBox aria-label="Selected conversation">
+              {[
+                { id: "", label: "New peer" },
+                ...sessions.map((session) => ({
+                  id: session.id,
+                  label: session.metadata?.title ?? session.id,
+                })),
+              ].map((option) => (
+                <ListBox.Item
+                  key={option.id}
+                  id={option.id}
+                  textValue={option.label}
+                  isDisabled={"disabled" in option && option.disabled === true}
+                >
+                  {"icon" in option && isValidElement(option.icon) ? option.icon : null}
+                  {option.label}
+                  <ListBox.ItemIndicator />
+                </ListBox.Item>
+              ))}
+            </ListBox>
+          </Select.Popover>
+        </Select>
       </label>
       <label htmlFor={`${fieldPrefix}-field-5`}>
         Instruction
-        <Textarea
+        <TextArea
           id={`${fieldPrefix}-field-5`}
           value={peerText}
           onChange={(e) => {
@@ -611,7 +640,7 @@ export function Peers({ store, thread }: { store: WorkspaceStore; thread: Thread
       <div className="permission-actions">
         <Button
           size="sm"
-          variant="ghost"
+          variant="tertiary"
 
           disabled={busy || !peerText.trim()}
           onClick={() => {
@@ -660,15 +689,39 @@ export function Peers({ store, thread }: { store: WorkspaceStore; thread: Thread
       <label htmlFor={`${fieldPrefix}-field-6`}>
         Saved comparison
         <Select
-          id={`${fieldPrefix}-field-6`}
-          label="Saved comparison"
+          aria-label="Saved comparison"
           value={thread.comparisonId ?? ""}
-          disabled={busy}
-          onChange={(value) => {
-            store.updateThread(thread.id, { comparisonId: value || undefined });
+          onChange={(key) => {
+            if (typeof key === "string") {
+              ((value) => {
+                store.updateThread(thread.id, { comparisonId: value || undefined });
+              })(key);
+            }
           }}
-          options={comparisonOptions(comparisons, thread.comparisonId)}
-        />
+          isDisabled={busy}
+          placeholder="Select…"
+        >
+          <Select.Trigger id={`${fieldPrefix}-field-6`}>
+            <Select.Value />
+            <Select.Indicator />
+          </Select.Trigger>
+          <Select.Popover>
+            <ListBox aria-label="Saved comparison">
+              {comparisonOptions(comparisons, thread.comparisonId).map((option) => (
+                <ListBox.Item
+                  key={option.id}
+                  id={option.id}
+                  textValue={option.label}
+                  isDisabled={"disabled" in option && option.disabled === true}
+                >
+                  {"icon" in option && isValidElement(option.icon) ? option.icon : null}
+                  {option.label}
+                  <ListBox.ItemIndicator />
+                </ListBox.Item>
+              ))}
+            </ListBox>
+          </Select.Popover>
+        </Select>
       </label>
       <p className="panel-note">
         Results are retained by the daemon. Removing a comparison keeps its conversations and
@@ -710,7 +763,7 @@ export function Peers({ store, thread }: { store: WorkspaceStore; thread: Thread
             />
           </label>
           <Button
-            variant="ghost"
+            variant="tertiary"
             disabled={busy || targets.length <= 2}
             onClick={() => {
               setTargets((items) => items.filter((item) => item.id !== target.id));
@@ -721,7 +774,7 @@ export function Peers({ store, thread }: { store: WorkspaceStore; thread: Thread
         </div>
       ))}
       <Button
-        variant="ghost"
+        variant="tertiary"
         disabled={busy || targets.length >= 8}
         onClick={() => {
           setTargets((items) => [
@@ -734,7 +787,7 @@ export function Peers({ store, thread }: { store: WorkspaceStore; thread: Thread
       </Button>
       <label htmlFor={`${fieldPrefix}-field-9`}>
         Task
-        <Textarea
+        <TextArea
           id={`${fieldPrefix}-field-9`}
           value={text}
           onChange={(e) => {
@@ -744,7 +797,7 @@ export function Peers({ store, thread }: { store: WorkspaceStore; thread: Thread
       </label>
       <Button
         size="sm"
-        variant="ghost"
+        variant="tertiary"
         onClick={() => {
           setText(thread.draft ?? "");
         }}
@@ -753,13 +806,20 @@ export function Peers({ store, thread }: { store: WorkspaceStore; thread: Thread
       </Button>
       {store.getSnapshot().projects.find((p) => p.id === thread.projectId)?.git === true && (
         <Checkbox
-          label="Use a separate worktree for each model"
-          checked={isolated}
+          isSelected={isolated}
           onChange={setIsolated}
-        />
+          aria-label="Use a separate worktree for each model"
+        >
+          <Checkbox.Content>
+            <Checkbox.Control>
+              <Checkbox.Indicator />
+            </Checkbox.Control>
+            Use a separate worktree for each model
+          </Checkbox.Content>
+        </Checkbox>
       )}
       <Button
-        variant="default"
+        variant="primary"
 
         disabled={
           busy ||
@@ -830,7 +890,7 @@ export function Peers({ store, thread }: { store: WorkspaceStore; thread: Thread
             <strong>{comparison.status}</strong>
             <Button
               size="sm"
-              variant="destructive"
+              variant="danger"
 
               disabled={busy || ["running", "cancelling"].includes(comparison.status)}
               onClick={() => {
@@ -849,7 +909,7 @@ export function Peers({ store, thread }: { store: WorkspaceStore; thread: Thread
             {comparison.status === "running" && (
               <Button
                 size="sm"
-                variant="ghost"
+                variant="tertiary"
 
                 onClick={() => {
                   run(async () => {
@@ -1112,10 +1172,17 @@ export function UsageDashboard({ store, thread }: { store: WorkspaceStore; threa
   return (
     <div className="panel-body">
       <h3>Observed usage</h3>
-      <Checkbox label="All projects" checked={all} onChange={setAll} />
+      <Checkbox isSelected={all} onChange={setAll} aria-label="All projects">
+        <Checkbox.Content>
+          <Checkbox.Control>
+            <Checkbox.Indicator />
+          </Checkbox.Control>
+          All projects
+        </Checkbox.Content>
+      </Checkbox>
       <Button
         size="sm"
-        variant="ghost"
+        variant="tertiary"
         disabled={busy}
         onClick={() => {
           load().catch(store.setError.bind(store));
@@ -1147,8 +1214,17 @@ export function UsageDashboard({ store, thread }: { store: WorkspaceStore; threa
                 ] as const
               ).map(([title, rows]) => (
                 <Disclosure key={title}>
-                  <Disclosure.Summary>{title}</Disclosure.Summary>
-                  <UsageTable rows={rows} />
+                  <Disclosure.Heading>
+                    <Button slot="trigger" variant="tertiary">
+                      <span>{title}</span>
+                      <Disclosure.Indicator />
+                    </Button>
+                  </Disclosure.Heading>
+                  <Disclosure.Content>
+                    <Disclosure.Body>
+                      <UsageTable rows={rows} />
+                    </Disclosure.Body>
+                  </Disclosure.Content>
                 </Disclosure>
               ))}
             </>
@@ -1164,7 +1240,7 @@ export function UsageDashboard({ store, thread }: { store: WorkspaceStore; threa
       <h3>Native account quotas</h3>
       <Button
         size="sm"
-        variant="ghost"
+        variant="tertiary"
 
         disabled={busy || !thread.worktreeId}
         onClick={() => {

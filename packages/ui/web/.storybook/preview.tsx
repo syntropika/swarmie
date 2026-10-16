@@ -1,17 +1,30 @@
 import type { Preview } from "@storybook/react-vite";
+import { useLayoutEffect } from "react";
+import type { ReactNode } from "react";
 
-import "../src/styles.css";
+import "./preview.css";
+
+function CatalogTheme({ children, theme }: { children: ReactNode; theme: "light" | "dark" }) {
+  useLayoutEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+  return (
+    <div
+      data-theme={theme}
+      className="min-h-screen bg-reference-canvas p-4 font-sans text-ink antialiased"
+    >
+      {children}
+    </div>
+  );
+}
 
 const preview: Preview = {
   tags: ["autodocs"],
   decorators: [
     (Story, context) => (
-      <div
-        data-theme={context.globals.theme === "dark" ? "dark" : "light"}
-        className="min-h-screen bg-surface p-4 font-sans leading-[1.6] text-ink antialiased selection:bg-primary-soft selection:text-ink [&_:focus-visible]:outline-2 [&_:focus-visible]:outline-offset-2 [&_:focus-visible]:outline-primary [&_a]:underline-offset-3"
-      >
+      <CatalogTheme theme={context.globals.theme === "dark" ? "dark" : "light"}>
         <Story />
-      </div>
+      </CatalogTheme>
     ),
   ],
   globalTypes: {
@@ -28,43 +41,31 @@ const preview: Preview = {
     },
   },
   parameters: {
-    layout: "padded",
-    backgrounds: {
-      options: {
-        surface: { name: "Surface", value: "#FCFAF7" },
-        canvas: { name: "Canvas", value: "#F4F1EC" },
-      },
-    },
+    layout: "fullscreen",
     a11y: { test: "error" },
     options: {
       storySort: {
         method: "alphabetical",
         order: [
           "Foundations",
+          [
+            "Overview",
+            "Brand",
+            "Responsive Design",
+            "Typography",
+            "Colors",
+            "Spacing",
+            "Shadows",
+            "Motion",
+            "Icons",
+          ],
           "Atoms",
           "Molecules",
-          "Assistant",
-          [
-            "Conversations",
-            "Composer",
-            "Messages",
-            "Loading",
-            "Reasoning",
-            "Tools",
-            "Approvals & forms",
-            "Sources & attachments",
-            "Content & data",
-            "Agents & tasks",
-            "Generative UI",
-            "Voice",
-            "Observability",
-            "Primitives",
-          ],
         ],
       },
     },
   },
-  initialGlobals: { theme: "light", backgrounds: { value: "surface" } },
+  initialGlobals: { theme: "light" },
 };
 
 export default preview;

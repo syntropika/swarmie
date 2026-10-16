@@ -16,9 +16,11 @@
     "./fonts/*": "./fonts/*",
     "./ts/native.json": "./ts/native.json",
     "./tailwind/web-tokens.css": "./tailwind/web-tokens.css",
+    "./tailwind/web-theme.css": "./tailwind/web-theme.css",
     "./tailwind/native-tokens.css": "./tailwind/native-tokens.css",
     "./tailwind/tooling-tokens.css": "./tailwind/tooling-tokens.css",
-    "./tailwind/hero-native.css": "./tailwind/hero-native.css"
+    "./tailwind/hero-native.css": "./tailwind/hero-native.css",
+    "./tailwind/hero-web.css": "./tailwind/hero-web.css"
   },
   "dependencies": {
     "tailwindcss": "4.3.3"

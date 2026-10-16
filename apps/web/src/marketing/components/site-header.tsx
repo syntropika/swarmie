@@ -1,4 +1,4 @@
-import { Button, Icon, SwarmieMark } from "@swarmie/ui-web";
+import { Button, Icon, BrandLogo } from "@swarmie/ui-web";
 import { useEffect, useRef, useState } from "react";
 
 import { ArrowRight } from "~/src/marketing/components/icons";
@@ -58,8 +58,7 @@ export function SiteHeader() {
           }}
           className="inline-flex min-h-control shrink-0 items-center gap-2 rounded-pill text-brand leading-none font-semibold tracking-brand no-underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary sm:gap-2.5 sm:text-brand-large pointer-coarse:min-h-control-touch"
         >
-          <SwarmieMark className="size-8 sm:size-10" />
-          swarmie
+          <BrandLogo className="w-36 sm:w-44" />
         </a>
 
         <nav aria-label={t("common.navigation")} className="hidden items-center gap-1 xl:flex">
@@ -74,8 +73,8 @@ export function SiteHeader() {
           ))}
           <div className="group relative ml-3">
             <Button
-              variant="brand"
-              size="brand"
+              variant="tertiary"
+              size="md"
               aria-disabled="true"
               aria-describedby="public-access-notice"
               className="cursor-not-allowed"
@@ -97,9 +96,8 @@ export function SiteHeader() {
 
         <Button
           ref={menuButtonRef}
-          variant="ghost"
-          size="icon"
-          selected={menuOpen}
+          variant="tertiary"
+          isIconOnly
           aria-label={t("common.navigation")}
           aria-controls="mobile-site-navigation"
           aria-expanded={menuOpen}
@@ -133,8 +131,8 @@ export function SiteHeader() {
           ))}
           <div className="rounded-2xl bg-surface-muted px-3 py-3">
             <Button
-              variant="brand"
-              size="brand"
+              variant="tertiary"
+              size="md"
               aria-disabled="true"
               aria-describedby="mobile-public-access-notice"
               className="group w-full cursor-not-allowed"

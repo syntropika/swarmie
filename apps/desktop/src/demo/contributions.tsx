@@ -1,4 +1,5 @@
-import { Button } from "~/src/components/ui/button";
+import { Button } from "@swarmie/ui-web";
+
 import type { ClientContribution } from "~/src/contribution-host";
 import type { UiSlot, ScopedClientApi } from "~/src/contributions";
 import { slotCatalog } from "~/src/contributions";

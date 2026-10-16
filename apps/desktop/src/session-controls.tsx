@@ -1,12 +1,10 @@
+import { Button, Popover, Tooltip, TooltipContent } from "@swarmie/ui-web";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, Shield, Zap } from "lucide-react";
 import { useState } from "react";
 
 import { startAction, errorMessage } from "~/src/action-boundary";
 import { scalarLabel } from "~/src/components/presentation-values";
-import { Button } from "~/src/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "~/src/components/ui/popover";
-import { Tooltip, TooltipContent } from "~/src/components/ui/tooltip";
 import { ModelPicker } from "~/src/model-picker";
 import { nodeKey } from "~/src/node-scope";
 import { PermissionPicker } from "~/src/permission-picker";
@@ -125,58 +123,58 @@ export function SessionControls(props: ControlProps) {
   const controls = useSessionControls(props);
   const permission = sessionPermissions(thread);
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="composer"
-          shape="pill"
-          size="sm"
-          title={settings ? "Change permissions" : undefined}
-          aria-label={
-            settings
-              ? `Change permissions: ${permission.label}`
-              : `Select model: ${controls.modelLabel}${hasText(controls.effortLabel) ? `, ${controls.effortLabel}` : ""}`
-          }
-          disabled={!connected || !hasText(thread.worktreeId)}
+    <Popover isOpen={open} onOpenChange={setOpen}>
+      <Button
+        variant="tertiary"
+
+        size="sm"
+        title={settings ? "Change permissions" : undefined}
+        aria-label={
+          settings
+            ? `Change permissions: ${permission.label}`
+            : `Select model: ${controls.modelLabel}${hasText(controls.effortLabel) ? `, ${controls.effortLabel}` : ""}`
+        }
+        disabled={!connected || !hasText(thread.worktreeId)}
+      >
+        <span
+          className={`flex items-center gap-2 ${settings && permission.selected === "full" ? "text-permission-full-access" : ""}`}
         >
-          <span
-            className={`flex items-center gap-2 ${settings && permission.selected === "full" ? "text-permission-full-access" : ""}`}
-          >
-            {settings && <Shield size={14} />}
-            <span className="model-trigger-label">
-              {settings ? permission.label : controls.modelLabel}
-              {!settings && hasText(controls.effortLabel) && ` · ${controls.effortLabel}`}
-            </span>
-            {!settings && <ChevronDown size={14} />}
+          {settings && <Shield size={14} />}
+          <span className="model-trigger-label">
+            {settings ? permission.label : controls.modelLabel}
+            {!settings && hasText(controls.effortLabel) && ` · ${controls.effortLabel}`}
           </span>
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        side="top"
-        align={settings ? "start" : "end"}
+          {!settings && <ChevronDown size={14} />}
+        </span>
+      </Button>
+
+      <Popover.Content
+        placement={settings ? "top start" : "top end"}
         className={settings ? "w-[440px]" : "w-72"}
         aria-label={settings ? "Permissions" : "Model and session settings"}
       >
-        <div className="session-controls">
-          <h2 className={settings ? "text-muted mb-1 text-sm" : "sr-only"}>
-            {settings ? "How should actions be approved?" : "Model and reasoning effort"}
-          </h2>
-          <SessionControlStatus thread={thread} controls={controls} settings={settings} />
-          {settings ? (
-            <PermissionPicker
-              thread={thread}
-              disabled={!controls.canConfigure}
-              onChange={async (patch) =>
-                await controls.run(async () => {
-                  await props.store.configureMany(thread.id, patch);
-                })
-              }
-            />
-          ) : (
-            <ModelSettings {...props} controls={controls} />
-          )}
-        </div>
-      </PopoverContent>
+        <Popover.Dialog aria-label={settings ? "Permissions" : "Model and session settings"}>
+          <div className="session-controls">
+            <h2 className={settings ? "mb-1 text-sm text-muted" : "sr-only"}>
+              {settings ? "How should actions be approved?" : "Model and reasoning effort"}
+            </h2>
+            <SessionControlStatus thread={thread} controls={controls} settings={settings} />
+            {settings ? (
+              <PermissionPicker
+                thread={thread}
+                disabled={!controls.canConfigure}
+                onChange={async (patch) =>
+                  await controls.run(async () => {
+                    await props.store.configureMany(thread.id, patch);
+                  })
+                }
+              />
+            ) : (
+              <ModelSettings {...props} controls={controls} />
+            )}
+          </div>
+        </Popover.Dialog>
+      </Popover.Content>
     </Popover>
   );
 }
@@ -194,7 +192,7 @@ function SessionControlStatus({
   return (
     <>
       {loading && <output className="muted">Reading session options…</output>}
-      {hasText(previewError) && <output className="text-muted text-xs">{previewError}</output>}
+      {hasText(previewError) && <output className="text-xs text-muted">{previewError}</output>}
       {!settings && !loading && !hasText(previewError) && models.length === 0 && (
         <p className="muted">This agent tool does not advertise a model catalog.</p>
       )}
@@ -204,7 +202,7 @@ function SessionControlStatus({
       {hasText(thread.sessionId) &&
         thread.capabilities?.configure?.availability !== "available" &&
         hasText(thread.capabilities?.configure?.reason) && (
-          <output className="text-muted text-xs">{thread.capabilities.configure.reason}</output>
+          <output className="text-xs text-muted">{thread.capabilities.configure.reason}</output>
         )}
     </>
   );
@@ -275,8 +273,9 @@ function FastControl({
   return (
     <Tooltip>
       <Button
-        variant="ghost"
-        size="icon-sm"
+        variant="tertiary"
+        size="sm"
+        isIconOnly
         aria-label="Fast mode"
         aria-pressed={enabled}
         disabled={!canEdit(thread, controls.canConfigure, fast)}

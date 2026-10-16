@@ -7,6 +7,10 @@ const source = path.resolve(root, "../../assets/brandkit");
 const destination = path.join(root, "public/brand");
 const check = process.argv.includes("--check");
 const assets = [
+  ["logos/swarmie-ink-coral.svg", "public/brand/swarmie-ink-coral.svg"],
+  ["logos/swarmie-white-coral.svg", "public/brand/swarmie-white-coral.svg"],
+  ["marks/swarmie-mark-ink-coral.svg", "public/brand/swarmie-mark-ink-coral.svg"],
+  ["marks/swarmie-mark-white-coral.svg", "public/brand/swarmie-mark-white-coral.svg"],
   ["logos/swarmie-mono-ink.svg", "public/brand/swarmie-mono-ink.svg"],
   ["logos/swarmie-mono-white.svg", "public/brand/swarmie-mono-white.svg"],
   ["marks/swarmie-mark-mono-ink.svg", "public/brand/swarmie-mark-mono-ink.svg"],
