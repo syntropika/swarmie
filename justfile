@@ -89,7 +89,7 @@ mobile-ios-prepare:
     python3 -m json.tool dist/mobile/ios/expo-config.json > /dev/null
     just sdk-build-mobile ios
     just mobile-prebuild ios
-    bundle exec pod install --project-directory=apps/mobile/ios
+    cd apps/mobile/ios && bundle exec pod install
 
 mobile-ios-build signing="unsigned":
     bundle exec fastlane ios build signing:{{ quote(signing) }}
