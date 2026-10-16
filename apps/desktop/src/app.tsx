@@ -171,7 +171,8 @@ function WorkspaceView(props: NodeWorkspaceProps) {
         <WorkspaceDialogs view={view} />
         {panel === "settings" && (
           <SettingsPage
-            initialSection={settingsSection}
+            section={settingsSection}
+            onSectionChange={setSettingsSection}
             client={client}
             nodes={nodes}
             store={store}

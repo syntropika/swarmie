@@ -19,12 +19,9 @@ import type { Shortcuts } from "~/src/shortcuts";
 import { hasText } from "~/src/value-presence";
 import type { WorkspaceStore, Workspace } from "~/src/workspace";
 
-export function SettingsPage(props: SettingsProps) {
-  return <SettingsContent key={props.initialSection ?? "general"} {...props} />;
-}
-
 type SettingsProps = {
-  initialSection?: SettingsSection;
+  section: SettingsSection;
+  onSectionChange: (section: SettingsSection) => void;
   client: NodeClient;
   nodes: NodesState;
   store: WorkspaceStore;
@@ -35,7 +32,7 @@ type SettingsProps = {
   onSetup: () => void;
 };
 
-function SettingsContent({
+export function SettingsPage({
   store,
   state,
   shortcuts,
@@ -44,21 +41,11 @@ function SettingsContent({
   onSetup,
   client,
   nodes,
-  initialSection = "general",
-}: {
-  initialSection?: SettingsSection;
-  client: NodeClient;
-  nodes: NodesState;
-  store: WorkspaceStore;
-  state: Workspace;
-  shortcuts: Shortcuts;
-  setShortcuts: (value: Shortcuts) => void;
-  onClose: () => void;
-  onSetup: () => void;
-}) {
+  section: selectedSection,
+  onSectionChange,
+}: SettingsProps) {
   const { account } = useAccount();
   const signedIn = account?.status === "signedIn";
-  const [selectedSection, setSelectedSection] = useState<string>(initialSection);
   const section = selectedSection === "security" && !signedIn ? "account" : selectedSection;
   const [query, setQuery] = useState("");
   const perform = async (action: () => Promise<unknown>) => {
@@ -112,7 +99,7 @@ function SettingsContent({
                       className="w-full"
                       aria-current={section === id ? "page" : undefined}
                       onClick={() => {
-                        setSelectedSection(id);
+                        onSectionChange(id);
                       }}
                     >
                       <span className="flex w-full items-center gap-2">
@@ -161,7 +148,7 @@ function SettingsContent({
             <div className="settings-section">
               <AccountSecurity
                 onProfile={() => {
-                  setSelectedSection("account");
+                  onSectionChange("account");
                 }}
               />
             </div>

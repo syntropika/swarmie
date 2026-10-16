@@ -1,9 +1,14 @@
 // @vitest-environment happy-dom
 import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 
+import { NodeClient } from "~/src/nodes";
 import { RenameChatDialog } from "~/src/rename-chat-dialog";
+import { SettingsPage } from "~/src/settings-page";
+import type { SettingsSection } from "~/src/settings-sections";
+import { defaultShortcuts } from "~/src/shortcuts";
 import { deferred, renderWithQuery as render } from "~/src/test-fixtures";
 import { WorkspaceStore } from "~/src/workspace";
 import { WorkspaceSearch } from "~/src/workspace-search";
@@ -26,6 +31,66 @@ async function workspace() {
 }
 
 function noAction() {}
+
+function SettingsSearchFixture({ store, client }: { store: WorkspaceStore; client: NodeClient }) {
+  const [selectedSection, setSelectedSection] = useState<SettingsSection>("general");
+  const [searchOpen, setSearchOpen] = useState(true);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          setSearchOpen(true);
+        }}
+      >
+        Search settings destinations
+      </button>
+      <SettingsPage
+        section={selectedSection}
+        onSectionChange={setSelectedSection}
+        store={store}
+        state={store.getSnapshot()}
+        client={client}
+        nodes={client.getSnapshot()}
+        shortcuts={defaultShortcuts}
+        setShortcuts={noAction}
+        onClose={noAction}
+        onSetup={noAction}
+      />
+      {searchOpen && (
+        <WorkspaceSearch
+          store={store}
+          onSettings={setSelectedSection}
+          onPanel={noAction}
+          onOpenProject={noAction}
+          onClose={() => {
+            setSearchOpen(false);
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+it("reopens the same settings search destination after navigating in the settings sidebar", async () => {
+  const { store } = await workspace();
+  render(<SettingsSearchFixture store={store} client={new NodeClient(store)} />);
+  await userEvent.type(
+    screen.getByRole("combobox", { name: "Search workspace" }),
+    "Keyboard shortcuts",
+  );
+  await userEvent.keyboard("{Enter}");
+  expect(screen.getByRole("heading", { level: 1, name: "Keyboard shortcuts" })).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Notifications" }));
+  expect(screen.getByRole("heading", { level: 1, name: "Notifications" })).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Search settings destinations" }));
+  await userEvent.type(
+    screen.getByRole("combobox", { name: "Search workspace" }),
+    "Keyboard shortcuts",
+  );
+  await userEvent.keyboard("{Enter}");
+  expect(screen.getByRole("heading", { level: 1, name: "Keyboard shortcuts" })).toBeTruthy();
+});
 
 function SearchFixture({
   store,

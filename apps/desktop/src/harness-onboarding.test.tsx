@@ -1,5 +1,6 @@
 import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from "vitest";
 
@@ -15,6 +16,7 @@ import {
 import { NodeClient } from "~/src/nodes";
 import type { Detection } from "~/src/protocol";
 import { SettingsPage } from "~/src/settings-page";
+import type { SettingsSection } from "~/src/settings-sections";
 import { defaultShortcuts } from "~/src/shortcuts";
 import { fixtureControl, renderWithQuery as render } from "~/src/test-fixtures";
 import { WorkspaceStore } from "~/src/workspace";
@@ -398,18 +400,24 @@ it("activates agents independently and shares their state with the Settings sect
   expect(defaultHarness(store.getSnapshot().harnesses, node)).toBe("claude");
   view.unmount();
   const client = new NodeClient(store);
-  render(
-    <SettingsPage
-      store={store}
-      state={store.getSnapshot()}
-      client={client}
-      nodes={client.getSnapshot()}
-      shortcuts={defaultShortcuts}
-      setShortcuts={vi.fn<(...args: unknown[]) => void>()}
-      onClose={vi.fn<(...args: unknown[]) => void>()}
-      onSetup={vi.fn<(...args: unknown[]) => void>()}
-    />,
-  );
+  function SettingsFixture() {
+    const [section, setSection] = useState<SettingsSection>("general");
+    return (
+      <SettingsPage
+        section={section}
+        onSectionChange={setSection}
+        store={store}
+        state={store.getSnapshot()}
+        client={client}
+        nodes={client.getSnapshot()}
+        shortcuts={defaultShortcuts}
+        setShortcuts={vi.fn<(...args: unknown[]) => void>()}
+        onClose={vi.fn<(...args: unknown[]) => void>()}
+        onSetup={vi.fn<(...args: unknown[]) => void>()}
+      />
+    );
+  }
+  render(<SettingsFixture />);
   await userEvent.click(
     screen.getByRole("button", {
       name: "Harnesses",
