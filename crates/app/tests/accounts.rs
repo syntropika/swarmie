@@ -51,14 +51,14 @@ async fn native_owner_is_independent_of_windows_clients_and_execution_nodes() {
     let saved = Arc::new(Mutex::new(Value::Null));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
-    let authorization = format!("{origin}/auth/native/authorize?request=browser-proof");
+    let authorization = format!("{origin}/auth/handoff/authorize?request=browser-proof");
     let copy = saved.clone();
     let profile = json!({"id":uuid::Uuid::nil(),"email":"test@example.com","emailVerified":true,"displayName":"Test","avatarUrl":null,"revision":0});
     let grant = json!({"accessToken":"native-private-access","refreshToken":"native-private-refresh","expiresAt":i64::MAX/2,"profile":profile});
     let profile_copy = profile.clone();
     let router = axum::Router::new()
         .route(
-            "/auth/native/request",
+            "/auth/handoff/request",
             post(move |Json(value): Json<Value>| {
                 let saved = copy.clone();
                 let authorization = authorization.clone();
@@ -69,18 +69,18 @@ async fn native_owner_is_independent_of_windows_clients_and_execution_nodes() {
             }),
         )
         .route(
-            "/auth/native/redeem",
+            "/auth/handoff/redeem",
             post(move || {
                 let grant = grant.clone();
                 async move { Json(grant) }
             }),
         )
         .route(
-            "/auth/native/revoke",
+            "/auth/session/revoke",
             post(|| async { axum::http::StatusCode::NO_CONTENT }),
         )
         .route(
-            "/api/native/profile",
+            "/api/account/profile",
             get(move || {
                 let profile = profile_copy.clone();
                 async move { Json(profile) }

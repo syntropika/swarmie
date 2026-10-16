@@ -230,7 +230,7 @@ impl AccountManager {
             .cloud
             .request(
                 Method::POST,
-                "/auth/native/refresh",
+                "/auth/session/refresh",
                 Some(json!({"refreshToken":token})),
                 None,
             )
@@ -312,7 +312,7 @@ impl AccountManager {
             let token = &state.credentials.as_ref().unwrap().access_token;
             match self
                 .cloud
-                .request(Method::GET, "/api/native/profile", None, Some(token))
+                .request(Method::GET, "/api/account/profile", None, Some(token))
                 .await
             {
                 Ok(profile) => {
@@ -347,7 +347,7 @@ impl AccountManager {
         let nonce = random();
         let id = uuid::Uuid::new_v4();
         let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
-        let value=self.cloud.request(Method::POST,"/auth/native/request",Some(json!({"installationId":self.installation,"callback":callback,"state":nonce,"challenge":challenge})),None).await?;
+        let value=self.cloud.request(Method::POST,"/auth/handoff/request",Some(json!({"installationId":self.installation,"callback":callback,"state":nonce,"challenge":challenge})),None).await?;
         let url = self
             .cloud
             .authorization_url(value["authorizationUrl"].as_str().ok_or(Error::Invalid)?)?;
@@ -374,7 +374,7 @@ impl AccountManager {
         }
         let pending = state.pending.take().unwrap();
         state.generation += 1;
-        let value=self.cloud.request(Method::POST,"/auth/native/redeem",Some(json!({"code":code,"verifier":pending.verifier,"callback":pending.callback,"installationId":self.installation})),None).await?;
+        let value=self.cloud.request(Method::POST,"/auth/handoff/redeem",Some(json!({"code":code,"verifier":pending.verifier,"callback":pending.callback,"installationId":self.installation})),None).await?;
         state.session_only = pending.session_only;
         state.vault_unavailable = false;
         // Session-only login must not leave a prior durable family available on restart.
@@ -425,7 +425,7 @@ impl AccountManager {
                 .cloud
                 .request(
                     Method::POST,
-                    "/auth/native/revoke",
+                    "/auth/session/revoke",
                     Some(json!({"refreshToken":token})),
                     None,
                 )
@@ -436,10 +436,10 @@ impl AccountManager {
         Ok(json!({"account":Self::snapshot(&state),"remoteRevocationConfirmed":revoked}))
     }
     pub async fn update(&self, body: Value) -> Result<Snapshot> {
-        self.edit(Method::PATCH, "/api/native/profile", body).await
+        self.edit(Method::PATCH, "/api/account/profile", body).await
     }
     pub async fn avatar(&self, body: Value) -> Result<Snapshot> {
-        self.edit(Method::POST, "/api/native/profile/avatar", body)
+        self.edit(Method::POST, "/api/account/profile/avatar", body)
             .await
     }
     fn expect_account(state: &State, expected: uuid::Uuid) -> Result<()> {
@@ -464,8 +464,8 @@ impl AccountManager {
         Self::expect_account(&state, expected)?;
         self.ensure(&mut state).await?;
         let path = after.map_or_else(
-            || "/api/native/sessions".to_owned(),
-            |id| format!("/api/native/sessions?after={id}"),
+            || "/api/account/sessions".to_owned(),
+            |id| format!("/api/account/sessions?after={id}"),
         );
         let token = &state.credentials.as_ref().unwrap().access_token;
         match self
@@ -491,8 +491,8 @@ impl AccountManager {
         Self::expect_account(&state, expected)?;
         self.ensure(&mut state).await?;
         let path = session.map_or_else(
-            || "/api/native/sessions".to_owned(),
-            |id| format!("/api/native/sessions/{id}"),
+            || "/api/account/sessions".to_owned(),
+            |id| format!("/api/account/sessions/{id}"),
         );
         let token = &state.credentials.as_ref().unwrap().access_token;
         let value = match self

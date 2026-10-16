@@ -68,7 +68,7 @@ fn grant(expiry: i64) -> Value {
 async fn request(State(fake): State<Arc<Fake>>, Json(request): Json<Value>) -> Json<Value> {
     *fake.request.lock().await = request;
     Json(
-        json!({"authorizationUrl":format!("{}/auth/native/authorize?request=one-use-browser-proof",fake.origin)}),
+        json!({"authorizationUrl":format!("{}/auth/handoff/authorize?request=one-use-browser-proof",fake.origin)}),
     )
 }
 async fn redeem(State(fake): State<Arc<Fake>>, Json(value): Json<Value>) -> Json<Value> {
@@ -135,17 +135,17 @@ async fn fixture() -> (
         retry_after: Mutex::new(None),
     });
     let router = axum::Router::new()
-        .route("/auth/native/request", post(request))
-        .route("/auth/native/redeem", post(redeem))
-        .route("/auth/native/refresh", post(refresh))
+        .route("/auth/handoff/request", post(request))
+        .route("/auth/handoff/redeem", post(redeem))
+        .route("/auth/session/refresh", post(refresh))
         .route(
-            "/auth/native/revoke",
+            "/auth/session/revoke",
             post(|| async { axum::http::StatusCode::NO_CONTENT }),
         )
-        .route("/api/native/profile", get(read))
-        .route("/api/native/sessions", get(sessions).delete(revoke_all))
+        .route("/api/account/profile", get(read))
+        .route("/api/account/sessions", get(sessions).delete(revoke_all))
         .route(
-            "/api/native/sessions/{id}",
+            "/api/account/sessions/{id}",
             axum::routing::delete(revoke_one),
         )
         .with_state(fake.clone());

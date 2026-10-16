@@ -13,7 +13,7 @@ one owner. Closing a client neither stops the owner nor cancels a pending login.
 The native gateway forwards `account/*` requests to this local per-user owner before node routing.
 No selected-node readiness check or Harness startup is required. The owner exposes only sanitized
 snapshots and profile results to presentation clients. Human account tokens are never forwarded to
-remote execution nodes. Node enrollment and scoped machine grants remain separate hosted capabilities.
+remote execution nodes. This account interface grants no execution-node enrollment or machine authority.
 
 ## Storage and lifecycle
 
@@ -87,7 +87,23 @@ retained draft to that revision; changing the signed-in account clears drafts an
 
 CLI commands also include `cancel`, `logout`, `profile`, `avatar` and `stop`. Use `--no-open` to obtain
 the authorization link without invoking a browser and `--session-only` for explicit ephemeral use.
-The browser must reach the owner's loopback callback. Device-code login is not implemented yet.
+The browser must reach the owner's loopback callback. Device-code login is not supported.
+
+## Hosted HTTP operations
+
+The Rust account owner consumes operation routes rather than platform-specific namespaces:
+
+| Operation | Route |
+| --- | --- |
+| Start and approve browser handoff | `/auth/handoff/request`, `/auth/handoff/authorize`, `/auth/handoff/approve` |
+| Redeem one-use authorization | `/auth/handoff/redeem` |
+| Renew or revoke installation credentials | `/auth/session/refresh`, `/auth/session/revoke` |
+| Read or edit account presentation | `/api/account/profile`, `/api/account/profile/avatar` |
+| List or revoke installation families | `/api/account/sessions`, `/api/account/sessions/{id}` |
+
+The owner validates the authorization URL against the configured origin and exact handoff path.
+Machine exchanges send no browser Cookie or Origin headers. Profile and session operations use
+native bearer credentials; renaming their routes does not change credential ownership or scopes.
 
 ## Public native contract
 
@@ -112,9 +128,8 @@ observation. The owner incarnation in the cursor reconciles restart, and older p
 overwrite newer state. Reconnection never replays mutations. Account and observation failures remain
 visible while local work stays available.
 
-Saved-account switching, device-code login and account-linked remote enrollment remain follow-up
-capabilities. Service-authorized account disablement is implemented independently of native execution;
-deployment lifecycle remains separate work.
+The owner manages one configured account at a time. Account disablement is enforced by the
+service independently of native execution.
 
 ## Native session management
 
@@ -154,33 +169,15 @@ is not exposed through the desktop or execution nodes. See the hosted
 [session policy](https://github.com/syntropika/swarmie-cloud/blob/develop/docs/native-account-sessions.md)
 in the private hosted-service repository for the operator workflow.
 
-The session delivery passed 175 frontend tests, twelve account-core lifecycle tests, owner integration,
-thirty-nine PostgreSQL browser/native/passkey/limit tests, and actual service/CLI acceptance using two
-independent native owners. Desktop and compact settings captures qualify the rendered session list,
-confirmation and local failure recovery. This evidence uses isolated fixtures rather than a deployed
-service or a real WorkOS browser ceremony.
+## Verification and limits
 
-## Qualification and limits
-
-The scoped account extension passed 170 frontend tests, eight core lifecycle tests and owner
-integration tests. Native app unit tests passed 44 cases, with one unrelated platform-specific case
-ignored. A real Cloud HTTP router with fresh disposable PostgreSQL and a seeded synthetic memory
-identity qualified native login, profile changes, concurrent observation, protected persistence,
-owner restart requiring fresh credential renewal, revocation and session-only login lifetime on Linux
-and macOS. Linux Secret Service and a macOS GUI Keychain fixture passed. A native macOS WebView
-exercised the menu, profile, security, event-driven completion, window close/reopen, secure restore
-after owner restart and renderer sign-out.
-
-Additional real-service acceptance confirmed refresh-token rotation in PostgreSQL, service-side
-revocation clearing native authority and publishing invalidation, and an unavailable service
-retaining the protected login. Offline logout reported unconfirmed remote revocation, and local
-invalidation prevented restoration after owner restart.
-
-Vault lock/unlock recovery is covered by a controlled mocked-vault test; an actual operating-system
-vault lock was not induced. Windows qualification and the WorkOS hosted browser ceremony remain
-unqualified for this extension. The synthetic identity issuer has no hosted OAuth page: the disposable
-qualification used the real password API and explicit approval API. Deployed-service acceptance remains open. This work performed no
-deployment, changes to an existing database or hosted enrollment.
+Account lifecycle tests cover PKCE handoff, serialized renewal, protected persistence, owner
+restart, local and hosted logout, session revocation, stale account intents and sanitized
+observation. Gateway tests exercise the persistent owner's independence from execution startup.
+Desktop tests exercise profile drafts, session presentation, confirmation and error recovery.
+Controlled vault adapters exercise lock and availability failures without claiming qualification
+of every operating-system credential store. Hosted-service acceptance is separate from these
+client contract tests.
 
 ## Admission responses and expiring receipts
 

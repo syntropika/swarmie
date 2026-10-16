@@ -34,7 +34,7 @@ impl Cloud {
     pub fn authorization_url(&self, value: &str) -> Result<String> {
         let parsed = Url::parse(value).map_err(|_| Error::Invalid)?;
         if parsed.origin() != self.origin.origin()
-            || parsed.path() != "/auth/native/authorize"
+            || parsed.path() != "/auth/handoff/authorize"
             || !parsed.username().is_empty()
             || parsed.password().is_some()
             || parsed.fragment().is_some()
