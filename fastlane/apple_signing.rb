@@ -1,4 +1,5 @@
 require "openssl"
+require_relative "match_storage"
 
 module AppleSigning
   TARGETS = {

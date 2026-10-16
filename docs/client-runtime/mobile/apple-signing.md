@@ -67,12 +67,21 @@ After the workflow is present on the default branch:
 1. Open Actions, select **Apple signing maintenance**, and choose **Run workflow**.
 2. Select the default branch, `operation: inspect`, `variant: development`, and
    `profile: appstore`.
-3. Check that the workflow can read the signing repository and access Apple's provisioning
-   API. A missing bundle identifier is expected on a fresh account. Inspection does not
-   register it or create certificates. The API key and password are never printed.
+3. Check that the workflow can read the configured signing branch, decrypt all existing
+   signing files and access Apple's provisioning API. An empty repository or branch reports
+   uninitialized storage: its password cannot be verified until signing material exists.
+   A missing branch in a nonempty repository is an error. A missing bundle identifier is
+   expected on a fresh account. Inspection does not register it or create certificates.
+   The API key and password are never printed.
 4. Run the workflow again with `operation: sync` and the same variant and profile.
 5. Confirm the run succeeds and encrypted certificates/profiles appear in signing storage.
    The lane makes a fresh readonly Match call after synchronization to verify retrieval.
+
+Both operations verify existing storage before contacting Apple. A missing branch, incorrect
+password or decryption failure stops synchronization before it can register an identifier.
+Preflight clones are removed on both success and failure without pushing changes. Successful
+decryption checks storage access and encryption; it does not qualify certificates or profiles
+for the selected application, which Match checks during synchronization.
 
 Synchronization reuses an existing bundle identifier and its capabilities, or registers only
 the selected missing identifier. It creates or fetches the selected signing material and

@@ -9,7 +9,7 @@ on:
       - "Gemfile.lock"
       - "mise.toml"
       - "justfile"
-      - "scripts/distribution/test_apple_signing.rb"
+      - "scripts/distribution/test_apple_signing*.rb"
   workflow_dispatch:
     inputs:
       operation:

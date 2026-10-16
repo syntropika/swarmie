@@ -88,6 +88,7 @@ mobile-signing-check:
     bundle exec ruby -c fastlane/Fastfile
     bundle exec ruby -c fastlane/Matchfile
     bundle exec ruby scripts/distribution/test_apple_signing.rb
+    bundle exec ruby scripts/distribution/test_apple_signing_storage.rb
 
 resources-check:
     cargo fmt -p swarmie-resources -- --check
