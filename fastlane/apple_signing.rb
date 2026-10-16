@@ -9,6 +9,7 @@ module AppleSigning
 
   PROFILES = %w[appstore development adhoc].freeze
   OPERATIONS = %w[inspect sync].freeze
+  REQUIRED_CAPABILITIES = %w[PUSH_NOTIFICATIONS].freeze
 
   # Match exposes its default storage commit message through this method. Keep
   # generated signing commits consistent with the repository's commit policy.
@@ -62,11 +63,20 @@ module AppleSigning
   end
 
   # Inspection never registers identifiers. Synchronization only creates the
-  # selected identifier when it is missing; existing capabilities stay intact.
+  # selected identifier when it is missing.
   def self.bundle_id(registry, target, create:)
     existing = registry.find(target.fetch(:identifier))
     return existing if existing || !create
 
     registry.create(name: target.fetch(:name), identifier: target.fetch(:identifier), platform: "IOS")
+  end
+
+  # Expo's installed notification module adds aps-environment during prebuild.
+  # Profiles must be regenerated after enabling the corresponding app service.
+  def self.sync_capabilities!(bundle_id)
+    existing = bundle_id.get_capabilities
+    REQUIRED_CAPABILITIES.each do |type|
+      bundle_id.create_capability(type) unless existing.any? { |capability| capability.is_type?(type) }
+    end
   end
 end

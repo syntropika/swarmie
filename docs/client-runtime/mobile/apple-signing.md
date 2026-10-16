@@ -84,9 +84,12 @@ Preflight clones are removed on both success and failure without pushing changes
 decryption checks storage access and encryption; it does not qualify certificates or profiles
 for the selected application, which Match checks during synchronization.
 
-Synchronization reuses an existing bundle identifier and its capabilities, or registers only
-the selected missing identifier. It creates or fetches the selected signing material and
-stores changes encrypted. It does not revoke existing certificates, run `match nuke`, or
+Synchronization reuses an existing bundle identifier or registers only the selected missing
+identifier. It enables the Push Notifications capability required by the installed native
+notification module while preserving other capabilities. Every explicit synchronization
+regenerates the selected provisioning profile so its entitlements reflect the current app
+services, reuses valid stored certificates and stores changes encrypted.
+It does not revoke existing certificates, run `match nuke`, or
 change the other app variant. Existing Apple certificates whose private keys are not in
 Match storage may require an explicit import before reuse.
 
@@ -94,6 +97,12 @@ Maintenance only runs on manual dispatch from the repository's default branch. P
 run credential-free tooling tests on Linux. There is no automatic certificate generation on
 push or pull request. Production is an explicit variant selection; do not reuse its profiles
 for development builds with a different identifier.
+
+If Xcode reports that a provisioning profile lacks Push Notifications or `aps-environment`,
+run `sync` for the affected variant and profile, then start a new mobile build. Build jobs
+consume profiles in readonly mode and cannot repair stale profiles themselves. Enabling
+this signing capability does not register push tokens, request notification permissions or
+configure a push delivery service.
 
 ## Root commands and implementation
 

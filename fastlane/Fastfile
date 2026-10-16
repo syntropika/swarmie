@@ -108,7 +108,8 @@ platform :ios do
       end
 
       setup_ci(force: true, timeout: 3600)
-      AppleSigning.bundle_id(Spaceship::ConnectAPI::BundleId, target, create: true) unless existing
+      identifier = existing || AppleSigning.bundle_id(Spaceship::ConnectAPI::BundleId, target, create: true)
+      AppleSigning.sync_capabilities!(identifier)
       Match::Storage::GitStorage.prepend(AppleSigning::ConventionalCommits)
       parameters = {
         api_key: api_key,
@@ -117,7 +118,7 @@ platform :ios do
         generate_apple_certs: true,
         skip_docs: true,
       }
-      match(**parameters, readonly: false)
+      match(**parameters, readonly: false, force: true)
       # A fresh readonly clone verifies that the encrypted output can be fetched
       # again; certificates left only in a temporary checkout are insufficient.
       match(**parameters, readonly: true)
