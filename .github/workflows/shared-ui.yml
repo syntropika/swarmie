@@ -72,8 +72,8 @@ jobs:
       - name: Verify shared policy and TypeScript contracts
         run: |
           bun run check:ui
-          bun run lint
           bun run typecheck
+          bun run lint
           bun run test
       - name: Verify and bundle mobile client
         run: |
