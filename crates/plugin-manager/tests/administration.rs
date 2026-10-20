@@ -75,6 +75,9 @@ fn independent_registry_provider_requires_no_manager_changes() {
         )
         .await
         .unwrap();
+        manager
+            .approve_trusted_source(&proof, "local".into())
+            .unwrap();
         assert!(matches!(
             manager
                 .source_request::<_, SearchResult>(
@@ -122,6 +125,9 @@ fn capability_refusal_precedes_effects_and_sqlite_survives_restart() {
         let host = Host::with_driver(RUNTIME_HOST, "supervisor", driver.clone()).unwrap();
         let manager = PluginManager::start(host.clone(), driver.clone(), &database, proof.clone())
             .await
+            .unwrap();
+        manager
+            .approve_trusted_source(&proof, "local".into())
             .unwrap();
         let local = host
             .get(PluginAdministration, PluginAdministrationInput {})
@@ -275,6 +281,9 @@ fn advertised_source_operation_must_match_canonical_schema_before_invocation() {
         )
         .await
         .unwrap();
+        manager
+            .approve_trusted_source(&proof, "local".into())
+            .unwrap();
         let refused = manager
             .source_request::<_, SearchResult>(
                 &proof,

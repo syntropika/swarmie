@@ -49,6 +49,8 @@
     "oxfmt": "0.70.0",
     "oxlint": "1.85.0",
     "oxlint-tsgolint": "7.0.2002",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "tailwindcss": "4.3.3",
     "typescript": "7.0.2",
     "ultracite": "7.12.0"

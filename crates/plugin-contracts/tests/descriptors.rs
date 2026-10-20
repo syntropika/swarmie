@@ -11,12 +11,15 @@ fn roundtrip(token: impl ContractToken) {
 #[test]
 fn all_authored_contracts_construct_and_reparse() {
     roundtrip(Counter);
+    roundtrip(PluginConfiguration);
     roundtrip(RemoteCounter);
     roundtrip(DynamicConsumer);
     roundtrip(PluginSourceSchema);
     roundtrip(PluginAdministration);
     roundtrip(RemotePluginAdministration);
     roundtrip(UiContributions);
+    roundtrip(BrowserAccess);
+    roundtrip(RemoteBrowserAccess);
 }
 
 #[test]
@@ -113,4 +116,44 @@ fn browser_package_reads_have_bounded_wire_schemas_and_metadata_excludes_file_by
             assert!(!fields.contains_key("files") && !fields.contains_key("package"));
         }
     }
+}
+
+#[test]
+fn browser_access_descriptors_have_only_session_scoped_grants_and_no_mutations() {
+    use tembra::contracts::{Member, ValueSchema};
+
+    for contract in [
+        BrowserAccess.descriptor().unwrap(),
+        RemoteBrowserAccess.descriptor().unwrap(),
+    ] {
+        for members in contract.descriptor().variants.values() {
+            assert_eq!(
+                members
+                    .keys()
+                    .cloned()
+                    .collect::<std::collections::BTreeSet<_>>(),
+                std::collections::BTreeSet::from([
+                    "inventory".into(),
+                    "active_package".into(),
+                    "read_package_file".into(),
+                    "report_browser".into()
+                ])
+            );
+            for member in members.values() {
+                let Member::Method {
+                    args: Some(ValueSchema::Portable(args)),
+                    ..
+                } = member
+                else {
+                    panic!("browser access must not hydrate state")
+                };
+                let required = args["required"].as_array().unwrap();
+                assert!(required.iter().any(|field| field == "grant"));
+                assert!(required.iter().any(|field| field == "session_id"));
+                assert!(args["properties"].get("proof").is_none());
+            }
+        }
+    }
+    let grant = BrowserGrant::new("private-browser-material".into());
+    assert_eq!(format!("{grant:?}"), "BrowserGrant([redacted])");
 }

@@ -3,6 +3,12 @@ export default {
   outDir: "target/plugins",
   tsconfig: "examples/plugins/tsconfig.json",
   builds: {
+    "partial-install": {
+      entry: "examples/plugins/partial-install.ts",
+      platform: "server",
+      export: "first",
+    },
+    "alternative-counter": { entry: "examples/plugins/alternative-counter.ts", platform: "server" },
     "dynamic-consumer-v1": { entry: "examples/plugins/dynamic-consumer-v1.ts", platform: "server" },
     "dynamic-consumer-v2": { entry: "examples/plugins/dynamic-consumer-v2.ts", platform: "server" },
     "dynamic-consumer-failing": {

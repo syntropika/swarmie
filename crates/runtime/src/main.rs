@@ -18,10 +18,34 @@ fn main() -> ExitCode {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let Some(command) = arguments.first() else {
-        return Err("usage: swarmie-runtime <serve|inventory|install|activate|update|deactivate|uninstall> <database> <source-directory> [arguments]".into());
+        return Err("usage: swarmie-runtime resolve <application.json> | <serve|composition|inventory|install|activate|update|deactivate|uninstall> <database> <source-directory> [arguments]".into());
     };
+    if command == "resolve" {
+        if arguments.len() != 2 {
+            return Err("usage: swarmie-runtime resolve <application.json>".into());
+        }
+        let application = serde_json::from_slice(&std::fs::read(&arguments[1])?)?;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&swarmie_runtime::resolve_application(&application)?)?
+        );
+        return Ok(());
+    }
     let database = arguments.get(1).ok_or("a database path is required")?;
     let source = arguments.get(2).ok_or("a source directory is required")?;
+    let application = arguments
+        .iter()
+        .position(|argument| argument == "--composition")
+        .map(|index| -> Result<_, Box<dyn std::error::Error>> {
+            if !arguments.iter().any(|argument| argument == "--confirm") {
+                return Err("importing trusted executable composition requires --confirm".into());
+            }
+            let path = arguments
+                .get(index + 1)
+                .ok_or("a composition file is required")?;
+            Ok(serde_json::from_slice(&std::fs::read(path)?)?)
+        })
+        .transpose()?;
     let proof = match std::env::var("SWARMIE_ADMIN_PROOF") {
         Ok(value) => AdminProof::new(value),
         Err(std::env::VarError::NotPresent) => PluginManager::issue_proof(),
@@ -39,11 +63,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     database: PathBuf::from(database),
                     source: PathBuf::from(source),
                     proof: proof.clone(),
+                    application,
                 },
             )
             .await?;
             if let Some(error) = &runtime.recovery_error {
                 eprintln!("cached activation failed; administration remains available: {error}");
+            }
+            for (instance, error) in &runtime.deployment_errors {
+                eprintln!("deployment unavailable for {instance}: {error}");
             }
             let result = async {
                 let manager = &runtime.manager;
@@ -64,6 +92,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                             let _ = tokio::signal::ctrl_c().await;
                         })
                         .await?;
+                        return Ok(());
+                    }
+                    "composition" => {
+                        println!("{}", serde_json::to_string_pretty(&runtime.effective)?);
                         return Ok(());
                     }
                     "inventory" => manager.inventory(&proof)?,

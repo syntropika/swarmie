@@ -11,15 +11,32 @@
     "./browser": {
       "types": "./upstream/browser/index.d.ts",
       "import": "./upstream/browser/index.js"
+    },
+    "./node": {
+      "types": "./upstream/node/index.d.ts",
+      "import": "./upstream/node/index.js"
+    },
+    "./tooling": {
+      "types": "./upstream/tooling/index.d.ts",
+      "import": "./upstream/tooling/index.js"
+    },
+    "./tooling/browser": {
+      "types": "./upstream/tooling/browser.d.ts",
+      "import": "./upstream/tooling/browser.js"
     }
   },
   "dependencies": {
     "@noble/hashes": "2.4.0",
+    "enhanced-resolve": "5.26.0",
     "es-module-lexer": "3.0.3",
+    "jiti": "2.7.0",
+    "json-schema-to-typescript": "16.0.0",
     "jsonc-parser": "3.3.1",
-    "typebox": "1.3.27"
+    "typebox": "1.3.27",
+    "typescript": "5.9.3"
   },
   "engines": {
-    "bun": ">=1.4.3"
+    "bun": ">=1.4.3",
+    "node": ">=22"
   }
 }

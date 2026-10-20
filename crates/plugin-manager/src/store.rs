@@ -25,6 +25,8 @@ impl Store {
         connection.execute_batch(
             "PRAGMA foreign_keys=ON;
              PRAGMA journal_mode=WAL;
+             CREATE TABLE IF NOT EXISTS composition (
+                 singleton INTEGER PRIMARY KEY CHECK(singleton=1), declared TEXT NOT NULL);
              CREATE TABLE IF NOT EXISTS plugin_versions (
                  plugin_id TEXT NOT NULL, version TEXT NOT NULL, package BLOB NOT NULL,
                  PRIMARY KEY(plugin_id, version));
@@ -47,6 +49,28 @@ impl Store {
         })
     }
 
+    pub fn composition(&self) -> Result<Option<serde_json::Value>> {
+        self.with(|connection| {
+            let declared: Option<String> = connection
+                .query_row(
+                    "SELECT declared FROM composition WHERE singleton=1",
+                    [],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            declared
+                .map(|value| serde_json::from_str(&value).map_err(ManagerError::from))
+                .transpose()
+        })
+    }
+
+    pub fn save_composition(&self, composition: &serde_json::Value) -> Result<()> {
+        self.with(|connection| {
+            connection.execute("INSERT INTO composition(singleton,declared) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET declared=excluded.declared", [serde_json::to_string(composition)?])?;
+            Ok(())
+        })
+    }
+
     pub fn close(&self) -> Result<()> {
         if let Some(connection) = self.connection.borrow_mut().take() {
             connection.close().map_err(|(_, error)| error)?;
@@ -57,6 +81,21 @@ impl Store {
     fn with<T>(&self, f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
         let borrow = self.connection.borrow();
         f(borrow.as_ref().ok_or(ManagerError::Closed)?)
+    }
+
+    pub fn cached_version(&self, id: &str, version: &str) -> Result<Option<AcquiredPackage>> {
+        self.with(|connection| {
+            let bytes: Option<Vec<u8>> = connection
+                .query_row(
+                    "SELECT package FROM plugin_versions WHERE plugin_id=?1 AND version=?2",
+                    params![id, version],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            bytes
+                .map(|bytes| serde_json::from_slice(&bytes).map_err(ManagerError::from))
+                .transpose()
+        })
     }
 
     /// Retains exact approved bytes without changing the installed version selection.

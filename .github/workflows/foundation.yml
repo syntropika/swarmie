@@ -56,3 +56,9 @@ jobs:
         run: |
           just tembra-browser-tools
           just tembra-browser
+      - name: Install the pinned acceptance browser
+        run: |
+          bun add --global agent-browser@0.38.1
+          agent-browser install --with-deps
+      - name: Verify real Browser Host and React plugin lifecycle
+        run: just plugin-browser-check

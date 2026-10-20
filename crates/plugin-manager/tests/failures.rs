@@ -51,6 +51,9 @@ async fn active_node(
     .await
     .unwrap();
     manager
+        .approve_trusted_source(&proof, "local".into())
+        .unwrap();
+    manager
         .record_core(&proof, "swarmie.counter".into(), "0.1.0".into())
         .await
         .unwrap();
@@ -244,5 +247,66 @@ fn portable_argument_and_result_refusals_preserve_native_counter() {
         consumer.core().release();
         counter.core().release();
         host.close().await.unwrap();
+    });
+}
+
+#[test]
+fn persistence_failure_after_retirement_requires_recovery_and_restart_does_not_claim_active() {
+    run(|driver| async move {
+        let directory = tempfile::tempdir().unwrap();
+        let (host, manager, proof) = active_node(driver.clone(), directory.path()).await;
+        let consumer = host
+            .get(DynamicConsumer, DynamicConsumerInput {})
+            .await
+            .unwrap();
+        assert_eq!(consumer.run().await.unwrap(), 1);
+        let database = directory.path().join("admin.sqlite");
+        let connection = rusqlite::Connection::open(&database).unwrap();
+        connection.execute_batch("CREATE TRIGGER fail_retirement BEFORE UPDATE OF observed ON installed_plugins WHEN NEW.observed='\"inactive\"' BEGIN SELECT RAISE(ABORT,'injected retirement recording failure'); END;").unwrap();
+        let error = manager
+            .deactivate(DeactivateRequest {
+                proof: proof.clone(),
+                plugin_id: "dynamic-consumer".into(),
+            })
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, ManagerError::PublicationUnrecorded { .. }),
+            "{error}"
+        );
+        assert!(consumer.run().await.is_err());
+        let inventory = manager.inventory(&proof).unwrap();
+        assert_eq!(
+            inventory
+                .plugins
+                .iter()
+                .find(|plugin| plugin.plugin_id == "dynamic-consumer")
+                .unwrap()
+                .observed,
+            ObservedState::Unavailable
+        );
+        consumer.core().release();
+        host.close().await.unwrap();
+        drop(manager);
+        drop(connection);
+        let fresh = Host::with_driver(RUNTIME_HOST, "supervisor", driver.clone()).unwrap();
+        let restarted = PluginManager::start(fresh.clone(), driver, &database, proof.clone())
+            .await
+            .unwrap();
+        let inventory = restarted.inventory(&proof).unwrap();
+        let plugin = inventory
+            .plugins
+            .iter()
+            .find(|plugin| plugin.plugin_id == "dynamic-consumer")
+            .unwrap();
+        assert_eq!(plugin.desired, DesiredState::Installed);
+        assert_eq!(plugin.observed, ObservedState::Installed);
+        assert!(
+            fresh
+                .get(DynamicConsumer, DynamicConsumerInput {})
+                .await
+                .is_err()
+        );
+        fresh.close().await.unwrap();
     });
 }

@@ -8,8 +8,11 @@ use tembra::{core, prelude::*};
 
 pub use swarmie_plugin_contracts::{CounterInput as Input, RemoteCounterInput};
 
-/// Identity of the compiled facet, also used by administrative inventory.
+/// Logical identity of the compiled plugin package.
 pub const PLUGIN_ID: &str = "swarmie.counter";
+
+/// Executable identity, independent of the logical plugin package.
+pub const FACET_ID: &str = "swarmie.counter.runtime";
 
 /// Creates the compiled Counter facet with an initial value of zero.
 ///
@@ -30,7 +33,7 @@ pub fn facet() -> Result<NativeFacet> {
 /// Returns a Tembra declaration error if registry or facet metadata is invalid.
 pub fn facet_with_initial(initial: u32) -> Result<NativeFacet> {
     let registry = core::Registry::new(CAPABILITY_REGISTRY, core::ConflictPolicy::Error)?;
-    NativeFacet::new(PLUGIN_ID, vec![], move |_, setup| {
+    NativeFacet::new(FACET_ID, vec![], move |_, setup| {
         let registry = registry.clone();
         setup.serve_with_options(
             Counter,

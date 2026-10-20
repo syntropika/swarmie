@@ -18,6 +18,7 @@ type ProviderMethod<T> = T extends (...args: infer Args) => Promise<infer Result
   : never;
 
 type Provider<R> = {
+  readonly variant?: string;
   readonly state: {
     readonly [
       K in Exclude<keyof R, keyof ContractReference> as R[K] extends Readable<unknown> ? K : never
@@ -41,9 +42,6 @@ export function serveGenerated<C extends GeneratedContract<unknown, ContractRefe
   factory: (input: InputOf<C>, self: ObjectDeclaration) => Provider<ReferenceOf<C>>,
   options?: ServeOptions,
 ): void {
-  if (contract.kind !== "local") {
-    throw new Error("Generated provider fixtures require a local contract");
-  }
   // Generated References define the precise provider members above. The pinned SDK's
   // consumer-only tokens omit provider inference. Dispatch only its actual serve method;
   // Tembra validates the canonical descriptor, factory members, State and operation results.

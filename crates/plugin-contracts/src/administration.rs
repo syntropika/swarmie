@@ -204,11 +204,13 @@ pub enum DesiredState {
 }
 
 /// Sanitized server and administrative availability on the connected node.
-/// Browser execution is reported separately for each browser session.
+/// Browser execution is reported separately for each browser session. Inactive concerns
+/// logical admission; lingering physical execution remains explicit in operation diagnostics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(crate = "tembra::serde", rename_all = "snake_case")]
 #[schemars(crate = "tembra::schemars")]
 pub enum ObservedState {
+    Blocked,
     Installed,
     Active,
     Inactive,
@@ -266,7 +268,7 @@ pub enum OperationStatus {
     Interrupted,
 }
 
-/// Durable operation evidence; an empty error denotes no recorded error.
+/// Durable operation evidence; diagnostics can retain lingering physical work after logical success.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]

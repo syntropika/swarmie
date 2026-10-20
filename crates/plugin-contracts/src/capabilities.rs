@@ -55,3 +55,27 @@ pub trait UiContributions {
     #[state]
     fn contributions(&self) -> Vec<UiRegistryMetadata>;
 }
+
+/// Selects immutable effective application configuration for one configured plugin package.
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    tembra::serde::Serialize,
+    tembra::serde::Deserialize,
+    tembra::schemars::JsonSchema,
+)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct PluginConfigurationInput {
+    pub plugin_id: String,
+}
+
+/// Read-only projection of the selected application configuration for the current Host.
+/// The application owns durable intent; each provider validates its own configuration schema.
+#[tembra::contract(local, name = "swarmie.plugin-configuration", version = 1, input = PluginConfigurationInput)]
+pub trait PluginConfiguration {
+    #[portable]
+    async fn read(&self) -> Result<tembra::serde_json::Value>;
+}

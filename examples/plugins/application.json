@@ -1,0 +1,59 @@
+{
+  "composition": {
+    "schema_version": 1,
+    "profile": {
+      "id": "counter-example",
+      "bundles": ["foundation"],
+      "plugins": [
+        {
+          "id": "consumer",
+          "plugin": "dynamic-consumer",
+          "version": "1.0.0",
+          "provider": "local"
+        }
+      ],
+      "overrides": [
+        {
+          "id": "counter",
+          "plugin": "alternative-counter",
+          "version": "1.0.0",
+          "provider": "local",
+          "config": { "initial": 10 }
+        }
+      ]
+    },
+    "bundles": {
+      "foundation": {
+        "plugins": [
+          {
+            "id": "source",
+            "plugin": "swarmie.local-plugin-source",
+            "version": "0.1.0"
+          },
+          {
+            "id": "counter",
+            "plugin": "swarmie.counter",
+            "version": "0.1.0"
+          }
+        ]
+      }
+    }
+  },
+  "releases": [
+    {
+      "plugin": "alternative-counter",
+      "version": "1.0.0",
+      "kind": "dynamic",
+      "facets": [{ "id": "alternative-counter", "target": "server" }],
+      "provides": [{ "contract": "swarmie.counter", "version": 1 }]
+    },
+    {
+      "plugin": "dynamic-consumer",
+      "version": "1.0.0",
+      "kind": "dynamic",
+      "facets": [{ "id": "dynamic-consumer", "target": "server" }],
+      "provides": [{ "contract": "swarmie.dynamic-consumer", "version": 1 }],
+      "requires": [{ "contract": "swarmie.counter", "version": 1 }]
+    }
+  ]
+}

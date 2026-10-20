@@ -19,6 +19,11 @@ impl PluginManager {
     pub(crate) fn snapshot(&self) -> Result<Inventory> {
         let mut plugins = self.cores.borrow().clone();
         for plugin in self.storage()?.all()? {
+            if plugins.iter().any(|core| {
+                core.kind == PluginKind::Core && core.plugin_id == plugin.package.manifest.id
+            }) {
+                continue;
+            }
             plugins.push(PluginRecord {
                 plugin_id: plugin.package.manifest.id,
                 version: plugin.package.manifest.version,
@@ -39,6 +44,15 @@ impl PluginManager {
                 .find(|plugin| plugin.plugin_id == observation.plugin_id)
             {
                 *plugin = observation.clone();
+            }
+        }
+        for plugin in &mut plugins {
+            if plugin.desired == DesiredState::Active
+                && !self.uncertain.borrow().contains_key(&plugin.plugin_id)
+                && let Some((observed, errors)) = self.reference_observation(&plugin.plugin_id)
+            {
+                plugin.observed = observed;
+                plugin.errors.extend(errors);
             }
         }
         let mut providers = BTreeMap::<String, ProviderRecord>::new();
@@ -203,11 +217,9 @@ impl PluginManager {
         } else {
             OperationStatus::Failed
         };
-        operation.error = result
-            .as_ref()
-            .err()
-            .map(ToString::to_string)
-            .unwrap_or_default();
+        if let Err(error) = &result {
+            operation.error = error.to_string();
+        }
         self.storage()?.operation(&operation)?;
         result?;
         self.snapshot()
@@ -222,15 +234,33 @@ impl PluginManager {
                 .find(|core| core.plugin_id == dependency.id)
                 .map(|core| core.version.clone());
             let (version, available) = if let Some(version) = version {
-                (version, true)
+                (
+                    version,
+                    self.reference_observation(&dependency.id)
+                        .is_none_or(|(state, _)| state == ObservedState::Active),
+                )
             } else {
+                if self
+                    .composition_selection
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|selected| !selected.contains(&dependency.id))
+                {
+                    return Err(ManagerError::Dependency(format!(
+                        "{} is outside the selected composition",
+                        dependency.id
+                    )));
+                }
                 let installed = self
                     .storage()?
                     .load(&dependency.id)?
                     .ok_or_else(|| ManagerError::Dependency(dependency.id.clone()))?;
                 (
                     installed.package.manifest.version,
-                    installed.observed == ObservedState::Active,
+                    self.reference_observation(&dependency.id)
+                        .map_or(installed.observed == ObservedState::Active, |(state, _)| {
+                            state == ObservedState::Active
+                        }),
                 )
             };
             let requirement = semver::VersionReq::parse(&dependency.version)
@@ -246,20 +276,29 @@ impl PluginManager {
 
     pub(crate) fn admission(&self, package: &AcquiredPackage) -> Result<()> {
         let manifest = &package.manifest;
-        for core in self.cores.borrow().iter() {
-            if manifest.id == core.plugin_id
-                || manifest
-                    .facets
-                    .iter()
-                    .any(|facet| facet.id == core.plugin_id)
+        if self
+            .cores
+            .borrow()
+            .iter()
+            .any(|core| manifest.id == core.plugin_id)
+        {
+            return Err(ManagerError::CorePlugin(manifest.id.clone()));
+        }
+        for (owner, owned) in self.core_facets.borrow().iter() {
+            if manifest
+                .facets
+                .iter()
+                .any(|facet| owned.contains(&facet.id))
             {
-                return Err(ManagerError::CorePlugin(core.plugin_id.clone()));
+                return Err(ManagerError::CorePlugin(owner.clone()));
             }
         }
         let version = semver::Version::parse(&manifest.version)
             .map_err(|error| ManagerError::InvalidPackage(error.to_string()))?;
         for plugin in self.storage()?.all()? {
-            if plugin.package.manifest.id == manifest.id {
+            if plugin.package.manifest.id == manifest.id
+                || !self.composition_candidate_relevant(&plugin.package.manifest.id)
+            {
                 continue;
             }
             if manifest.facets.iter().any(|facet| {
@@ -297,6 +336,9 @@ impl PluginManager {
         id: &str,
         version: &str,
     ) -> Result<AcquiredPackage> {
+        if !self.trusted_sources.borrow().contains(provider) {
+            return Err(ManagerError::UntrustedSource(provider.into()));
+        }
         let exact = semver::Version::parse(version).ok();
         let requested = semver::VersionReq::parse(version)
             .map_err(|error| ManagerError::InvalidPackage(error.to_string()))?;
@@ -357,7 +399,9 @@ impl PluginManager {
             ));
         }
         validate_package(&package)?;
-        self.dependencies(&package, false)?;
+        if self.composition_selection.borrow().is_none() {
+            self.dependencies(&package, false)?;
+        }
         self.admission(&package)?;
         Ok(package)
     }

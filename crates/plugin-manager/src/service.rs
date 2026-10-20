@@ -105,6 +105,105 @@ impl PluginAdministrationProvider for Administration {
     }
 }
 
+struct BrowserAdministration {
+    manager: Weak<PluginManager>,
+}
+impl BrowserAdministration {
+    fn manager(&self) -> Result<Rc<PluginManager>> {
+        self.manager
+            .upgrade()
+            .ok_or_else(|| RuntimeError::invalid("supervisor", "supervisor closed"))
+    }
+}
+impl BrowserAccessProvider for BrowserAdministration {
+    async fn inventory(
+        &self,
+        request: BrowserInventoryRequest,
+        _context: Context,
+    ) -> Result<BrowserInventory> {
+        self.manager()?
+            .browser_inventory(request)
+            .map_err(ManagerError::into_runtime)
+    }
+    async fn active_package(
+        &self,
+        request: BrowserActivePackageRequest,
+        _context: Context,
+    ) -> Result<ActivePackage> {
+        self.manager()?
+            .browser_active_package(request)
+            .map_err(ManagerError::into_runtime)
+    }
+    async fn read_package_file(
+        &self,
+        request: BrowserReadPackageFileRequest,
+        _context: Context,
+    ) -> Result<ReadPackageFileResult> {
+        self.manager()?
+            .browser_read_package_file(request)
+            .map_err(ManagerError::into_runtime)
+    }
+    async fn report_browser(
+        &self,
+        request: BrowserReportRequest,
+        _context: Context,
+    ) -> Result<BrowserInventory> {
+        self.manager()?
+            .browser_report(request)
+            .map_err(ManagerError::into_runtime)
+    }
+}
+
+struct RemoteBrowser {
+    manager: Weak<PluginManager>,
+}
+impl RemoteBrowserAccessProvider for RemoteBrowser {
+    async fn inventory(
+        &self,
+        request: BrowserInventoryRequest,
+        _context: Context,
+    ) -> Result<BrowserInventory> {
+        self.manager
+            .upgrade()
+            .ok_or_else(|| RuntimeError::invalid("supervisor", "supervisor closed"))?
+            .browser_inventory(request)
+            .map_err(ManagerError::into_runtime)
+    }
+    async fn active_package(
+        &self,
+        request: BrowserActivePackageRequest,
+        _context: Context,
+    ) -> Result<ActivePackage> {
+        self.manager
+            .upgrade()
+            .ok_or_else(|| RuntimeError::invalid("supervisor", "supervisor closed"))?
+            .browser_active_package(request)
+            .map_err(ManagerError::into_runtime)
+    }
+    async fn read_package_file(
+        &self,
+        request: BrowserReadPackageFileRequest,
+        _context: Context,
+    ) -> Result<ReadPackageFileResult> {
+        self.manager
+            .upgrade()
+            .ok_or_else(|| RuntimeError::invalid("supervisor", "supervisor closed"))?
+            .browser_read_package_file(request)
+            .map_err(ManagerError::into_runtime)
+    }
+    async fn report_browser(
+        &self,
+        request: BrowserReportRequest,
+        _context: Context,
+    ) -> Result<BrowserInventory> {
+        self.manager
+            .upgrade()
+            .ok_or_else(|| RuntimeError::invalid("supervisor", "supervisor closed"))?
+            .browser_report(request)
+            .map_err(ManagerError::into_runtime)
+    }
+}
+
 struct RemoteAdministration {
     local: PluginAdministrationRef,
 }
@@ -214,6 +313,18 @@ pub(crate) fn facet(manager: Weak<PluginManager>) -> Result<NativeFacet> {
                 ..Default::default()
             },
         )?;
+        let browser_owner = manager.clone();
+        setup.serve(BrowserAccess, move |_, _, _| {
+            Ok(BrowserAdministration {
+                manager: browser_owner.clone(),
+            })
+        })?;
+        let remote_owner = manager.clone();
+        setup.serve(RemoteBrowserAccess, move |_, _, _| {
+            Ok(RemoteBrowser {
+                manager: remote_owner.clone(),
+            })
+        })?;
         setup.serve(RemotePluginAdministration, |_, _, declaration| {
             Ok(RemoteAdministration {
                 local: declaration.get(PluginAdministration, PluginAdministrationInput {})?,

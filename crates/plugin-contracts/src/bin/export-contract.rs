@@ -19,6 +19,7 @@ trait IncompatibleDynamicConsumer {
 fn descriptors() -> tembra::Result<Vec<(&'static str, std::rc::Rc<Contract>)>> {
     Ok(vec![
         ("counter", Counter.descriptor()?),
+        ("plugin-configuration", PluginConfiguration.descriptor()?),
         ("remote-counter", RemoteCounter.descriptor()?),
         ("dynamic-consumer", DynamicConsumer.descriptor()?),
         ("plugin-source", PluginSourceSchema.descriptor()?),
@@ -28,6 +29,8 @@ fn descriptors() -> tembra::Result<Vec<(&'static str, std::rc::Rc<Contract>)>> {
             RemotePluginAdministration.descriptor()?,
         ),
         ("ui-contributions", UiContributions.descriptor()?),
+        ("browser-access", BrowserAccess.descriptor()?),
+        ("remote-browser-access", RemoteBrowserAccess.descriptor()?),
     ])
 }
 

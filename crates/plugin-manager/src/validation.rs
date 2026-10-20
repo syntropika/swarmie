@@ -100,6 +100,16 @@ pub(crate) fn validate_package(package: &AcquiredPackage) -> Result<()> {
         }
         let text = std::str::from_utf8(&file.bytes)
             .map_err(|error| ManagerError::InvalidPackage(error.to_string()))?;
+        if facet.format == FacetFormat::NativeEsm {
+            if facet.target != FacetTarget::Browser {
+                return Err(ManagerError::InvalidPackage(
+                    "native ESM facets require a Browser Host".into(),
+                ));
+            }
+            // Browser Host validates the module and selected export at execution admission.
+            // UTF-8 and manifest integrity are verified here without evaluating trusted code.
+            continue;
+        }
         let artifact = BundledJsArtifact::from_json(text)?;
         if !artifact
             .exports()
@@ -206,6 +216,19 @@ mod tests {
             validate_package(&invalid),
             Err(ManagerError::Runtime(_))
         ));
+    }
+
+    #[test]
+    fn native_browser_modules_cannot_be_admitted_as_embedded_server_facets() {
+        let mut candidate = package();
+        candidate.manifest.facets[0].format = FacetFormat::NativeEsm;
+        assert!(matches!(
+            validate_package(&candidate),
+            Err(ManagerError::InvalidPackage(_))
+        ));
+        candidate.manifest.facets[0].target = FacetTarget::Browser;
+        // Exact byte integrity is checked here; Browser Host owns module/export validation.
+        assert!(validate_package(&candidate).is_ok());
     }
 
     #[test]

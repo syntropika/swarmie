@@ -116,6 +116,19 @@ impl LocalSource {
         }
         let mut result = vec![];
         visit(&self.root, &mut result, 0)?;
+        result.sort_by(|left, right| {
+            (&left.1.id, &left.1.version).cmp(&(&right.1.id, &right.1.version))
+        });
+        for releases in result.windows(2) {
+            if releases[0].1.id == releases[1].1.id
+                && releases[0].1.version == releases[1].1.version
+            {
+                return Err(ManagerError::InvalidPackage(format!(
+                    "source has duplicate release {}@{}",
+                    releases[0].1.id, releases[0].1.version
+                )));
+            }
+        }
         Ok(result)
     }
 
@@ -227,5 +240,40 @@ impl LocalPluginSourceProvider for LocalSource {
     async fn acquire(&self, request: AcquireRequest, _context: Context) -> Result<AcquiredPackage> {
         self.acquire_package(request)
             .map_err(ManagerError::into_runtime)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn duplicate_release_identity_is_refused_independently_of_directory_order() {
+        let manifest = serde_json::json!({
+            "schema_version":1,"id":"duplicate","version":"1.0.0",
+            "compatibility":{"swarmie":"^0.1.0","tembra_revision":TEMBRA_REVISION},
+            "dependencies":[],"facets":[],"files":[],"ui":[],
+            "distribution":{"provider":"local","description":"Duplicate release conflict"}
+        });
+        for names in [["first", "second"], ["second", "first"]] {
+            let root = tempfile::tempdir().unwrap();
+            for name in names {
+                let package = root.path().join(name);
+                fs::create_dir(&package).unwrap();
+                fs::write(
+                    package.join("manifest.json"),
+                    serde_json::to_vec(&manifest).unwrap(),
+                )
+                .unwrap();
+            }
+            let error = LocalSource::new("local", root.path())
+                .find("duplicate", "1.0.0")
+                .err()
+                .unwrap();
+            assert_eq!(
+                error.to_string(),
+                "invalid package: source has duplicate release duplicate@1.0.0"
+            );
+        }
     }
 }

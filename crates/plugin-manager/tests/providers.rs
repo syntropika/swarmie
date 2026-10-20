@@ -1,4 +1,6 @@
-use std::path::PathBuf;
+use std::{cell::RefCell, path::PathBuf, rc::Rc};
+
+use futures::channel::oneshot;
 
 use swarmie_plugin_contracts::*;
 use swarmie_plugin_manager::PluginManager;
@@ -16,8 +18,14 @@ trait MemorySource {
     async fn acquire(&self, request: AcquireRequest) -> Result<AcquiredPackage>;
 }
 
+struct AcquisitionBarrier {
+    started: RefCell<Option<oneshot::Sender<()>>>,
+    released: RefCell<Option<oneshot::Receiver<()>>>,
+}
+
 struct MemoryProvider {
     package: AcquiredPackage,
+    acquisition: Option<Rc<AcquisitionBarrier>>,
 }
 
 impl MemorySourceProvider for MemoryProvider {
@@ -52,13 +60,42 @@ impl MemorySourceProvider for MemoryProvider {
         {
             return Err(RuntimeError::invalid("release", "release not found"));
         }
+        if let Some(barrier) = &self.acquisition {
+            let entered = barrier
+                .started
+                .borrow_mut()
+                .take()
+                .expect("acquire starts once");
+            entered
+                .send(())
+                .expect("the test observes actual provider entry");
+            let released = barrier
+                .released
+                .borrow_mut()
+                .take()
+                .expect("one pending acquire");
+            released.await.map_err(|_| {
+                RuntimeError::aborted(
+                    "acquisition_interrupted",
+                    "the acquisition boundary was closed",
+                )
+            })?;
+        }
         Ok(self.package.clone())
     }
 }
 
 fn memory_facet(package: AcquiredPackage) -> Result<NativeFacet> {
+    memory_facet_with_barrier(package, None)
+}
+
+fn memory_facet_with_barrier(
+    package: AcquiredPackage,
+    acquisition: Option<Rc<AcquisitionBarrier>>,
+) -> Result<NativeFacet> {
     NativeFacet::new("test.memory-package-source", vec![], move |_, setup| {
         let package = package.clone();
+        let acquisition = acquisition.clone();
         setup.serve_with_options(
             MemorySource,
             move |_, _, declaration| {
@@ -81,6 +118,7 @@ fn memory_facet(package: AcquiredPackage) -> Result<NativeFacet> {
                 }
                 Ok(MemoryProvider {
                     package: package.clone(),
+                    acquisition: acquisition.clone(),
                 })
             },
             core::ServeOptions {
@@ -142,6 +180,9 @@ fn independent_memory_provider_installs_real_artifacts_through_generic_registry_
             .await
             .unwrap();
             manager
+                .approve_trusted_source(&proof, "local".into())
+                .unwrap();
+            manager
                 .record_core(&proof, "swarmie.counter".into(), "0.1.0".into())
                 .await
                 .unwrap();
@@ -152,6 +193,21 @@ fn independent_memory_provider_installs_real_artifacts_through_generic_registry_
             .unwrap()
             .await
             .unwrap();
+            assert!(matches!(
+                manager
+                    .install(InstallRequest {
+                        proof: proof.clone(),
+                        provider_id: "memory".into(),
+                        plugin_id: "dynamic-consumer".into(),
+                        version: "1.0.0".into(),
+                        confirmed: true
+                    })
+                    .await,
+                Err(swarmie_plugin_manager::ManagerError::UntrustedSource(_))
+            ));
+            manager
+                .approve_trusted_source(&proof, "memory".into())
+                .unwrap();
             let invalid = manager
                 .install(InstallRequest {
                     proof: proof.clone(),
@@ -207,5 +263,135 @@ fn independent_memory_provider_installs_real_artifacts_through_generic_registry_
             assert_eq!(consumer.run().await.unwrap(), 1);
             consumer.core().release();
             host.close().await.unwrap();
+        }));
+}
+
+#[test]
+fn dropping_pending_acquisition_retains_running_evidence_until_fresh_host_recovery() {
+    use std::{future::Future, task::Poll};
+
+    use swarmie_plugin_manager::ManagerError;
+
+    let driver = TokioDriver::new();
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(driver.run_until(async {
+            let directory = tempfile::tempdir().unwrap();
+            let database = directory.path().join("admin.sqlite");
+            let proof = PluginManager::issue_proof();
+            let (entered, mut started) = oneshot::channel();
+            let (release, released) = oneshot::channel();
+            let barrier = Rc::new(AcquisitionBarrier {
+                started: RefCell::new(Some(entered)),
+                released: RefCell::new(Some(released)),
+            });
+            let host = Host::with_driver(RUNTIME_HOST, "supervisor", driver.clone()).unwrap();
+            let manager =
+                PluginManager::start(host.clone(), driver.clone(), &database, proof.clone())
+                    .await
+                    .unwrap();
+            manager
+                .approve_trusted_source(&proof, "memory".into())
+                .unwrap();
+            host.install(
+                memory_facet_with_barrier(package(), Some(barrier)).unwrap(),
+                core::LoadOptions::default(),
+            )
+            .unwrap()
+            .await
+            .unwrap();
+            let mut installation = Box::pin(manager.install(InstallRequest {
+                proof: proof.clone(),
+                provider_id: "memory".into(),
+                plugin_id: "dynamic-consumer".into(),
+                version: "1.0.0".into(),
+                confirmed: true,
+            }));
+            // Drive actual source dispatch until Acquire confirms entry, rather than inferring
+            // progress from elapsed time or assuming a single poll reaches the provider.
+            futures::future::poll_fn(|context| {
+                assert!(installation.as_mut().poll(context).is_pending());
+                match std::pin::Pin::new(&mut started).poll(context) {
+                    Poll::Ready(result) => {
+                        result.expect("Acquire reached its pending boundary");
+                        Poll::Ready(())
+                    }
+                    Poll::Pending => Poll::Pending,
+                }
+            })
+            .await;
+            let running = manager.inventory(&proof).unwrap();
+            let operation = running.operations.last().unwrap();
+            let operation_id = operation.id.clone();
+            assert_eq!(operation.operation, AdminOperation::Install);
+            assert_eq!(operation.status, OperationStatus::Running);
+            assert!(
+                running
+                    .plugins
+                    .iter()
+                    .all(|plugin| plugin.kind == PluginKind::Core)
+            );
+            assert!(
+                host.get(DynamicConsumer, DynamicConsumerInput {})
+                    .await
+                    .is_err()
+            );
+            drop(installation);
+            let retained = manager.inventory(&proof).unwrap();
+            assert_eq!(
+                retained.operations.last().unwrap().status,
+                OperationStatus::Running
+            );
+            assert!(matches!(
+                manager
+                    .configure_provider(ConfigureProviderRequest {
+                        proof: proof.clone(),
+                        provider_id: "memory".into(),
+                        configuration: serde_json::json!({}),
+                    })
+                    .await,
+                Err(ManagerError::RecoveryRequired)
+            ));
+            // Closing the barrier lets any physically retained source invocation settle. Dropping
+            // its administrative observer was not treated as proof of rollback or termination.
+            drop(release);
+            host.close().await.unwrap();
+            drop(manager);
+            let fresh_host = Host::with_driver(RUNTIME_HOST, "supervisor", driver.clone()).unwrap();
+            let restarted =
+                PluginManager::start(fresh_host.clone(), driver.clone(), &database, proof.clone())
+                    .await
+                    .unwrap();
+            let recovered = restarted.recover(&proof).await.unwrap();
+            let interrupted = recovered
+                .operations
+                .iter()
+                .find(|operation| operation.id == operation_id)
+                .unwrap();
+            assert_eq!(interrupted.status, OperationStatus::Interrupted);
+            assert!(interrupted.error.contains("external effects are unknown"));
+            assert!(
+                recovered
+                    .plugins
+                    .iter()
+                    .all(|plugin| plugin.kind == PluginKind::Core)
+            );
+            assert!(
+                fresh_host
+                    .get(DynamicConsumer, DynamicConsumerInput {})
+                    .await
+                    .is_err()
+            );
+            restarted
+                .configure_provider(ConfigureProviderRequest {
+                    proof: proof.clone(),
+                    provider_id: "memory".into(),
+                    configuration: serde_json::json!({}),
+                })
+                .await
+                .unwrap();
+            fresh_host.close().await.unwrap();
         }));
 }

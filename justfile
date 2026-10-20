@@ -116,8 +116,14 @@ tembra-tooling-test:
 
 foundation-check: tembra-contracts-check tembra-tooling-test tembra-plugins rust-check
     bunx tsc --noEmit -p examples/plugins/tsconfig.json
+    bunx tsc --noEmit -p examples/plugins/browser/tsconfig.json
+    bunx tsc --noEmit -p scripts/tembra/tsconfig.json
 
 # The checked browser ABI must match the dependency's pinned wasm-bindgen version.
 tembra-browser-tools:
     rustup target add wasm32-unknown-unknown --toolchain {{rust_version}}
     cargo +{{rust_version}} install wasm-bindgen-cli --version 0.2.129 --locked
+
+# Real Browser Host ESM, React, managed contribution and server RPC acceptance.
+plugin-browser-check: tembra-browser
+    bun examples/plugins/browser/check.ts

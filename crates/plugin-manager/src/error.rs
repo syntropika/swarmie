@@ -22,10 +22,16 @@ pub enum ManagerError {
     NotInstalled(String),
     #[error("compiled core plugins cannot be modified: {0}")]
     CorePlugin(String),
+    #[error("source provider is not approved by the supervisor: {0}")]
+    UntrustedSource(String),
     #[error("source provider operation unavailable: {provider}/{operation}")]
     SourceUnavailable { provider: String, operation: String },
     #[error("source provider schema differs from its advertised operation: {provider}/{operation}")]
     SourceSchema { provider: String, operation: String },
+    #[error(
+        "plugin lifecycle is managed by the declared composition; replace and reconcile the composition instead"
+    )]
+    CompositionManaged,
     #[error("another administrative operation is in progress")]
     Busy,
     #[error(

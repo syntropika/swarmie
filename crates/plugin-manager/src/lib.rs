@@ -5,15 +5,23 @@
 
 mod administration;
 mod browser;
+mod browser_access;
+mod composition;
+mod core_plugins;
 mod error;
 mod lifecycle;
 mod manager;
+mod observations;
+mod policy;
+mod recovery;
 mod service;
 mod source;
+mod staging;
 mod store;
 mod validation;
 
 pub use browser::MAX_PACKAGE_CHUNK_BYTES;
+pub use composition::CompositionGuard;
 pub use error::{ManagerError, Result};
 pub use manager::PluginManager;
 pub use source::LocalSource;

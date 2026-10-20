@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+swarmie-composition = { path = "../composition" }
 swarmie-counter = { path = "../counter" }
 swarmie-plugin-contracts = { path = "../plugin-contracts" }
 swarmie-plugin-manager = { path = "../plugin-manager" }
@@ -15,6 +16,7 @@ futures.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
 serde_json.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

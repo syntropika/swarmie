@@ -11,7 +11,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-REVISION = "377fd3f61dae2e58a1a0358377fdf9d651d00b54"
+REVISION = "c394ec1f358a5054926f03409ac21f94d028617b"
 SOURCE = "https://github.com/syntropika/tembra.git"
 BUN_VERSION = "1.4.3"
 RUST_VERSION = "1.99.0"
@@ -67,30 +67,26 @@ def bootstrap():
     check_tools()
     source = checkout()
     run(["bun", "install", "--frozen-lockfile"], cwd=source)
-    run(["bun", "run", "--bun", "--sequential", "--filter", "@tembra/sdk", "--filter", "@tembra/tooling", "build"], cwd=source)
-    run(["bun", "run", "--filter", "@tembra/tooling", "build:binary"], cwd=source)
+    run(["bun", "run", "--filter", "@tembra/sdk", "build"], cwd=source)
     files = inventory(source / "packages/sdk/dist/src")
-    files["tooling-binary"] = digest(source / "packages/tooling/dist/bin/tembra")
     write_json(CACHE / "build.json", {"source": SOURCE, "revision": REVISION, "bun": BUN_VERSION,
                                     "files": files})
-    print(source / "packages/tooling/dist/bin/tembra")
+    print(source / "packages/sdk/dist/src/tooling/index.js")
 
 
-def cli():
+def built_sdk():
     source = checkout()
     record = json.loads((CACHE / "build.json").read_text())
     if record["revision"] != REVISION or record["source"] != SOURCE or record["bun"] != BUN_VERSION:
         raise RuntimeError("Tembra bootstrap provenance differs")
     actual = inventory(source / "packages/sdk/dist/src")
-    executable = source / "packages/tooling/dist/bin/tembra"
-    actual["tooling-binary"] = digest(executable)
     if actual != record["files"]:
         raise RuntimeError("Tembra generated SDK or tooling integrity differs; rebuild explicitly")
-    return executable
+    return source / "packages/sdk/dist/src/tooling/index.js"
 
 
 def project_sdk():
-    cli()
+    built_sdk()
     source = CHECKOUT / "packages/sdk"
     upstream = SDK / "upstream"
     upstream.mkdir(parents=True, exist_ok=True)
@@ -126,10 +122,15 @@ def verify_sdk():
     print("Verified the pinned SDK projection")
 
 
-CONTRACTS = {"counter": "Counter", "dynamic-consumer": "DynamicConsumer"}
+CONTRACTS = {"counter": "Counter", "remote-counter": "RemoteCounter",
+             "dynamic-consumer": "DynamicConsumer",
+             "remote-browser-access": "RemoteBrowserAccess",
+             "plugin-configuration": "PluginConfiguration",
+             "remote-plugin-administration": "RemotePluginAdministration"}
 
 def generate_contracts(verify=False):
-    executable = cli()
+    built_sdk()
+    verify_sdk()
     descriptors = TARGET / "contracts"
     run(["cargo", f"+{RUST_VERSION}", "run", "--locked", "--quiet", "-p", "swarmie-plugin-contracts", "--bin", "export-contract", "--", "--output-dir", descriptors])
     output = TARGET / "fixture-bindings-check" if verify else ROOT / "examples/plugins/generated"
@@ -145,7 +146,7 @@ def generate_contracts(verify=False):
                               "name": "DynamicConsumerV2"})
     path = TARGET / "contracts.config.ts"
     path.write_text("export default " + json.dumps(config, indent=2) + ";\n")
-    run([executable, "build", "--config", path])
+    run(["bun", ROOT / "scripts/tembra/build.ts", path])
     expected = inventory(output)
     if verify:
         if expected != inventory(ROOT / "examples/plugins/generated"):
@@ -158,15 +159,15 @@ def generate_contracts(verify=False):
 
 
 def build_plugins():
-    executable = cli()
-    result = run([executable, "build", "--config", "examples/plugins/tembra.config.ts"], capture=True)
-    paths = {}
-    for line in result.splitlines():
-        name, separator, path = line.partition(": ")
-        if separator:
-            paths[name] = str(Path(path).relative_to(ROOT))
+    built_sdk()
+    verify_sdk()
+    result = run(["bun", ROOT / "scripts/tembra/build.ts",
+                  "examples/plugins/tembra.config.ts"], capture=True)
+    paths = {name: str(Path(path).relative_to(ROOT))
+             for name, path in json.loads(result).items()}
     write_json(ROOT / "target/plugins/artifacts.json", paths)
     package_fixtures(paths)
+    run(["bun", ROOT / "examples/plugins/browser/build.ts"])
     print(json.dumps(paths, indent=2))
 
 
@@ -178,8 +179,10 @@ def package_fixtures(paths):
                 ("dynamic-consumer-invalid-result", "1.5.0"),
                 ("dynamic-consumer-invalid-argument", "1.6.0"),
                 ("dynamic-consumer-incompatible", "1.7.0")]
+    releases.append(("alternative-counter", "1.0.0"))
     for target, version in releases:
-        destination = ROOT / "target/fixtures/dynamic-consumer" / version
+        plugin_id = "alternative-counter" if target == "alternative-counter" else "dynamic-consumer"
+        destination = ROOT / "target/fixtures" / plugin_id / version
         destination.mkdir(parents=True, exist_ok=True)
         artifact = destination / "artifact.json"
         shutil.copyfile(ROOT / paths[target], artifact)
@@ -188,13 +191,13 @@ def package_fixtures(paths):
             raise RuntimeError("The genuine tooling artifact failed source integrity verification")
         sha256 = digest(artifact)
         write_json(destination / "manifest.json", {
-            "schema_version": 1, "id": "dynamic-consumer", "version": version,
+            "schema_version": 1, "id": plugin_id, "version": version,
             "compatibility": {"swarmie": "^0.1.0", "tembra_revision": REVISION},
-            "dependencies": [{"id": "swarmie.counter", "version": "^0.1.0"}],
-            "facets": [{"id": "dynamic-consumer", "target": "server", "artifact_path": "artifact.json",
+            "dependencies": [],
+            "facets": [{"id": plugin_id, "target": "server", "artifact_path": "artifact.json",
                         "sha256": sha256, "selected_export": "default"}],
             "files": [{"path": "artifact.json", "sha256": sha256}],
-            "distribution": {"provider": "local", "description": "Direct native Counter consumer"},
+            "distribution": {"provider": "local", "description": "Contract-based Counter composition acceptance fixture"},
             "ui": []})
 
 
@@ -223,12 +226,12 @@ def verify_browser():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=["bootstrap", "project-sdk", "verify-sdk", "generate-contracts", "verify-contracts", "build-plugins", "browser-wasm", "verify-browser", "cli"])
+    parser.add_argument("operation", choices=["bootstrap", "project-sdk", "verify-sdk", "generate-contracts", "verify-contracts", "build-plugins", "browser-wasm", "verify-browser", "sdk-tooling"])
     args = parser.parse_args()
     operations = {"bootstrap": bootstrap, "project-sdk": project_sdk, "verify-sdk": verify_sdk,
                   "generate-contracts": generate_contracts, "verify-contracts": lambda: generate_contracts(verify=True), "build-plugins": build_plugins,
                   "browser-wasm": browser_wasm,
-                  "verify-browser": verify_browser, "cli": lambda: print(cli())}
+                  "verify-browser": verify_browser, "sdk-tooling": lambda: print(built_sdk())}
     operations[args.operation]()
 
 

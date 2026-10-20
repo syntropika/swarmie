@@ -16,6 +16,7 @@ impl PluginManager {
     /// compatibility and dependency refusals leave installed package selection unchanged.
     pub async fn install(&self, request: InstallRequest) -> Result<Inventory> {
         self.authorize(&request.proof)?;
+        self.require_composition_permission()?;
         if !request.confirmed {
             return Err(ManagerError::ConfirmationRequired);
         }
@@ -89,7 +90,7 @@ impl PluginManager {
         Ok(facets)
     }
 
-    async fn activate_cached(&self, mut plugin: CachedPlugin) -> Result<()> {
+    pub(crate) async fn activate_cached(&self, mut plugin: CachedPlugin) -> Result<()> {
         plugin.desired = DesiredState::Active;
         self.storage()?.save(&plugin)?;
         let result: Result<()> = async {
@@ -105,15 +106,6 @@ impl PluginManager {
         .await;
         match result {
             Ok(()) => {
-                self.loaded.borrow_mut().extend(
-                    plugin
-                        .package
-                        .manifest
-                        .facets
-                        .iter()
-                        .filter(|facet| facet.target == FacetTarget::Server)
-                        .map(|facet| facet.id.clone()),
-                );
                 plugin.observed = if plugin
                     .package
                     .manifest
@@ -156,7 +148,9 @@ impl PluginManager {
     /// admission may have external effects; the durable desired state remains active.
     pub async fn activate(&self, request: ActivateRequest) -> Result<Inventory> {
         self.authorize(&request.proof)?;
+        self.require_composition_permission()?;
         let _guard = self.guard()?;
+        self.fresh_session.set(false);
         let plugin = self.dynamic(&request.plugin_id)?;
         if plugin.desired == DesiredState::Active && !plugin.activation_id.is_empty() {
             return self.snapshot();
@@ -173,13 +167,16 @@ impl PluginManager {
     /// observed failure. A runtime error does not assert rollback of plugin external effects.
     pub async fn update(&self, request: UpdateRequest) -> Result<Inventory> {
         self.authorize(&request.proof)?;
+        self.require_composition_permission()?;
         if !request.confirmed {
             return Err(ManagerError::ConfirmationRequired);
         }
         let _guard = self.guard()?;
+        self.fresh_session.set(false);
         let old = self.dynamic(&request.plugin_id)?;
-        let operation = self.begin(&request.plugin_id, AdminOperation::Update)?;
+        let mut operation = self.begin(&request.plugin_id, AdminOperation::Update)?;
         let mut committed = None;
+        let mut retirement_diagnostic = String::new();
         let result: Result<()> = async {
             let package = self
                 .acquire(
@@ -212,7 +209,8 @@ impl PluginManager {
                     .map(|facet| facet.id.clone())
                     .collect::<Vec<_>>();
                 if !facets.is_empty() || !remove.is_empty() {
-                    self.host
+                    let report = self
+                        .host
                         .core()
                         .reload(
                             facets,
@@ -222,13 +220,10 @@ impl PluginManager {
                             },
                         )
                         .await?;
+                    retirement_diagnostic =
+                        physical_retirement_diagnostic(report.lingering_physical());
                     committed = Some(package.clone());
                 }
-                let mut loaded = self.loaded.borrow_mut();
-                for facet in &old.package.manifest.facets {
-                    loaded.remove(&facet.id);
-                }
-                loaded.extend(next_names);
             }
             let observed = if old.desired == DesiredState::Active {
                 if package
@@ -248,7 +243,7 @@ impl PluginManager {
                 package,
                 desired: old.desired,
                 observed,
-                error: String::new(),
+                error: retirement_diagnostic.clone(),
                 activation_id: if old.desired == DesiredState::Active {
                     uuid::Uuid::new_v4().to_string()
                 } else {
@@ -269,6 +264,9 @@ impl PluginManager {
             }
             (Ok(()), _) => Ok(()),
         };
+        if result.is_ok() {
+            operation.error = retirement_diagnostic;
+        }
         self.finish(operation, result).await
     }
 
@@ -301,11 +299,11 @@ impl PluginManager {
             .manifest
             .facets
             .iter()
-            .filter(|facet| self.loaded.borrow().contains(&facet.id))
+            .filter(|facet| facet.target == FacetTarget::Server)
             .map(|facet| facet.id.clone())
             .collect::<Vec<_>>();
         let result = if remove.is_empty() {
-            Ok(())
+            Ok(String::new())
         } else {
             self.host
                 .core()
@@ -317,15 +315,15 @@ impl PluginManager {
                     },
                 )
                 .await
-                .map(|_| ())
+                .map(|report| physical_retirement_diagnostic(report.lingering_physical()))
                 .map_err(ManagerError::from)
         };
         if result.is_ok() {
-            for facet in &plugin.package.manifest.facets {
-                self.loaded.borrow_mut().remove(&facet.id);
-            }
+            self.references
+                .borrow_mut()
+                .remove(&plugin.package.manifest.id);
             plugin.observed = ObservedState::Inactive;
-            plugin.error.clear();
+            plugin.error = result.as_ref().cloned().unwrap_or_default();
         } else {
             plugin.error = result
                 .as_ref()
@@ -341,7 +339,7 @@ impl PluginManager {
         }
         self.storage()?
             .browser_removal_requested(&plugin.package.manifest.id)?;
-        result
+        result.map(|_| ())
     }
 
     /// Removes running foreign facets through Tembra reload while retaining cached bytes.
@@ -350,10 +348,15 @@ impl PluginManager {
     /// Refuses Core Plugins and active dependents. Runtime failures retain their exact cause.
     pub async fn deactivate(&self, request: DeactivateRequest) -> Result<Inventory> {
         self.authorize(&request.proof)?;
+        self.require_composition_permission()?;
         let _guard = self.guard()?;
+        self.fresh_session.set(false);
         let plugin = self.dynamic(&request.plugin_id)?;
-        let operation = self.begin(&request.plugin_id, AdminOperation::Deactivate)?;
+        let mut operation = self.begin(&request.plugin_id, AdminOperation::Deactivate)?;
         let result = self.deactivate_cached(plugin).await;
+        if result.is_ok() {
+            operation.error = self.dynamic(&request.plugin_id)?.error;
+        }
         self.finish(operation, result).await
     }
 
@@ -364,72 +367,28 @@ impl PluginManager {
     /// SQLite failure; operation evidence reports the actual failed stage rather than rollback.
     pub async fn uninstall(&self, request: UninstallRequest) -> Result<Inventory> {
         self.authorize(&request.proof)?;
+        self.require_composition_permission()?;
         let _guard = self.guard()?;
+        self.fresh_session.set(false);
         let plugin = self.dynamic(&request.plugin_id)?;
         self.required_by(&request.plugin_id, false)?;
-        let operation = self.begin(&request.plugin_id, AdminOperation::Uninstall)?;
+        let mut operation = self.begin(&request.plugin_id, AdminOperation::Uninstall)?;
         let result: Result<()> = async {
             self.deactivate_cached(plugin).await?;
+            operation.error = self.dynamic(&request.plugin_id)?.error;
             self.storage()?.remove(&request.plugin_id)
         }
         .await;
         self.finish(operation, result).await
     }
+}
 
-    /// Replays active intent from exact cached bytes on the fresh Host without source access.
-    ///
-    /// Interrupted records are retained as interrupted observations. Replay uses current Host
-    /// facts and actual installation results; it never claims to reverse prior external effects.
-    /// # Errors
-    /// Failed packages remain failed and other independent packages are still attempted. Missing
-    /// dependencies and cycles are reported rather than synthesized as available capabilities.
-    pub async fn recover(&self, proof: &AdminProof) -> Result<Inventory> {
-        self.authorize(proof)?;
-        let _guard = self.recovery_guard()?;
-        for mut operation in self.storage()?.operations()? {
-            if matches!(
-                operation.status,
-                OperationStatus::Pending | OperationStatus::Running
-            ) {
-                operation.status = OperationStatus::Interrupted;
-                operation.error="previous supervisor session ended before settlement was recorded; external effects are unknown".into();
-                self.storage()?.operation(&operation)?;
-            }
-        }
-        let mut pending = self
-            .storage()?
-            .all()?
-            .into_iter()
-            .filter(|plugin| {
-                plugin.desired == DesiredState::Active && plugin.observed != ObservedState::Active
-            })
-            .collect::<Vec<_>>();
-        let mut failure = None;
-        while !pending.is_empty() {
-            let index = pending
-                .iter()
-                .position(|plugin| self.dependencies(&plugin.package, true).is_ok());
-            let Some(index) = index else {
-                for mut plugin in pending.drain(..) {
-                    plugin.observed = ObservedState::Failed;
-                    plugin.error = "activation dependencies are unavailable or cyclic".into();
-                    self.storage()?.save(&plugin)?;
-                }
-                failure = Some(ManagerError::Dependency(
-                    "recovery dependencies are unavailable or cyclic".into(),
-                ));
-                break;
-            };
-            let plugin = pending.remove(index);
-            let operation = self.begin(&plugin.package.manifest.id, AdminOperation::Recover)?;
-            let result = self.activate_cached(plugin).await;
-            if let Err(error) = self.finish(operation, result).await {
-                failure = Some(error);
-            }
-        }
-        if let Some(error) = failure {
-            return Err(error);
-        }
-        self.snapshot()
+fn physical_retirement_diagnostic(lingering: usize) -> String {
+    if lingering == 0 {
+        String::new()
+    } else {
+        format!(
+            "logical retirement committed; {lingering} physical executions remain; physical termination unconfirmed"
+        )
     }
 }

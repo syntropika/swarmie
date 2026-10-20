@@ -34,6 +34,7 @@ fn headless_bootstrap_recovers_cached_code_without_its_source() {
                 database: directory.path().join("manager.sqlite"),
                 source: source.clone(),
                 proof: proof.clone(),
+                application: None,
             };
             let first = start(driver.clone(), configuration()).await.unwrap();
             first
@@ -94,6 +95,7 @@ fn failed_cached_setup_keeps_administration_available_for_repair() {
                 database: directory.path().join("manager.sqlite"),
                 source: source.clone(),
                 proof: proof.clone(),
+                application: None,
             };
             let first = start(driver.clone(), configuration()).await.unwrap();
             first

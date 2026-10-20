@@ -25,12 +25,25 @@ pub struct PluginManager {
     pub(crate) database: PathBuf,
     pub(crate) store: RefCell<Option<core::WeakResource<Store>>>,
     pub(crate) executor: Executor,
-    busy: Flag<bool>,
-    fresh_session: Flag<bool>,
-    // Observations of facets admitted by this supervisor session, never a dispatch table.
-    pub(crate) loaded: RefCell<BTreeSet<String>>,
+    pub(crate) busy: Flag<bool>,
+    pub(crate) fresh_session: Flag<bool>,
+    pub(crate) reconciling: Flag<bool>,
+    pub(crate) composition_selection: RefCell<Option<BTreeSet<String>>>,
+    pub(crate) composition_staged: RefCell<BTreeSet<String>>,
+    // Real Tembra claims retained only for availability observation, never invocation dispatch.
+    pub(crate) references: RefCell<BTreeMap<String, Vec<core::Reference>>>,
+    pub(crate) reference_failures: RefCell<BTreeMap<String, BTreeMap<String, String>>>,
+    pub(crate) core_facets: RefCell<BTreeMap<String, BTreeSet<String>>>,
+    pub(crate) trusted_sources: RefCell<BTreeSet<String>>,
     pub(crate) cores: RefCell<Vec<PluginRecord>>,
     pub(crate) uncertain: RefCell<BTreeMap<String, PluginRecord>>,
+    pub(crate) browser_grants: RefCell<BTreeMap<String, BrowserAuthorization>>,
+}
+
+#[derive(Clone)]
+pub(crate) struct BrowserAuthorization {
+    pub session_id: String,
+    pub activations: BTreeMap<String, (String, String)>,
 }
 
 pub(crate) struct OperationGuard<'a>(&'a Flag<bool>);
@@ -76,8 +89,18 @@ impl PluginManager {
             executor: Executor::new(driver, ExecutorOptions::default())?,
             busy: Flag::new(false),
             fresh_session: Flag::new(true),
-            loaded: RefCell::new(BTreeSet::new()),
+            reconciling: Flag::new(false),
+            composition_selection: RefCell::new(None),
+            composition_staged: RefCell::new(BTreeSet::new()),
+            references: RefCell::new(BTreeMap::new()),
+            reference_failures: RefCell::new(BTreeMap::new()),
+            core_facets: RefCell::new(BTreeMap::from([(
+                "swarmie.plugin-manager".into(),
+                BTreeSet::from(["swarmie.plugin-manager".into()]),
+            )])),
+            trusted_sources: RefCell::new(BTreeSet::new()),
             uncertain: RefCell::new(BTreeMap::new()),
+            browser_grants: RefCell::new(BTreeMap::new()),
             cores: RefCell::new(vec![PluginRecord {
                 plugin_id: "swarmie.plugin-manager".into(),
                 version: env!("CARGO_PKG_VERSION").into(),
@@ -99,8 +122,12 @@ impl PluginManager {
                 plugin.activation_id.clear();
                 plugin.error =
                     "runtime session restarted; activation has not been recovered".into();
-                manager.storage()?.save(&plugin)?;
+            } else {
+                // A fresh Host cannot retain executable work from an earlier supervisor.
+                plugin.observed = ObservedState::Installed;
+                plugin.activation_id.clear();
             }
+            manager.storage()?.save(&plugin)?;
         }
         for mut session in manager.storage()?.browser_sessions()? {
             session.observed = BrowserObservation::Unknown;
@@ -139,11 +166,11 @@ impl PluginManager {
         }) {
             return Err(ManagerError::RecoveryRequired);
         }
-        self.fresh_session.set(false);
         self.exclusive_guard()
     }
 
     pub(crate) fn recovery_guard(&self) -> Result<OperationGuard<'_>> {
+        self.require_composition_permission()?;
         if !self.fresh_session.replace(false) {
             return Err(ManagerError::RecoveryRequired);
         }
@@ -168,31 +195,6 @@ impl PluginManager {
             .ok_or(ManagerError::Closed)?
             .upgrade()?
             .value()?)
-    }
-
-    /// Records a compiled Core Plugin after the caller has awaited its actual activation.
-    ///
-    /// # Errors
-    /// Refuses invalid authorization or an identity already installed as a dynamic plugin.
-    pub async fn record_core(&self, proof: &AdminProof, id: String, version: String) -> Result<()> {
-        self.authorize(proof)?;
-        if self.storage()?.load(&id)?.is_some() {
-            return Err(ManagerError::CorePlugin(id));
-        }
-        let mut cores = self.cores.borrow_mut();
-        if !cores.iter().any(|core| core.plugin_id == id) {
-            cores.push(PluginRecord {
-                plugin_id: id,
-                version,
-                provider_id: "compiled".into(),
-                kind: PluginKind::Core,
-                desired: DesiredState::Active,
-                observed: ObservedState::Active,
-                errors: vec![],
-            });
-        }
-        drop(cores);
-        Ok(())
     }
 
     pub(crate) fn publication_unrecorded(

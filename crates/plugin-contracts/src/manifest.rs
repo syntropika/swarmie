@@ -43,6 +43,22 @@ pub enum FacetTarget {
     Browser,
 }
 
+/// Supported Tembra loading mechanisms; native browser ESM is not embedded server code.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", rename_all = "snake_case")]
+#[schemars(crate = "tembra::schemars")]
+pub enum FacetFormat {
+    #[default]
+    Bundled,
+    NativeEsm,
+}
+
+impl FacetFormat {
+    fn is_bundled(&self) -> bool {
+        *self == Self::Bundled
+    }
+}
+
 /// A verified Tembra artifact and its selected module export.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
@@ -50,6 +66,8 @@ pub enum FacetTarget {
 pub struct PluginFacet {
     pub id: String,
     pub target: FacetTarget,
+    #[serde(default, skip_serializing_if = "FacetFormat::is_bundled")]
+    pub format: FacetFormat,
     pub artifact_path: String,
     pub sha256: String,
     pub selected_export: String,

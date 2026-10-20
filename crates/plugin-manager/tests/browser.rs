@@ -27,6 +27,7 @@ fn source_fixture(root: &std::path::Path) {
         facets: vec![PluginFacet {
             id: "browser-widget".into(),
             target: FacetTarget::Browser,
+            format: FacetFormat::Bundled,
             artifact_path: "artifact.json".into(),
             sha256: sha256.clone(),
             selected_export: "default".into(),
@@ -94,6 +95,9 @@ fn browser_receipts_refuse_stale_activations_and_removal_requires_real_acknowled
             )
             .await
             .unwrap();
+            manager
+                .approve_trusted_source(&proof, "local".into())
+                .unwrap();
             manager
                 .install(InstallRequest {
                     proof: proof.clone(),
@@ -257,6 +261,9 @@ fn bounded_package_reads_require_current_receipts_and_return_exact_cached_bytes(
             .await
             .unwrap();
             manager
+                .approve_trusted_source(&proof, "local".into())
+                .unwrap();
+            manager
                 .install(InstallRequest {
                     proof: proof.clone(),
                     provider_id: "local".into(),
@@ -407,6 +414,9 @@ fn a_failed_new_browser_receipt_cannot_erase_an_older_generation_removal_acknowl
             .await
             .unwrap();
             manager
+                .approve_trusted_source(&proof, "local".into())
+                .unwrap();
+            manager
                 .install(InstallRequest {
                     proof: proof.clone(),
                     provider_id: "local".into(),
@@ -512,5 +522,200 @@ fn a_failed_new_browser_receipt_cannot_erase_an_older_generation_removal_acknowl
                 2
             );
             host.close().await.unwrap();
+        }));
+}
+
+#[test]
+fn browser_grants_separate_delivery_reporting_and_supervisor_authority() {
+    use std::collections::BTreeSet;
+
+    let driver = TokioDriver::new();
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(driver.run_until(async {
+            let directory = tempfile::tempdir().unwrap();
+            let source = directory.path().join("source");
+            source_fixture(&source);
+            let proof = PluginManager::issue_proof();
+            let database = directory.path().join("admin.sqlite");
+            let host = Host::with_driver(RUNTIME_HOST, "supervisor", driver.clone()).unwrap();
+            let manager =
+                PluginManager::start(host.clone(), driver.clone(), &database, proof.clone())
+                    .await
+                    .unwrap();
+            manager
+                .approve_trusted_source(&proof, "local".into())
+                .unwrap();
+            host.install(
+                LocalSource::new("local", &source).facet().unwrap(),
+                core::LoadOptions::default(),
+            )
+            .unwrap()
+            .await
+            .unwrap();
+            manager
+                .install(InstallRequest {
+                    proof: proof.clone(),
+                    provider_id: "local".into(),
+                    plugin_id: "browser-widget".into(),
+                    version: "1.0.0".into(),
+                    confirmed: true,
+                })
+                .await
+                .unwrap();
+            manager
+                .activate(ActivateRequest {
+                    proof: proof.clone(),
+                    plugin_id: "browser-widget".into(),
+                })
+                .await
+                .unwrap();
+            let grant = manager
+                .issue_browser_grant(
+                    &proof,
+                    "session-a".into(),
+                    &BTreeSet::from(["browser-widget".into()]),
+                )
+                .unwrap();
+            assert!(!format!("{grant:?}").contains(grant.as_str()));
+            let browser = host
+                .get(BrowserAccess, BrowserAccessInput {})
+                .await
+                .unwrap();
+            let inventory = browser
+                .inventory(BrowserInventoryRequest {
+                    grant: grant.clone(),
+                    session_id: "session-a".into(),
+                })
+                .await
+                .unwrap();
+            assert_eq!(inventory.packages.len(), 1);
+            assert!(inventory.observations.is_empty());
+            let json = serde_json::to_value(&inventory).unwrap();
+            assert!(json.get("providers").is_none());
+            assert!(json.get("operations").is_none());
+            assert!(
+                browser
+                    .inventory(BrowserInventoryRequest {
+                        grant: grant.clone(),
+                        session_id: "session-b".into()
+                    })
+                    .await
+                    .is_err()
+            );
+            assert!(
+                browser
+                    .active_package(BrowserActivePackageRequest {
+                        grant: grant.clone(),
+                        session_id: "session-a".into(),
+                        plugin_id: "unapproved".into()
+                    })
+                    .await
+                    .is_err()
+            );
+            assert!(matches!(
+                manager
+                    .deactivate(DeactivateRequest {
+                        proof: AdminProof::new(grant.as_str().into()),
+                        plugin_id: "browser-widget".into()
+                    })
+                    .await,
+                Err(swarmie_plugin_manager::ManagerError::Unauthorized)
+            ));
+            let activation = inventory.packages[0].activation_id.clone();
+            let observation = |session: &str, observed| BrowserReportRequest {
+                grant: grant.clone(),
+                session_id: session.into(),
+                plugin_id: "browser-widget".into(),
+                version: "1.0.0".into(),
+                activation_id: activation.clone(),
+                observed,
+                error: String::new(),
+            };
+            assert!(
+                browser
+                    .report_browser(observation("session-b", BrowserObservation::Active))
+                    .await
+                    .is_err()
+            );
+            browser
+                .report_browser(observation("session-a", BrowserObservation::Active))
+                .await
+                .unwrap();
+            manager
+                .deactivate(DeactivateRequest {
+                    proof: proof.clone(),
+                    plugin_id: "browser-widget".into(),
+                })
+                .await
+                .unwrap();
+            manager
+                .activate(ActivateRequest {
+                    proof: proof.clone(),
+                    plugin_id: "browser-widget".into(),
+                })
+                .await
+                .unwrap();
+            assert!(
+                browser
+                    .active_package(BrowserActivePackageRequest {
+                        grant: grant.clone(),
+                        session_id: "session-a".into(),
+                        plugin_id: "browser-widget".into()
+                    })
+                    .await
+                    .is_err()
+            );
+            assert!(
+                browser
+                    .report_browser(observation("session-a", BrowserObservation::Active))
+                    .await
+                    .is_err()
+            );
+            browser
+                .report_browser(observation("session-a", BrowserObservation::Inactive))
+                .await
+                .unwrap();
+            let new_grant = manager
+                .issue_browser_grant(
+                    &proof,
+                    "session-a".into(),
+                    &BTreeSet::from(["browser-widget".into()]),
+                )
+                .unwrap();
+            manager.revoke_browser_grant(&proof, &grant).unwrap();
+            assert!(
+                browser
+                    .inventory(BrowserInventoryRequest {
+                        grant,
+                        session_id: "session-a".into()
+                    })
+                    .await
+                    .is_err()
+            );
+            browser.core().release();
+            host.close().await.unwrap();
+            drop(manager);
+            let restarted_host =
+                Host::with_driver(RUNTIME_HOST, "supervisor", driver.clone()).unwrap();
+            let restarted = PluginManager::start(
+                restarted_host.clone(),
+                driver.clone(),
+                &database,
+                proof.clone(),
+            )
+            .await
+            .unwrap();
+            assert!(
+                restarted
+                    .browser_inventory(BrowserInventoryRequest {
+                        grant: new_grant,
+                        session_id: "session-a".into()
+                    })
+                    .is_err()
+            );
+            restarted_host.close().await.unwrap();
         }));
 }

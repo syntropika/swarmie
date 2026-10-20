@@ -4,11 +4,13 @@
 //! identify a capability issued by the supervisor; constructing one does not grant authority.
 
 mod administration;
+mod browser_access;
 mod capabilities;
 mod manifest;
 mod source;
 
 pub use administration::*;
+pub use browser_access::*;
 pub use capabilities::*;
 pub use manifest::*;
 pub use source::*;
@@ -26,7 +28,7 @@ pub const CAPABILITY_REGISTRY: &str = "swarmie.capabilities";
 pub const RUNTIME_HOST: &str = "swarmie-runtime";
 
 /// Exact Tembra revision accepted by this foundation.
-pub const TEMBRA_REVISION: &str = "377fd3f61dae2e58a1a0358377fdf9d651d00b54";
+pub const TEMBRA_REVISION: &str = "c394ec1f358a5054926f03409ac21f94d028617b";
 
 /// Creates the source registry with deterministic conflict refusal.
 pub fn source_registry() -> tembra::Result<tembra::core::Registry> {

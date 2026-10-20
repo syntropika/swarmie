@@ -53,6 +53,9 @@ async fn node(
         .await
         .unwrap();
     manager
+        .approve_trusted_source(&proof, "local".into())
+        .unwrap();
+    manager
         .record_core(&proof, "swarmie.counter".into(), "0.1.0".into())
         .await
         .unwrap();
@@ -271,8 +274,23 @@ fn missing_native_dependency_prevents_installation() {
         let directory = tempfile::tempdir().unwrap();
         let proof = PluginManager::issue_proof();
         let host = Host::with_driver(RUNTIME_HOST, "supervisor", driver.clone()).unwrap();
+        let source = directory.path().join("source");
+        std::fs::create_dir(&source).unwrap();
+        let fixture = fixtures().join("dynamic-consumer/1.0.0");
+        let mut manifest: PluginManifest =
+            serde_json::from_slice(&std::fs::read(fixture.join("manifest.json")).unwrap()).unwrap();
+        manifest.dependencies = vec![PluginDependency {
+            id: "swarmie.counter".into(),
+            version: "^0.1.0".into(),
+        }];
+        std::fs::write(
+            source.join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        std::fs::copy(fixture.join("artifact.json"), source.join("artifact.json")).unwrap();
         host.install(
-            LocalSource::new("local", fixtures()).facet().unwrap(),
+            LocalSource::new("local", source).facet().unwrap(),
             core::LoadOptions::default(),
         )
         .unwrap()
@@ -286,6 +304,9 @@ fn missing_native_dependency_prevents_installation() {
         )
         .await
         .unwrap();
+        manager
+            .approve_trusted_source(&proof, "local".into())
+            .unwrap();
         assert!(matches!(
             manager.install(install(&proof, "1.0.0")).await,
             Err(ManagerError::Dependency(_))
@@ -297,6 +318,132 @@ fn missing_native_dependency_prevents_installation() {
                 .plugins
                 .iter()
                 .all(|plugin| plugin.kind == PluginKind::Core)
+        );
+        host.close().await.unwrap();
+    });
+}
+
+#[test]
+fn failed_initial_batch_retires_earlier_successful_facets_before_claiming_inactive() {
+    use sha2::{Digest, Sha256};
+
+    run(|driver| async move {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source");
+        std::fs::create_dir(&source).unwrap();
+        let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let paths: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(repository.join("target/plugins/artifacts.json")).unwrap(),
+        )
+        .unwrap();
+        let artifact =
+            std::fs::read(repository.join(paths["partial-install"].as_str().unwrap())).unwrap();
+        let sha256 = hex::encode(Sha256::digest(&artifact));
+        let manifest = PluginManifest {
+            schema_version: 1,
+            id: "partial-package".into(),
+            version: "1.0.0".into(),
+            compatibility: Compatibility {
+                swarmie: "^0.1.0".into(),
+                tembra_revision: TEMBRA_REVISION.into(),
+            },
+            dependencies: vec![],
+            facets: [("partial-first", "first"), ("partial-second", "second")]
+                .into_iter()
+                .map(|(id, export)| PluginFacet {
+                    id: id.into(),
+                    target: FacetTarget::Server,
+                    format: FacetFormat::Bundled,
+                    artifact_path: "artifact.json".into(),
+                    sha256: sha256.clone(),
+                    selected_export: export.into(),
+                })
+                .collect(),
+            files: vec![ManifestFile {
+                path: "artifact.json".into(),
+                sha256,
+            }],
+            distribution: Distribution {
+                provider: "local".into(),
+                description: "Partial initial installation acceptance".into(),
+            },
+            ui: vec![],
+        };
+        std::fs::write(source.join("artifact.json"), artifact).unwrap();
+        std::fs::write(
+            source.join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        let proof = PluginManager::issue_proof();
+        let host = Host::with_driver(RUNTIME_HOST, "supervisor", driver.clone()).unwrap();
+        let manager = PluginManager::start(
+            host.clone(),
+            driver,
+            directory.path().join("admin.sqlite"),
+            proof.clone(),
+        )
+        .await
+        .unwrap();
+        manager
+            .approve_trusted_source(&proof, "local".into())
+            .unwrap();
+        host.install(
+            LocalSource::new("local", source).facet().unwrap(),
+            core::LoadOptions::default(),
+        )
+        .unwrap()
+        .await
+        .unwrap();
+        manager
+            .install(InstallRequest {
+                proof: proof.clone(),
+                provider_id: "local".into(),
+                plugin_id: "partial-package".into(),
+                version: "1.0.0".into(),
+                confirmed: true,
+            })
+            .await
+            .unwrap();
+        let error = manager
+            .activate(ActivateRequest {
+                proof: proof.clone(),
+                plugin_id: "partial-package".into(),
+            })
+            .await
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("Second initial facet setup failed"),
+            "{error}"
+        );
+        let partial = host
+            .get(DynamicConsumer, DynamicConsumerInput {})
+            .await
+            .unwrap();
+        assert_eq!(partial.run().await.unwrap(), 42);
+        partial.core().release();
+        let inventory = manager
+            .deactivate(DeactivateRequest {
+                proof: proof.clone(),
+                plugin_id: "partial-package".into(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            inventory
+                .plugins
+                .iter()
+                .find(|plugin| plugin.plugin_id == "partial-package")
+                .unwrap()
+                .observed,
+            ObservedState::Inactive
+        );
+        assert!(
+            host.get(DynamicConsumer, DynamicConsumerInput {})
+                .await
+                .is_err()
         );
         host.close().await.unwrap();
     });
