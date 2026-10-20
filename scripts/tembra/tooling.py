@@ -11,7 +11,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-REVISION = "0d1a7bf7ced7c4bfcf9e077038862dbfca1485ad"
+REVISION = "415051fcfc937a54d17f6193ce2d05c9c0429900"
 SOURCE = "https://github.com/syntropika/tembra.git"
 BUN_VERSION = "1.4.3"
 RUST_VERSION = "1.99.0"

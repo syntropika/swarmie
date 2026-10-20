@@ -1,0 +1,25 @@
+[package]
+name = "swarmie-durable-tasks-fixture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+swarmie-task-contracts = { path = "../../../../crates/task-contracts" }
+tembra.workspace = true
+serde_json.workspace = true
+futures.workspace = true
+
+[dev-dependencies]
+swarmie-task-storage-sqlite = { path = "../../../../plugins/task-storage-sqlite" }
+swarmie-durable-tasks = { path = "../../../../plugins/durable-tasks" }
+swarmie-runtime = { path = "../../../../crates/runtime" }
+swarmie-composition = { path = "../../../../crates/composition" }
+tembra-native.workspace = true
+tokio.workspace = true
+tempfile.workspace = true
+rusqlite.workspace = true
+
+[lints]
+workspace = true

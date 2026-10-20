@@ -1,0 +1,17 @@
+[package]
+name = "swarmie-durable-tasks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+swarmie-task-contracts = { path = "../../crates/task-contracts" }
+tembra.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

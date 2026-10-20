@@ -2,13 +2,35 @@
 
 import importlib.util
 from pathlib import Path
+import re
 import tempfile
+import tomllib
 import unittest
 
 
 SPEC = importlib.util.spec_from_file_location("tembra_tooling", Path(__file__).with_name("tooling.py"))
 tooling = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(tooling)
+
+
+class DependencyRevisionTests(unittest.TestCase):
+    def test_runtime_sdk_and_plugin_artifacts_share_one_dependency_revision(self):
+        manifest = tomllib.loads((tooling.ROOT / "Cargo.toml").read_text())
+        dependencies = {
+            name: dependency
+            for name, dependency in manifest["workspace"]["dependencies"].items()
+            if isinstance(dependency, dict) and dependency.get("git") == tooling.SOURCE
+        }
+        self.assertTrue(dependencies, "the runtime must declare its pinned Tembra dependencies")
+        for name, dependency in dependencies.items():
+            with self.subTest(dependency=name):
+                self.assertEqual(dependency.get("rev"), tooling.REVISION,
+                                 "runtime and source SDK must use the same immutable revision")
+        contracts = (tooling.ROOT / "crates/plugin-contracts/src/lib.rs").read_text()
+        declaration = re.search(r'pub const TEMBRA_REVISION:\s*&str\s*=\s*"([^"]+)"\s*;', contracts)
+        self.assertIsNotNone(declaration, "plugin artifact compatibility must declare its Tembra revision")
+        self.assertEqual(declaration.group(1), tooling.REVISION,
+                         "plugin manifests and the runtime must qualify the same Tembra revision")
 
 
 class ProjectionIntegrityTests(unittest.TestCase):

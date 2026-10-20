@@ -111,7 +111,10 @@ fn release(plugin: &str, facet: &str) -> Release {
     }
 }
 
-pub(crate) fn compiled(source: PathBuf) -> Vec<CompiledPlugin> {
+pub(crate) fn compiled(
+    source: PathBuf,
+    driver: Rc<dyn tembra::core::Driver>,
+) -> Vec<CompiledPlugin> {
     vec![
         CompiledPlugin::new(
             release(
@@ -127,6 +130,41 @@ pub(crate) fn compiled(source: PathBuf) -> Vec<CompiledPlugin> {
                         )
                     })?;
                 Ok(vec![swarmie_memory_store::facet(&configuration)?])
+            },
+        ),
+        CompiledPlugin::new(
+            release(
+                swarmie_task_storage_sqlite::PLUGIN_ID,
+                swarmie_task_storage_sqlite::FACET_ID,
+            ),
+            |value| {
+                let configuration: swarmie_task_storage_sqlite::Configuration =
+                    serde_json::from_value(value.clone()).map_err(|error| {
+                        tembra::RuntimeError::invalid(
+                            "task_storage_configuration",
+                            error.to_string(),
+                        )
+                    })?;
+                Ok(vec![swarmie_task_storage_sqlite::facet(&configuration)?])
+            },
+        ),
+        CompiledPlugin::new(
+            release(
+                swarmie_durable_tasks::PLUGIN_ID,
+                swarmie_durable_tasks::FACET_ID,
+            ),
+            move |value| {
+                let configuration: swarmie_durable_tasks::Configuration =
+                    serde_json::from_value(value.clone()).map_err(|error| {
+                        tembra::RuntimeError::invalid(
+                            "durable_tasks_configuration",
+                            error.to_string(),
+                        )
+                    })?;
+                Ok(vec![swarmie_durable_tasks::facet(
+                    &configuration,
+                    driver.clone(),
+                )?])
             },
         ),
         CompiledPlugin::new(

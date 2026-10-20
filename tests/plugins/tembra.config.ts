@@ -9,13 +9,27 @@ const contracts = [
   ["plugin-configuration", "PluginConfiguration", "swarmie-plugin-contracts", "export-contract"],
   ["remote-browser-access", "RemoteBrowserAccess", "swarmie-plugin-contracts", "export-contract"],
   ["memory-store", "MemoryStore", "swarmie-memory-store", "memory-store-contract"],
+  ["task-storage", "TaskStorage", "swarmie-task-contracts", "task-contract"],
+  ["durable-tasks", "DurableTasks", "swarmie-task-contracts", "task-contract"],
+  ["task-handler", "TaskHandler", "swarmie-task-contracts", "task-contract"],
+  [
+    "durable-workflow",
+    "DurableWorkflow",
+    "swarmie-durable-tasks-fixture",
+    "durable-fixture-contract",
+  ],
+  ["durable-gate", "TaskGate", "swarmie-durable-tasks-fixture", "durable-fixture-contract"],
 ] as const;
 const watch = [
   "Cargo.toml",
   "Cargo.lock",
-  ...["crates/plugin-contracts", "tests/plugins/fixtures/counter", "plugins/memory-store"].flatMap(
-    (owner) => [`${owner}/Cargo.toml`, ...new Bun.Glob(`${owner}/src/**/*.rs`).scanSync()],
-  ),
+  ...[
+    "crates/plugin-contracts",
+    "crates/task-contracts",
+    "tests/plugins/fixtures/counter",
+    "tests/plugins/fixtures/durable-tasks",
+    "plugins/memory-store",
+  ].flatMap((owner) => [`${owner}/Cargo.toml`, ...new Bun.Glob(`${owner}/src/**/*.rs`).scanSync()]),
 ];
 
 export default defineConfig({
@@ -34,7 +48,7 @@ export default defineConfig({
         owner,
         "--bin",
         binary,
-        ...(source === "memory-store" ? [] : ["--", source]),
+        ...(["memory-store", "durable-workflow"].includes(source) ? [] : ["--", source]),
       ],
       watch,
     },
@@ -42,6 +56,14 @@ export default defineConfig({
     name,
   })),
   builds: {
+    "durable-workflow-v1": {
+      entry: "tests/plugins/fixtures/durable-tasks/v1.ts",
+      platform: "server",
+    },
+    "durable-workflow-v2": {
+      entry: "tests/plugins/fixtures/durable-tasks/v2.ts",
+      platform: "server",
+    },
     "counter-provider-gated": {
       entry: "tests/plugins/fixtures/provider-replacement/gated.ts",
       platform: "server",

@@ -14,7 +14,8 @@ pub(crate) async fn start(
     let host = Host::with_driver("swarmie-runtime", "runtime-supervisor", driver.clone())?;
     let result = async {
         let manager =
-            PluginManager::start(host.clone(), driver, configuration.database.clone()).await?;
+            PluginManager::start(host.clone(), driver.clone(), configuration.database.clone())
+                .await?;
         let persisted = manager.composition()?;
         let application = match configuration.application {
             Some(application) => application,
@@ -29,7 +30,7 @@ pub(crate) async fn start(
             .map(serde_json::from_value::<PathBuf>)
             .transpose()?
             .unwrap_or_else(|| configuration.source.clone());
-        let compiled = compiled.unwrap_or_else(|| application::compiled(source));
+        let compiled = compiled.unwrap_or_else(|| application::compiled(source, driver.clone()));
         let mut prepared = crate::preparation::prepare(&application, &compiled)?;
         let permit = manager.begin_composition_reconciliation()?;
         let configuration_values =

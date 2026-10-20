@@ -22,8 +22,9 @@ pub use reconciliation::{
 pub use transport::serve;
 
 /// The executable's application catalog; selection still belongs to a Profile.
-pub fn compiled_plugins(source: PathBuf) -> Vec<CompiledPlugin> {
-    application::compiled(source)
+/// The supplied Host Driver provides application timers without creating another executor.
+pub fn compiled_plugins(source: PathBuf, driver: Rc<dyn core::Driver>) -> Vec<CompiledPlugin> {
+    application::compiled(source, driver)
 }
 
 /// Inspects the default catalog's effective configuration without starting a Host or plugin.
@@ -35,7 +36,11 @@ pub fn compiled_plugins(source: PathBuf) -> Vec<CompiledPlugin> {
 pub fn resolve_application(
     application: &Application,
 ) -> Result<EffectiveComposition, Box<dyn std::error::Error>> {
-    Ok(preparation::prepare(application, &application::compiled(PathBuf::new()))?.effective)
+    Ok(preparation::prepare(
+        application,
+        &application::compiled(PathBuf::new(), core::ManualDriver::new()),
+    )?
+    .effective)
 }
 
 /// Supervisor settings. An imported application explicitly replaces persisted desired input.

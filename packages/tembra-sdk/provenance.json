@@ -1,6 +1,6 @@
 {
   "source": "https://github.com/syntropika/tembra.git",
-  "revision": "0d1a7bf7ced7c4bfcf9e077038862dbfca1485ad",
+  "revision": "415051fcfc937a54d17f6193ce2d05c9c0429900",
   "upstream_package_sha256": "d789046dce24fcec7dfbfd0a0b49f59c5c177b50a86c60ba09e82d4eb87aa025",
   "bun": "1.4.3",
   "package": {
@@ -119,7 +119,7 @@
     "registries.d.ts": "1ba38cc66824e309c6a52b650987826f3f4702696454b589ad68f5de534696fd",
     "registries.js": "6b23d38a2bcc42dd0a9e3c480dcb1162908aab15139adb19099a4e197f1003fd",
     "schema.d.ts": "8df5bb6ea6e80d8ffbe98dff50652f2b7fe7c81fa4590edb3118e4ccedd14eb8",
-    "schema.js": "772b8d6816ea91c80c7f6edcdb70f86397324d6ea1aed3f83f7bdc8ff64fe97d",
+    "schema.js": "cdb623fef98ac3ff791c21d788a260c69e95fa9bb0905e08218a45ab93c25802",
     "tooling/adapters.d.ts": "b6eae9a77294c9d4ff8cbecedb100da2a9f5ccc18a3c18072b0d502c1edcb267",
     "tooling/adapters.js": "96b1203035a7e0e4bd880e18301649a9a9a5d7c0a6aae51517acc6546476da80",
     "tooling/artifact.d.ts": "b3c1d9358a4d33213fa5e0e6abb9cc0adbb74d48e39063137e9c271649346d9f",

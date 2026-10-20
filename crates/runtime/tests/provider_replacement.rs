@@ -96,8 +96,8 @@ fn application(package: &str) -> Application {
     app
 }
 
-fn compiled() -> Vec<CompiledPlugin> {
-    let mut catalog = compiled_plugins(fixture_root());
+fn compiled(driver: Rc<dyn core::Driver>) -> Vec<CompiledPlugin> {
+    let mut catalog = compiled_plugins(fixture_root(), driver);
     catalog.push(CompiledPlugin::new(
         release(CONSUMER, PluginKind::Core),
         |value| {
@@ -216,9 +216,9 @@ fn one_cross_package_transaction_retains_references_states_and_the_unchanged_con
     run(|driver| async move {
         let root = tempfile::tempdir().unwrap();
         let mut runtime = start_with_catalog(
-            driver,
+            driver.clone(),
             configuration(root.path(), Some(application(PROVIDER_A))),
-            compiled(),
+            compiled(driver.clone()),
         )
         .await
         .unwrap();
@@ -347,9 +347,9 @@ fn incompatible_and_failed_candidate_factories_preserve_old_bindings_and_acknowl
     run(|driver| async move {
         let root = tempfile::tempdir().unwrap();
         let mut runtime = start_with_catalog(
-            driver,
+            driver.clone(),
             configuration(root.path(), Some(application(PROVIDER_A))),
-            compiled(),
+            compiled(driver.clone()),
         )
         .await
         .unwrap();
@@ -454,7 +454,7 @@ fn restart_uses_the_failed_replacements_desired_package_without_resurrecting_the
         let mut first = start_with_catalog(
             driver.clone(),
             configuration(root.path(), Some(application(PROVIDER_A))),
-            compiled(),
+            compiled(driver.clone()),
         )
         .await
         .unwrap();
@@ -475,10 +475,13 @@ fn restart_uses_the_failed_replacements_desired_package_without_resurrecting_the
         first.host.close().await.unwrap();
         assert!(held.run().await.is_err());
         drop(first);
-        let second =
-            start_with_catalog(driver.clone(), configuration(root.path(), None), compiled())
-                .await
-                .unwrap();
+        let second = start_with_catalog(
+            driver.clone(),
+            configuration(root.path(), None),
+            compiled(driver.clone()),
+        )
+        .await
+        .unwrap();
         assert!(second.recovery_error.is_some() || !second.deployment_errors.is_empty());
         assert_eq!(second.desired_application(), &application(FAILING));
         assert!(!actual_facets(&second).contains_key(&facet(PROVIDER_A)));
@@ -501,9 +504,9 @@ fn restart_uses_the_failed_replacements_desired_package_without_resurrecting_the
         second.host.close().await.unwrap();
         drop(second);
         let third = start_with_catalog(
-            driver,
+            driver.clone(),
             configuration(root.path(), Some(application(PROVIDER_B))),
-            compiled(),
+            compiled(driver.clone()),
         )
         .await
         .unwrap();
@@ -531,9 +534,9 @@ fn same_package_code_replacement_can_change_its_fixed_facet_with_unchanged_confi
     run(|driver| async move {
         let root = tempfile::tempdir().unwrap();
         let mut runtime = start_with_catalog(
-            driver,
+            driver.clone(),
             configuration(root.path(), Some(application(PROVIDER_A))),
-            compiled(),
+            compiled(driver.clone()),
         )
         .await
         .unwrap();

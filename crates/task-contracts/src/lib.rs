@@ -1,0 +1,17 @@
+//! Portable durable task records and application Contracts, independent of any storage backend.
+//!
+//! A checkpoint describes the next resumable phase. Committing an intention before an effect
+//! does not make that effect exactly once: interrupted phases may execute again with the same
+//! operation identity. Only a successful TaskStorage commit establishes durable progress.
+
+#[cfg(feature = "conformance")]
+pub mod conformance;
+
+mod model;
+mod schema;
+mod storage;
+mod tasks;
+
+pub use model::*;
+pub use storage::*;
+pub use tasks::*;

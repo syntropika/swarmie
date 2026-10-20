@@ -52,9 +52,15 @@ through module and export identity, never serialized functions. Keep server Java
 execution distinct from browser module loading and keep contributions tied to plugin lifecycle.
 Installation and capability availability belong to the connected node, not every node.
 
-Agent Loop, subagents, model providers, tools, semantic memory, compaction, coordination,
-workflows, a durable task scheduler, a hosted marketplace and a full Desktop rewrite are
-outside this delivery. The MemoryStore plugin provides namespaced persistent JSON storage. Do not introduce premature contracts or implementations for those features.
+Durable task execution belongs to the application-level Durable Tasks plugin, with portable
+Contracts in `crates/task-contracts` and an independently selected TaskStorage provider. Tembra
+Registries own handler contributions and Tembra owns their actual execution and cancellation.
+TaskStorage commits own durable task state; reactive State only publishes committed projections.
+
+Agent Loop, durable subagents, model providers, tools, semantic memory, compaction, coordination,
+workflows, a hosted marketplace and a full Desktop rewrite remain outside this delivery.
+MemoryStore provides independent namespaced persistent JSON storage; do not expand it into task
+storage or introduce premature contracts for the remaining future features.
 
 ## Repository boundaries and documentation
 

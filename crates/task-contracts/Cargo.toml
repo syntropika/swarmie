@@ -1,0 +1,16 @@
+[package]
+name = "swarmie-task-contracts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+conformance = []
+
+[dependencies]
+tembra.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
