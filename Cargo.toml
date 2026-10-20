@@ -1,0 +1,38 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+rust-version = "1.99"
+
+[workspace.dependencies]
+tembra = { git = "https://github.com/syntropika/tembra.git", rev = "377fd3f61dae2e58a1a0358377fdf9d651d00b54", features = ["native"] }
+tembra-core = { git = "https://github.com/syntropika/tembra.git", rev = "377fd3f61dae2e58a1a0358377fdf9d651d00b54" }
+tembra-contracts = { git = "https://github.com/syntropika/tembra.git", rev = "377fd3f61dae2e58a1a0358377fdf9d651d00b54" }
+tembra-native = { git = "https://github.com/syntropika/tembra.git", rev = "377fd3f61dae2e58a1a0358377fdf9d651d00b54" }
+tembra-executor-js = { git = "https://github.com/syntropika/tembra.git", rev = "377fd3f61dae2e58a1a0358377fdf9d651d00b54" }
+futures = "0.3"
+tokio = { version = "1.53.3", features = ["rt", "time", "net", "macros", "signal"] }
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["handshake", "connect"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "1.2.3"
+thiserror = "2"
+rusqlite = { version = "0.37", features = ["bundled"] }
+sha2 = "0.10"
+hex = "0.4"
+semver = "1"
+uuid = { version = "1", features = ["v4"] }
+tempfile = "3"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"

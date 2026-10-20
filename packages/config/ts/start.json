@@ -1,0 +1,8 @@
+{
+  "extends": "./react.json",
+  "compilerOptions": {
+    "verbatimModuleSyntax": false,
+    "allowImportingTsExtensions": true,
+    "types": ["vite/client", "node"]
+  }
+}

@@ -1,0 +1,23 @@
+/* Native runtime neutrals are owned here; canonical artwork lives in assets/brandkit. */
+@theme static {
+  --color-native-canvas: #ffffff;
+  --color-native-ink: #1a1c1f;
+  --color-native-muted: #606568;
+  --color-native-control: #f3f3f3;
+  --color-native-control-hover: #e8e8e8;
+  --color-native-border: #d9d9d9;
+  --color-native-field: #eeeeee;
+  --color-native-field-focus: #e9e9e9;
+  --spacing-native-control: 3.5rem;
+  --spacing-native-field: 3.75rem;
+  --spacing-native-brand-width: 14rem;
+  --spacing-native-brand-height: 3.75rem;
+  --spacing-native-content: 28rem;
+  --text-native-heading: 2.125rem;
+  --text-native-heading--line-height: 1.15;
+  --text-native-heading--letter-spacing: -0.025em;
+  --text-native-heading--font-weight: 700;
+  --text-native-input: 1.25rem;
+  --text-native-input--line-height: 1.4;
+  --font-native: system-ui;
+}

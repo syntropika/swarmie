@@ -1,0 +1,65 @@
+require_relative "apple_signing"
+require_relative "signing_identity"
+
+skip_docs
+default_platform(:ios)
+
+platform :ios do
+  desc "Inspect or synchronize Apple signing for one app variant"
+  lane :signing do |options|
+    begin
+      selection = AppleSigning.selection(
+        operation: options.fetch(:operation),
+        variant: options.fetch(:variant),
+        profile: options.fetch(:profile),
+      )
+      UI.message("Signing request: #{selection.fetch(:operation)} / #{options.fetch(:variant)} / #{selection.fetch(:profile)}")
+      AppleSigning.validate_storage!(ENV)
+      api_options = AppleSigning.api_options(ENV)
+      verified_files = AppleSigning.verify_storage!(ENV)
+    rescue KeyError
+      UI.user_error!("Signing requires operation:, variant: and profile: parameters; use just mobile-signing.")
+    rescue ArgumentError => error
+      UI.user_error!(error.message)
+    end
+
+    if verified_files.zero?
+      UI.important("Match storage is uninitialized: no signing material exists, so MATCH_PASSWORD is not verified.")
+    else
+      UI.success("Match branch and password verified by decrypting #{verified_files} signing files in a temporary clone.")
+    end
+
+    api_key = app_store_connect_api_key(**api_options)
+    target = selection.fetch(:target)
+    existing = AppleSigning.bundle_id(Spaceship::ConnectAPI::BundleId, target, create: false)
+    UI.message("Bundle ID #{target.fetch(:identifier)}: #{existing ? 'registered' : 'not registered'}")
+
+    if selection.fetch(:operation) == "inspect"
+      # A provisioning API request validates that this is a usable team API key.
+      certificates = Spaceship::ConnectAPI::Certificate.all
+      UI.success("Apple provisioning API access verified (#{certificates.length} certificates visible)")
+      UI.message("Inspection did not register identifiers, create profiles or change signing storage.")
+    else
+      if selection.fetch(:profile) != "appstore"
+        devices = Spaceship::ConnectAPI::Device.all(filter: { platform: "IOS", status: "ENABLED" })
+        UI.user_error!("Register an iOS test device before creating development or ad hoc profiles") if devices.empty?
+      end
+
+      setup_ci(force: true, timeout: 3600)
+      identifier = existing || AppleSigning.bundle_id(Spaceship::ConnectAPI::BundleId, target, create: true)
+      AppleSigning.sync_capabilities!(identifier)
+      Match::Storage::GitStorage.prepend(AppleSigning::ConventionalCommits)
+      parameters = {
+        api_key: api_key,
+        app_identifier: [target.fetch(:identifier)],
+        type: selection.fetch(:profile),
+        generate_apple_certs: true,
+        skip_docs: true,
+      }
+      match(**parameters, readonly: false, force: true)
+      # A fresh readonly clone verifies that the encrypted output can be fetched
+      # again; certificates left only in a temporary checkout are insufficient.
+      match(**parameters, readonly: true)
+    end
+  end
+end

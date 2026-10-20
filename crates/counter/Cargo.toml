@@ -1,0 +1,13 @@
+[package]
+name = "swarmie-counter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+swarmie-plugin-contracts = { path = "../plugin-contracts" }
+tembra.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,3 @@
+# Copy to .dev.vars for local development. Never commit the populated file.
+# Use a Resend key with Contacts access, separate from transactional email.
+RESEND_NEWSLETTER_API_KEY=""

@@ -1,0 +1,16 @@
+/* Brand and editorial primitives only. Runtime themes are owned by packages/config. */
+:root {
+  --swarmie-ink: #1a1c1f;
+  --swarmie-white: #ffffff;
+  --swarmie-soft-coral: #dda99f;
+  --swarmie-mint: #cde9de;
+  --swarmie-lilac: #ded9f2;
+  --swarmie-peach: #ffd2be;
+  --swarmie-mustard: #f6e6a6;
+  --swarmie-editorial-blue: #4c6486;
+  --swarmie-periwinkle: #8e9fc2;
+  --swarmie-link-blue: #465f8c;
+  --swarmie-link-blue-hover: #5f739d;
+  --swarmie-dark-canvas: #181818;
+  --swarmie-light-surface: #f3f3f3;
+}

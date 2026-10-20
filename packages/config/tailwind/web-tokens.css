@@ -1,0 +1,129 @@
+@theme static {
+  /* Vendor semantic roles remain aliases to HeroUI's theme variables. */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-focus: var(--focus);
+  --color-default: var(--default);
+  --color-default-hover: var(--default-hover);
+
+  /* Agent state and permission accents retain their established semantic colors. */
+  --color-harness-idle: #89d6a3;
+  --color-harness-working: #aaa8ef;
+  --color-harness-waiting: #e9bd71;
+  --color-harness-unavailable: #777777;
+  --color-permission-full-access: #ff984e;
+  --color-composer-cap-hover: #4a4a4a;
+
+  --font-sans: "Google Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-brand: var(--font-sans);
+  --font-drawing: monospace;
+  --font-mono:
+    ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --color-reference-canvas: #ffffff;
+  --color-primary: var(--accent);
+  --color-primary-hover: var(--accent-hover);
+  --color-primary-soft: var(--accent-soft);
+  --color-on-primary: var(--accent-foreground);
+  --color-canvas: var(--background);
+  --color-rail: var(--surface);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--default);
+  --color-surface-hover: var(--default-hover);
+  --color-ink: var(--foreground);
+  --color-text-muted: var(--muted);
+  --color-border: var(--border);
+  --color-control-border: var(--field-border);
+  --color-border-subtle: var(--separator);
+  --color-overlay-shadow: rgb(39 43 51 / 12%);
+  --color-drawing-line: #a5abb2;
+  --color-mint: #cde9de;
+  --color-peach: #ffd2be;
+  --color-butter: #f6e6a6;
+  --color-lilac: #ded9f2;
+  --color-parent-bronze: #c4a882;
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-attention: var(--warning);
+  --color-attention-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-footer: #181818;
+  --color-footer-text: #fcfaf7;
+  --color-inverse: #272b33;
+  --color-inverse-text: #f4f1ec;
+  --color-inverse-muted: #bdc4ce;
+  --color-inverse-link: #aac1e0;
+
+  --radius-small: 4px;
+  --radius-control: 16px;
+  --radius-panel: 16px;
+  --radius-illustration: 16px;
+  --radius-marketing-card: 24px;
+  --radius-marketing-shell: 32px;
+  --radius-pill: 999px;
+
+  --text-notice: 0.8125rem;
+  --leading-notice: 1.55;
+  --tracking-drawing: 0.02em;
+  --tracking-brand: -0.04em;
+  --text-brand: 1.75rem;
+  --text-brand-large: 2.125rem;
+  --text-wordmark: clamp(2.5rem, 16vw, 14.5rem);
+  --text-marketing-display: clamp(2.5rem, 4.45vw, 4rem);
+  --text-marketing-display--line-height: 1.05;
+  --text-marketing-display--letter-spacing: -0.035em;
+  --text-marketing-section: clamp(2rem, 3vw, 2.75rem);
+  --text-marketing-section--line-height: 1.12;
+  --text-marketing-section--letter-spacing: -0.03em;
+
+  --text-display: clamp(2.5rem, 5vw, 4.5rem);
+  --text-display--line-height: 1.05;
+  --text-display--letter-spacing: -0.035em;
+  --text-display--font-weight: 600;
+  --text-headline: clamp(1.75rem, 3vw, 2.5rem);
+  --text-headline--line-height: 1.15;
+  --text-headline--letter-spacing: -0.025em;
+  --text-headline--font-weight: 600;
+  --text-title: 1.5rem;
+  --text-title--line-height: 1.25;
+  --text-title--letter-spacing: 0em;
+  --text-title--font-weight: 500;
+  --text-body: 1rem;
+  --text-body--line-height: 1.5;
+  --text-ui: 0.875rem;
+  --text-ui--line-height: 1.4285714286;
+  --text-label: 0.875rem;
+  --text-label--line-height: 1.4285714286;
+  --text-label--font-weight: 500;
+  --leading-ui: 1.4285714286;
+  --leading-body: 1.5;
+  --leading-content: 1.625;
+  --text-content: 0.875rem;
+  --text-content--line-height: 1.625;
+  --text-document: 1.75rem;
+  --text-document--line-height: 1.25;
+  --text-document--font-weight: 600;
+  --text-document--letter-spacing: 0em;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.5;
+  --text-code: 0.8125rem;
+  --text-code--line-height: 1.6;
+  --leading-code: 1.6;
+
+  --shadow-raised: 0 10px 28px -16px rgb(39 43 51 / 18%), 0 2px 8px -4px rgb(39 43 51 / 9%);
+  --shadow-overlay: 0 8px 24px var(--color-overlay-shadow);
+  --ease-swarmie: cubic-bezier(0.22, 1, 0.36, 1);
+  --spacing-control-compact: 1.75rem;
+  --spacing-control-small: 2rem;
+  --spacing-control: 2.25rem;
+  --spacing-control-large: 2.5rem;
+  --spacing-control-entry: 2.75rem;
+  --spacing-control-touch: 2.75rem;
+  --spacing-control-inset: 0.75rem;
+  --spacing-row-inset: 1rem;
+  --spacing-panel-inset: 1rem;
+  --spacing-safe: max(1rem, env(safe-area-inset-bottom));
+}

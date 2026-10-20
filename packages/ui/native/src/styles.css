@@ -1,0 +1,11 @@
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme" layer(theme);
+@import "tailwindcss/preflight" layer(base);
+@import "uniwind";
+@import "heroui-native/styles";
+@import "@swarmie/config/tailwind/native-tokens.css";
+@import "@swarmie/config/tailwind/hero-native.css";
+/* HeroUI ships unlayered component rules; emit utilities after them so overrides work on web too. */
+@import "tailwindcss/utilities";
+
+@source "./**/*.{ts,tsx}";

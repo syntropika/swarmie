@@ -1,0 +1,23 @@
+[package]
+name = "swarmie-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+swarmie-counter = { path = "../counter" }
+swarmie-plugin-contracts = { path = "../plugin-contracts" }
+swarmie-plugin-manager = { path = "../plugin-manager" }
+tembra.workspace = true
+tembra-native.workspace = true
+futures.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,16 @@
+SWARMIE — TYPOGRAPHY REFERENCE
+
+Interface and marketing typeface: Google Sans
+Weights: Regular 400, Medium 500, SemiBold 600, Bold 700
+Runtime font: packages/config/fonts/GoogleSansVariable.ttf
+License: packages/config/fonts/Google-Sans-OFL.txt
+Shared font entry: @swarmie/config/fonts
+Fallback: ui-sans-serif, system-ui, sans-serif
+Code: the shared system monospace stack
+
+The swarmie wordmark is canonical outlined artwork. Never recreate it by typing
+swarmie in Google Sans or another typeface. Preserve the original geometry and
+proportions of the approved SVG lockup.
+
+Native typography follows its platform configuration. The brandkit does not own
+another runtime font stack, density scale or component theme.

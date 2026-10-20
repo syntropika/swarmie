@@ -1,0 +1,61 @@
+/* The account trial preserves the approved light monochrome appearance in either system mode. */
+@layer theme {
+  :root {
+    @variant light {
+      --background: var(--color-native-canvas);
+      --foreground: var(--color-native-ink);
+      --surface: var(--color-native-canvas);
+      --surface-foreground: var(--color-native-ink);
+      --overlay: var(--color-native-canvas);
+      --overlay-foreground: var(--color-native-ink);
+      --accent: var(--color-native-ink);
+      --accent-foreground: var(--color-native-canvas);
+      --default: var(--color-native-control);
+      --default-foreground: var(--color-native-ink);
+      --muted: var(--color-native-muted);
+      --field-background: var(--color-native-field);
+      --field-foreground: var(--color-native-ink);
+      --field-placeholder: var(--color-native-muted);
+      --field-border: transparent;
+      --focus: var(--color-native-ink);
+      --danger: var(--color-native-ink);
+      --danger-foreground: var(--color-native-canvas);
+      --success: var(--color-native-ink);
+      --success-foreground: var(--color-native-canvas);
+      --warning: var(--color-native-ink);
+      --warning-foreground: var(--color-native-canvas);
+      --link: var(--color-native-muted);
+      --color-default-hover: var(--color-native-control-hover);
+      --color-accent-hover: var(--color-native-ink);
+      --field-shadow: 0 0 0 transparent;
+    }
+    @variant dark {
+      --background: var(--color-native-canvas);
+      --foreground: var(--color-native-ink);
+      --surface: var(--color-native-canvas);
+      --surface-foreground: var(--color-native-ink);
+      --overlay: var(--color-native-canvas);
+      --overlay-foreground: var(--color-native-ink);
+      --accent: var(--color-native-ink);
+      --accent-foreground: var(--color-native-canvas);
+      --default: var(--color-native-control);
+      --default-foreground: var(--color-native-ink);
+      --muted: var(--color-native-muted);
+      --field-background: var(--color-native-field);
+      --field-foreground: var(--color-native-ink);
+      --field-placeholder: var(--color-native-muted);
+      --field-border: transparent;
+      --focus: var(--color-native-ink);
+      --danger: var(--color-native-ink);
+      --danger-foreground: var(--color-native-canvas);
+      --success: var(--color-native-ink);
+      --success-foreground: var(--color-native-canvas);
+      --warning: var(--color-native-ink);
+      --warning-foreground: var(--color-native-canvas);
+      --link: var(--color-native-muted);
+      --color-default-hover: var(--color-native-control-hover);
+      --color-accent-hover: var(--color-native-ink);
+      --field-shadow: 0 0 0 transparent;
+    }
+  }
+}

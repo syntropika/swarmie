@@ -1,0 +1,54 @@
+/target/
+*.tmp
+**/__pycache__/
+
+# Dependencies and generated build output.
+**/node_modules/
+/packages/tembra-sdk/upstream/
+**/target/
+**/dist/
+*.pyc
+.DS_Store
+
+# Local credentials, runtime state, and design review sessions.
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+# Public OTA verification certificates are embedded in native builds.
+!/apps/mobile/certs/development.pem
+!/apps/mobile/certs/production.pem
+*.key
+*.p8
+*.p12
+*.mobileprovision
+/.bundle/
+/vendor/bundle/
+/fastlane/report.xml
+**/.impeccable/live/
+**/.impeccable/config.local.json
+**/.impeccable/hook.cache.json
+**/.impeccable/hook.pending.json
+
+# Frontend generated assets and tool caches.
+**/.tanstack/
+**/.nitro/
+**/.output/
+**/.wrangler/
+**/storybook-static/
+**/coverage/
+*.tsbuildinfo
+
+# Editor-specific local configuration.
+/.vscode/
+
+# Generated mobile native projects.
+/apps/mobile/.expo/
+/apps/mobile/ios/
+/apps/mobile/android/
+
+# Local website Worker variables.
+.dev.vars
+.dev.vars.*
+!.dev.vars.example

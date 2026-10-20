@@ -1,0 +1,20 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/ui/web/tsconfig.json"
+    },
+    {
+      "path": "./packages/ui/native/tsconfig.json"
+    },
+    {
+      "path": "./apps/mobile/tsconfig.json"
+    },
+    {
+      "path": "./apps/web/tsconfig.json"
+    },
+    {
+      "path": "./apps/web/tsconfig.test.json"
+    }
+  ]
+}

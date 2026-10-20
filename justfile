@@ -1,0 +1,123 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+set positional-arguments
+
+rust_version := `python3 -c 'import tomllib; print(tomllib.load(open("mise.toml", "rb"))["tools"]["rust"])'`
+
+default:
+    @just --list
+
+# Install shared tools and dependencies from the repository root.
+setup:
+    mise install
+    mise exec -- bun install --frozen-lockfile
+    mise exec -- just tembra-sdk
+
+dev:
+    bun run dev:web
+
+storybook:
+    bun run storybook
+
+fmt:
+    bun run format
+
+check:
+    bun run check
+    just foundation-check
+
+test:
+    bun run test
+
+build:
+    bun run build:web
+
+build-storybook:
+    bun run build:storybook
+
+changelog:
+    git-cliff --config cliff.toml
+
+# Mobile UI development and static export do not qualify native runtime support.
+dev-mobile:
+    EXPO_NO_TELEMETRY=1 bun run dev:mobile
+
+mobile-export:
+    EXPO_NO_TELEMETRY=1 bun run --cwd apps/mobile export
+
+mobile-check:
+    bun run check:mobile
+
+mobile-config:
+    EXPO_NO_TELEMETRY=1 bun run --cwd apps/mobile config:public
+
+mobile-runtime platform:
+    EXPO_NO_TELEMETRY=1 bun run --cwd apps/mobile expo-updates runtimeversion:resolve --platform {{platform}}
+
+# Signing maintenance remains independent of the suspended native SDK build.
+mobile-signing operation="inspect" variant="development" profile="appstore":
+    bundle exec fastlane ios signing operation:{{ quote(operation) }} variant:{{ quote(variant) }} profile:{{ quote(profile) }}
+
+mobile-signing-check:
+    bundle exec ruby -c fastlane/Fastfile
+    bundle exec ruby -c fastlane/Matchfile
+    bundle exec ruby scripts/distribution/test_apple_signing.rb
+    bundle exec ruby scripts/distribution/test_signing_identity.rb
+    bundle exec ruby scripts/distribution/test_apple_signing_storage.rb
+    bundle exec ruby scripts/distribution/test_apple_signing_cli.rb
+
+# Tembra is consumed from one immutable public dependency revision.
+tembra-bootstrap:
+    python3 scripts/tembra/tooling.py bootstrap
+
+tembra-sdk: tembra-bootstrap
+    python3 scripts/tembra/tooling.py project-sdk
+    python3 scripts/tembra/tooling.py verify-sdk
+
+tembra-contracts:
+    python3 scripts/tembra/tooling.py generate-contracts
+
+tembra-plugins:
+    python3 scripts/tembra/tooling.py build-plugins
+
+tembra-browser:
+    RUSTUP_TOOLCHAIN={{rust_version}} python3 scripts/tembra/tooling.py browser-wasm
+
+rust-lock:
+    cargo +{{rust_version}} generate-lockfile
+
+rust-fmt:
+    cargo +{{rust_version}} fmt --all
+
+rust-fmt-check:
+    cargo +{{rust_version}} fmt --all --check
+
+rust-clippy:
+    cargo +{{rust_version}} clippy --locked --workspace --all-targets -- -D warnings
+
+rust-test *arguments:
+    cargo +{{rust_version}} test --locked "$@"
+
+rust-run *arguments:
+    cargo +{{rust_version}} run --locked "$@"
+
+rust-doc:
+    RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D rustdoc::broken_intra_doc_links" cargo +{{rust_version}} doc --locked --workspace --no-deps
+
+rust-check: rust-fmt-check rust-clippy
+    cargo +{{rust_version}} test --locked --workspace
+    just rust-doc
+
+# Canonical Rust descriptors generate the committed TypeScript bindings.
+tembra-contracts-check:
+    python3 scripts/tembra/tooling.py verify-contracts
+
+tembra-tooling-test:
+    python3 -m unittest discover -s scripts/tembra -p 'test_*.py'
+
+foundation-check: tembra-contracts-check tembra-tooling-test tembra-plugins rust-check
+    bunx tsc --noEmit -p examples/plugins/tsconfig.json
+
+# The checked browser ABI must match the dependency's pinned wasm-bindgen version.
+tembra-browser-tools:
+    rustup target add wasm32-unknown-unknown --toolchain {{rust_version}}
+    cargo +{{rust_version}} install wasm-bindgen-cli --version 0.2.129 --locked

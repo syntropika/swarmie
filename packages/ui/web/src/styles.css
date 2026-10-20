@@ -1,0 +1,10 @@
+@import "@swarmie/config/tailwind/base.css";
+@import "@heroui/styles";
+@import "@swarmie/config/fonts";
+
+@import "@swarmie/config/tailwind/web-tokens.css";
+@import "@swarmie/config/tailwind/web-theme.css";
+
+@import "@swarmie/config/tailwind/hero-web.css";
+
+@source "./**/*.{ts,tsx}";

@@ -1,0 +1,99 @@
+{
+  "brand_direction": "Friendly intelligence on neutral foundations",
+  "default_logo": "logos/swarmie-ink-coral.svg",
+  "inverse_logo": "logos/swarmie-white-coral.svg",
+  "colors": {
+    "ink": "#1A1C1F",
+    "white": "#FFFFFF",
+    "soft_coral": "#DDA99F",
+    "mint": "#CDE9DE",
+    "lilac": "#DED9F2",
+    "peach": "#FFD2BE",
+    "mustard": "#F6E6A6",
+    "editorial_blue": "#4C6486",
+    "periwinkle": "#8E9FC2",
+    "link_blue": "#465F8C",
+    "link_blue_hover": "#5F739D",
+    "dark_canvas": "#181818",
+    "light_surface": "#F3F3F3"
+  },
+  "color_usage": {
+    "foundation": "Neutral grayscale owns canvases, component depth, text and controls. Runtime values belong to packages/config, not this brandkit.",
+    "identity": "Soft coral identifies the canonical logo core; the symbol streams and wordmark remain ink or white.",
+    "categories": "Mint, lilac, peach and mustard are optional category accents for chips, initials, small markers, diagrams and illustrations. Keep explicit labels and stable assignments within a view; no hue has a mandatory domain meaning.",
+    "surfaces": "Use small tinted areas inside neutral layouts. Broad pastel regions are reserved for editorial illustrations, not the default application canvas.",
+    "actions": "Primary actions remain monochrome; decorative category hues do not indicate selection, focus or permissions.",
+    "status": "Success, warning and danger retain separate semantic tokens and text or icon cues. A mint category does not mean success; a mustard category does not mean warning.",
+    "dark_mode": "Use the approved darker accent surfaces with a paired light foreground from the shared runtime theme. Do not invert pastel colors mechanically.",
+    "editorial": "Blue may remain in marketing illustration details. It is not a logo application or the global primary control color. The footer uses the warm black neutral base with inverse artwork."
+  },
+  "logo_applications": {
+    "ink_coral": {
+      "streams": "ink",
+      "core": "soft_coral",
+      "wordmark": "ink",
+      "background": "transparent",
+      "usage": "Default on light neutral surfaces."
+    },
+    "white_coral": {
+      "streams": "white",
+      "core": "soft_coral",
+      "wordmark": "white",
+      "background": "transparent",
+      "usage": "Inverse identity on dark neutral or editorial surfaces."
+    },
+    "mono_ink": {
+      "streams": "ink",
+      "core": "ink",
+      "wordmark": "ink",
+      "background": "transparent",
+      "usage": "Single-color reproduction on light surfaces."
+    },
+    "mono_white": {
+      "streams": "white",
+      "core": "white",
+      "wordmark": "white",
+      "background": "transparent",
+      "usage": "Single-color reproduction on dark surfaces."
+    }
+  },
+  "logo_geometry": "Three rounded curved streams converging into a symmetric rounded diamond. Preserve the original custom swarmie lettering.",
+  "logo_core": {
+    "primitive": "regular rounded square",
+    "side": 84,
+    "corner_radius": 18,
+    "rotation_degrees": 45,
+    "symmetry": "Equal diagonals and four equal rounded corners.",
+    "canonical_geometry": "source/logo-geometry.json"
+  },
+  "typography": {
+    "family": "Google Sans",
+    "weights": [400, 500, 600, 700],
+    "runtime_font": "packages/config/fonts/GoogleSansVariable.ttf",
+    "license": "packages/config/fonts/Google-Sans-OFL.txt",
+    "wordmark": "Original outlined custom lettering, never recreated with a text font.",
+    "code": "System monospace stack from shared configuration.",
+    "native": "Native typography remains owned by its platform configuration."
+  },
+  "runtime_theme": {
+    "owner": "packages/config",
+    "web": "packages/config/tailwind/hero-web.css",
+    "category_accents": "packages/config/tailwind/web-theme.css",
+    "native": "packages/config/tailwind/native-tokens.css"
+  },
+  "mascot": {
+    "asset": "mascot/swarmie-mascot-coral.png",
+    "shape": "rounded diamond",
+    "body": "soft coral",
+    "usage": "Optional editorial illustration; never a replacement for the canonical mark."
+  },
+  "delivery": {
+    "logos": "logos/swarmie-{application}.svg",
+    "marks": "marks/swarmie-mark-{application}.svg",
+    "application_filename_rule": "Replace underscores with hyphens.",
+    "vector_family": "boards/swarmie-logo-family.svg",
+    "raster_brand_presentation": "boards/swarmie-brand-toolkit.png",
+    "guide": "https://chatgpt.com/space/page_2ca4e9eeb8f4819199773f9c68b1c204",
+    "design_reference": "https://chatgpt.com/space/page_2ca4e9eeb8f4819199773f9c68b1c204"
+  }
+}

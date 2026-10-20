@@ -1,0 +1,57 @@
+{
+  "source": "https://github.com/syntropika/tembra.git",
+  "revision": "377fd3f61dae2e58a1a0358377fdf9d651d00b54",
+  "upstream_package_sha256": "2a179305a3d3a28b429d2de7b17bb9deb70abe6c6374773df35b2e21a4e2d63f",
+  "bun": "1.4.3",
+  "package": {
+    "name": "@tembra/sdk",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "exports": {
+      ".": {
+        "types": "./upstream/index.d.ts",
+        "import": "./upstream/index.js"
+      },
+      "./browser": {
+        "types": "./upstream/browser/index.d.ts",
+        "import": "./upstream/browser/index.js"
+      }
+    },
+    "dependencies": {
+      "@noble/hashes": "2.4.0",
+      "es-module-lexer": "3.0.3",
+      "jsonc-parser": "3.3.1",
+      "typebox": "1.3.27"
+    },
+    "engines": {
+      "bun": ">=1.4.3"
+    }
+  },
+  "files": {
+    "binding.d.ts": "11552dbebe6f43d2fd7e805a65b2219b9f4096eac2e2e6ac284b68f1c27c6f89",
+    "binding.js": "fe772e3b27320467dad08e9f5c613c37f1b6b0f090bb2870ebd8f661c33df612",
+    "browser/abi.d.ts": "7a9e6e36b9cff44d8c4dc2b98d5973e7008815e3b7587e5f13c66530e2938686",
+    "browser/abi.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881",
+    "browser/artifact.d.ts": "692e4fc8a8f7d0127312c0f7bdda357c731c3a020f3689c52b3c8f8e1a599d9f",
+    "browser/artifact.js": "89994e3eb445a1fcdc01b546a55e7277366c06abd18ba9ad0c41458308e5699d",
+    "browser/executor.d.ts": "d287a33188e0cca3b95e5ca43915329a446fab654dba9a7cc414e78014d05b92",
+    "browser/executor.js": "49f5bd7976a6ad168409ba346ce4bd6afb02449494bf983be684008f19d60682",
+    "browser/index.d.ts": "f9da9b0d397b93c5e7570b25ed374b1d88f85319a24a679cdb2f5d0878bbc809",
+    "browser/index.js": "396b84fa78615e425bf8eff897219be6c139f98da64f7090a0d8abf1bb735ee9",
+    "contracts.d.ts": "5a1e5f18f1c732138b5076b4b65c409d35cc1e6bdbce1748c65f0623277fbfaf",
+    "contracts.js": "9c3ae9901fd54755f4a0d0c75757e4a43a6f48481aaa857e41e93cb570436e48",
+    "error.d.ts": "61ebf37a11d83f43f2eb21a072f54bab5f003007c9a3baf2742543452b8c50ab",
+    "error.js": "733c1503a5185968e97190c2b4a9e6f6f2022e02118ee38a789005f3cb0faf43",
+    "executor.d.ts": "dc20e0f8d9c132571e7713c26a3c4b19ef3ba4ccbdf21f480ae6bf081c916e8f",
+    "executor.js": "1185dee1d17ab939b652da3c5d5a0a3b23ee6c188a8dd0d3a71c530b45dff7e4",
+    "hooks.d.ts": "56165cdf90fab7f9e51094640b6d157fa8c8bc4ad9924173298a63e431c56cf1",
+    "hooks.js": "ee160d28c0e966e1e410e9f2e846afb70b37e15d38daa04c3cc06fbe9f1d1d32",
+    "index.d.ts": "6520a5aa8c1e1bcc64ad08d59db7cec13f19586359906e37efba49ceef2ecef4",
+    "index.js": "eabe1abcce6d74023a879fa7a2c5330f3943deb66169daf9a0a527f19384340c",
+    "portable.d.ts": "c012d5d3d38d3a1342e5700de502602607d3857fc49a69c61f8ad4327ae90b3c",
+    "portable.js": "8d85bb5fa9c029bcad8ac9d63341d7e86bc24f6512dc3c2597f6d7f4f9df62e3",
+    "schema.d.ts": "8df5bb6ea6e80d8ffbe98dff50652f2b7fe7c81fa4590edb3118e4ccedd14eb8",
+    "schema.js": "772b8d6816ea91c80c7f6edcdb70f86397324d6ea1aed3f83f7bdc8ff64fe97d"
+  }
+}
