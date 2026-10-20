@@ -1,5 +1,6 @@
 use std::{future::Future, path::PathBuf, rc::Rc};
 
+use swarmie_counter::{Counter, CounterInput, DynamicConsumer, DynamicConsumerInput};
 use swarmie_plugin_contracts::*;
 use swarmie_plugin_manager::{LocalSource, ManagerError, PluginManager};
 use tembra::{core, native::TokioDriver, prelude::*};

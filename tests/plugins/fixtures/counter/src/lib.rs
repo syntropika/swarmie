@@ -1,12 +1,14 @@
-//! Compiled Counter Core Plugin, publishing one lifecycle-owned capability and State.
+//! Synthetic Counter fixture for native, dynamic and remote composition acceptance.
 
-use swarmie_plugin_contracts::{
-    CAPABILITY_REGISTRY, Counter, CounterInput, CounterProvider, CounterRef, RemoteCounter,
-    RemoteCounterProvider,
-};
+mod contracts;
+
+pub use contracts::*;
 use tembra::{core, prelude::*};
 
-pub use swarmie_plugin_contracts::{CounterInput as Input, RemoteCounterInput};
+pub use contracts::CounterInput as Input;
+
+/// Registry exercised by synthetic capability contribution acceptance.
+pub const CAPABILITY_REGISTRY: &str = "swarmie.capabilities";
 
 /// Logical identity of the compiled plugin package.
 pub const PLUGIN_ID: &str = "swarmie.counter";

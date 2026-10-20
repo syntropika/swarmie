@@ -49,6 +49,21 @@ impl PluginManager {
         Ok(())
     }
 
+    /// Scopes live admission to a complete candidate already validated by the caller.
+    /// This changes neither installed selections nor live Facets. The caller must compare
+    /// approved manifests with its whole candidate before applying lifecycle transitions.
+    pub fn set_live_composition_selection(&self, selected: &BTreeSet<String>) -> Result<()> {
+        if !self.reconciling.get() || self.fresh_session.get() {
+            return Err(ManagerError::CompositionManaged);
+        }
+        if self.busy.get() {
+            return Err(ManagerError::Busy);
+        }
+        *self.composition_selection.borrow_mut() = Some(selected.clone());
+        *self.composition_staged.borrow_mut() = selected.clone();
+        Ok(())
+    }
+
     pub(crate) fn composition_candidate_relevant(&self, id: &str) -> bool {
         self.composition_selection
             .borrow()

@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use swarmie_plugin_contracts::*;
-use tembra::{NativeFacet, core};
+use tembra::NativeFacet;
 
 use crate::{ManagerError, PluginManager, Result, store::CachedPlugin};
 
@@ -30,9 +30,10 @@ impl PluginManager {
     /// Recovers selected application packages through one mixed Tembra declaration batch.
     ///
     /// All native and foreign providers are declared before any eager factory starts. Tembra
-    /// owns object dependency readiness, including Core consumers of Dynamic providers. A
-    /// failed initial batch can leave installed work; aggregate failure never proves rollback
-    /// or establishes that any unobserved package is active.
+    /// owns object dependency readiness, including Core consumers of Dynamic providers.
+    /// A failed batch attempts retirement of its foreign definitions through Tembra reload.
+    /// Native definitions cannot be retired this way and require a fresh Host. Errors retain
+    /// both startup and cleanup causes; no external-effect rollback is promised.
     pub async fn recover_composed(
         &self,
         cores: Vec<CorePluginDeployment>,
@@ -63,47 +64,8 @@ impl PluginManager {
         }
         // Reserve and validate compiled ownership before execution. These records immediately
         // become Unavailable; only the awaited shared startup can establish Active.
-        let core_ids = cores
-            .iter()
-            .map(|plugin| plugin.plugin_id.clone())
-            .collect::<Vec<_>>();
-        let mut definitions = vec![];
-        for plugin in cores {
-            let names = plugin
-                .facets
-                .iter()
-                .map(|facet| facet.core().name().to_string())
-                .collect();
-            self.record_core_facets(plugin.plugin_id.clone(), plugin.version, names)
-                .await?;
-            if let Some(record) = self
-                .cores
-                .borrow_mut()
-                .iter_mut()
-                .find(|record| record.plugin_id == plugin.plugin_id)
-            {
-                record.observed = ObservedState::Unavailable;
-                record.errors =
-                    vec!["composed startup has not established runtime readiness".into()];
-            }
-            definitions.extend(
-                plugin
-                    .facets
-                    .into_iter()
-                    .map(|facet| core::ExecutableFacet::from(facet.core().clone())),
-            );
-        }
+        let (core_ids, mut definitions) = self.reserve_cores(cores).await?;
         let _guard = self.recovery_guard()?;
-        for mut operation in self.storage()?.operations()? {
-            if matches!(
-                operation.status,
-                OperationStatus::Pending | OperationStatus::Running
-            ) {
-                operation.status = OperationStatus::Interrupted;
-                operation.error = "previous supervisor session ended before settlement was recorded; external effects are unknown".into();
-                self.storage()?.operation(&operation)?;
-            }
-        }
         let mut selected = vec![];
         for mut plugin in self.storage()?.all()? {
             if unique.contains(&plugin.package.manifest.id) {
@@ -133,13 +95,7 @@ impl PluginManager {
             for plugin in &selected {
                 definitions.extend(self.prepared(&plugin.package).await?);
             }
-            if !definitions.is_empty() {
-                self.host
-                    .core()
-                    .load_executable(definitions, core::LoadOptions::default())?
-                    .await?;
-            }
-            Ok(())
+            self.load_initial(definitions).await
         }
         .await;
         let diagnostic = result
@@ -147,27 +103,12 @@ impl PluginManager {
             .err()
             .map(ToString::to_string)
             .unwrap_or_default();
-        for id in core_ids {
-            if let Some(record) = self
-                .cores
-                .borrow_mut()
-                .iter_mut()
-                .find(|record| record.plugin_id == id)
-            {
-                record.observed = if result.is_ok() {
-                    ObservedState::Active
-                } else {
-                    ObservedState::Unavailable
-                };
-                record.errors = if diagnostic.is_empty() {
-                    vec![]
-                } else {
-                    vec![diagnostic.clone()]
-                };
-            }
-        }
+        self.settle_cores(&core_ids, result.is_ok(), &diagnostic);
+        let mut recording_error = None;
         for plugin in selected {
-            self.record_composed_result(plugin, result.is_ok(), &diagnostic)?;
+            if let Err(error) = self.record_composed_result(plugin, result.is_ok(), &diagnostic) {
+                recording_error.get_or_insert(error);
+            }
         }
         for operation in &mut operations {
             operation.status = if result.is_ok() {
@@ -176,13 +117,21 @@ impl PluginManager {
                 OperationStatus::Failed
             };
             operation.error = diagnostic.clone();
-            self.storage()?.operation(operation)?;
+            if let Err(error) = self.storage()?.operation(operation) {
+                recording_error.get_or_insert(error);
+            }
+        }
+        if let Some(recording) = recording_error {
+            return Err(match result {
+                Err(failure) => self.failure_unrecorded(failure, recording),
+                Ok(()) => recording,
+            });
         }
         result?;
         self.snapshot()
     }
 
-    fn record_composed_result(
+    pub(crate) fn record_composed_result(
         &self,
         mut plugin: CachedPlugin,
         succeeded: bool,
@@ -200,6 +149,8 @@ impl PluginManager {
             } else {
                 ObservedState::Installed
             }
+        } else if self.restart_required.get() {
+            ObservedState::Unavailable
         } else {
             ObservedState::Failed
         };

@@ -1,3 +1,6 @@
+#[path = "../../../tests/plugins/fixtures/runtime.rs"]
+mod fixture_runtime;
+
 use std::{
     future::Future,
     path::{Path, PathBuf},
@@ -5,18 +8,17 @@ use std::{
     time::Duration,
 };
 
+use fixture_runtime::start;
 use serde_json::json;
 use swarmie_composition::{
     FacetIdentity, FacetTarget, Origin, PluginKind, Release, Selection, SelectionState,
 };
-use swarmie_plugin_contracts::{
+use swarmie_counter::{
     Counter, CounterInput, CounterRef, DynamicConsumer, DynamicConsumerInput,
-    DynamicConsumerProvider, ObservedState,
+    DynamicConsumerProvider,
 };
-use swarmie_plugin_manager::LocalSource;
-use swarmie_runtime::{
-    Application, CompiledPlugin, Configuration, Runtime, start, start_with_catalog,
-};
+use swarmie_plugin_contracts::ObservedState;
+use swarmie_runtime::{Application, CompiledPlugin, Configuration, Runtime, start_with_catalog};
 use tembra::{core, prelude::*};
 use tembra_native::TokioDriver;
 
@@ -60,7 +62,7 @@ fn release(plugin: &str, version: &str, kind: PluginKind, facet: &str) -> Releas
 }
 
 fn with_consumer() -> Application {
-    let mut app = Application::default();
+    let mut app = fixture_runtime::application();
     app.composition.profile.id = "counter-acceptance".into();
     app.composition.profile.plugins.push(selection(
         "counter-client",
@@ -137,16 +139,10 @@ async fn exercise(runtime: &Runtime, initial: u32) {
 }
 
 fn source_adapter(source: PathBuf) -> CompiledPlugin {
-    CompiledPlugin::new(
-        release(
-            "swarmie.local-plugin-source",
-            env!("CARGO_PKG_VERSION"),
-            PluginKind::Core,
-            "swarmie.local-plugin-source",
-        ),
-        move |_| Ok(vec![LocalSource::new("local", source.clone()).facet()?]),
-    )
-    .with_trusted_source("local".into())
+    fixture_runtime::catalog(source)
+        .into_iter()
+        .find(|adapter| adapter.release.plugin == "swarmie.local-plugin-source")
+        .expect("source adapter")
 }
 
 fn native_consumer() -> CompiledPlugin {
@@ -257,7 +253,7 @@ fn profile_substitution_preserves_consumers_and_uses_actual_tembra_contracts() {
 fn native_consumer_and_dynamic_provider_are_declared_in_one_real_tembra_batch() {
     run(|driver| async move {
         let root = tempfile::tempdir().unwrap();
-        let mut app = replace_counter(Application::default());
+        let mut app = replace_counter(fixture_runtime::application());
         app.composition.profile.plugins.push(selection(
             "native-client",
             "example.native-consumer",
@@ -395,7 +391,7 @@ fn same_nominal_contract_with_an_incompatible_fingerprint_is_rejected_by_tembra(
 }
 
 #[test]
-fn failed_acquisition_source_startup_does_not_grant_source_trust() {
+fn failed_acquisition_source_startup_prevents_package_acquisition_until_restart() {
     run(|driver| async move {
         let root = tempfile::tempdir().unwrap();
         let source = CompiledPlugin::new(
@@ -433,7 +429,7 @@ fn failed_acquisition_source_startup_does_not_grant_source_trust() {
             config(
                 &root.path().join("admin.sqlite"),
                 &fixtures(),
-                Some(replace_counter(Application::default())),
+                Some(replace_counter(fixture_runtime::application())),
             ),
             vec![source],
         )
@@ -443,6 +439,18 @@ fn failed_acquisition_source_startup_does_not_grant_source_trust() {
             runtime
                 .deployment_errors
                 .contains_key("swarmie.local-plugin-source")
+        );
+        let inventory = runtime.manager.inventory().unwrap();
+        assert!(inventory.plugins.iter().any(|plugin| {
+            plugin.plugin_id == "swarmie.local-plugin-source"
+                && plugin.observed == ObservedState::Unavailable
+                && !plugin.errors.is_empty()
+        }));
+        assert!(
+            inventory
+                .plugins
+                .iter()
+                .all(|plugin| plugin.plugin_id != "alternative-counter")
         );
         let permit = runtime.manager.begin_composition_reconciliation().unwrap();
         let result = runtime
@@ -456,7 +464,7 @@ fn failed_acquisition_source_startup_does_not_grant_source_trust() {
             .await;
         assert!(matches!(
             result,
-            Err(swarmie_plugin_manager::ManagerError::UntrustedSource(_))
+            Err(swarmie_plugin_manager::ManagerError::RecoveryRequired)
         ));
         drop(permit);
         runtime.host.close().await.unwrap();
@@ -482,7 +490,7 @@ fn configuration_boundaries_remain_with_the_actual_provider() {
         exercise(&runtime, 42).await;
         runtime.host.close().await.unwrap();
         drop(runtime);
-        let mut invalid = Application::default();
+        let mut invalid = fixture_runtime::application();
         let mut override_selection = selection(
             "swarmie.counter",
             "swarmie.counter",
@@ -692,7 +700,7 @@ fn omitted_cached_consumer_cannot_veto_the_current_profiles_provider_upgrade() {
         );
         first.host.close().await.unwrap();
         drop(first);
-        let mut app = replace_counter(Application::default());
+        let mut app = replace_counter(fixture_runtime::application());
         app.composition.profile.overrides[0].version = "2.0.0".into();
         app.composition.profile.overrides[0].config = json!({"initial":42});
         app.releases[0].version = "2.0.0".into();

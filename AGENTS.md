@@ -52,9 +52,9 @@ through module and export identity, never serialized functions. Keep server Java
 execution distinct from browser module loading and keep contributions tied to plugin lifecycle.
 Installation and capability availability belong to the connected node, not every node.
 
-Agent Loop, subagents, model providers, tools, memory, compaction, coordination, workflows,
-a general storage plugin, a hosted marketplace and a full Desktop rewrite are outside the
-foundation delivery. Do not introduce premature contracts or implementations for those features.
+Agent Loop, subagents, model providers, tools, semantic memory, compaction, coordination,
+workflows, a durable task scheduler, a hosted marketplace and a full Desktop rewrite are
+outside this delivery. The MemoryStore plugin provides namespaced persistent JSON storage. Do not introduce premature contracts or implementations for those features.
 
 ## Repository boundaries and documentation
 
@@ -111,8 +111,9 @@ belong in `packages/`. The retired language SDKs, native bindings and WIT bounda
 removed. The source-built Tembra SDK is a required implementation dependency. The standalone
 TypeScript contracts and plugin UI packages and the browser acceptance application have been
 retired. Rust contracts remain authoritative; generated TypeScript bindings are reproducible,
-ignored build outputs under `target/generated/contracts/`, consumed by the named plugin examples
-and acceptance fixtures. Mobile retains account onboarding
+ignored build outputs under `target/generated/contracts/`, consumed by application plugins and dedicated acceptance fixtures under `tests/plugins`.
+Infrastructure belongs in `crates/`, application capabilities in `plugins/`, synthetic
+implementations and fixtures in `tests/`; do not recreate a top-level `examples/` directory. Mobile retains account onboarding
 and native UI, with old runtime-dependent views removed and connectivity unavailable;
 do not restore the retired transport or advertise native builds or live connectivity before
 a new client integration is qualified. Do not recreate Tembra's transport engine in each language.

@@ -111,7 +111,6 @@ tembra-tooling-test:
     python3 -m unittest discover -s scripts/tembra -p 'test_*.py'
 
 foundation-check: tembra-tooling-test tembra-plugins rust-check
-    bunx tsc --noEmit -p examples/plugins/tsconfig.json
     bunx tsc --noEmit -p tests/plugins/tsconfig.json
     bunx tsc --noEmit -p scripts/tembra/tsconfig.json
 

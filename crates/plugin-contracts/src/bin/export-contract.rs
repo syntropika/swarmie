@@ -5,23 +5,9 @@ use std::{env, fs, path::PathBuf, process::ExitCode};
 use swarmie_plugin_contracts::*;
 use tembra::{ContractToken, contracts::Contract};
 
-// A private acceptance-only contract verifies incompatible reload admission. It is excluded
-// from the production descriptor set and the public contracts crate's exports.
-#[tembra::contract(local, name = "swarmie.dynamic-consumer", version = 2)]
-trait IncompatibleDynamicConsumer {
-    #[state]
-    fn invocations(&self) -> u32;
-
-    #[portable]
-    async fn run(&self) -> tembra::Result<String>;
-}
-
 fn descriptors() -> tembra::Result<Vec<(&'static str, std::rc::Rc<Contract>)>> {
     Ok(vec![
-        ("counter", Counter.descriptor()?),
         ("plugin-configuration", PluginConfiguration.descriptor()?),
-        ("remote-counter", RemoteCounter.descriptor()?),
-        ("dynamic-consumer", DynamicConsumer.descriptor()?),
         ("plugin-source", PluginSourceSchema.descriptor()?),
         ("plugin-administration", PluginAdministration.descriptor()?),
         ("ui-contributions", UiContributions.descriptor()?),
@@ -46,11 +32,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         [selected] => {
-            if selected == "dynamic-consumer-v2" {
-                let contract = IncompatibleDynamicConsumer.descriptor()?;
-                println!("{}", tembra::serde_json::to_string(contract.descriptor())?);
-                return Ok(());
-            }
             let (_, contract) = contracts
                 .into_iter()
                 .find(|(name, _)| name == selected)

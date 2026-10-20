@@ -138,7 +138,7 @@ try {
   const bootstrap = await nextAnnouncement();
   const entries = {
     "/sdk.js": "tests/plugins/browser/sdk.ts",
-    "/contracts.js": "examples/plugins/browser-widget/contracts.ts",
+    "/contracts.js": "tests/plugins/fixtures/browser-widget/contracts.ts",
     "/acceptance.js": "tests/plugins/browser/acceptance.ts",
     "/react.js": "tests/plugins/browser/react.ts",
     "/failing.js": "tests/plugins/browser/fixtures/failing.ts",

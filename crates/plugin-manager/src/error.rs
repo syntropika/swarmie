@@ -33,6 +33,23 @@ pub enum ManagerError {
     #[error("another administrative operation is in progress")]
     Busy,
     #[error(
+        "initial installation failed: {cause}; cleanup error: {cleanup:?}; Host errors observed during cleanup: {cleanup_reports:?}; native facets may remain: {native_facets:?}; lingering physical executions: {lingering_physical}"
+    )]
+    StartupFailed {
+        #[source]
+        cause: Box<RuntimeError>,
+        cleanup: Option<Box<RuntimeError>>,
+        cleanup_reports: Vec<RuntimeError>,
+        native_facets: Vec<String>,
+        lingering_physical: usize,
+    },
+    #[error("operation failed: {failure}; recording its outcome also failed: {recording}")]
+    FailureUnrecorded {
+        failure: Box<ManagerError>,
+        #[source]
+        recording: Box<ManagerError>,
+    },
+    #[error(
         "runtime publication committed but durable selection failed for {plugin_id}@{version}: {cause}"
     )]
     PublicationUnrecorded {
@@ -58,6 +75,32 @@ pub enum ManagerError {
 }
 
 impl ManagerError {
+    /// Whether safe continuation requires a fresh Host after effects that cannot be retired.
+    pub fn requires_restart(&self) -> bool {
+        match self {
+            Self::StartupFailed {
+                cleanup,
+                cleanup_reports,
+                native_facets,
+                lingering_physical,
+                ..
+            } => {
+                cleanup.is_some()
+                    || !cleanup_reports.is_empty()
+                    || !native_facets.is_empty()
+                    || *lingering_physical > 0
+            }
+            Self::PublicationUnrecorded { .. }
+            | Self::FailureUnrecorded { .. }
+            | Self::RecoveryRequired => true,
+            Self::Runtime(error) => matches!(
+                error.reason.as_str(),
+                "host_failed" | "closed" | "resource_restore"
+            ),
+            _ => false,
+        }
+    }
+
     pub(crate) fn into_runtime(self) -> RuntimeError {
         match self {
             Self::Runtime(error) => error,

@@ -1,6 +1,6 @@
 use std::{cell::Cell, rc::Rc};
 
-use swarmie_plugin_contracts::{
+use swarmie_counter::{
     CAPABILITY_REGISTRY, Counter, CounterInput, RemoteCounter, RemoteCounterInput,
 };
 use tembra::{core, prelude::*};

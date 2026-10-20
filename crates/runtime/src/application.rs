@@ -35,15 +35,22 @@ impl Default for Application {
                     "swarmie.foundation".into(),
                     Bundle {
                         bundles: vec![],
-                        plugins: ["swarmie.counter", "swarmie.local-plugin-source"]
-                            .map(|plugin| Selection {
-                                id: plugin.into(),
-                                plugin: plugin.into(),
-                                version: env!("CARGO_PKG_VERSION").into(),
-                                provider: None,
-                                config: json!({}),
-                            })
-                            .into(),
+                        plugins: [
+                            swarmie_memory_store::PLUGIN_ID,
+                            "swarmie.local-plugin-source",
+                        ]
+                        .map(|plugin| Selection {
+                            id: plugin.into(),
+                            plugin: plugin.into(),
+                            version: env!("CARGO_PKG_VERSION").into(),
+                            provider: None,
+                            config: if plugin == swarmie_memory_store::PLUGIN_ID {
+                                json!({"database":"memory.sqlite"})
+                            } else {
+                                json!({})
+                            },
+                        })
+                        .into(),
                     },
                 )]),
             },
@@ -55,6 +62,7 @@ impl Default for Application {
 type Factory = dyn Fn(&Value) -> tembra::Result<Vec<NativeFacet>>;
 
 /// Compile-time adapter for selecting native Facets; never a runtime service container.
+#[derive(Clone)]
 pub struct CompiledPlugin {
     pub release: Release,
     factory: Rc<Factory>,
@@ -91,13 +99,6 @@ impl CompiledPlugin {
     }
 }
 
-#[derive(Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CounterConfiguration {
-    #[serde(default)]
-    initial: u32,
-}
-
 fn release(plugin: &str, facet: &str) -> Release {
     Release {
         plugin: plugin.into(),
@@ -113,15 +114,19 @@ fn release(plugin: &str, facet: &str) -> Release {
 pub(crate) fn compiled(source: PathBuf) -> Vec<CompiledPlugin> {
     vec![
         CompiledPlugin::new(
-            release(swarmie_counter::PLUGIN_ID, swarmie_counter::FACET_ID),
+            release(
+                swarmie_memory_store::PLUGIN_ID,
+                swarmie_memory_store::FACET_ID,
+            ),
             |value| {
-                let configuration: CounterConfiguration = serde_json::from_value(value.clone())
-                    .map_err(|error| {
-                        tembra::RuntimeError::invalid("counter_configuration", error.to_string())
+                let configuration: swarmie_memory_store::Configuration =
+                    serde_json::from_value(value.clone()).map_err(|error| {
+                        tembra::RuntimeError::invalid(
+                            "memory_store_configuration",
+                            error.to_string(),
+                        )
                     })?;
-                Ok(vec![swarmie_counter::facet_with_initial(
-                    configuration.initial,
-                )?])
+                Ok(vec![swarmie_memory_store::facet(&configuration)?])
             },
         ),
         CompiledPlugin::new(
@@ -138,4 +143,21 @@ pub(crate) fn compiled(source: PathBuf) -> Vec<CompiledPlugin> {
         )
         .with_trusted_source("local".into()),
     ]
+}
+
+/// The executable chooses default application data placement; bootstrap only composes plugins.
+pub(crate) fn default_for(database: &std::path::Path) -> Application {
+    let mut application = Application::default();
+    if let Some(bundle) = application
+        .composition
+        .bundles
+        .get_mut("swarmie.foundation")
+    {
+        for selection in &mut bundle.plugins {
+            if selection.plugin == swarmie_memory_store::PLUGIN_ID {
+                selection.config = json!({"database": database.with_extension("memory.sqlite")});
+            }
+        }
+    }
+    application
 }

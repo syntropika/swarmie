@@ -1,5 +1,6 @@
 use std::{future::Future, path::PathBuf, rc::Rc};
 
+use swarmie_counter::{DynamicConsumer, DynamicConsumerInput};
 use swarmie_plugin_contracts::*;
 use swarmie_plugin_manager::{LocalSource, ManagerError, PluginManager};
 use tembra::{core, native::TokioDriver, prelude::*};
@@ -389,12 +390,23 @@ fn failed_initial_batch_retires_earlier_successful_facets_before_claiming_inacti
                 .contains("Second initial facet setup failed"),
             "{error}"
         );
-        let partial = host
-            .get(DynamicConsumer, DynamicConsumerInput {})
-            .await
-            .unwrap();
-        assert_eq!(partial.run().await.unwrap(), 42);
-        partial.core().release();
+        let ManagerError::StartupFailed {
+            cleanup,
+            native_facets,
+            ..
+        } = &error
+        else {
+            panic!("unexpected startup failure: {error:?}");
+        };
+        assert!(cleanup.is_none(), "{error}");
+        assert!(native_facets.is_empty());
+        assert!(!error.requires_restart());
+        assert!(
+            host.get(DynamicConsumer, DynamicConsumerInput {})
+                .await
+                .is_err(),
+            "the earlier successfully installed Facet must be retired automatically"
+        );
         let inventory = manager
             .deactivate(DeactivateRequest {
                 plugin_id: "partial-package".into(),

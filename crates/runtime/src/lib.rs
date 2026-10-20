@@ -5,6 +5,7 @@ mod bootstrap;
 mod configuration;
 mod deployment;
 mod preparation;
+mod reconciliation;
 mod transport;
 
 use std::{collections::BTreeMap, path::PathBuf, rc::Rc};
@@ -14,7 +15,16 @@ use swarmie_plugin_manager::{ManagerError, PluginManager};
 use tembra::{Host, core};
 
 pub use application::{Application, CompiledPlugin};
+pub use reconciliation::{
+    ChangeKind, InstanceChange, ReconciliationError, ReconciliationPlan, ReconciliationReport,
+    TransitionOutcome, TransitionResult,
+};
 pub use transport::serve;
+
+/// The executable's application catalog; selection still belongs to a Profile.
+pub fn compiled_plugins(source: PathBuf) -> Vec<CompiledPlugin> {
+    application::compiled(source)
+}
 
 /// Inspects the default catalog's effective configuration without starting a Host or plugin.
 ///
@@ -40,7 +50,14 @@ pub struct Configuration {
 pub struct Runtime {
     pub host: Host,
     pub manager: Rc<PluginManager>,
+    /// Validated desired selection; this does not assert live availability.
     pub effective: EffectiveComposition,
+    /// Last acknowledged application selections, distinct from requested intent and live References.
+    pub applied: BTreeMap<String, swarmie_composition::EffectiveInstance>,
+    pub(crate) desired: Application,
+    pub(crate) compiled: Vec<CompiledPlugin>,
+    pub(crate) configuration_values: configuration::ConfigurationValues,
+    pub(crate) reconciliation_uncertain: Rc<std::cell::Cell<bool>>,
     /// Actual deployment refusals keyed by configured instance, separate from metadata readiness.
     pub deployment_errors: BTreeMap<String, String>,
     /// A failed cached activation; administration remains available for supervised repair.

@@ -21,9 +21,6 @@ pub const SOURCE_REGISTRY: &str = "swarmie.plugin-sources";
 /// Registry containing lifecycle-owned browser contribution declarations.
 pub const UI_REGISTRY: &str = "swarmie.ui-contributions";
 
-/// Registry containing published runtime capabilities.
-pub const CAPABILITY_REGISTRY: &str = "swarmie.capabilities";
-
 /// Logical host of externally reachable runtime facades.
 pub const RUNTIME_HOST: &str = "swarmie-runtime";
 

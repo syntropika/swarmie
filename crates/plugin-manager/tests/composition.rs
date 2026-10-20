@@ -1,3 +1,4 @@
+use swarmie_counter::{Counter, CounterInput};
 use swarmie_plugin_contracts::*;
 use swarmie_plugin_manager::{ManagerError, PluginManager};
 use tembra::{core, native::TokioDriver, prelude::*};

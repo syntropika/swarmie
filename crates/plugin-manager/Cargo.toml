@@ -20,7 +20,7 @@ semver.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
-swarmie-counter = { path = "../counter" }
+swarmie-counter = { path = "../../tests/plugins/fixtures/counter" }
 tempfile.workspace = true
 tokio.workspace = true
 

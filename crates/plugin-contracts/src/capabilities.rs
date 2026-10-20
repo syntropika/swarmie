@@ -1,54 +1,5 @@
 use crate::UiRegistryMetadata;
 
-/// Compiled Counter capability shared by native and same-host JavaScript consumers.
-#[tembra::contract(local, name = "swarmie.counter", version = 1)]
-pub trait Counter {
-    #[state]
-    fn count(&self) -> u32;
-
-    /// Adds `by` to the live count and publishes the result.
-    ///
-    /// # Guarantees
-    /// Overflow refuses the operation before mutation. Adding zero succeeds unchanged.
-    /// Observer failures can be reported after publication and do not undo the count.
-    ///
-    /// # Errors
-    /// Returns `counter_overflow` when the mathematical sum exceeds `u32::MAX`, or a
-    /// Tembra lifecycle error when this capability is unavailable.
-    #[portable]
-    async fn increment(&self, by: u32) -> Result<u32>;
-
-    /// Reads the current live count without mutating or persisting it.
-    #[portable]
-    async fn read(&self) -> Result<u32>;
-}
-
-/// A remote facade over the same Counter object and State.
-#[tembra::contract(
-    remote,
-    name = "swarmie.remote-counter",
-    version = 1,
-    host = "swarmie-runtime"
-)]
-pub trait RemoteCounter {
-    #[state]
-    fn count(&self) -> u32;
-
-    async fn increment(&self, by: u32) -> Result<u32>;
-
-    async fn read(&self) -> Result<u32>;
-}
-
-/// Minimal dynamic consumer used to qualify direct plugin-to-plugin calls.
-#[tembra::contract(local, name = "swarmie.dynamic-consumer", version = 1)]
-pub trait DynamicConsumer {
-    #[state]
-    fn invocations(&self) -> u32;
-
-    #[portable]
-    async fn run(&self) -> Result<u32>;
-}
-
 /// Browser-facet contribution metadata tied to the provider object's lifecycle.
 #[tembra::contract(local, name = "swarmie.ui-contributions", version = 1)]
 pub trait UiContributions {
@@ -56,7 +7,7 @@ pub trait UiContributions {
     fn contributions(&self) -> Vec<UiRegistryMetadata>;
 }
 
-/// Selects immutable effective application configuration for one configured plugin package.
+/// Binds one fixed executable Facet to its single configured application instance.
 #[derive(
     Clone,
     Debug,
@@ -69,13 +20,53 @@ pub trait UiContributions {
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
 pub struct PluginConfigurationInput {
-    pub plugin_id: String,
+    pub facet_id: String,
 }
 
-/// Read-only projection of the selected application configuration for the current Host.
-/// The application owns durable intent; each provider validates its own configuration schema.
+/// Configuration input delivered to one selected instance. Initial admission exposes the
+/// candidate for plugin-owned validation; the supervisor records acknowledged inputs
+/// separately from desired intent and withdraws inputs after failed admission.
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    tembra::serde::Serialize,
+    tembra::serde::Deserialize,
+    tembra::schemars::JsonSchema,
+)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct ConfiguredValue {
+    pub instance_id: String,
+    pub configuration: tembra::serde_json::Value,
+}
+
+/// Read-only configuration delivery. Each owning plugin validates its own schema.
+/// Hot changes require an explicit plugin-owned validation/application protocol; Tembra
+/// State and Resources are not automatically reinitialized by compatible code replacement.
 #[tembra::contract(local, name = "swarmie.plugin-configuration", version = 1, input = PluginConfigurationInput)]
 pub trait PluginConfiguration {
     #[portable]
-    async fn read(&self) -> Result<tembra::serde_json::Value>;
+    async fn read(&self) -> Result<ConfiguredValue>;
+}
+
+/// Lifecycle-owned, opt-in configuration control operations keyed by `<facet>:<phase>`.
+/// The owning operation must validate without mutation and apply through its own Tembra
+/// state/lifecycle. Registry metadata routes trusted code; it is not caller authorization.
+pub const CONFIGURATION_REGISTRY: &str = "swarmie.configuration-controls";
+
+/// Method-schema vocabulary for optional lifecycle-owned configuration operations.
+/// Implementations register their own Contracts' methods in CONFIGURATION_REGISTRY;
+/// this schema does not create another provider or make registration mandatory.
+#[tembra::contract(local, name = "swarmie.configuration-control-schema", version = 1)]
+pub trait PluginConfigurationControlSchema {
+    /// Validates candidate input without mutating configuration or external state.
+    #[portable]
+    async fn validate(&self, configuration: tembra::serde_json::Value) -> Result<()>;
+
+    /// Applies validated input through the owning plugin's actual Tembra state/lifecycle.
+    /// Failure or cancellation may follow effects; the supervisor must retain uncertainty.
+    #[portable]
+    async fn apply(&self, configuration: tembra::serde_json::Value) -> Result<()>;
 }

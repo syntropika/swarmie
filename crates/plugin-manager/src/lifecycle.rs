@@ -36,8 +36,12 @@ impl PluginManager {
         let operation = self.begin(&request.plugin_id, AdminOperation::Install)?;
         let result: Result<()> = async {
             let package = self
-                .acquire(&request.provider_id, &request.plugin_id, &request.version)
+                .approved_release(&request.provider_id, &request.plugin_id, &request.version)
                 .await?;
+            if self.composition_selection.borrow().is_none() {
+                self.package_dependencies(&package)?;
+            }
+            self.admission(&package)?;
             self.storage()?.save(&CachedPlugin {
                 package,
                 desired: DesiredState::Installed,
@@ -56,6 +60,13 @@ impl PluginManager {
     ) -> Result<Vec<core::ExecutableFacet>> {
         validate_package(package)?;
         self.package_dependencies(package)?;
+        self.prepare_definitions(package).await
+    }
+
+    pub(crate) async fn prepare_definitions(
+        &self,
+        package: &AcquiredPackage,
+    ) -> Result<Vec<core::ExecutableFacet>> {
         let mut facets = vec![];
         for descriptor in &package.manifest.facets {
             if descriptor.target != FacetTarget::Server {
@@ -92,13 +103,7 @@ impl PluginManager {
         self.storage()?.save(&plugin)?;
         let result: Result<()> = async {
             let facets = self.prepared(&plugin.package).await?;
-            if !facets.is_empty() {
-                self.host
-                    .core()
-                    .load_executable(facets, core::LoadOptions::default())?
-                    .await?;
-            }
-            Ok(())
+            self.load_initial(facets).await
         }
         .await;
         match result {
@@ -118,8 +123,13 @@ impl PluginManager {
                 plugin.error.clear();
             }
             Err(ref error) => {
-                plugin.observed = ObservedState::Failed;
+                plugin.observed = if error.requires_restart() {
+                    ObservedState::Unavailable
+                } else {
+                    ObservedState::Failed
+                };
                 plugin.error = error.to_string();
+                plugin.activation_id.clear();
             }
         }
         if let Err(error) = self.storage()?.save(&plugin) {
@@ -133,7 +143,10 @@ impl PluginManager {
             {
                 return Err(self.publication_unrecorded(&plugin.package, plugin.desired, error));
             }
-            return Err(error);
+            return Err(match result {
+                Err(failure) => self.failure_unrecorded(failure, error),
+                Ok(()) => error,
+            });
         }
         result
     }
@@ -174,8 +187,10 @@ impl PluginManager {
         let mut retirement_diagnostic = String::new();
         let result: Result<()> = async {
             let package = self
-                .acquire(&request.provider_id, &request.plugin_id, &request.version)
+                .approved_release(&request.provider_id, &request.plugin_id, &request.version)
                 .await?;
+            self.package_dependencies(&package)?;
+            self.admission(&package)?;
             if package.manifest.version == old.package.manifest.version && package != old.package {
                 return Err(ManagerError::Integrity(
                     "an installed version cannot change its approved bytes".into(),

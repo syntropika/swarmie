@@ -13,15 +13,15 @@ pub(crate) async fn start(
 ) -> Result<Runtime, Box<dyn std::error::Error>> {
     let host = Host::with_driver("swarmie-runtime", "runtime-supervisor", driver.clone())?;
     let result = async {
-        let manager = PluginManager::start(host.clone(), driver, configuration.database).await?;
+        let manager =
+            PluginManager::start(host.clone(), driver, configuration.database.clone()).await?;
         let persisted = manager.composition()?;
-        let managed = configuration.application.is_some() || persisted.is_some();
         let application = match configuration.application {
             Some(application) => application,
             None => persisted
                 .map(serde_json::from_value)
                 .transpose()?
-                .unwrap_or_default(),
+                .unwrap_or_else(|| application::default_for(&configuration.database)),
         };
         let configured = manager.provider_configuration("local")?;
         let persist_source = configured.is_none();
@@ -32,7 +32,9 @@ pub(crate) async fn start(
         let compiled = compiled.unwrap_or_else(|| application::compiled(source));
         let mut prepared = crate::preparation::prepare(&application, &compiled)?;
         let permit = manager.begin_composition_reconciliation()?;
-        if managed {
+        let configuration_values =
+            crate::configuration::ConfigurationValues::new(&prepared.effective);
+        {
             let selected = prepared
                 .effective
                 .deployment_order
@@ -45,11 +47,8 @@ pub(crate) async fn start(
                 .collect();
             manager.set_composition_selection(&selected)?;
             manager.save_composition(&serde_json::to_value(&application)?)?;
-            host.install(
-                configuration::facet(&prepared.effective)?,
-                core::LoadOptions::default(),
-            )?
-            .await?;
+            host.install(configuration_values.facet()?, core::LoadOptions::default())?
+                .await?;
             manager
                 .record_core_facets(
                     configuration::PLUGIN_ID.into(),
@@ -58,8 +57,6 @@ pub(crate) async fn start(
                 )
                 .await?;
         }
-        let (recovery_error, deployment_errors) =
-            deployment::apply(&host, &manager, &mut prepared, managed).await?;
         if persist_source {
             manager
                 .configure_provider(ConfigureProviderRequest {
@@ -68,11 +65,31 @@ pub(crate) async fn start(
                 })
                 .await?;
         }
+        let (recovery_error, deployment_errors) =
+            deployment::apply(&manager, &mut prepared, true).await?;
         drop(permit);
+        let applied = prepared
+            .effective
+            .instances
+            .iter()
+            .filter(|(id, instance)| {
+                instance.state == swarmie_composition::SelectionState::Enabled
+                    && !deployment_errors.contains_key(*id)
+            })
+            .map(|(id, instance)| (id.clone(), instance.clone()))
+            .collect();
+        for id in deployment_errors.keys() {
+            configuration_values.remove(id);
+        }
         Ok::<_, Box<dyn std::error::Error>>(Runtime {
             host: host.clone(),
             manager,
             effective: prepared.effective,
+            applied,
+            desired: application,
+            compiled,
+            configuration_values,
+            reconciliation_uncertain: Rc::new(std::cell::Cell::new(false)),
             deployment_errors,
             recovery_error,
         })

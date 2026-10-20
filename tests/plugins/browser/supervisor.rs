@@ -1,17 +1,22 @@
 //! Supervised loopback acceptance fixture with read-only remote artifact delivery.
 
+#[path = "../fixtures/runtime.rs"]
+mod fixture_runtime;
+
 use std::{cell::RefCell, io::BufRead, path::PathBuf};
 
+use fixture_runtime::start;
 use futures::{StreamExt, channel::mpsc};
 use swarmie_composition::{FacetIdentity, PluginKind as DistributionKind, Release, Selection};
+use swarmie_counter::{DynamicConsumer, DynamicConsumerInput};
 use swarmie_plugin_contracts::*;
-use swarmie_runtime::{Application, Configuration, Runtime, resolve_application, start};
+use swarmie_runtime::{Application, Configuration, Runtime, TransitionOutcome};
 use tembra_native::TokioDriver;
 
 type Error = Box<dyn std::error::Error>;
 
 fn application() -> Application {
-    let mut application = Application::default();
+    let mut application = fixture_runtime::application();
     application.composition.profile.plugins.push(Selection {
         id: "widget".into(),
         plugin: "multi-host-widget".into(),
@@ -37,13 +42,8 @@ fn application() -> Application {
     application
 }
 
-fn record_intent(runtime: &Runtime, version: Option<&str>, disable: bool) -> Result<(), Error> {
-    let mut application: Application = serde_json::from_value(
-        runtime
-            .manager
-            .composition()?
-            .ok_or("acceptance Profile is absent")?,
-    )?;
+fn revision(runtime: &Runtime, version: Option<&str>, disable: bool) -> Result<Application, Error> {
+    let mut application = runtime.desired_application().clone();
     if let Some(version) = version {
         application
             .composition
@@ -67,10 +67,20 @@ fn record_intent(runtime: &Runtime, version: Option<&str>, disable: bool) -> Res
             .disable
             .push("widget".into());
     }
-    resolve_application(&application)?;
-    runtime
-        .manager
-        .save_composition(&serde_json::to_value(application)?)?;
+    Ok(application)
+}
+
+async fn apply_revision(runtime: &mut Runtime, application: Application) -> Result<(), Error> {
+    let report = runtime.apply_application(application).await?;
+    if !report.desired_persisted
+        || report.recovery_required
+        || report
+            .results
+            .get("widget")
+            .is_none_or(|result| result.outcome != TransitionOutcome::Applied)
+    {
+        return Err(format!("widget reconciliation was not acknowledged: {report:?}").into());
+    }
     Ok(())
 }
 
@@ -124,7 +134,7 @@ fn report(runtime: &Runtime, address: &str, command: &str) -> Result<(), Error> 
 }
 
 async fn commands(
-    runtime: &Runtime,
+    runtime: &mut Runtime,
     address: &str,
     mut input: mpsc::UnboundedReceiver<String>,
 ) -> Result<(), Error> {
@@ -133,31 +143,14 @@ async fn commands(
     while let Some(command) = input.next().await {
         match command.as_str() {
             "update" => {
-                let permit = runtime.manager.begin_composition_reconciliation()?;
-                record_intent(runtime, Some("1.1.0"), false)?;
-                runtime
-                    .manager
-                    .update(UpdateRequest {
-                        provider_id: "local".into(),
-                        plugin_id: "multi-host-widget".into(),
-                        version: "1.1.0".into(),
-                        confirmed: true,
-                    })
-                    .await?;
+                let application = revision(runtime, Some("1.1.0"), false)?;
+                apply_revision(runtime, application).await?;
                 exercise_server(runtime).await?;
-                drop(permit);
                 announcement(address, "updated");
             }
             "deactivate" => {
-                let permit = runtime.manager.begin_composition_reconciliation()?;
-                record_intent(runtime, None, true)?;
-                runtime
-                    .manager
-                    .deactivate(DeactivateRequest {
-                        plugin_id: "multi-host-widget".into(),
-                    })
-                    .await?;
-                drop(permit);
+                let application = revision(runtime, None, true)?;
+                apply_revision(runtime, application).await?;
                 announcement(address, "deactivated");
             }
             "close" => break,
@@ -195,7 +188,7 @@ fn main() -> Result<(), Error> {
         .enable_all()
         .build()?
         .block_on(scheduler.run_until(async {
-            let runtime = start(
+            let mut runtime = start(
                 driver.clone(),
                 Configuration {
                     database,
@@ -214,13 +207,14 @@ fn main() -> Result<(), Error> {
             let reservation = std::net::TcpListener::bind("127.0.0.1:0")?;
             let address = reservation.local_addr()?;
             drop(reservation);
+            let listener_host = runtime.host.clone();
             let failure = RefCell::new(None);
             let stopped = async {
-                if let Err(error) = commands(&runtime, &address.to_string(), receiver).await {
+                if let Err(error) = commands(&mut runtime, &address.to_string(), receiver).await {
                     *failure.borrow_mut() = Some(error);
                 }
             };
-            swarmie_runtime::serve(&runtime, driver, address, stopped).await?;
+            swarmie_runtime::serve(&listener_host, driver, address, stopped).await?;
             runtime.host.close().await?;
             if let Some(error) = failure.into_inner() {
                 return Err(error);

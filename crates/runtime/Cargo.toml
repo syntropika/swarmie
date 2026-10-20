@@ -7,7 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 swarmie-composition = { path = "../composition" }
-swarmie-counter = { path = "../counter" }
+swarmie-memory-store = { path = "../../plugins/memory-store" }
 swarmie-plugin-contracts = { path = "../plugin-contracts" }
 swarmie-plugin-manager = { path = "../plugin-manager" }
 tembra.workspace = true
@@ -17,9 +17,15 @@ tokio.workspace = true
 tokio-tungstenite.workspace = true
 serde_json.workspace = true
 serde.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
+swarmie-counter = { path = "../../tests/plugins/fixtures/counter" }
 tempfile.workspace = true
 
 [lints]
 workspace = true
+
+[[example]]
+name = "browser_acceptance"
+path = "../../tests/plugins/browser/supervisor.rs"

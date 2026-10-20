@@ -1,7 +1,7 @@
 import { defineFacet, Type } from "@tembra/sdk";
 
-import { serveGenerated } from "../../../examples/plugins/support/generated-provider";
 import { DynamicConsumer } from "../../../target/generated/contracts/dynamic-consumer";
+import { serveGenerated } from "./support/generated-provider";
 
 export const first = defineFacet({
   name: "partial-first",

@@ -3,9 +3,11 @@
 //! Ordinary capability calls use Tembra References and Registries directly. This crate owns
 //! administrative intent and package bytes, while Tembra owns executable objects and reload.
 
+mod activation;
 mod administration;
 mod browser;
 mod browser_access;
+mod cleanup;
 mod composition;
 mod core_plugins;
 mod error;

@@ -9,7 +9,7 @@ use tembra_native::{TokioDriver, WebSocketLink, WebSocketOptions, random_incarna
 use tokio::net::TcpListener;
 use tokio_tungstenite::accept_async_with_config;
 
-use crate::Runtime;
+use tembra::Host;
 
 type Error = Box<dyn std::error::Error>;
 
@@ -23,7 +23,7 @@ impl Drop for Session {
 
 /// Serves actual Tembra RPC over one local WebSocket listener until the stop future resolves.
 ///
-/// Counter access and approved browser artifact delivery are public to loopback clients.
+/// Approved browser artifact delivery is public to loopback clients.
 /// No remote administration or lifecycle-reporting Contract is installed. Local Contracts
 /// remain local to the Host. This development embedding does not authenticate callers;
 /// network embeddings must establish caller authority before exposing privileged services.
@@ -32,7 +32,7 @@ impl Drop for Session {
 /// Refuses non-loopback listeners and returns bind, RPC-identity or accept errors. Individual
 /// malformed connections are closed and reported without terminating other sessions.
 pub async fn serve(
-    runtime: &Runtime,
+    host: &Host,
     driver: Rc<TokioDriver>,
     address: SocketAddr,
     stopped: impl std::future::Future<Output = ()>,
@@ -40,9 +40,7 @@ pub async fn serve(
     if !address.ip().is_loopback() {
         return Err("the development listener requires a loopback address".into());
     }
-    runtime
-        .host
-        .core()
+    host.core()
         .set_rpc_identity(RootOrigin::new("swarmie-runtime", random_incarnation()?)?)?;
     let listener = TcpListener::bind(address).await?;
     println!(
@@ -62,7 +60,7 @@ pub async fn serve(
                 }
                 sessions.set(sessions.get() + 1);
                 let session = Session(sessions.clone());
-                let host = runtime.host.clone();
+                let host = host.clone();
                 let connection_driver = driver.clone();
                 driver.spawn(
                     async move {

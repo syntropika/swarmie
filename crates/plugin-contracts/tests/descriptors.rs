@@ -13,10 +13,8 @@ fn roundtrip(token: impl ContractToken) {
 
 #[test]
 fn all_authored_contracts_construct_and_reparse() {
-    roundtrip(Counter);
     roundtrip(PluginConfiguration);
-    roundtrip(RemoteCounter);
-    roundtrip(DynamicConsumer);
+    roundtrip(PluginConfigurationControlSchema);
     roundtrip(PluginSourceSchema);
     roundtrip(PluginAdministration);
     roundtrip(UiContributions);

@@ -21,15 +21,16 @@ async function writeJson(file: string, value: unknown): Promise<void> {
 /** Swarmie release metadata composes actual upstream artifacts without rebuilding them. */
 export async function packageFixtures(artifacts: readonly BuiltArtifact[]): Promise<void> {
   const releases = [
-    ["dynamic-consumer-v1", "1.0.0"],
-    ["dynamic-consumer-v2", "1.1.0"],
-    ["dynamic-consumer-failing", "1.2.0"],
-    ["dynamic-consumer-provider-removed", "1.3.0"],
-    ["dynamic-consumer-evaluation-failure", "1.4.0"],
-    ["dynamic-consumer-invalid-result", "1.5.0"],
-    ["dynamic-consumer-invalid-argument", "1.6.0"],
-    ["dynamic-consumer-incompatible", "1.7.0"],
-    ["alternative-counter", "1.0.0"],
+    ["dynamic-consumer-v1", "dynamic-consumer", "1.0.0"],
+    ["dynamic-consumer-v2", "dynamic-consumer", "1.1.0"],
+    ["dynamic-consumer-failing", "dynamic-consumer", "1.2.0"],
+    ["dynamic-consumer-evaluation-failure", "dynamic-consumer", "1.4.0"],
+    ["dynamic-consumer-invalid-result", "dynamic-consumer", "1.5.0"],
+    ["dynamic-consumer-invalid-argument", "dynamic-consumer", "1.6.0"],
+    ["dynamic-consumer-incompatible", "dynamic-consumer", "1.7.0"],
+    ["alternative-counter", "alternative-counter", "1.0.0"],
+    ["dynamic-memory-store", "dynamic-memory-store", "1.0.0"],
+    ["dynamic-memory-store-apply-failing", "dynamic-memory-store", "1.1.0"],
   ] as const;
   const provenance: unknown = JSON.parse(
     await readFile(path.join(root, "packages/tembra-sdk/provenance.json"), "utf-8"),
@@ -44,12 +45,11 @@ export async function packageFixtures(artifacts: readonly BuiltArtifact[]): Prom
   }
   const { revision } = provenance;
   await Promise.all(
-    releases.map(async ([target, version]) => {
+    releases.map(async ([target, plugin, version]) => {
       const artifact = artifacts.find((candidate) => candidate.target === target);
       if (artifact === undefined) {
         throw new Error(`Required artifact is missing: ${target}`);
       }
-      const plugin = target === "alternative-counter" ? target : "dynamic-consumer";
       const destination = path.join(root, "target/fixtures", plugin, version);
       await mkdir(destination, { recursive: true });
       const bytes = await readFile(artifact.artifactPath);
@@ -74,7 +74,7 @@ export async function packageFixtures(artifacts: readonly BuiltArtifact[]): Prom
         files: [{ path: "artifact.json", sha256 }],
         distribution: {
           provider: "local",
-          description: "Contract-based Counter composition acceptance fixture",
+          description: "Contract composition acceptance fixture",
         },
         ui: [],
       };
@@ -108,10 +108,10 @@ async function packageBrowserFixtures(
       const files = {
         "server.json": await readFile(artifact.artifactPath),
         "facet.js": await bundleModule(
-          `examples/plugins/browser-widget/${entry === "v1.ts" ? "index.ts" : "v2.ts"}`,
+          `tests/plugins/fixtures/browser-widget/${entry === "v1.ts" ? "index.ts" : "v2.ts"}`,
           { sharedContracts: true },
         ),
-        "widget.js": await bundleModule("examples/plugins/browser-widget/widget.ts"),
+        "widget.js": await bundleModule("tests/plugins/fixtures/browser-widget/widget.ts"),
       };
       const manifest: PluginManifest = {
         schema_version: 1,

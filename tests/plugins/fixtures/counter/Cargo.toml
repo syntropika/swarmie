@@ -6,7 +6,6 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-swarmie-plugin-contracts = { path = "../plugin-contracts" }
 tembra.workspace = true
 
 [lints]

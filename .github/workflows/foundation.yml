@@ -4,8 +4,8 @@ on:
   pull_request:
     paths:
       - "crates/**"
+      - "plugins/**"
       - "packages/tembra-sdk/**"
-      - "examples/plugins/**"
       - "scripts/tembra/**"
       - "tests/plugins/**"
       - "Cargo.toml"

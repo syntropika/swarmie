@@ -6,7 +6,7 @@ const mode = Bun.argv.at(2);
 if (mode !== "contracts" && mode !== "plugins") {
   throw new Error("Usage: bun scripts/tembra/build.ts <contracts|plugins>");
 }
-const configuration = await loadConfig("examples/plugins/tembra.config.ts");
+const configuration = await loadConfig("tests/plugins/tembra.config.ts");
 const result = await build(configuration, mode === "contracts" ? { targets: [] } : {});
 if (mode === "plugins") {
   await packageFixtures(result.artifacts);

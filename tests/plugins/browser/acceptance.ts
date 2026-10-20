@@ -7,14 +7,14 @@ import type { ComponentType } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 
+import { RemoteBrowserAccess } from "../../../target/generated/contracts/remote-browser-access";
+import { RemoteCounter } from "../../../target/generated/contracts/remote-counter";
 import {
   Decorate,
   FixtureLifetime,
   UiContributions,
   WidgetService,
-} from "../../../examples/plugins/browser-widget/contracts";
-import { RemoteBrowserAccess } from "../../../target/generated/contracts/remote-browser-access";
-import { RemoteCounter } from "../../../target/generated/contracts/remote-counter";
+} from "../fixtures/browser-widget/contracts";
 
 function check(value: boolean, message: string): asserts value {
   if (!value) {

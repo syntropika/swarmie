@@ -1,7 +1,7 @@
 import { defineFacet, Type } from "@tembra/sdk";
 
-import { serveGenerated } from "../../../../examples/plugins/support/generated-provider";
 import { DynamicConsumerV2 } from "../../../../target/generated/contracts/dynamic-consumer-v2";
+import { serveGenerated } from "../support/generated-provider";
 
 /** The Rust-authored version 2 changes the result type required by existing version 1 consumers. */
 export default defineFacet({

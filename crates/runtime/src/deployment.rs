@@ -3,13 +3,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use swarmie_composition::{PluginKind, Release};
 use swarmie_plugin_contracts::{DesiredState, InstallRequest, PluginManifest};
 use swarmie_plugin_manager::{CorePluginDeployment, ManagerError, PluginManager};
-use tembra::{Host, core};
 
 use crate::preparation::Prepared;
 
 type Error = Box<dyn std::error::Error>;
 
-fn check_manifest(release: &Release, manifest: &PluginManifest) -> Result<(), Error> {
+pub(crate) fn check_manifest(release: &Release, manifest: &PluginManifest) -> Result<(), Error> {
     let mut actual = manifest
         .facets
         .iter()
@@ -33,7 +32,6 @@ fn check_manifest(release: &Release, manifest: &PluginManifest) -> Result<(), Er
 }
 
 pub(crate) async fn apply(
-    host: &Host,
     manager: &PluginManager,
     prepared: &mut Prepared,
     managed: bool,
@@ -53,43 +51,29 @@ pub(crate) async fn apply(
         .filter(|(_, sources)| sources.iter().any(|source| providers.contains(source)))
         .map(|(id, _)| id.clone())
         .collect::<Vec<_>>();
-    let mut source_facets = Vec::new();
+    let mut source_plugins = Vec::new();
     for id in &sources {
-        source_facets.extend(
-            prepared
+        let release = prepared.effective.instances[id]
+            .release
+            .as_ref()
+            .ok_or("source release absent")?;
+        source_plugins.push(CorePluginDeployment {
+            plugin_id: release.plugin.clone(),
+            version: release.version.clone(),
+            facets: prepared
                 .native
                 .remove(id)
                 .ok_or("source adapter Facets are absent")?,
-        );
+        });
     }
-    if !source_facets.is_empty() {
-        let startup = match host.core().load(
-            source_facets.into_iter().map(Into::into).collect(),
-            core::LoadOptions::default(),
-        ) {
-            Ok(startup) => startup.await,
-            Err(error) => Err(error),
-        };
-        for id in &sources {
-            if let Err(error) = &startup {
+    if !source_plugins.is_empty() {
+        if let Err(error) = manager.install_core_batch(source_plugins).await {
+            for id in &prepared.effective.deployment_order {
                 errors.insert(id.clone(), error.to_string());
-                continue;
             }
-            let release = prepared.effective.instances[id]
-                .release
-                .as_ref()
-                .ok_or("source release absent")?;
-            manager
-                .record_core_facets(
-                    release.plugin.clone(),
-                    release.version.clone(),
-                    release
-                        .facets
-                        .iter()
-                        .map(|facet| facet.id.clone())
-                        .collect(),
-                )
-                .await?;
+            return Ok((Some(error), errors));
+        }
+        for id in &sources {
             for provider in &prepared.trusted_sources[id] {
                 manager.approve_trusted_source(provider.clone())?;
             }

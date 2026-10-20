@@ -1,8 +1,8 @@
 import { defineFacet, Type } from "@tembra/sdk";
 
-import { Counter } from "../../../target/generated/contracts/counter";
-import { PluginConfiguration } from "../../../target/generated/contracts/plugin-configuration";
-import { RemoteCounter } from "../../../target/generated/contracts/remote-counter";
+import { Counter } from "../../../../target/generated/contracts/counter";
+import { PluginConfiguration } from "../../../../target/generated/contracts/plugin-configuration";
+import { RemoteCounter } from "../../../../target/generated/contracts/remote-counter";
 import { serveGenerated } from "../support/generated-provider";
 
 /** An independently distributed implementation of the canonical Counter contracts. */
@@ -14,11 +14,11 @@ export default defineFacet({
       declaration,
       Counter,
       (_input, self) => {
-        const configuration = self.get(PluginConfiguration, { plugin_id: "alternative-counter" });
+        const configuration = self.get(PluginConfiguration, { facet_id: "alternative-counter" });
         const count = self.cell("count", {
           schema: Type.Integer({ minimum: 0, maximum: 4_294_967_295 }),
           async initialize(context) {
-            const value = await configuration.read(context);
+            const { configuration: value } = await configuration.read(context);
             if (
               value === null ||
               typeof value !== "object" ||

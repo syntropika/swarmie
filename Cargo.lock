@@ -1657,8 +1657,20 @@ dependencies = [
 name = "swarmie-counter"
 version = "0.1.0"
 dependencies = [
- "swarmie-plugin-contracts",
  "tembra",
+]
+
+[[package]]
+name = "swarmie-memory-store"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tembra",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]
@@ -1698,11 +1710,13 @@ dependencies = [
  "serde_json",
  "swarmie-composition",
  "swarmie-counter",
+ "swarmie-memory-store",
  "swarmie-plugin-contracts",
  "swarmie-plugin-manager",
  "tembra",
  "tembra-native",
  "tempfile",
+ "thiserror",
  "tokio",
  "tokio-tungstenite",
 ]

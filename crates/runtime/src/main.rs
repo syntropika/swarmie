@@ -17,7 +17,7 @@ fn main() -> ExitCode {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let Some(command) = arguments.first() else {
-        return Err("usage: swarmie-runtime resolve <application.json> | <serve|composition|inventory|install|activate|update|deactivate|uninstall> <database> <source-directory> [arguments]".into());
+        return Err("usage: swarmie-runtime resolve <application.json> | <serve|composition|inventory|plan|reconcile|install|activate|update|deactivate|uninstall> <database> <source-directory> [arguments]".into());
     };
     if command == "resolve" {
         if arguments.len() != 2 {
@@ -51,7 +51,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .enable_all()
         .build()?
         .block_on(scheduler.run_until(async {
-            let runtime = start(
+            let mut runtime = start(
                 driver.clone(),
                 Configuration {
                     database: PathBuf::from(database),
@@ -67,6 +67,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("deployment unavailable for {instance}: {error}");
             }
             let result = async {
+                if command == "plan" || command == "reconcile" {
+                    let path = arguments.get(3).ok_or("an application file is required")?;
+                    let application = serde_json::from_slice(&std::fs::read(path)?)?;
+                    if command == "plan" {
+                        println!("{}", serde_json::to_string_pretty(&runtime.inspect_application(&application)?)?);
+                    } else {
+                        if !arguments.iter().any(|argument| argument == "--confirm") { return Err("applying trusted composition requires --confirm".into()); }
+                        println!("{}", serde_json::to_string_pretty(&runtime.apply_application(application).await?)?);
+                    }
+                    return Ok(());
+                }
                 let manager = &runtime.manager;
                 let id = || {
                     arguments
@@ -81,14 +92,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                             .map(String::as_str)
                             .unwrap_or("127.0.0.1:0")
                             .parse()?;
-                        swarmie_runtime::serve(&runtime, driver, address, async {
+                        swarmie_runtime::serve(&runtime.host, driver, address, async {
                             let _ = tokio::signal::ctrl_c().await;
                         })
                         .await?;
                         return Ok(());
                     }
                     "composition" => {
-                        println!("{}", serde_json::to_string_pretty(&runtime.effective)?);
+                        println!("{}", serde_json::to_string_pretty(&serde_json::json!({"desired":runtime.effective,"acknowledged":runtime.applied}))?);
                         return Ok(());
                     }
                     "inventory" => manager.inventory()?,

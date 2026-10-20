@@ -1,7 +1,7 @@
 import { defineFacet, Type } from "@tembra/sdk";
 
-import { Counter } from "../../../target/generated/contracts/counter";
-import { DynamicConsumer } from "../../../target/generated/contracts/dynamic-consumer";
+import { Counter } from "../../../../target/generated/contracts/counter";
+import { DynamicConsumer } from "../../../../target/generated/contracts/dynamic-consumer";
 import { serveGenerated } from "../support/generated-provider";
 
 /** Uses the declared Counter capability directly; administration does not dispatch calls. */

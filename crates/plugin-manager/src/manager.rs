@@ -26,6 +26,7 @@ pub struct PluginManager {
     pub(crate) executor: Executor,
     pub(crate) busy: Flag<bool>,
     pub(crate) fresh_session: Flag<bool>,
+    pub(crate) restart_required: Flag<bool>,
     pub(crate) reconciling: Flag<bool>,
     pub(crate) composition_selection: RefCell<Option<BTreeSet<String>>>,
     pub(crate) composition_staged: RefCell<BTreeSet<String>>,
@@ -46,6 +47,23 @@ impl Drop for OperationGuard<'_> {
 }
 
 impl PluginManager {
+    /// Observes session uncertainty without changing admission or inferring object readiness.
+    pub fn requires_recovery(&self) -> bool {
+        self.restart_required.get()
+            || !self.uncertain.borrow().is_empty()
+            || self
+                .storage()
+                .and_then(|store| store.operations())
+                .map_or(true, |operations| {
+                    operations.iter().any(|operation| {
+                        matches!(
+                            operation.status,
+                            OperationStatus::Pending | OperationStatus::Running
+                        )
+                    })
+                })
+    }
+
     /// Installs the compiled administrative Core Plugin and opens its SQLite Resource.
     ///
     /// The Host must be a fresh session whose dynamic facets have not been installed by a
@@ -68,6 +86,7 @@ impl PluginManager {
             executor: Executor::new(driver, ExecutorOptions::default())?,
             busy: Flag::new(false),
             fresh_session: Flag::new(true),
+            restart_required: Flag::new(false),
             reconciling: Flag::new(false),
             composition_selection: RefCell::new(None),
             composition_staged: RefCell::new(BTreeSet::new()),
@@ -94,6 +113,16 @@ impl PluginManager {
             core::LoadOptions::default(),
         )?
         .await?;
+        for mut operation in manager.storage()?.operations()? {
+            if matches!(
+                operation.status,
+                OperationStatus::Pending | OperationStatus::Running
+            ) {
+                operation.status = OperationStatus::Interrupted;
+                operation.error = "previous supervisor session ended before settlement was recorded; external effects are unknown".into();
+                manager.storage()?.operation(&operation)?;
+            }
+        }
         for mut plugin in manager.storage()?.all()? {
             if plugin.desired == DesiredState::Active {
                 plugin.observed = ObservedState::Unavailable;
@@ -136,11 +165,11 @@ impl PluginManager {
         if !self.fresh_session.replace(false) {
             return Err(ManagerError::RecoveryRequired);
         }
-        self.exclusive_guard()
+        self.guard()
     }
 
     fn exclusive_guard(&self) -> Result<OperationGuard<'_>> {
-        if !self.uncertain.borrow().is_empty() {
+        if self.restart_required.get() || !self.uncertain.borrow().is_empty() {
             return Err(ManagerError::RecoveryRequired);
         }
         if self.busy.replace(true) {
@@ -183,6 +212,18 @@ impl PluginManager {
             },
         );
         error
+    }
+
+    pub(crate) fn failure_unrecorded(
+        &self,
+        failure: ManagerError,
+        recording: ManagerError,
+    ) -> ManagerError {
+        self.restart_required.set(true);
+        ManagerError::FailureUnrecorded {
+            failure: Box::new(failure),
+            recording: Box::new(recording),
+        }
     }
 
     pub(crate) fn dynamic(&self, id: &str) -> Result<CachedPlugin> {

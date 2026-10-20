@@ -2,8 +2,9 @@ use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
 use futures::channel::oneshot;
 
+use swarmie_counter::{DynamicConsumer, DynamicConsumerInput};
 use swarmie_plugin_contracts::*;
-use swarmie_plugin_manager::PluginManager;
+use swarmie_plugin_manager::{CorePluginDeployment, PluginManager};
 use tembra::{core, native::TokioDriver, prelude::*};
 
 #[tembra::contract(local, name = "test.memory-package-source", version = 1)]
@@ -326,6 +327,7 @@ fn dropping_pending_acquisition_retains_running_evidence_until_fresh_host_recove
                     .is_err()
             );
             drop(installation);
+            assert!(manager.requires_recovery());
             let retained = manager.inventory().unwrap();
             assert_eq!(
                 retained.operations.last().unwrap().status,
@@ -347,6 +349,15 @@ fn dropping_pending_acquisition_retains_running_evidence_until_fresh_host_recove
             drop(manager);
             let fresh_host = Host::with_driver(RUNTIME_HOST, "supervisor", driver.clone()).unwrap();
             let restarted = PluginManager::start(fresh_host.clone(), driver.clone(), &database)
+                .await
+                .unwrap();
+            assert!(!restarted.requires_recovery());
+            restarted
+                .install_core_batch(vec![CorePluginDeployment {
+                    plugin_id: "memory-provider".into(),
+                    version: "1.0.0".into(),
+                    facets: vec![memory_facet(package()).unwrap()],
+                }])
                 .await
                 .unwrap();
             let recovered = restarted.recover().await.unwrap();

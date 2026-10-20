@@ -47,6 +47,7 @@ impl PluginManager {
         }
         for plugin in &mut plugins {
             if plugin.desired == DesiredState::Active
+                && plugin.observed == ObservedState::Active
                 && !self.uncertain.borrow().contains_key(&plugin.plugin_id)
                 && let Some((observed, errors)) = self.reference_observation(&plugin.plugin_id)
             {
@@ -211,7 +212,12 @@ impl PluginManager {
         if let Err(error) = &result {
             operation.error = error.to_string();
         }
-        self.storage()?.operation(&operation)?;
+        if let Err(recording) = self.storage()?.operation(&operation) {
+            return Err(match result {
+                Err(failure) => self.failure_unrecorded(failure, recording),
+                Ok(()) => recording,
+            });
+        }
         result?;
         self.snapshot()
     }
@@ -320,6 +326,21 @@ impl PluginManager {
         id: &str,
         version: &str,
     ) -> Result<AcquiredPackage> {
+        let package = self.acquire_verified(provider, id, version).await?;
+        if self.composition_selection.borrow().is_none() {
+            self.package_dependencies(&package)?;
+        }
+        self.admission(&package)?;
+        Ok(package)
+    }
+
+    /// Verifies provider bytes without changing or comparing the installed selection.
+    pub(crate) async fn acquire_verified(
+        &self,
+        provider: &str,
+        id: &str,
+        version: &str,
+    ) -> Result<AcquiredPackage> {
         if !self.trusted_sources.borrow().contains(provider) {
             return Err(ManagerError::UntrustedSource(provider.into()));
         }
@@ -380,10 +401,6 @@ impl PluginManager {
             ));
         }
         validate_package(&package)?;
-        if self.composition_selection.borrow().is_none() {
-            self.package_dependencies(&package)?;
-        }
-        self.admission(&package)?;
         Ok(package)
     }
 }
