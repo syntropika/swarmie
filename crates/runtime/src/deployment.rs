@@ -8,6 +8,13 @@ use crate::preparation::Prepared;
 
 type Error = Box<dyn std::error::Error>;
 
+pub(crate) struct Deployment {
+    pub recovery_error: Option<ManagerError>,
+    pub errors: BTreeMap<String, String>,
+    /// Instances submitted to an administrative admission call, not confirmed Facet presence.
+    pub attempted: BTreeSet<String>,
+}
+
 pub(crate) fn check_manifest(release: &Release, manifest: &PluginManifest) -> Result<(), Error> {
     let mut actual = manifest
         .facets
@@ -35,8 +42,9 @@ pub(crate) async fn apply(
     manager: &PluginManager,
     prepared: &mut Prepared,
     managed: bool,
-) -> Result<(Option<ManagerError>, BTreeMap<String, String>), Error> {
+) -> Result<Deployment, Error> {
     let mut errors = BTreeMap::new();
+    let mut attempted = BTreeSet::new();
     let providers = prepared
         .effective
         .deployment_order
@@ -67,11 +75,16 @@ pub(crate) async fn apply(
         });
     }
     if !source_plugins.is_empty() {
+        attempted.extend(sources.iter().cloned());
         if let Err(error) = manager.install_core_batch(source_plugins).await {
             for id in &prepared.effective.deployment_order {
                 errors.insert(id.clone(), error.to_string());
             }
-            return Ok((Some(error), errors));
+            return Ok(Deployment {
+                recovery_error: Some(error),
+                errors,
+                attempted,
+            });
         }
         for id in &sources {
             for provider in &prepared.trusted_sources[id] {
@@ -146,6 +159,7 @@ pub(crate) async fn apply(
             batch_instances.push(id.clone());
         }
     }
+    attempted.extend(batch_instances.iter().cloned());
     let recovery_error = manager.recover_composed(cores, &selected).await.err();
     if let Some(error) = &recovery_error {
         // A mixed batch can fail after earlier declarations have been installed. Preserve the
@@ -162,5 +176,9 @@ pub(crate) async fn apply(
             }
         }
     }
-    Ok((recovery_error, errors))
+    Ok(Deployment {
+        recovery_error,
+        errors,
+        attempted,
+    })
 }

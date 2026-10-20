@@ -65,8 +65,11 @@ pub(crate) async fn start(
                 })
                 .await?;
         }
-        let (recovery_error, deployment_errors) =
-            deployment::apply(&manager, &mut prepared, true).await?;
+        let deployment::Deployment {
+            recovery_error,
+            errors: deployment_errors,
+            attempted,
+        } = deployment::apply(&manager, &mut prepared, true).await?;
         drop(permit);
         let applied = prepared
             .effective
@@ -78,8 +81,18 @@ pub(crate) async fn start(
             })
             .map(|(id, instance)| (id.clone(), instance.clone()))
             .collect();
+        let installed = host.core().installed_facets();
         for id in deployment_errors.keys() {
-            configuration_values.remove(id);
+            // Keep initialization input for confirmed survivors or uncertain cleanup.
+            // Its availability never acknowledges the failed application selection.
+            let remains_installed = prepared.effective.instances[id]
+                .release
+                .iter()
+                .flat_map(|release| &release.facets)
+                .any(|facet| installed.iter().any(|actual| actual.name() == facet.id));
+            if !remains_installed && (!attempted.contains(id) || !manager.requires_recovery()) {
+                configuration_values.remove(id);
+            }
         }
         Ok::<_, Box<dyn std::error::Error>>(Runtime {
             host: host.clone(),

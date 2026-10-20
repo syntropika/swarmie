@@ -17,7 +17,7 @@ use swarmie_counter::{
     Counter, CounterInput, CounterRef, DynamicConsumer, DynamicConsumerInput,
     DynamicConsumerProvider,
 };
-use swarmie_plugin_contracts::ObservedState;
+use swarmie_plugin_contracts::{ObservedState, PluginConfiguration, PluginConfigurationInput};
 use swarmie_runtime::{Application, CompiledPlugin, Configuration, Runtime, start_with_catalog};
 use tembra::{core, prelude::*};
 use tembra_native::TokioDriver;
@@ -452,6 +452,43 @@ fn failed_acquisition_source_startup_prevents_package_acquisition_until_restart(
                 .iter()
                 .all(|plugin| plugin.plugin_id != "alternative-counter")
         );
+        assert!(!runtime.applied.contains_key("swarmie.local-plugin-source"));
+        assert!(!runtime.applied.contains_key("swarmie.counter"));
+        assert!(inventory.installed_facets.iter().any(|facet| {
+            facet.facet_id == "swarmie.local-plugin-source"
+                && facet.kind == swarmie_plugin_contracts::InstalledFacetKind::Native
+        }));
+        assert!(
+            inventory
+                .installed_facets
+                .iter()
+                .all(|facet| facet.facet_id != "alternative-counter")
+        );
+        let source_input = runtime
+            .host
+            .get(
+                PluginConfiguration,
+                PluginConfigurationInput {
+                    facet_id: "swarmie.local-plugin-source".into(),
+                },
+            )
+            .await
+            .unwrap()
+            .read()
+            .await
+            .unwrap();
+        assert_eq!(source_input.instance_id, "swarmie.local-plugin-source");
+        let untouched = runtime
+            .host
+            .get(
+                PluginConfiguration,
+                PluginConfigurationInput {
+                    facet_id: "alternative-counter".into(),
+                },
+            )
+            .await
+            .unwrap();
+        assert!(untouched.read().await.is_err());
         let permit = runtime.manager.begin_composition_reconciliation().unwrap();
         let result = runtime
             .manager

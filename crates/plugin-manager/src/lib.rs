@@ -15,6 +15,7 @@ mod lifecycle;
 mod manager;
 mod observations;
 mod policy;
+mod replacement;
 mod service;
 mod source;
 mod staging;

@@ -5,6 +5,8 @@ use swarmie_plugin_contracts::*;
 
 use crate::{ManagerError, Result};
 
+mod settlement;
+
 /// A lifecycle-owned SQLite connection. Closing removes access before releasing the driver.
 pub(crate) struct Store {
     connection: RefCell<Option<Connection>>,

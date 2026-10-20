@@ -94,7 +94,7 @@ fn actual_reference_observation_overrides_administrative_success_and_can_be_rest
                 .record_core_facets(
                     "counter-package".into(),
                     "1.0.0".into(),
-                    vec!["swarmie.counter".into()],
+                    vec![swarmie_counter::FACET_ID.into()],
                 )
                 .await
                 .unwrap();
@@ -133,7 +133,7 @@ fn actual_reference_observation_overrides_administrative_success_and_can_be_rest
                     .record_core_facets(
                         "other-package".into(),
                         "1.0.0".into(),
-                        vec!["swarmie.counter".into()]
+                        vec![swarmie_counter::FACET_ID.into()]
                     )
                     .await
                     .is_err()

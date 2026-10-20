@@ -42,6 +42,26 @@ export default defineConfig({
     name,
   })),
   builds: {
+    "counter-provider-gated": {
+      entry: "tests/plugins/fixtures/provider-replacement/gated.ts",
+      platform: "server",
+    },
+    "counter-provider-a": {
+      entry: "tests/plugins/fixtures/provider-replacement/a.ts",
+      platform: "server",
+    },
+    "counter-provider-b": {
+      entry: "tests/plugins/fixtures/provider-replacement/b.ts",
+      platform: "server",
+    },
+    "counter-provider-incompatible": {
+      entry: "tests/plugins/fixtures/provider-replacement/incompatible.ts",
+      platform: "server",
+    },
+    "counter-provider-failing": {
+      entry: "tests/plugins/fixtures/provider-replacement/failing.ts",
+      platform: "server",
+    },
     "dynamic-memory-store-apply-failing": {
       entry: "tests/plugins/fixtures/dynamic-memory-store/apply-failing.ts",
       platform: "server",

@@ -102,7 +102,13 @@ fn earlier_native_facet_is_used_before_later_failure_and_requires_a_fresh_host()
                 .find(|plugin| plugin.plugin_id == "two-facet-package")
                 .unwrap();
             assert_eq!(failed.observed, ObservedState::Unavailable);
-            assert!(failed.errors[0].contains("native facets may remain"));
+            for name in [swarmie_counter::FACET_ID, "later-failure"] {
+                assert!(inventory.installed_facets.iter().any(|facet| {
+                    facet.facet_id == name
+                        && facet.kind == swarmie_plugin_contracts::InstalledFacetKind::Native
+                }));
+            }
+            assert!(failed.errors[0].contains("confirmed installed native facets"));
             assert!(matches!(
                 manager
                     .install(InstallRequest {

@@ -55,7 +55,11 @@ async fn node(
         .unwrap();
     manager.approve_trusted_source("local".into()).unwrap();
     manager
-        .record_core("swarmie.counter".into(), "0.1.0".into())
+        .record_core_facets(
+            "swarmie.counter".into(),
+            "0.1.0".into(),
+            vec![swarmie_counter::FACET_ID.into()],
+        )
         .await
         .unwrap();
     (host, manager)

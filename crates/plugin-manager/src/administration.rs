@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Serialize, de::DeserializeOwned};
 use swarmie_plugin_contracts::*;
@@ -16,6 +16,24 @@ impl PluginManager {
     }
 
     pub(crate) fn snapshot(&self) -> Result<Inventory> {
+        let installed_facets = self
+            .host
+            .core()
+            .installed_facets()
+            .into_iter()
+            .map(|facet| InstalledFacetRecord {
+                facet_id: facet.name().into(),
+                kind: match facet.kind() {
+                    tembra::core::FacetKind::Native => InstalledFacetKind::Native,
+                    tembra::core::FacetKind::Foreign => InstalledFacetKind::Foreign,
+                },
+            })
+            .collect::<Vec<_>>();
+        let installed = installed_facets
+            .iter()
+            .map(|facet| facet.facet_id.as_str())
+            .collect::<BTreeSet<_>>();
+        let mut expected = self.core_facets.borrow().clone();
         let mut plugins = self.cores.borrow().clone();
         for plugin in self.storage()?.all()? {
             if plugins.iter().any(|core| {
@@ -23,6 +41,17 @@ impl PluginManager {
             }) {
                 continue;
             }
+            expected.insert(
+                plugin.package.manifest.id.clone(),
+                plugin
+                    .package
+                    .manifest
+                    .facets
+                    .iter()
+                    .filter(|facet| facet.target == FacetTarget::Server)
+                    .map(|facet| facet.id.clone())
+                    .collect(),
+            );
             plugins.push(PluginRecord {
                 plugin_id: plugin.package.manifest.id,
                 version: plugin.package.manifest.version,
@@ -43,16 +72,35 @@ impl PluginManager {
                 .find(|plugin| plugin.plugin_id == observation.plugin_id)
             {
                 *plugin = observation.clone();
+            } else {
+                plugins.push(observation.clone());
             }
         }
         for plugin in &mut plugins {
             if plugin.desired == DesiredState::Active
                 && plugin.observed == ObservedState::Active
                 && !self.uncertain.borrow().contains_key(&plugin.plugin_id)
-                && let Some((observed, errors)) = self.reference_observation(&plugin.plugin_id)
             {
-                plugin.observed = observed;
-                plugin.errors.extend(errors);
+                let missing = expected
+                    .get(&plugin.plugin_id)
+                    .into_iter()
+                    .flatten()
+                    .filter(|name| !installed.contains(name.as_str()))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if !missing.is_empty() {
+                    plugin.observed = ObservedState::Unavailable;
+                    plugin.errors.push(format!(
+                        "declared server Facets are absent from Tembra's installed catalog: {}",
+                        missing.join(", ")
+                    ));
+                }
+                if let Some((observed, errors)) = self.reference_observation(&plugin.plugin_id) {
+                    if missing.is_empty() {
+                        plugin.observed = observed;
+                    }
+                    plugin.errors.extend(errors);
+                }
             }
         }
         let mut providers = BTreeMap::<String, ProviderRecord>::new();
@@ -89,6 +137,7 @@ impl PluginManager {
         }
         Ok(Inventory {
             plugins,
+            installed_facets,
             providers: providers.into_values().collect(),
             operations: self.storage()?.operations()?,
             browser_sessions: self.storage()?.browser_sessions()?,
@@ -266,6 +315,14 @@ impl PluginManager {
     }
 
     pub(crate) fn admission(&self, package: &AcquiredPackage) -> Result<()> {
+        self.admission_replacing(package, None)
+    }
+
+    pub(crate) fn admission_replacing(
+        &self,
+        package: &AcquiredPackage,
+        retired: Option<&str>,
+    ) -> Result<()> {
         let manifest = &package.manifest;
         if self
             .cores
@@ -288,6 +345,7 @@ impl PluginManager {
             .map_err(|error| ManagerError::InvalidPackage(error.to_string()))?;
         for plugin in self.storage()?.all()? {
             if plugin.package.manifest.id == manifest.id
+                || retired == Some(plugin.package.manifest.id.as_str())
                 || !self.composition_candidate_relevant(&plugin.package.manifest.id)
             {
                 continue;

@@ -242,9 +242,29 @@ pub struct OperationRecord {
 #[schemars(crate = "tembra::schemars")]
 pub struct Inventory {
     pub plugins: Vec<PluginRecord>,
+    pub installed_facets: Vec<InstalledFacetRecord>,
     pub providers: Vec<ProviderRecord>,
     pub operations: Vec<OperationRecord>,
     pub browser_sessions: Vec<BrowserSessionRecord>,
+}
+
+/// Definition origin reported by the current Tembra Host's installed catalog.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", rename_all = "snake_case")]
+#[schemars(crate = "tembra::schemars")]
+pub enum InstalledFacetKind {
+    Native,
+    Foreign,
+}
+
+/// Actual logical installation on this Host, independently of package startup outcomes.
+/// Presence does not establish object readiness, physical execution or Browser admission.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct InstalledFacetRecord {
+    pub facet_id: String,
+    pub kind: InstalledFacetKind,
 }
 
 /// Local administrative control plane; ordinary plugin invocation bypasses this contract.

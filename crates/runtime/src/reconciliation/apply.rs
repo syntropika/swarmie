@@ -61,6 +61,8 @@ impl Runtime {
     /// require restart. Same-release Dynamic reconfiguration uses an explicit owning plugin
     /// protocol through actual Tembra operations/State; absence requires restart. This is not
     /// atomic across plugins or Hosts. An interrupted admitted transition requires recovery.
+    /// Cross-package replacement of one configured instance uses one Tembra reload. Tembra's
+    /// actual object identity and compatibility checks determine Reference and State retention.
     ///
     /// # Errors
     /// Refuses invalid metadata/configuration and administrative workflow/persistence errors.
@@ -261,7 +263,7 @@ impl Runtime {
                 );
             } else if restart.contains(&change.instance_id) {
                 report.results.insert(change.instance_id.clone(), result(Outcome::RestartRequired, "transition needs a fresh Host or an owning configuration protocol; acknowledged selection retained"));
-            } else if needs_retirement(change) {
+            } else if needs_retirement(change) && change.after.is_none() {
                 let before = change.before.as_ref().expect("retirement input");
                 match manager
                     .deactivate(DeactivateRequest {
@@ -275,12 +277,13 @@ impl Runtime {
                         report.results.insert(change.instance_id.clone(), result(Outcome::Applied, "server Facets logically retired; persistent application data retained; browser retirement requires Host observation"));
                     }
                     Err(error) => {
+                        let recovery = error.requires_restart() || manager.requires_recovery();
                         failed.insert(change.instance_id.clone());
-                        report.recovery_required |= error.requires_restart();
+                        report.recovery_required |= recovery;
                         report.results.insert(
                             change.instance_id.clone(),
                             result(
-                                if error.requires_restart() {
+                                if recovery {
                                     Outcome::RecoveryRequired
                                 } else {
                                     Outcome::Failed
@@ -313,6 +316,45 @@ impl Runtime {
                 );
                 continue;
             }
+            if change.kind == ChangeKind::Replaced {
+                let before = change.before.as_ref().expect("replacement input");
+                // Input is unchanged; both fixed Facet identities need it while Tembra
+                // prepares and adopts the replacement. No configuration epoch is created.
+                self.configuration_values
+                    .allow_replacement_facets(before, after);
+            }
+            if needs_retirement(change) {
+                let before = change.before.as_ref().expect("replacement input");
+                let transition = async {
+                    let _inputs = crate::configuration::hold_inputs(&self.host, after).await?;
+                    manager
+                        .replace_dynamic(&before.selection.plugin, request(after))
+                        .await
+                }
+                .await;
+                match transition {
+                    Ok(_) => self.acknowledge(after, &mut report),
+                    Err(error) => {
+                        let recovery = error.requires_restart() || manager.requires_recovery();
+                        if !recovery {
+                            self.configuration_values.publish(before);
+                        }
+                        report.recovery_required |= recovery;
+                        report.results.insert(
+                            change.instance_id.clone(),
+                            result(
+                                if recovery {
+                                    Outcome::RecoveryRequired
+                                } else {
+                                    Outcome::Failed
+                                },
+                                error.to_string(),
+                            ),
+                        );
+                    }
+                }
+                continue;
+            }
             if change.kind == ChangeKind::Reconfigured {
                 match control::invoke(
                     &self.host,
@@ -329,11 +371,16 @@ impl Runtime {
                 }
                 continue;
             }
-            let publication = change.before.is_none() || needs_retirement(change);
+            let publication = change.before.is_none();
             if publication {
                 self.configuration_values.publish(after);
             }
             let transition = async {
+                let _inputs = if change.kind == ChangeKind::Replaced {
+                    crate::configuration::hold_inputs(&self.host, after).await?
+                } else {
+                    Vec::new()
+                };
                 let inventory = manager.inventory()?;
                 let installed = inventory
                     .plugins
@@ -368,14 +415,18 @@ impl Runtime {
                 Ok(false) if publication => additions.push(after.clone()),
                 Ok(_) => self.acknowledge(after, &mut report),
                 Err(error) => {
-                    if publication {
+                    let recovery = error.requires_restart() || manager.requires_recovery();
+                    if publication && !recovery {
                         self.configuration_values.remove(&after.selection.id);
+                    } else if change.kind == ChangeKind::Replaced && !recovery {
+                        self.configuration_values
+                            .publish(change.before.as_ref().expect("replacement input"));
                     }
-                    report.recovery_required |= error.requires_restart();
+                    report.recovery_required |= recovery;
                     report.results.insert(
                         change.instance_id.clone(),
                         result(
-                            if error.requires_restart() {
+                            if recovery {
                                 Outcome::RecoveryRequired
                             } else {
                                 Outcome::Failed
@@ -398,13 +449,16 @@ impl Runtime {
                     }
                 }
                 Err(error) => {
-                    report.recovery_required |= error.requires_restart();
+                    let recovery = error.requires_restart() || manager.requires_recovery();
+                    report.recovery_required |= recovery;
                     for instance in additions {
-                        self.configuration_values.remove(&instance.selection.id);
+                        if !recovery {
+                            self.configuration_values.remove(&instance.selection.id);
+                        }
                         report.results.insert(
                             instance.selection.id.clone(),
                             result(
-                                if error.requires_restart() {
+                                if recovery {
                                     Outcome::RecoveryRequired
                                 } else {
                                     Outcome::Failed

@@ -21,16 +21,32 @@ async function writeJson(file: string, value: unknown): Promise<void> {
 /** Swarmie release metadata composes actual upstream artifacts without rebuilding them. */
 export async function packageFixtures(artifacts: readonly BuiltArtifact[]): Promise<void> {
   const releases = [
-    ["dynamic-consumer-v1", "dynamic-consumer", "1.0.0"],
-    ["dynamic-consumer-v2", "dynamic-consumer", "1.1.0"],
-    ["dynamic-consumer-failing", "dynamic-consumer", "1.2.0"],
-    ["dynamic-consumer-evaluation-failure", "dynamic-consumer", "1.4.0"],
-    ["dynamic-consumer-invalid-result", "dynamic-consumer", "1.5.0"],
-    ["dynamic-consumer-invalid-argument", "dynamic-consumer", "1.6.0"],
-    ["dynamic-consumer-incompatible", "dynamic-consumer", "1.7.0"],
-    ["alternative-counter", "alternative-counter", "1.0.0"],
-    ["dynamic-memory-store", "dynamic-memory-store", "1.0.0"],
-    ["dynamic-memory-store-apply-failing", "dynamic-memory-store", "1.1.0"],
+    ["counter-provider-gated", "counter-provider-gated", "1.0.0", "counter-provider-gated.runtime"],
+    ["dynamic-consumer-v1", "dynamic-consumer", "1.0.0", "dynamic-consumer"],
+    ["dynamic-consumer-v2", "dynamic-consumer", "1.1.0", "dynamic-consumer"],
+    ["dynamic-consumer-failing", "dynamic-consumer", "1.2.0", "dynamic-consumer"],
+    ["dynamic-consumer-evaluation-failure", "dynamic-consumer", "1.4.0", "dynamic-consumer"],
+    ["dynamic-consumer-invalid-result", "dynamic-consumer", "1.5.0", "dynamic-consumer"],
+    ["dynamic-consumer-invalid-argument", "dynamic-consumer", "1.6.0", "dynamic-consumer"],
+    ["dynamic-consumer-incompatible", "dynamic-consumer", "1.7.0", "dynamic-consumer"],
+    ["alternative-counter", "alternative-counter", "1.0.0", "alternative-counter"],
+    ["dynamic-memory-store", "dynamic-memory-store", "1.0.0", "dynamic-memory-store"],
+    ["dynamic-memory-store-apply-failing", "dynamic-memory-store", "1.1.0", "dynamic-memory-store"],
+    ["counter-provider-a", "counter-provider-a", "1.0.0", "counter-provider-a.runtime"],
+    ["counter-provider-b", "counter-provider-b", "1.0.0", "counter-provider-b.runtime"],
+    ["counter-provider-b", "counter-provider-a", "1.1.0", "counter-provider-b.runtime"],
+    [
+      "counter-provider-incompatible",
+      "counter-provider-incompatible",
+      "1.0.0",
+      "counter-provider-incompatible.runtime",
+    ],
+    [
+      "counter-provider-failing",
+      "counter-provider-failing",
+      "1.0.0",
+      "counter-provider-failing.runtime",
+    ],
   ] as const;
   const provenance: unknown = JSON.parse(
     await readFile(path.join(root, "packages/tembra-sdk/provenance.json"), "utf-8"),
@@ -45,7 +61,7 @@ export async function packageFixtures(artifacts: readonly BuiltArtifact[]): Prom
   }
   const { revision } = provenance;
   await Promise.all(
-    releases.map(async ([target, plugin, version]) => {
+    releases.map(async ([target, plugin, version, facet]) => {
       const artifact = artifacts.find((candidate) => candidate.target === target);
       if (artifact === undefined) {
         throw new Error(`Required artifact is missing: ${target}`);
@@ -63,7 +79,7 @@ export async function packageFixtures(artifacts: readonly BuiltArtifact[]): Prom
         dependencies: [],
         facets: [
           {
-            id: plugin,
+            id: facet,
             target: "server",
             format: "bundled",
             artifact_path: "artifact.json",

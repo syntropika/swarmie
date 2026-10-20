@@ -25,7 +25,8 @@ pub struct PluginConfigurationInput {
 
 /// Configuration input delivered to one selected instance. Initial admission exposes the
 /// candidate for plugin-owned validation; the supervisor records acknowledged inputs
-/// separately from desired intent and withdraws inputs after failed admission.
+/// separately from desired intent. Inputs can remain available during recovery after a
+/// failed or interrupted admission without acknowledging the attempted selection.
 #[derive(
     Clone,
     Debug,
