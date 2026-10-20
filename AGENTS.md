@@ -2,6 +2,12 @@
 
 ## Contribution and preservation
 
+Work in Git worktrees with task branches by default. Reuse a suitable existing worktree and
+branch when available; otherwise create a worktree with a branch for the task. Preserve
+unrelated worktrees and pending work. Create a pull request only when the user explicitly
+asks for one; requests to implement, commit or push changes do not authorize creating a pull
+request. Preserve existing pull requests unless the user asks to change them.
+
 Never merge a pull request. Merging belongs exclusively to the user. Do not replace remote
 history, force push, delete remote branches or change repository visibility without explicit
 authorization. Local history resets require verified preservation of the original tree,
@@ -58,7 +64,7 @@ Registries own handler contributions and Tembra owns their actual execution and 
 TaskStorage commits own durable task state; reactive State only publishes committed projections.
 
 Agent Loop, durable subagents, model providers, tools, semantic memory, compaction, coordination,
-workflows, a hosted marketplace and a full Desktop rewrite remain outside this delivery.
+workflows, a hosted marketplace and Desktop application development are outside this delivery.
 MemoryStore provides independent namespaced persistent JSON storage; do not expand it into task
 storage or introduce premature contracts for the remaining future features.
 
@@ -71,26 +77,29 @@ The independent private `swarmie-cloud` repository owns hosted identity, enrollm
 routing, allocation, collaboration authorization, synchronization, billing and entitlements.
 It is not a submodule or workspace member. Public code must not import private implementation.
 
-Technical documentation and task tracking live in the verified Swarmie Space. Do not recreate
-the previous documentation application or a root `docs/` tree. Keep required licenses,
-legal notices, agent policy and operational build inputs with their owners.
+Detailed architecture specifications and task tracking live in the verified Swarmie Space.
+Do not add a documentation application or a root `docs/` tree. Keep the root `README.md` as
+a presentation of the project's purpose and capabilities. Put contributor setup, commands,
+repository layout and code references in `DEVELOPMENT.md`, linked from the README. Do not put
+implementation details, delivery status, progress reports, test counts, branch or pull request
+details, or temporary milestones in the README. Keep `AGENTS.md` focused on applicable working rules and architecture; exclude
+project history, migration narratives and descriptions of superseded implementations. Keep
+required licenses, legal notices, agent policy and operational build inputs with their owners.
 
 Describe Swarmie's own behavior without comparisons or inspiration references to other
 projects. Check prose, hyperlinks, citations, examples and metadata. Keep necessary technical
-dependencies and supported integration references, and preserve legal attribution and exact
-historical source archives. Do not remove a working dependency merely to hide its name.
+dependencies and supported integration references, and preserve legal attribution and required
+third-party notices. Do not remove a working dependency merely to hide its name.
 
-- [Current foundation and task specifications](https://chatgpt.com/space/page_eae8127333ac8191a1fcdfcea3236fa0).
+- [Foundation and task specifications](https://chatgpt.com/space/page_eae8127333ac8191a1fcdfcea3236fa0).
 - [Architecture overview](https://chatgpt.com/space/page_6ad2888a451481918a45bb8e60906c5f).
-- [Historical public documentation](https://chatgpt.com/space/page_f906cd304fb48191b4c05bd472bdf04d).
 - [Shared engineering and design references](https://chatgpt.com/space/page_2ca4e9eeb8f4819199773f9c68b1c204).
 
 Refresh relevant Pages, their comments and review decisions before updates. Preserve human
 edits and use current hashes and sequence guards. Review status is separate from execution.
 Record owners, dependencies, blockers and acceptance evidence. A plan, open PR or passing
-build alone does not complete a task. Historical notices distinguish previous designs from
-current behavior; consult archived source only for deliberate reuse, without importing the
-old runtime wholesale or keeping legacy copies in the active tree.
+build alone does not complete a task. Specifications must describe supported behavior and
+make guarantees and limitations explicit.
 
 ## Shared TypeScript and frontend rules
 
@@ -100,9 +109,8 @@ Start JavaScript and TypeScript workflows from this repository root. The root ow
 relative filesystem dependencies or automatic hosted-repository checkouts.
 
 Before changing TypeScript, React, styling or frontend tooling, read the shared engineering,
-design principles, visual system and brandkit references in Spaces. Their historical source
-paths were `frontend.md`, `design-principles.md`, `DESIGN.md` and `brandkit.md`; apply the
-current Tembra and repository ownership rules when those references describe retired components.
+design principles, visual system and brandkit references in Spaces. Apply the architecture
+and repository ownership rules in this file.
 Runtime configuration, fonts, Tailwind setup and tokens belong in `packages/config` and
 canonical brand assets in `assets/brandkit`. Builds must not depend on documentation metadata.
 
@@ -113,16 +121,14 @@ provisional. Reuse public `@swarmie/ui-web` and `@swarmie/ui-native` exports bef
 components. Keep platform dependencies, compiler projects and Storybooks separate.
 
 The website belongs in `apps/web`; Mobile belongs in `apps/mobile`. Bun shared packages
-belong in `packages/`. The retired language SDKs, native bindings and WIT boundary have been
-removed. The source-built Tembra SDK is a required implementation dependency. The standalone
-TypeScript contracts and plugin UI packages and the browser acceptance application have been
-retired. Rust contracts remain authoritative; generated TypeScript bindings are reproducible,
-ignored build outputs under `target/generated/contracts/`, consumed by application plugins and dedicated acceptance fixtures under `tests/plugins`.
+belong in `packages/`. The source-built Tembra SDK is a required implementation dependency.
+Rust contracts are authoritative; generated TypeScript bindings are reproducible, ignored
+build outputs under `target/generated/contracts/`, consumed by application plugins and
+dedicated acceptance fixtures under `tests/plugins`.
 Infrastructure belongs in `crates/`, application capabilities in `plugins/`, synthetic
-implementations and fixtures in `tests/`; do not recreate a top-level `examples/` directory. Mobile retains account onboarding
-and native UI, with old runtime-dependent views removed and connectivity unavailable;
-do not restore the retired transport or advertise native builds or live connectivity before
-a new client integration is qualified. Do not recreate Tembra's transport engine in each language.
+implementations and fixtures in `tests/`; do not add a top-level `examples/` directory.
+Mobile owns account onboarding and native UI. Qualify native builds and client connectivity
+before advertising support. Reuse Tembra's transport capabilities across clients.
 
 Use precise types, validated external boundaries, discriminated workflow states, explicit
 failures and narrow adapters. Preserve accessibility, localization, reduced motion and
@@ -135,8 +141,8 @@ native device behavior.
 ## Rust and verification
 
 Use the root toolchain in `mise.toml`, formatting in `rustfmt.toml`, recipes in `justfile`
-and changelog policy in `cliff.toml`. Keep Cargo manifests with their owners. The Rust workspace
-contains new foundation crates; align recipes with the qualified Tembra toolchain and actual members.
+and changelog policy in `cliff.toml`. Keep Cargo manifests with their owners. Align recipes
+with the qualified Tembra toolchain and actual workspace members.
 Do not copy configuration into application or package directories.
 
 Write Rust documentation in English and describe meaningful invariants and failure conditions.
