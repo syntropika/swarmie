@@ -7,16 +7,14 @@ import type { ComponentType } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 
-import { RemoteBrowserAccess } from "../generated/remote-browser-access";
-import { RemoteCounter } from "../generated/remote-counter";
-import { RemotePluginAdministration } from "../generated/remote-plugin-administration";
-import { Decorate, FixtureLifetime, UiContributions, WidgetService } from "./contracts";
-
-type Bootstrap = {
-  readonly address: string;
-  readonly session_id: string;
-  readonly grant: string;
-};
+import {
+  Decorate,
+  FixtureLifetime,
+  UiContributions,
+  WidgetService,
+} from "../../../examples/plugins/browser-widget/contracts";
+import { RemoteBrowserAccess } from "../../../target/generated/contracts/remote-browser-access";
+import { RemoteCounter } from "../../../target/generated/contracts/remote-counter";
 
 function check(value: boolean, message: string): asserts value {
   if (!value) {
@@ -54,9 +52,7 @@ async function main() {
       "address" in bootstrap &&
       typeof bootstrap.address === "string" &&
       "session_id" in bootstrap &&
-      typeof bootstrap.session_id === "string" &&
-      "grant" in bootstrap &&
-      typeof bootstrap.grant === "string",
+      typeof bootstrap.session_id === "string",
     "validated supervisor bootstrap",
   );
   const host = await createHost({
@@ -86,66 +82,28 @@ async function main() {
   await connection.ready();
   stage("connected");
   const access = await host.get(RemoteBrowserAccess, {});
-  const administration = await host.get(RemotePluginAdministration, {});
   stage("access-ready");
   const counter = await host.get(RemoteCounter, {});
   check((await counter.increment(1)) === (await counter.read()), "actual server RPC capability");
-  const session = { grant: bootstrap.grant, session_id: bootstrap.session_id };
-  await refused(
-    async () =>
-      await administration.install({
-        proof: session.grant,
-        provider_id: "local",
-        plugin_id: "dynamic-consumer",
-        version: "1.0.0",
-        confirmed: true,
-      }),
-    "browser grant cannot install plugins",
-  );
-  await refused(
-    async () =>
-      await administration.update({
-        proof: session.grant,
-        provider_id: "local",
-        plugin_id: "multi-host-widget",
-        version: "1.1.0",
-        confirmed: true,
-      }),
-    "browser grant cannot update plugins",
-  );
-  await refused(
-    async () =>
-      await administration.uninstall({ proof: session.grant, plugin_id: "multi-host-widget" }),
-    "browser grant cannot uninstall plugins",
-  );
-  await refused(
-    async () => await access.inventory({ ...session, grant: "forged" }),
-    "forged browser grant is refused",
-  );
-  await refused(
-    async () => await access.inventory({ ...session, session_id: "other-session" }),
-    "cross-session grant is refused",
-  );
   stage("counter-ready");
-  let selection = await access.active_package({ ...session, plugin_id: "multi-host-widget" });
+  let selection = await access.active_package({ plugin_id: "multi-host-widget" });
   await refused(
-    async () => await access.active_package({ ...session, plugin_id: "unapproved-plugin" }),
-    "browser grant cannot acquire an unapproved plugin",
+    async () => await access.active_package({ plugin_id: "unapproved-plugin" }),
+    "unavailable package is refused",
   );
   await refused(
     async () =>
       await access.read_package_file({
-        ...session,
         plugin_id: selection.manifest.id,
         activation_id: selection.activation_id,
         path: "../unapproved.js",
         offset: 0,
         length: 1,
       }),
-    "browser grant cannot read an unapproved artifact path",
+    "unlisted artifact path is refused",
   );
   const urls: string[] = [];
-  async function approvedModule(file: string, grant: string): Promise<string> {
+  async function approvedModule(file: string): Promise<string> {
     const expected = selection.manifest.files.find((candidate) => candidate.path === file);
     check(expected !== undefined, "module is listed in approved package");
     const chunks: number[] = [];
@@ -153,8 +111,6 @@ async function main() {
     do {
       // oxlint-disable-next-line no-await-in-loop -- Each approved range depends on the preceding exact offset and total length.
       const result = await access.read_package_file({
-        grant,
-        session_id: session.session_id,
         plugin_id: selection.manifest.id,
         activation_id: selection.activation_id,
         path: file,
@@ -178,17 +134,17 @@ async function main() {
     urls.push(url);
     return url;
   }
-  async function report(observed: "active" | "inactive" | "failed", grant: string, error = "") {
-    return await access.report_browser({
-      grant,
-      session_id: session.session_id,
-      plugin_id: selection.manifest.id,
-      version: selection.manifest.version,
-      activation_id: selection.activation_id,
-      observed,
-      error,
-    });
-  }
+  type ActivePackage = typeof selection;
+  const receipt = (
+    observed: "active" | "inactive",
+    packageSelection: ActivePackage = selection,
+  ) => ({
+    plugin_id: packageSelection.manifest.id,
+    version: packageSelection.manifest.version,
+    activation_id: packageSelection.activation_id,
+    observed,
+    error: "",
+  });
   stage("package-authorized");
   host.registerHook(Decorate);
   let scope: FacetScope | undefined;
@@ -206,7 +162,7 @@ async function main() {
   const format = async () =>
     await observer.root(async (context) => await observer.runHook(Decorate, context, "view"));
   stage("loading-browser-facet");
-  await host.load(await approvedModule("facet.js", session.grant));
+  await host.load(await approvedModule("facet.js"));
   const reference = await host.get(WidgetService, {});
   check(
     (await reference.increment()) === 1 && reference.count.value === 1,
@@ -222,9 +178,7 @@ async function main() {
       host.registry(UiContributions).table(context).get("widget"),
     );
     check(entry !== undefined, "live UI Registry entry");
-    const module: unknown = await import(
-      await approvedModule(entry.data.contribution.module_path, session.grant)
-    );
+    const module: unknown = await import(await approvedModule(entry.data.contribution.module_path));
     check(module !== null && typeof module === "object", "native React module namespace");
     const component: unknown = Reflect.get(module, entry.data.contribution.export_name);
     check(isWidget(component), "selected React module export");
@@ -242,7 +196,6 @@ async function main() {
   }
   stage("rendering");
   await render();
-  await report("active", session.grant);
   await refused(async () => await host.reload(["/failing.js"]), "failed browser setup is refused");
   await refused(
     async () => await host.reload(["/incompatible.js"]),
@@ -252,18 +205,24 @@ async function main() {
     (await reference.increment()) === 2 && (await format()) === "view:1",
     "refused replacement preserves actual runtime",
   );
-  const installed = { activation_id: selection.activation_id, grant: session.grant };
+  const installed = selection;
   return {
     installed: true,
-    async update(next: Bootstrap) {
-      check(next.session_id === session.session_id, "same authenticated browser session");
+    receipt: receipt("active"),
+    async update() {
       await refused(
-        async () => await access.active_package({ ...session, plugin_id: selection.manifest.id }),
-        "superseded grant cannot acquire updated package",
+        async () =>
+          await access.read_package_file({
+            plugin_id: installed.manifest.id,
+            activation_id: installed.activation_id,
+            path: "facet.js",
+            offset: 0,
+            length: 1,
+          }),
+        "superseded receipt cannot address a different active release",
       );
-      session.grant = next.grant;
-      selection = await access.active_package({ ...session, plugin_id: "multi-host-widget" });
-      await host.reload([await approvedModule("facet.js", session.grant)]);
+      selection = await access.active_package({ plugin_id: "multi-host-widget" });
+      await host.reload([await approvedModule("facet.js")]);
       check(
         reference.count.value === 2 && (await reference.increment()) === 4,
         "retained reference and State survive native ESM reload",
@@ -272,33 +231,15 @@ async function main() {
       root.unmount();
       root = createRoot(container);
       await render();
-      await access.report_browser({
-        grant: installed.grant,
-        session_id: session.session_id,
-        plugin_id: selection.manifest.id,
-        version: "1.0.0",
-        activation_id: installed.activation_id,
-        observed: "inactive",
-        error: "",
-      });
-      await report("active", session.grant);
-      await refused(
-        async () =>
-          await access.report_browser({
-            ...session,
-            activation_id: installed.activation_id,
-            plugin_id: selection.manifest.id,
-            version: "1.0.0",
-            observed: "active",
-            error: "",
-          }),
-        "stale activation receipt is refused",
-      );
-      return { updated: true, count: reference.count.value };
+      return {
+        updated: true,
+        count: reference.count.value,
+        receipts: [receipt("inactive", installed), receipt("active")],
+      };
     },
     async retire() {
       await refused(
-        async () => await access.active_package({ ...session, plugin_id: selection.manifest.id }),
+        async () => await access.active_package({ plugin_id: selection.manifest.id }),
         "deactivated package delivery is refused",
       );
       await host.reload([], { remove: ["browser-widget"] });
@@ -310,10 +251,8 @@ async function main() {
       check(empty, "retired UI Registry has no stale contribution");
       root.unmount();
       check(container.textContent === "", "retired React contribution unmounts");
-      await report("inactive", session.grant);
       reference.release();
       access.release();
-      administration.release();
       counter.release();
       await host.close();
       const diagnostics = host.diagnostics();
@@ -328,7 +267,12 @@ async function main() {
       for (const url of urls) {
         URL.revokeObjectURL(url);
       }
-      return { retired: true, resources: FixtureLifetime.closed, diagnostics };
+      return {
+        retired: true,
+        resources: FixtureLifetime.closed,
+        diagnostics,
+        receipt: receipt("inactive"),
+      };
     },
   };
 }
@@ -344,7 +288,7 @@ const output = document.querySelector("#result");
 check(output !== null, "acceptance result output");
 try {
   window.acceptance = await main();
-  output.textContent = JSON.stringify({ installed: true });
+  output.textContent = JSON.stringify({ installed: true, receipt: window.acceptance.receipt });
 } catch (error) {
   output.textContent = JSON.stringify({
     failed: error instanceof Error ? error.message : String(error),

@@ -3,9 +3,8 @@ use std::{collections::BTreeMap, path::PathBuf, rc::Rc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use swarmie_composition::*;
-use swarmie_plugin_contracts::{Counter, DynamicConsumer, RemoteCounter, UiContributions};
 use swarmie_plugin_manager::LocalSource;
-use tembra::{ContractToken, NativeFacet, contracts::Contract};
+use tembra::NativeFacet;
 
 /// A complete imported desired revision. Catalog claims are checked against admitted packages.
 ///
@@ -43,7 +42,6 @@ impl Default for Application {
                                 version: env!("CARGO_PKG_VERSION").into(),
                                 provider: None,
                                 config: json!({}),
-                                requires: vec![],
                             })
                             .into(),
                     },
@@ -100,7 +98,7 @@ struct CounterConfiguration {
     initial: u32,
 }
 
-fn release(plugin: &str, facet: &str, provides: Vec<Capability>) -> Release {
+fn release(plugin: &str, facet: &str) -> Release {
     Release {
         plugin: plugin.into(),
         version: env!("CARGO_PKG_VERSION").into(),
@@ -109,24 +107,13 @@ fn release(plugin: &str, facet: &str, provides: Vec<Capability>) -> Release {
             id: facet.into(),
             target: FacetTarget::Server,
         }],
-        provides,
-        requires: vec![],
     }
 }
 
 pub(crate) fn compiled(source: PathBuf) -> Vec<CompiledPlugin> {
     vec![
         CompiledPlugin::new(
-            release(
-                swarmie_counter::PLUGIN_ID,
-                swarmie_counter::FACET_ID,
-                ["swarmie.counter"]
-                    .map(|contract| Capability {
-                        contract: contract.into(),
-                        version: 1,
-                    })
-                    .into(),
-            ),
+            release(swarmie_counter::PLUGIN_ID, swarmie_counter::FACET_ID),
             |value| {
                 let configuration: CounterConfiguration = serde_json::from_value(value.clone())
                     .map_err(|error| {
@@ -138,11 +125,7 @@ pub(crate) fn compiled(source: PathBuf) -> Vec<CompiledPlugin> {
             },
         ),
         CompiledPlugin::new(
-            release(
-                "swarmie.local-plugin-source",
-                "swarmie.local-plugin-source",
-                vec![],
-            ),
+            release("swarmie.local-plugin-source", "swarmie.local-plugin-source"),
             move |value| {
                 if value != &json!({}) {
                     return Err(tembra::RuntimeError::invalid(
@@ -155,17 +138,4 @@ pub(crate) fn compiled(source: PathBuf) -> Vec<CompiledPlugin> {
         )
         .with_trusted_source("local".into()),
     ]
-}
-
-/// Canonical singleton Contracts qualified by the default application adapters.
-///
-/// Embeddings can supply additional descriptors to [`crate::start_with_catalog`]. Actual
-/// object acquisition validates Tembra compatibility; catalog version labels cannot do that.
-pub fn application_contracts() -> tembra::Result<Vec<Rc<Contract>>> {
-    Ok(vec![
-        Counter.descriptor()?,
-        RemoteCounter.descriptor()?,
-        DynamicConsumer.descriptor()?,
-        UiContributions.descriptor()?,
-    ])
 }

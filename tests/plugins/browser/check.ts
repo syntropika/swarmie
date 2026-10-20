@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { bundle } from "./build";
+import { bundleModule } from "./build";
 
 const root = path.resolve(import.meta.dirname, "../../..");
 const temporary = await mkdtemp(path.join(os.tmpdir(), "swarmie-browser-"));
@@ -29,7 +29,6 @@ const supervisor = Bun.spawn(
 type Announcement = {
   readonly address: string;
   readonly session_id: string;
-  readonly grant: string;
 };
 async function* announcements() {
   const reader = supervisor.stdout.getReader();
@@ -51,14 +50,12 @@ async function* announcements() {
         if (
           message !== null &&
           typeof message === "object" &&
-          "grant" in message &&
-          typeof message.grant === "string" &&
           "address" in message &&
           typeof message.address === "string" &&
           "session_id" in message &&
           typeof message.session_id === "string"
         ) {
-          yield { grant: message.grant, address: message.address, session_id: message.session_id };
+          yield { address: message.address, session_id: message.session_id };
         }
         newline = pending.indexOf("\n");
       }
@@ -93,26 +90,70 @@ async function control(command: string) {
   await supervisor.stdin.flush();
   return await nextAnnouncement();
 }
+/** The trusted supervisor owns reporting; remote browser APIs expose code delivery only. */
+async function reportObservation(observation: unknown): Promise<void> {
+  if (
+    observation === null ||
+    typeof observation !== "object" ||
+    !("plugin_id" in observation) ||
+    typeof observation.plugin_id !== "string" ||
+    !("version" in observation) ||
+    typeof observation.version !== "string" ||
+    !("activation_id" in observation) ||
+    typeof observation.activation_id !== "string" ||
+    !("observed" in observation) ||
+    (observation.observed !== "active" && observation.observed !== "inactive")
+  ) {
+    throw new TypeError("Malformed observed browser execution");
+  }
+  await supervisor.stdin.write(
+    `${JSON.stringify({ action: "report", plugin_id: observation.plugin_id, version: observation.version, activation_id: observation.activation_id, observed: observation.observed, error: "" })}\n`,
+  );
+  await supervisor.stdin.flush();
+  await nextAnnouncement();
+}
+
+async function reportObservations(result: unknown): Promise<void> {
+  if (result === null || typeof result !== "object") {
+    throw new TypeError("Invalid browser observation result");
+  }
+  let observations: readonly unknown[] = [];
+  if ("receipts" in result && Array.isArray(result.receipts)) {
+    observations = result.receipts;
+  } else if ("receipt" in result) {
+    observations = [result.receipt];
+  }
+  if (observations.length === 0) {
+    throw new Error("Browser execution produced no observation");
+  }
+  for (const observation of observations) {
+    // oxlint-disable-next-line no-await-in-loop -- The supervisor must record old retirement before the replacement's activation.
+    await reportObservation(observation);
+  }
+}
 let server: ReturnType<typeof Bun.serve> | undefined;
 let cleanupFailure: unknown;
 let supervisorStatus: number | undefined;
 try {
   const bootstrap = await nextAnnouncement();
-  const entries = [
-    "sdk.ts",
-    "contracts.ts",
-    "acceptance.ts",
-    "react.ts",
-    "failing.ts",
-    "incompatible.ts",
-  ];
+  const entries = {
+    "/sdk.js": "tests/plugins/browser/sdk.ts",
+    "/contracts.js": "examples/plugins/browser-widget/contracts.ts",
+    "/acceptance.js": "tests/plugins/browser/acceptance.ts",
+    "/react.js": "tests/plugins/browser/react.ts",
+    "/failing.js": "tests/plugins/browser/fixtures/failing.ts",
+    "/incompatible.js": "tests/plugins/browser/fixtures/incompatible.ts",
+  };
   const assets = new Map<string, string>(
     await Promise.all(
-      entries.map(
-        async (entry) =>
+      Object.entries(entries).map(
+        async ([url, entry]) =>
           [
-            `/${entry.replace(/\.ts$/u, ".js")}`,
-            await bundle(entry, entry === "acceptance.ts"),
+            url,
+            await bundleModule(entry, {
+              sharedContracts: url === "/acceptance.js",
+              includeDependencies: url === "/sdk.js" || url === "/react.js",
+            }),
           ] as const,
       ),
     ),
@@ -170,18 +211,21 @@ try {
   if (installed === null || typeof installed !== "object" || !("installed" in installed)) {
     throw new Error(JSON.stringify(installed));
   }
-  const update = await control("update");
+  await reportObservations(installed);
+  await control("update");
   const updated = await browser(
     ["eval", "--stdin"],
-    `(async () => await window.acceptance.update(${JSON.stringify(update)}))()`,
+    "(async () => await window.acceptance.update())()",
   );
+  const updateResult: unknown = JSON.parse(updated);
+  await reportObservations(updateResult);
   await control("deactivate");
   const retired = await browser(
     ["eval", "--stdin"],
     "(async () => await window.acceptance.retire())()",
   );
-  const updateResult: unknown = JSON.parse(updated);
   const retirementResult: unknown = JSON.parse(retired);
+  await reportObservations(retirementResult);
   console.log(JSON.stringify({ installed, updated: updateResult, retired: retirementResult }));
 } finally {
   try {

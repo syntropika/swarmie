@@ -1,7 +1,7 @@
 import { defineFacet, Type } from "@tembra/sdk";
 
-import { serveGenerated } from "./generated-provider";
-import { DynamicConsumer } from "./generated/dynamic-consumer";
+import { serveGenerated } from "../../../../examples/plugins/support/generated-provider";
+import { DynamicConsumer } from "../../../../target/generated/contracts/dynamic-consumer";
 
 /** Negative fixture: the canonical unsigned result schema must refuse a returned negative value. */
 export default defineFacet({

@@ -36,6 +36,4 @@ pub enum CompositionError {
         first: String,
         second: String,
     },
-    #[error("required deployment cycle: {0:?}")]
-    DependencyCycle(Vec<String>),
 }

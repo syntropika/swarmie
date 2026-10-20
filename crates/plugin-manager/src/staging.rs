@@ -9,7 +9,6 @@ impl PluginManager {
     /// Cached approved bytes support offline reconciliation. The caller must compare package
     /// metadata with its resolved catalog before permitting recovery of the staged selection.
     pub async fn stage_release(&self, request: InstallRequest) -> Result<PluginManifest> {
-        self.authorize(&request.proof)?;
         if !self.composition_reconciliation_active() || !self.fresh_session.get() {
             return Err(ManagerError::CompositionManaged);
         }
@@ -53,13 +52,8 @@ impl PluginManager {
                     package
                 }
                 None => {
-                    self.acquire(
-                        &request.proof,
-                        &request.provider_id,
-                        &request.plugin_id,
-                        &request.version,
-                    )
-                    .await?
+                    self.acquire(&request.provider_id, &request.plugin_id, &request.version)
+                        .await?
                 }
             };
             manifest = Some(package.manifest.clone());

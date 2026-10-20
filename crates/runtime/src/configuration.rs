@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, rc::Rc};
 
 use serde_json::Value;
-use swarmie_composition::{EffectiveComposition, InstanceState};
+use swarmie_composition::{EffectiveComposition, SelectionState};
 use swarmie_plugin_contracts::{PluginConfiguration, PluginConfigurationProvider};
 use tembra::{Context, NativeFacet, Result, RuntimeError};
 
@@ -15,7 +15,7 @@ pub(crate) fn facet(effective: &EffectiveComposition) -> Result<NativeFacet> {
         effective
             .instances
             .values()
-            .filter(|instance| instance.state == InstanceState::Ready)
+            .filter(|instance| instance.state == SelectionState::Enabled)
             .map(|instance| {
                 (
                     instance.selection.plugin.clone(),

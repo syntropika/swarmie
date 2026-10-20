@@ -29,7 +29,7 @@ fn fixtures() -> PathBuf {
 async fn node(
     driver: Rc<TokioDriver>,
     database: &std::path::Path,
-    proof: AdminProof,
+
     sources: bool,
 ) -> (Host, Rc<PluginManager>) {
     let host = Host::with_driver(RUNTIME_HOST, "supervisor", driver.clone()).unwrap();
@@ -49,22 +49,19 @@ async fn node(
         .await
         .unwrap();
     }
-    let manager = PluginManager::start(host.clone(), driver, database, proof.clone())
+    let manager = PluginManager::start(host.clone(), driver, database)
         .await
         .unwrap();
+    manager.approve_trusted_source("local".into()).unwrap();
     manager
-        .approve_trusted_source(&proof, "local".into())
-        .unwrap();
-    manager
-        .record_core(&proof, "swarmie.counter".into(), "0.1.0".into())
+        .record_core("swarmie.counter".into(), "0.1.0".into())
         .await
         .unwrap();
     (host, manager)
 }
 
-fn install(proof: &AdminProof, version: &str) -> InstallRequest {
+fn install(version: &str) -> InstallRequest {
     InstallRequest {
-        proof: proof.clone(),
         provider_id: "local".into(),
         plugin_id: "dynamic-consumer".into(),
         version: version.into(),
@@ -72,9 +69,8 @@ fn install(proof: &AdminProof, version: &str) -> InstallRequest {
     }
 }
 
-fn update(proof: &AdminProof, version: &str) -> UpdateRequest {
+fn update(version: &str) -> UpdateRequest {
     UpdateRequest {
-        proof: proof.clone(),
         provider_id: "local".into(),
         plugin_id: "dynamic-consumer".into(),
         version: version.into(),
@@ -86,15 +82,9 @@ fn update(proof: &AdminProof, version: &str) -> UpdateRequest {
 fn real_javascript_reload_preserves_references_and_failed_update_reports_old_selection() {
     run(|driver| async move {
         let directory = tempfile::tempdir().unwrap();
-        let proof = PluginManager::issue_proof();
-        let (host, manager) = node(
-            driver,
-            &directory.path().join("admin.sqlite"),
-            proof.clone(),
-            true,
-        )
-        .await;
-        manager.install(install(&proof, "1.0.0")).await.unwrap();
+
+        let (host, manager) = node(driver, &directory.path().join("admin.sqlite"), true).await;
+        manager.install(install("1.0.0")).await.unwrap();
         assert!(
             host.get(DynamicConsumer, DynamicConsumerInput {})
                 .await
@@ -102,7 +92,6 @@ fn real_javascript_reload_preserves_references_and_failed_update_reports_old_sel
         );
         manager
             .activate(ActivateRequest {
-                proof: proof.clone(),
                 plugin_id: "dynamic-consumer".into(),
             })
             .await
@@ -122,16 +111,16 @@ fn real_javascript_reload_preserves_references_and_failed_update_reports_old_sel
             .unwrap();
         assert_eq!(consumer.run().await.unwrap(), 1);
         assert_eq!(readable.value().unwrap(), 1);
-        manager.update(update(&proof, "1.1.0")).await.unwrap();
+        manager.update(update("1.1.0")).await.unwrap();
         assert_eq!(consumer.run().await.unwrap(), 11);
         assert_eq!(readable.value().unwrap(), 2);
         assert_eq!(seen.get(), 2);
-        let failure = manager.update(update(&proof, "1.2.0")).await.unwrap_err();
+        let failure = manager.update(update("1.2.0")).await.unwrap_err();
         assert!(
             failure.to_string().contains("Candidate setup failed"),
             "{failure}"
         );
-        let inventory = manager.inventory(&proof).unwrap();
+        let inventory = manager.inventory().unwrap();
         let plugin = inventory
             .plugins
             .iter()
@@ -146,7 +135,6 @@ fn real_javascript_reload_preserves_references_and_failed_update_reports_old_sel
         consumer.core().release();
         manager
             .deactivate(DeactivateRequest {
-                proof: proof.clone(),
                 plugin_id: "dynamic-consumer".into(),
             })
             .await
@@ -158,21 +146,19 @@ fn real_javascript_reload_preserves_references_and_failed_update_reports_old_sel
         );
         manager
             .activate(ActivateRequest {
-                proof: proof.clone(),
                 plugin_id: "dynamic-consumer".into(),
             })
             .await
             .unwrap();
         manager
             .uninstall(UninstallRequest {
-                proof: proof.clone(),
                 plugin_id: "dynamic-consumer".into(),
             })
             .await
             .unwrap();
         assert!(
             manager
-                .inventory(&proof)
+                .inventory()
                 .unwrap()
                 .plugins
                 .iter()
@@ -187,12 +173,11 @@ fn offline_restart_uses_cached_bytes_and_tampering_is_refused() {
     run(|driver| async move {
         let directory = tempfile::tempdir().unwrap();
         let database = directory.path().join("admin.sqlite");
-        let proof = PluginManager::issue_proof();
-        let (host, manager) = node(driver.clone(), &database, proof.clone(), true).await;
-        manager.install(install(&proof, "1.0.0")).await.unwrap();
+
+        let (host, manager) = node(driver.clone(), &database, true).await;
+        manager.install(install("1.0.0")).await.unwrap();
         manager
             .activate(ActivateRequest {
-                proof: proof.clone(),
                 plugin_id: "dynamic-consumer".into(),
             })
             .await
@@ -209,9 +194,9 @@ fn offline_restart_uses_cached_bytes_and_tampering_is_refused() {
         connection.execute("INSERT INTO operations(id,plugin_id,operation,status,error) VALUES (?1,?2,?3,?4,'')",
             rusqlite::params!["interrupted-update","dynamic-consumer",serde_json::to_string(&AdminOperation::Update).unwrap(),serde_json::to_string(&OperationStatus::Running).unwrap()]).unwrap();
         drop(connection);
-        let (host, manager) = node(driver.clone(), &database, proof.clone(), false).await;
-        assert!(manager.inventory(&proof).unwrap().providers.is_empty());
-        let recovered = manager.recover(&proof).await.unwrap();
+        let (host, manager) = node(driver.clone(), &database, false).await;
+        assert!(manager.inventory().unwrap().providers.is_empty());
+        let recovered = manager.recover().await.unwrap();
         assert_eq!(
             recovered
                 .operations
@@ -223,7 +208,7 @@ fn offline_restart_uses_cached_bytes_and_tampering_is_refused() {
         );
         assert_eq!(
             manager
-                .active_package(&proof, "dynamic-consumer")
+                .active_package("dynamic-consumer")
                 .unwrap()
                 .manifest
                 .version,
@@ -244,12 +229,12 @@ fn offline_restart_uses_cached_bytes_and_tampering_is_refused() {
         package.files[0].bytes.push(b' ');
         connection.execute("UPDATE plugin_versions SET package=?1 WHERE plugin_id='dynamic-consumer' AND version='1.0.0'",[serde_json::to_vec(&package).unwrap()]).unwrap();
         drop(connection);
-        let (host, manager) = node(driver, &database, proof.clone(), false).await;
+        let (host, manager) = node(driver, &database, false).await;
         assert!(matches!(
-            manager.recover(&proof).await,
+            manager.recover().await,
             Err(ManagerError::Integrity(_))
         ));
-        let inventory = manager.inventory(&proof).unwrap();
+        let inventory = manager.inventory().unwrap();
         assert_eq!(
             inventory
                 .plugins
@@ -272,7 +257,7 @@ fn offline_restart_uses_cached_bytes_and_tampering_is_refused() {
 fn missing_native_dependency_prevents_installation() {
     run(|driver| async move {
         let directory = tempfile::tempdir().unwrap();
-        let proof = PluginManager::issue_proof();
+
         let host = Host::with_driver(RUNTIME_HOST, "supervisor", driver.clone()).unwrap();
         let source = directory.path().join("source");
         std::fs::create_dir(&source).unwrap();
@@ -296,24 +281,18 @@ fn missing_native_dependency_prevents_installation() {
         .unwrap()
         .await
         .unwrap();
-        let manager = PluginManager::start(
-            host.clone(),
-            driver,
-            directory.path().join("admin.sqlite"),
-            proof.clone(),
-        )
-        .await
-        .unwrap();
-        manager
-            .approve_trusted_source(&proof, "local".into())
-            .unwrap();
+        let manager =
+            PluginManager::start(host.clone(), driver, directory.path().join("admin.sqlite"))
+                .await
+                .unwrap();
+        manager.approve_trusted_source("local".into()).unwrap();
         assert!(matches!(
-            manager.install(install(&proof, "1.0.0")).await,
+            manager.install(install("1.0.0")).await,
             Err(ManagerError::Dependency(_))
         ));
         assert!(
             manager
-                .inventory(&proof)
+                .inventory()
                 .unwrap()
                 .plugins
                 .iter()
@@ -375,19 +354,13 @@ fn failed_initial_batch_retires_earlier_successful_facets_before_claiming_inacti
             serde_json::to_vec(&manifest).unwrap(),
         )
         .unwrap();
-        let proof = PluginManager::issue_proof();
+
         let host = Host::with_driver(RUNTIME_HOST, "supervisor", driver.clone()).unwrap();
-        let manager = PluginManager::start(
-            host.clone(),
-            driver,
-            directory.path().join("admin.sqlite"),
-            proof.clone(),
-        )
-        .await
-        .unwrap();
-        manager
-            .approve_trusted_source(&proof, "local".into())
-            .unwrap();
+        let manager =
+            PluginManager::start(host.clone(), driver, directory.path().join("admin.sqlite"))
+                .await
+                .unwrap();
+        manager.approve_trusted_source("local".into()).unwrap();
         host.install(
             LocalSource::new("local", source).facet().unwrap(),
             core::LoadOptions::default(),
@@ -397,7 +370,6 @@ fn failed_initial_batch_retires_earlier_successful_facets_before_claiming_inacti
         .unwrap();
         manager
             .install(InstallRequest {
-                proof: proof.clone(),
                 provider_id: "local".into(),
                 plugin_id: "partial-package".into(),
                 version: "1.0.0".into(),
@@ -407,7 +379,6 @@ fn failed_initial_batch_retires_earlier_successful_facets_before_claiming_inacti
             .unwrap();
         let error = manager
             .activate(ActivateRequest {
-                proof: proof.clone(),
                 plugin_id: "partial-package".into(),
             })
             .await
@@ -426,7 +397,6 @@ fn failed_initial_batch_retires_earlier_successful_facets_before_claiming_inacti
         partial.core().release();
         let inventory = manager
             .deactivate(DeactivateRequest {
-                proof: proof.clone(),
                 plugin_id: "partial-package".into(),
             })
             .await

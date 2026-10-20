@@ -7,12 +7,11 @@ use tembra::ContractToken;
 use crate::{ManagerError, PluginManager, Result, validation::validate_package};
 
 impl PluginManager {
-    /// Reads sanitized inventory after validating the supervisor capability.
+    /// Reads sanitized administrative inventory for trusted local callers.
     ///
     /// # Errors
-    /// Returns authorization, SQLite, registry or decoding errors without mutation.
-    pub fn inventory(&self, proof: &AdminProof) -> Result<Inventory> {
-        self.authorize(proof)?;
+    /// Returns SQLite, registry or decoding errors without mutation.
+    pub fn inventory(&self) -> Result<Inventory> {
         self.snapshot()
     }
 
@@ -98,13 +97,8 @@ impl PluginManager {
     /// Reads durable provider settings without exposing them through observable inventory.
     ///
     /// # Errors
-    /// Refuses invalid authorization and propagates SQLite failures.
-    pub fn provider_configuration(
-        &self,
-        proof: &AdminProof,
-        id: &str,
-    ) -> Result<Option<serde_json::Value>> {
-        self.authorize(proof)?;
+    /// Propagates SQLite failures.
+    pub fn provider_configuration(&self, id: &str) -> Result<Option<serde_json::Value>> {
         Ok(self
             .storage()?
             .configurations()?
@@ -118,9 +112,8 @@ impl PluginManager {
     /// Settings are deliberately not interpreted by the generic Manager. A running provider
     /// applies its own configuration lifecycle; persistence alone does not change its object.
     /// # Errors
-    /// Refuses invalid authorization and reports SQLite/publication failures.
+    /// Reports SQLite/publication failures.
     pub async fn configure_provider(&self, request: ConfigureProviderRequest) -> Result<Inventory> {
-        self.authorize(&request.proof)?;
         let _guard = self.guard()?;
         let operation = self.begin(&request.provider_id, AdminOperation::ConfigureProvider)?;
         let result = self
@@ -132,16 +125,14 @@ impl PluginManager {
     /// Invokes a source operation discovered from its live Tembra Registry entry.
     ///
     /// # Errors
-    /// Refuses absent/ambiguous operations, authorization failures, schema mismatch and actual
+    /// Refuses absent/ambiguous operations, schema mismatch and actual
     /// provider errors. The Manager never selects a vendor or installs callbacks of its own.
     pub async fn source_request<A: Serialize, R: DeserializeOwned>(
         &self,
-        proof: &AdminProof,
         provider: &str,
         operation: SourceOperation,
         request: A,
     ) -> Result<R> {
-        self.authorize(proof)?;
         let registry = self.host.core().registry(&source_registry()?)?;
         let table = registry.table(None)?;
         let mut found = None;
@@ -225,20 +216,19 @@ impl PluginManager {
         self.snapshot()
     }
 
-    pub(crate) fn dependencies(&self, package: &AcquiredPackage, active: bool) -> Result<()> {
+    /// Validates immutable package version requirements, independently of object readiness.
+    /// Tembra owns capability acquisition and availability; installed package metadata does
+    /// not establish that a service is active.
+    pub(crate) fn package_dependencies(&self, package: &AcquiredPackage) -> Result<()> {
         for dependency in &package.manifest.dependencies {
-            let version = self
+            let compiled = self
                 .cores
                 .borrow()
                 .iter()
                 .find(|core| core.plugin_id == dependency.id)
                 .map(|core| core.version.clone());
-            let (version, available) = if let Some(version) = version {
-                (
-                    version,
-                    self.reference_observation(&dependency.id)
-                        .is_none_or(|(state, _)| state == ObservedState::Active),
-                )
+            let version = if let Some(version) = compiled {
+                version
             } else {
                 if self
                     .composition_selection
@@ -251,23 +241,18 @@ impl PluginManager {
                         dependency.id
                     )));
                 }
-                let installed = self
-                    .storage()?
+                self.storage()?
                     .load(&dependency.id)?
-                    .ok_or_else(|| ManagerError::Dependency(dependency.id.clone()))?;
-                (
-                    installed.package.manifest.version,
-                    self.reference_observation(&dependency.id)
-                        .map_or(installed.observed == ObservedState::Active, |(state, _)| {
-                            state == ObservedState::Active
-                        }),
-                )
+                    .ok_or_else(|| ManagerError::Dependency(dependency.id.clone()))?
+                    .package
+                    .manifest
+                    .version
             };
             let requirement = semver::VersionReq::parse(&dependency.version)
                 .map_err(|error| ManagerError::Dependency(error.to_string()))?;
             let version = semver::Version::parse(&version)
                 .map_err(|error| ManagerError::Dependency(error.to_string()))?;
-            if !requirement.matches(&version) || (active && !available) {
+            if !requirement.matches(&version) {
                 return Err(ManagerError::Dependency(dependency.id.clone()));
             }
         }
@@ -331,7 +316,6 @@ impl PluginManager {
 
     pub(crate) async fn acquire(
         &self,
-        proof: &AdminProof,
         provider: &str,
         id: &str,
         version: &str,
@@ -344,7 +328,6 @@ impl PluginManager {
             .map_err(|error| ManagerError::InvalidPackage(error.to_string()))?;
         let resolved: ResolvedPlugin = self
             .source_request(
-                proof,
                 provider,
                 SourceOperation::Resolve,
                 ResolveRequest {
@@ -370,7 +353,6 @@ impl PluginManager {
         }
         let inspected: PluginManifest = self
             .source_request(
-                proof,
                 provider,
                 SourceOperation::Inspect,
                 InspectRequest {
@@ -381,7 +363,6 @@ impl PluginManager {
             .await?;
         let package: AcquiredPackage = self
             .source_request(
-                proof,
                 provider,
                 SourceOperation::Acquire,
                 AcquireRequest {
@@ -400,7 +381,7 @@ impl PluginManager {
         }
         validate_package(&package)?;
         if self.composition_selection.borrow().is_none() {
-            self.dependencies(&package, false)?;
+            self.package_dependencies(&package)?;
         }
         self.admission(&package)?;
         Ok(package)

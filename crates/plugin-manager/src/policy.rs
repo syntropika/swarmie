@@ -1,5 +1,3 @@
-use swarmie_plugin_contracts::AdminProof;
-
 use crate::{ManagerError, PluginManager, Result};
 
 impl PluginManager {
@@ -8,8 +6,7 @@ impl PluginManager {
     /// No provider is trusted by default; approval is explicit and session-local.
     /// Remote source approval attests to a verified acquisition channel; it is not a
     /// signature verifier or a claim of publisher authenticity.
-    pub fn approve_trusted_source(&self, proof: &AdminProof, provider_id: String) -> Result<()> {
-        self.authorize(proof)?;
+    pub fn approve_trusted_source(&self, provider_id: String) -> Result<()> {
         if provider_id.is_empty() {
             return Err(ManagerError::InvalidPackage(
                 "empty trusted source identity".into(),

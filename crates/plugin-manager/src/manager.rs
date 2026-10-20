@@ -16,12 +16,11 @@ use crate::{
 
 /// Native administrative owner for one fresh Tembra Host session.
 ///
-/// The supervisor retains the proof outside plugin objects. Plugins are trusted code, but
-/// obtaining an administrative Reference does not grant authority to invoke mutations.
+/// Administration is a local Tembra service for trusted in-Host callers. The transport
+/// embedding owns remote connection authority; this service exposes no remote administration.
 /// SQLite belongs to the actual administrative object's lifecycle.
 pub struct PluginManager {
     pub(crate) host: Host,
-    pub(crate) proof: AdminProof,
     pub(crate) database: PathBuf,
     pub(crate) store: RefCell<Option<core::WeakResource<Store>>>,
     pub(crate) executor: Executor,
@@ -37,13 +36,6 @@ pub struct PluginManager {
     pub(crate) trusted_sources: RefCell<BTreeSet<String>>,
     pub(crate) cores: RefCell<Vec<PluginRecord>>,
     pub(crate) uncertain: RefCell<BTreeMap<String, PluginRecord>>,
-    pub(crate) browser_grants: RefCell<BTreeMap<String, BrowserAuthorization>>,
-}
-
-#[derive(Clone)]
-pub(crate) struct BrowserAuthorization {
-    pub session_id: String,
-    pub activations: BTreeMap<String, (String, String)>,
 }
 
 pub(crate) struct OperationGuard<'a>(&'a Flag<bool>);
@@ -54,15 +46,6 @@ impl Drop for OperationGuard<'_> {
 }
 
 impl PluginManager {
-    /// Creates fresh capability material for a supervisor to retain outside plugin state.
-    pub fn issue_proof() -> AdminProof {
-        AdminProof::new(format!(
-            "{}{}",
-            uuid::Uuid::new_v4().simple(),
-            uuid::Uuid::new_v4().simple()
-        ))
-    }
-
     /// Installs the compiled administrative Core Plugin and opens its SQLite Resource.
     ///
     /// The Host must be a fresh session whose dynamic facets have not been installed by a
@@ -70,20 +53,16 @@ impl PluginManager {
     /// retained Driver must be the Driver that owns this Host.
     ///
     /// # Errors
-    /// Refuses empty proof material, database failures, executor admission or Tembra startup
+    /// Refuses database failures, executor admission or Tembra startup
     /// failures. Opening an existing database preserves cached package versions and evidence.
     pub async fn start(
         host: Host,
         driver: Rc<dyn core::Driver>,
         database: impl Into<PathBuf>,
-        proof: AdminProof,
     ) -> Result<Rc<Self>> {
-        if proof.as_str().len() < 32 {
-            return Err(ManagerError::Unauthorized);
-        }
         let manager = Rc::new(Self {
             host: host.clone(),
-            proof,
+
             database: database.into(),
             store: RefCell::new(None),
             executor: Executor::new(driver, ExecutorOptions::default())?,
@@ -100,7 +79,6 @@ impl PluginManager {
             )])),
             trusted_sources: RefCell::new(BTreeSet::new()),
             uncertain: RefCell::new(BTreeMap::new()),
-            browser_grants: RefCell::new(BTreeMap::new()),
             cores: RefCell::new(vec![PluginRecord {
                 plugin_id: "swarmie.plugin-manager".into(),
                 version: env!("CARGO_PKG_VERSION").into(),
@@ -138,22 +116,6 @@ impl PluginManager {
         Ok(manager)
     }
 
-    pub(crate) fn authorize(&self, proof: &AdminProof) -> Result<()> {
-        let expected = self.proof.as_str().as_bytes();
-        let supplied = proof.as_str().as_bytes();
-        let mut difference = expected.len() ^ supplied.len();
-        for index in 0..expected.len().max(supplied.len()) {
-            difference |= usize::from(
-                expected.get(index).copied().unwrap_or(0)
-                    ^ supplied.get(index).copied().unwrap_or(0),
-            );
-        }
-        if difference != 0 {
-            return Err(ManagerError::Unauthorized);
-        }
-        Ok(())
-    }
-
     pub(crate) fn guard(&self) -> Result<OperationGuard<'_>> {
         if self.busy.get() {
             return Err(ManagerError::Busy);
@@ -170,7 +132,7 @@ impl PluginManager {
     }
 
     pub(crate) fn recovery_guard(&self) -> Result<OperationGuard<'_>> {
-        self.require_composition_permission()?;
+        self.require_composition_reconciliation()?;
         if !self.fresh_session.replace(false) {
             return Err(ManagerError::RecoveryRequired);
         }

@@ -24,10 +24,6 @@ fn descriptors() -> tembra::Result<Vec<(&'static str, std::rc::Rc<Contract>)>> {
         ("dynamic-consumer", DynamicConsumer.descriptor()?),
         ("plugin-source", PluginSourceSchema.descriptor()?),
         ("plugin-administration", PluginAdministration.descriptor()?),
-        (
-            "remote-plugin-administration",
-            RemotePluginAdministration.descriptor()?,
-        ),
         ("ui-contributions", UiContributions.descriptor()?),
         ("browser-access", BrowserAccess.descriptor()?),
         ("remote-browser-access", RemoteBrowserAccess.descriptor()?),

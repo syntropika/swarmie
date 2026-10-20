@@ -66,22 +66,15 @@ fn independent_registry_provider_requires_no_manager_changes() {
     run(|driver| async move {
         let directory = tempfile::tempdir().unwrap();
         let host = Host::with_driver(RUNTIME_HOST, "supervisor", driver.clone()).unwrap();
-        let proof = PluginManager::issue_proof();
-        let manager = PluginManager::start(
-            host.clone(),
-            driver,
-            directory.path().join("admin.sqlite"),
-            proof.clone(),
-        )
-        .await
-        .unwrap();
-        manager
-            .approve_trusted_source(&proof, "local".into())
-            .unwrap();
+
+        let manager =
+            PluginManager::start(host.clone(), driver, directory.path().join("admin.sqlite"))
+                .await
+                .unwrap();
+        manager.approve_trusted_source("local".into()).unwrap();
         assert!(matches!(
             manager
                 .source_request::<_, SearchResult>(
-                    &proof,
                     "independent",
                     SourceOperation::Search,
                     SearchRequest {
@@ -97,7 +90,6 @@ fn independent_registry_provider_requires_no_manager_changes() {
             .unwrap();
         let result: SearchResult = manager
             .source_request(
-                &proof,
                 "independent",
                 SourceOperation::Search,
                 SearchRequest {
@@ -108,7 +100,7 @@ fn independent_registry_provider_requires_no_manager_changes() {
             .unwrap();
         assert_eq!(result.plugins[0].id, "independent.example");
         assert_eq!(
-            manager.inventory(&proof).unwrap().providers[0].provider_id,
+            manager.inventory().unwrap().providers[0].provider_id,
             "independent"
         );
         host.close().await.unwrap();
@@ -116,78 +108,37 @@ fn independent_registry_provider_requires_no_manager_changes() {
 }
 
 #[test]
-fn capability_refusal_precedes_effects_and_sqlite_survives_restart() {
+fn trusted_local_service_checks_confirmation_and_preserves_provider_settings() {
     run(|driver| async move {
         let directory = tempfile::tempdir().unwrap();
         let database = directory.path().join("admin.sqlite");
-        let proof = PluginManager::issue_proof();
-        let wrong = AdminProof::new("a forged administrative capability".into());
         let host = Host::with_driver(RUNTIME_HOST, "supervisor", driver.clone()).unwrap();
-        let manager = PluginManager::start(host.clone(), driver.clone(), &database, proof.clone())
+        let manager = PluginManager::start(host.clone(), driver.clone(), &database)
             .await
-            .unwrap();
-        manager
-            .approve_trusted_source(&proof, "local".into())
             .unwrap();
         let local = host
             .get(PluginAdministration, PluginAdministrationInput {})
             .await
             .unwrap();
-        let rejected = local
-            .configure_provider(ConfigureProviderRequest {
-                proof: wrong.clone(),
-                provider_id: "private".into(),
-                configuration: tembra::serde_json::json!({"token":"sensitive"}),
-            })
-            .await
-            .unwrap_err();
-        assert_eq!(rejected.code, core::ErrorCode::Forbidden);
-        assert!(!rejected.to_string().contains(wrong.as_str()));
-        assert!(manager.inventory(&proof).unwrap().providers.is_empty());
         let pending = InstallRequest {
-            proof: proof.clone(),
             provider_id: "unknown".into(),
             plugin_id: "example".into(),
             version: "1.0.0".into(),
             confirmed: false,
         };
-        assert!(matches!(
-            manager.install(pending).await,
-            Err(ManagerError::ConfirmationRequired)
-        ));
-        assert!(manager.inventory(&proof).unwrap().operations.is_empty());
-        manager
-            .configure_provider(ConfigureProviderRequest {
-                proof: proof.clone(),
-                provider_id: "local".into(),
-                configuration: tembra::serde_json::json!({"token":"sensitive","root":"packages"}),
-            })
-            .await
-            .unwrap();
-        assert!(
-            local
-                .inventory(InventoryRequest {
-                    proof: wrong.clone()
-                })
-                .await
-                .is_err()
-        );
-        let inventory = local
-            .inventory(InventoryRequest {
-                proof: proof.clone(),
-            })
-            .await
-            .unwrap();
+        let refusal = local.install(pending).await.unwrap_err();
+        assert!(refusal.message.contains("confirmation"));
+        assert!(manager.inventory().unwrap().operations.is_empty());
+        local.configure_provider(ConfigureProviderRequest {provider_id:"local".into(),configuration:tembra::serde_json::json!({"private_value":"sensitive","root":"packages"})}).await.unwrap();
+        let inventory = local.inventory().await.unwrap();
         assert!(
             !serde_json::to_string(&inventory)
                 .unwrap()
                 .contains("sensitive")
         );
-        assert!(!format!("{proof:?}").contains(proof.as_str()));
         assert!(matches!(
             manager
                 .deactivate(DeactivateRequest {
-                    proof: proof.clone(),
                     plugin_id: "swarmie.plugin-manager".into()
                 })
                 .await,
@@ -195,20 +146,17 @@ fn capability_refusal_precedes_effects_and_sqlite_survives_restart() {
         ));
         local.core().release();
         host.close().await.unwrap();
-        assert!(manager.inventory(&proof).is_err());
+        assert!(manager.inventory().is_err());
         drop(manager);
         let next = Host::with_driver(RUNTIME_HOST, "supervisor", driver.clone()).unwrap();
-        let recovered = PluginManager::start(next.clone(), driver, &database, proof.clone())
+        let recovered = PluginManager::start(next.clone(), driver, &database)
             .await
             .unwrap();
         assert_eq!(
-            recovered
-                .provider_configuration(&proof, "local")
-                .unwrap()
-                .unwrap()["token"],
+            recovered.provider_configuration("local").unwrap().unwrap()["private_value"],
             "sensitive"
         );
-        assert_eq!(recovered.inventory(&proof).unwrap().operations.len(), 1);
+        assert_eq!(recovered.inventory().unwrap().operations.len(), 1);
         next.close().await.unwrap();
     });
 }
@@ -272,21 +220,14 @@ fn advertised_source_operation_must_match_canonical_schema_before_invocation() {
         .unwrap()
         .await
         .unwrap();
-        let proof = PluginManager::issue_proof();
-        let manager = PluginManager::start(
-            host.clone(),
-            driver,
-            directory.path().join("admin.sqlite"),
-            proof.clone(),
-        )
-        .await
-        .unwrap();
-        manager
-            .approve_trusted_source(&proof, "local".into())
-            .unwrap();
+
+        let manager =
+            PluginManager::start(host.clone(), driver, directory.path().join("admin.sqlite"))
+                .await
+                .unwrap();
+        manager.approve_trusted_source("local".into()).unwrap();
         let refused = manager
             .source_request::<_, SearchResult>(
-                &proof,
                 "loose",
                 SourceOperation::Search,
                 SearchRequest {

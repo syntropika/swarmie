@@ -1,42 +1,12 @@
-use std::fmt;
-
 use tembra::prelude::*;
 
 use crate::{PackageProvenance, PluginManifest, SourceOperation};
-
-/// Opaque administrative capability material, verified by the receiving supervisor.
-///
-/// Construction only wraps a value. It does not authenticate a caller or grant permission.
-/// Debug output is redacted; serialization intentionally carries the proof to its verifier.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(crate = "tembra::serde", transparent)]
-#[schemars(crate = "tembra::schemars")]
-pub struct AdminProof(String);
-
-impl AdminProof {
-    /// Wraps proof material issued by the supervisor.
-    pub fn new(value: String) -> Self {
-        Self(value)
-    }
-
-    /// Borrows the proof for verification at an administrative ingress.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Debug for AdminProof {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("AdminProof([redacted])")
-    }
-}
 
 /// An explicitly confirmed installation candidate.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
 pub struct InstallRequest {
-    pub proof: AdminProof,
     pub provider_id: String,
     pub plugin_id: String,
     pub version: String,
@@ -48,7 +18,6 @@ pub struct InstallRequest {
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
 pub struct ActivateRequest {
-    pub proof: AdminProof,
     pub plugin_id: String,
 }
 
@@ -57,7 +26,6 @@ pub struct ActivateRequest {
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
 pub struct DeactivateRequest {
-    pub proof: AdminProof,
     pub plugin_id: String,
 }
 
@@ -66,7 +34,6 @@ pub struct DeactivateRequest {
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
 pub struct UpdateRequest {
-    pub proof: AdminProof,
     pub provider_id: String,
     pub plugin_id: String,
     pub version: String,
@@ -78,7 +45,6 @@ pub struct UpdateRequest {
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
 pub struct UninstallRequest {
-    pub proof: AdminProof,
     pub plugin_id: String,
 }
 
@@ -87,25 +53,15 @@ pub struct UninstallRequest {
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
 pub struct ConfigureProviderRequest {
-    pub proof: AdminProof,
     pub provider_id: String,
     pub configuration: tembra::serde_json::Value,
 }
 
-/// An authenticated inventory query.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(crate = "tembra::serde", deny_unknown_fields)]
-#[schemars(crate = "tembra::schemars")]
-pub struct InventoryRequest {
-    pub proof: AdminProof,
-}
-
-/// An authenticated request for the currently admitted browser package.
+/// A request for the currently admitted browser package.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
 pub struct ActivePackageRequest {
-    pub proof: AdminProof,
     pub plugin_id: String,
 }
 
@@ -124,7 +80,6 @@ pub struct ActivePackage {
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
 pub struct ReadPackageFileRequest {
-    pub proof: AdminProof,
     pub plugin_id: String,
     pub activation_id: String,
     pub path: String,
@@ -157,12 +112,11 @@ pub enum BrowserObservation {
     Unknown,
 }
 
-/// An authenticated browser acknowledgement bound to a specific activation and session.
+/// A trusted local browser observation bound to a specific activation and session.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
 pub struct ReportBrowserRequest {
-    pub proof: AdminProof,
     pub plugin_id: String,
     pub version: String,
     pub activation_id: String,
@@ -203,9 +157,11 @@ pub enum DesiredState {
     Absent,
 }
 
-/// Sanitized server and administrative availability on the connected node.
-/// Browser execution is reported separately for each browser session. Inactive concerns
-/// logical admission; lingering physical execution remains explicit in operation diagnostics.
+/// Administrative observation of the current Host's selected installation.
+/// Active establishes Facet admission and observed Host-lifetime startup, not readiness of
+/// every lazy object. Tembra References own object-specific readiness. Browser execution is
+/// reported separately per session. Inactive concerns logical admission; lingering physical
+/// execution remains explicit in operation diagnostics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(crate = "tembra::serde", rename_all = "snake_case")]
 #[schemars(crate = "tembra::schemars")]
@@ -313,7 +269,7 @@ pub trait PluginAdministration {
     async fn configure_provider(&self, request: ConfigureProviderRequest) -> Result<Inventory>;
 
     #[portable]
-    async fn inventory(&self, request: InventoryRequest) -> Result<Inventory>;
+    async fn inventory(&self) -> Result<Inventory>;
 
     #[portable]
     async fn active_package(&self, request: ActivePackageRequest) -> Result<ActivePackage>;
@@ -325,37 +281,5 @@ pub trait PluginAdministration {
     ) -> Result<ReadPackageFileResult>;
 
     #[portable]
-    async fn report_browser(&self, request: ReportBrowserRequest) -> Result<Inventory>;
-}
-
-/// Remote administrative ingress; implementations must verify proofs before effects.
-#[tembra::contract(
-    remote,
-    name = "swarmie.remote-plugin-administration",
-    version = 1,
-    host = "swarmie-runtime"
-)]
-pub trait RemotePluginAdministration {
-    async fn install(&self, request: InstallRequest) -> Result<Inventory>;
-
-    async fn activate(&self, request: ActivateRequest) -> Result<Inventory>;
-
-    async fn deactivate(&self, request: DeactivateRequest) -> Result<Inventory>;
-
-    async fn update(&self, request: UpdateRequest) -> Result<Inventory>;
-
-    async fn uninstall(&self, request: UninstallRequest) -> Result<Inventory>;
-
-    async fn configure_provider(&self, request: ConfigureProviderRequest) -> Result<Inventory>;
-
-    async fn inventory(&self, request: InventoryRequest) -> Result<Inventory>;
-
-    async fn active_package(&self, request: ActivePackageRequest) -> Result<ActivePackage>;
-
-    async fn read_package_file(
-        &self,
-        request: ReadPackageFileRequest,
-    ) -> Result<ReadPackageFileResult>;
-
     async fn report_browser(&self, request: ReportBrowserRequest) -> Result<Inventory>;
 }

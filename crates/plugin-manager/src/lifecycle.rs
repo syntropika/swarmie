@@ -15,8 +15,7 @@ impl PluginManager {
     /// Authorization and confirmation are checked before contacting a provider. Integrity,
     /// compatibility and dependency refusals leave installed package selection unchanged.
     pub async fn install(&self, request: InstallRequest) -> Result<Inventory> {
-        self.authorize(&request.proof)?;
-        self.require_composition_permission()?;
+        self.require_composition_reconciliation()?;
         if !request.confirmed {
             return Err(ManagerError::ConfirmationRequired);
         }
@@ -37,12 +36,7 @@ impl PluginManager {
         let operation = self.begin(&request.plugin_id, AdminOperation::Install)?;
         let result: Result<()> = async {
             let package = self
-                .acquire(
-                    &request.proof,
-                    &request.provider_id,
-                    &request.plugin_id,
-                    &request.version,
-                )
+                .acquire(&request.provider_id, &request.plugin_id, &request.version)
                 .await?;
             self.storage()?.save(&CachedPlugin {
                 package,
@@ -56,9 +50,12 @@ impl PluginManager {
         self.finish(operation, result).await
     }
 
-    async fn prepared(&self, package: &AcquiredPackage) -> Result<Vec<core::ExecutableFacet>> {
+    pub(crate) async fn prepared(
+        &self,
+        package: &AcquiredPackage,
+    ) -> Result<Vec<core::ExecutableFacet>> {
         validate_package(package)?;
-        self.dependencies(package, true)?;
+        self.package_dependencies(package)?;
         let mut facets = vec![];
         for descriptor in &package.manifest.facets {
             if descriptor.target != FacetTarget::Server {
@@ -147,8 +144,7 @@ impl PluginManager {
     /// Failed preparation records failure without claiming runtime publication. Errors after
     /// admission may have external effects; the durable desired state remains active.
     pub async fn activate(&self, request: ActivateRequest) -> Result<Inventory> {
-        self.authorize(&request.proof)?;
-        self.require_composition_permission()?;
+        self.require_composition_reconciliation()?;
         let _guard = self.guard()?;
         self.fresh_session.set(false);
         let plugin = self.dynamic(&request.plugin_id)?;
@@ -166,8 +162,7 @@ impl PluginManager {
     /// Failed acquisition or preparation retains the old selected package and records the
     /// observed failure. A runtime error does not assert rollback of plugin external effects.
     pub async fn update(&self, request: UpdateRequest) -> Result<Inventory> {
-        self.authorize(&request.proof)?;
-        self.require_composition_permission()?;
+        self.require_composition_reconciliation()?;
         if !request.confirmed {
             return Err(ManagerError::ConfirmationRequired);
         }
@@ -179,12 +174,7 @@ impl PluginManager {
         let mut retirement_diagnostic = String::new();
         let result: Result<()> = async {
             let package = self
-                .acquire(
-                    &request.proof,
-                    &request.provider_id,
-                    &request.plugin_id,
-                    &request.version,
-                )
+                .acquire(&request.provider_id, &request.plugin_id, &request.version)
                 .await?;
             if package.manifest.version == old.package.manifest.version && package != old.package {
                 return Err(ManagerError::Integrity(
@@ -270,10 +260,9 @@ impl PluginManager {
         self.finish(operation, result).await
     }
 
-    fn required_by(&self, id: &str, only_active: bool) -> Result<()> {
+    fn required_by(&self, id: &str) -> Result<()> {
         for plugin in self.storage()?.all()? {
             if plugin.package.manifest.id != id
-                && (!only_active || plugin.observed == ObservedState::Active)
                 && plugin
                     .package
                     .manifest
@@ -291,7 +280,6 @@ impl PluginManager {
     }
 
     async fn deactivate_cached(&self, mut plugin: CachedPlugin) -> Result<()> {
-        self.required_by(&plugin.package.manifest.id, true)?;
         plugin.desired = DesiredState::Installed;
         self.storage()?.save(&plugin)?;
         let remove = plugin
@@ -345,10 +333,9 @@ impl PluginManager {
     /// Removes running foreign facets through Tembra reload while retaining cached bytes.
     ///
     /// # Errors
-    /// Refuses Core Plugins and active dependents. Runtime failures retain their exact cause.
+    /// Refuses Core Plugins. Runtime failures retain their exact cause.
     pub async fn deactivate(&self, request: DeactivateRequest) -> Result<Inventory> {
-        self.authorize(&request.proof)?;
-        self.require_composition_permission()?;
+        self.require_composition_reconciliation()?;
         let _guard = self.guard()?;
         self.fresh_session.set(false);
         let plugin = self.dynamic(&request.plugin_id)?;
@@ -366,12 +353,11 @@ impl PluginManager {
     /// Refuses installed dependents and Core Plugins. Deactivation effects can precede a later
     /// SQLite failure; operation evidence reports the actual failed stage rather than rollback.
     pub async fn uninstall(&self, request: UninstallRequest) -> Result<Inventory> {
-        self.authorize(&request.proof)?;
-        self.require_composition_permission()?;
+        self.require_composition_reconciliation()?;
         let _guard = self.guard()?;
         self.fresh_session.set(false);
         let plugin = self.dynamic(&request.plugin_id)?;
-        self.required_by(&request.plugin_id, false)?;
+        self.required_by(&request.plugin_id)?;
         let mut operation = self.begin(&request.plugin_id, AdminOperation::Uninstall)?;
         let result: Result<()> = async {
             self.deactivate_cached(plugin).await?;

@@ -12,7 +12,7 @@
   "scripts": {
     "storybook": "bun run --filter @swarmie/ui-web storybook",
     "build:storybook": "bun run --filter @swarmie/ui-web build-storybook && bun run --filter @swarmie/ui-native build-storybook",
-    "typecheck": "bun run --filter @swarmie/ui-web typecheck && bun run --filter @swarmie/ui-native typecheck && bun run --filter swarmie-mobile typecheck && bun run --filter @swarmie/web typecheck && tsc --noEmit -p examples/plugins/tsconfig.json",
+    "typecheck": "bun run plugins:contracts && bun run --filter @swarmie/ui-web typecheck && bun run --filter @swarmie/ui-native typecheck && bun run --filter swarmie-mobile typecheck && bun run --filter @swarmie/web typecheck && tsc --noEmit -p examples/plugins/tsconfig.json && tsc --noEmit -p tests/plugins/tsconfig.json && tsc --noEmit -p scripts/tembra/tsconfig.json",
     "lint": "bun run typegen && bun run lint:code",
     "lint:code": "oxlint --disable-nested-config --deny-warnings --report-unused-disable-directives",
     "lint:design": "oxlint --disable-nested-config --deny-warnings packages/ui/web/src packages/ui/native/src apps/web/src",
@@ -35,7 +35,9 @@
     "build:web": "bun run --filter @swarmie/web build",
     "preview:web": "bun run --filter @swarmie/web preview",
     "typegen": "bun run --filter @swarmie/web generate:routes && bun run --filter @swarmie/web cf-typegen",
-    "test:web": "bun test ./apps/web/src"
+    "test:web": "bun test ./apps/web/src",
+    "plugins:contracts": "python3 scripts/tembra/tooling.py prepare-sdk && bun scripts/tembra/build.ts contracts",
+    "plugins:build": "python3 scripts/tembra/tooling.py prepare-sdk && bun scripts/tembra/build.ts plugins"
   },
   "devDependencies": {
     "@shadcn/lint": "0.2.0",

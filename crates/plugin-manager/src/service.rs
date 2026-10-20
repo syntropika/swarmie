@@ -70,9 +70,9 @@ impl PluginAdministrationProvider for Administration {
             .map_err(ManagerError::into_runtime)
     }
 
-    async fn inventory(&self, request: InventoryRequest, _context: Context) -> Result<Inventory> {
+    async fn inventory(&self, _context: Context) -> Result<Inventory> {
         self.manager()?
-            .inventory(&request.proof)
+            .inventory()
             .map_err(ManagerError::into_runtime)
     }
     async fn active_package(
@@ -81,7 +81,7 @@ impl PluginAdministrationProvider for Administration {
         _context: Context,
     ) -> Result<ActivePackage> {
         self.manager()?
-            .active_package(&request.proof, &request.plugin_id)
+            .active_package(&request.plugin_id)
             .map_err(ManagerError::into_runtime)
     }
 
@@ -115,6 +115,7 @@ impl BrowserAdministration {
             .ok_or_else(|| RuntimeError::invalid("supervisor", "supervisor closed"))
     }
 }
+
 impl BrowserAccessProvider for BrowserAdministration {
     async fn inventory(
         &self,
@@ -122,157 +123,61 @@ impl BrowserAccessProvider for BrowserAdministration {
         _context: Context,
     ) -> Result<BrowserInventory> {
         self.manager()?
-            .browser_inventory(request)
+            .browser_inventory(&request.session_id)
             .map_err(ManagerError::into_runtime)
-    }
-    async fn active_package(
-        &self,
-        request: BrowserActivePackageRequest,
-        _context: Context,
-    ) -> Result<ActivePackage> {
-        self.manager()?
-            .browser_active_package(request)
-            .map_err(ManagerError::into_runtime)
-    }
-    async fn read_package_file(
-        &self,
-        request: BrowserReadPackageFileRequest,
-        _context: Context,
-    ) -> Result<ReadPackageFileResult> {
-        self.manager()?
-            .browser_read_package_file(request)
-            .map_err(ManagerError::into_runtime)
-    }
-    async fn report_browser(
-        &self,
-        request: BrowserReportRequest,
-        _context: Context,
-    ) -> Result<BrowserInventory> {
-        self.manager()?
-            .browser_report(request)
-            .map_err(ManagerError::into_runtime)
-    }
-}
-
-struct RemoteBrowser {
-    manager: Weak<PluginManager>,
-}
-impl RemoteBrowserAccessProvider for RemoteBrowser {
-    async fn inventory(
-        &self,
-        request: BrowserInventoryRequest,
-        _context: Context,
-    ) -> Result<BrowserInventory> {
-        self.manager
-            .upgrade()
-            .ok_or_else(|| RuntimeError::invalid("supervisor", "supervisor closed"))?
-            .browser_inventory(request)
-            .map_err(ManagerError::into_runtime)
-    }
-    async fn active_package(
-        &self,
-        request: BrowserActivePackageRequest,
-        _context: Context,
-    ) -> Result<ActivePackage> {
-        self.manager
-            .upgrade()
-            .ok_or_else(|| RuntimeError::invalid("supervisor", "supervisor closed"))?
-            .browser_active_package(request)
-            .map_err(ManagerError::into_runtime)
-    }
-    async fn read_package_file(
-        &self,
-        request: BrowserReadPackageFileRequest,
-        _context: Context,
-    ) -> Result<ReadPackageFileResult> {
-        self.manager
-            .upgrade()
-            .ok_or_else(|| RuntimeError::invalid("supervisor", "supervisor closed"))?
-            .browser_read_package_file(request)
-            .map_err(ManagerError::into_runtime)
-    }
-    async fn report_browser(
-        &self,
-        request: BrowserReportRequest,
-        _context: Context,
-    ) -> Result<BrowserInventory> {
-        self.manager
-            .upgrade()
-            .ok_or_else(|| RuntimeError::invalid("supervisor", "supervisor closed"))?
-            .browser_report(request)
-            .map_err(ManagerError::into_runtime)
-    }
-}
-
-struct RemoteAdministration {
-    local: PluginAdministrationRef,
-}
-
-impl RemotePluginAdministrationProvider for RemoteAdministration {
-    async fn install(&self, request: InstallRequest, context: Context) -> Result<Inventory> {
-        self.local.with_context(&context).install(request).await
-    }
-
-    async fn activate(&self, request: ActivateRequest, context: Context) -> Result<Inventory> {
-        self.local.with_context(&context).activate(request).await
-    }
-
-    async fn deactivate(&self, request: DeactivateRequest, context: Context) -> Result<Inventory> {
-        self.local.with_context(&context).deactivate(request).await
-    }
-
-    async fn update(&self, request: UpdateRequest, context: Context) -> Result<Inventory> {
-        self.local.with_context(&context).update(request).await
-    }
-
-    async fn uninstall(&self, request: UninstallRequest, context: Context) -> Result<Inventory> {
-        self.local.with_context(&context).uninstall(request).await
-    }
-
-    async fn configure_provider(
-        &self,
-        request: ConfigureProviderRequest,
-        context: Context,
-    ) -> Result<Inventory> {
-        self.local
-            .with_context(&context)
-            .configure_provider(request)
-            .await
-    }
-
-    async fn inventory(&self, request: InventoryRequest, context: Context) -> Result<Inventory> {
-        self.local.with_context(&context).inventory(request).await
     }
     async fn active_package(
         &self,
         request: ActivePackageRequest,
-        context: Context,
+        _context: Context,
     ) -> Result<ActivePackage> {
-        self.local
-            .with_context(&context)
-            .active_package(request)
-            .await
+        self.manager()?
+            .active_browser_package(&request.plugin_id)
+            .map_err(ManagerError::into_runtime)
     }
-
     async fn read_package_file(
         &self,
         request: ReadPackageFileRequest,
-        context: Context,
+        _context: Context,
     ) -> Result<ReadPackageFileResult> {
-        self.local
-            .with_context(&context)
-            .read_package_file(request)
-            .await
+        self.manager()?
+            .read_browser_package_file(request)
+            .map_err(ManagerError::into_runtime)
     }
     async fn report_browser(
         &self,
         request: ReportBrowserRequest,
-        context: Context,
-    ) -> Result<Inventory> {
-        self.local
-            .with_context(&context)
-            .report_browser(request)
-            .await
+        _context: Context,
+    ) -> Result<BrowserInventory> {
+        self.manager()?
+            .browser_report(request)
+            .map_err(ManagerError::into_runtime)
+    }
+}
+
+impl RemoteBrowserAccessProvider for BrowserAdministration {
+    async fn inventory(&self, _context: Context) -> Result<Vec<ActivePackage>> {
+        self.manager()?
+            .active_browser_packages()
+            .map_err(ManagerError::into_runtime)
+    }
+    async fn active_package(
+        &self,
+        request: ActivePackageRequest,
+        _context: Context,
+    ) -> Result<ActivePackage> {
+        self.manager()?
+            .active_browser_package(&request.plugin_id)
+            .map_err(ManagerError::into_runtime)
+    }
+    async fn read_package_file(
+        &self,
+        request: ReadPackageFileRequest,
+        _context: Context,
+    ) -> Result<ReadPackageFileResult> {
+        self.manager()?
+            .read_browser_package_file(request)
+            .map_err(ManagerError::into_runtime)
     }
 }
 
@@ -321,13 +226,8 @@ pub(crate) fn facet(manager: Weak<PluginManager>) -> Result<NativeFacet> {
         })?;
         let remote_owner = manager.clone();
         setup.serve(RemoteBrowserAccess, move |_, _, _| {
-            Ok(RemoteBrowser {
+            Ok(BrowserAdministration {
                 manager: remote_owner.clone(),
-            })
-        })?;
-        setup.serve(RemotePluginAdministration, |_, _, declaration| {
-            Ok(RemoteAdministration {
-                local: declaration.get(PluginAdministration, PluginAdministrationInput {})?,
             })
         })
     })

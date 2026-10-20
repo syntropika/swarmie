@@ -58,17 +58,6 @@ pub struct Selection {
     pub provider: Option<String>,
     #[serde(default = "empty_config")]
     pub config: Value,
-    #[serde(default)]
-    pub requires: Vec<Requirement>,
-}
-
-/// Application deployment ordering, independent of ordinary Tembra object dependencies.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Requirement {
-    pub instance: String,
-    #[serde(default)]
-    pub optional: bool,
 }
 
 /// Fixed artifact identity within one execution target.
@@ -77,24 +66,6 @@ pub struct Requirement {
 pub struct FacetIdentity {
     pub id: String,
     pub target: FacetTarget,
-}
-
-/// Exact version of a declared application capability, qualified by the supplying adapter.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Capability {
-    pub contract: String,
-    pub version: u32,
-}
-
-/// Admission requirement checked against selected release metadata, not live objects.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CapabilityRequirement {
-    pub contract: String,
-    pub version: u32,
-    #[serde(default)]
-    pub optional: bool,
 }
 
 /// Trusted release facts extracted by compiled adapters or verified artifact admission.
@@ -108,10 +79,6 @@ pub struct Release {
     pub version: String,
     pub kind: PluginKind,
     pub facets: Vec<FacetIdentity>,
-    #[serde(default)]
-    pub provides: Vec<Capability>,
-    #[serde(default)]
-    pub requires: Vec<CapabilityRequirement>,
 }
 
 /// Winning selection layer. Bundle identity remains visible after flattening.
@@ -123,43 +90,13 @@ pub enum Origin {
     Override,
 }
 
-/// Why a desired deployment is blocked. These facts never imply a runtime transition.
+/// Desired selection eligibility only. Tembra owns actual compatibility and readiness.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum Diagnostic {
-    MissingRelease {
-        plugin: String,
-        version: String,
-    },
-    MissingInstance {
-        instance: String,
-    },
-    UnavailableInstance {
-        instance: String,
-    },
-    MissingCapability {
-        contract: String,
-        version: u32,
-    },
-    IncompatibleCapability {
-        contract: String,
-        version: u32,
-        available: Vec<u32>,
-    },
-    AmbiguousCapability {
-        contract: String,
-        version: u32,
-        providers: Vec<String>,
-    },
-}
-
-/// Metadata eligibility; actual activation must be observed on each applicable Host.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum InstanceState {
-    Ready,
+pub enum SelectionState {
+    Enabled,
     Disabled,
-    Blocked { diagnostics: Vec<Diagnostic> },
+    UnavailableRelease { plugin: String, version: String },
 }
 
 /// Inspectable resolved instance with its original configuration and trusted release facts.
@@ -169,14 +106,14 @@ pub struct EffectiveInstance {
     pub selection: Selection,
     pub origin: Origin,
     pub release: Option<Release>,
-    pub state: InstanceState,
+    pub state: SelectionState,
 }
 
-/// Reproducible desired deployment. Ready instances are ordered before their dependents.
+/// Reproducible desired deployment in declaration order, without runtime dependency claims.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EffectiveComposition {
     pub profile: String,
     pub instances: BTreeMap<String, EffectiveInstance>,
-    pub activation_order: Vec<String>,
+    pub deployment_order: Vec<String>,
 }

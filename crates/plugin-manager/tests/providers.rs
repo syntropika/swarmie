@@ -162,7 +162,7 @@ fn independent_memory_provider_installs_real_artifacts_through_generic_registry_
         .unwrap()
         .block_on(driver.run_until(async {
             let directory = tempfile::tempdir().unwrap();
-            let proof = PluginManager::issue_proof();
+
             let host = Host::with_driver(RUNTIME_HOST, "supervisor", driver.clone()).unwrap();
             host.install(
                 swarmie_counter::facet().unwrap(),
@@ -175,15 +175,12 @@ fn independent_memory_provider_installs_real_artifacts_through_generic_registry_
                 host.clone(),
                 driver.clone(),
                 directory.path().join("admin.sqlite"),
-                proof.clone(),
             )
             .await
             .unwrap();
+            manager.approve_trusted_source("local".into()).unwrap();
             manager
-                .approve_trusted_source(&proof, "local".into())
-                .unwrap();
-            manager
-                .record_core(&proof, "swarmie.counter".into(), "0.1.0".into())
+                .record_core("swarmie.counter".into(), "0.1.0".into())
                 .await
                 .unwrap();
             host.install(
@@ -196,7 +193,6 @@ fn independent_memory_provider_installs_real_artifacts_through_generic_registry_
             assert!(matches!(
                 manager
                     .install(InstallRequest {
-                        proof: proof.clone(),
                         provider_id: "memory".into(),
                         plugin_id: "dynamic-consumer".into(),
                         version: "1.0.0".into(),
@@ -205,12 +201,9 @@ fn independent_memory_provider_installs_real_artifacts_through_generic_registry_
                     .await,
                 Err(swarmie_plugin_manager::ManagerError::UntrustedSource(_))
             ));
-            manager
-                .approve_trusted_source(&proof, "memory".into())
-                .unwrap();
+            manager.approve_trusted_source("memory".into()).unwrap();
             let invalid = manager
                 .install(InstallRequest {
-                    proof: proof.clone(),
                     provider_id: "memory".into(),
                     plugin_id: "dynamic-consumer".into(),
                     version: "2.0.0".into(),
@@ -223,7 +216,7 @@ fn independent_memory_provider_installs_real_artifacts_through_generic_registry_
             ));
             assert!(
                 manager
-                    .inventory(&proof)
+                    .inventory()
                     .unwrap()
                     .plugins
                     .iter()
@@ -231,7 +224,6 @@ fn independent_memory_provider_installs_real_artifacts_through_generic_registry_
             );
             let result = manager
                 .install(InstallRequest {
-                    proof: proof.clone(),
                     provider_id: "memory".into(),
                     plugin_id: "dynamic-consumer".into(),
                     version: "1.0.0".into(),
@@ -251,7 +243,6 @@ fn independent_memory_provider_installs_real_artifacts_through_generic_registry_
             );
             manager
                 .activate(ActivateRequest {
-                    proof: proof.clone(),
                     plugin_id: "dynamic-consumer".into(),
                 })
                 .await
@@ -280,7 +271,7 @@ fn dropping_pending_acquisition_retains_running_evidence_until_fresh_host_recove
         .block_on(driver.run_until(async {
             let directory = tempfile::tempdir().unwrap();
             let database = directory.path().join("admin.sqlite");
-            let proof = PluginManager::issue_proof();
+
             let (entered, mut started) = oneshot::channel();
             let (release, released) = oneshot::channel();
             let barrier = Rc::new(AcquisitionBarrier {
@@ -288,13 +279,10 @@ fn dropping_pending_acquisition_retains_running_evidence_until_fresh_host_recove
                 released: RefCell::new(Some(released)),
             });
             let host = Host::with_driver(RUNTIME_HOST, "supervisor", driver.clone()).unwrap();
-            let manager =
-                PluginManager::start(host.clone(), driver.clone(), &database, proof.clone())
-                    .await
-                    .unwrap();
-            manager
-                .approve_trusted_source(&proof, "memory".into())
+            let manager = PluginManager::start(host.clone(), driver.clone(), &database)
+                .await
                 .unwrap();
+            manager.approve_trusted_source("memory".into()).unwrap();
             host.install(
                 memory_facet_with_barrier(package(), Some(barrier)).unwrap(),
                 core::LoadOptions::default(),
@@ -303,7 +291,6 @@ fn dropping_pending_acquisition_retains_running_evidence_until_fresh_host_recove
             .await
             .unwrap();
             let mut installation = Box::pin(manager.install(InstallRequest {
-                proof: proof.clone(),
                 provider_id: "memory".into(),
                 plugin_id: "dynamic-consumer".into(),
                 version: "1.0.0".into(),
@@ -322,7 +309,7 @@ fn dropping_pending_acquisition_retains_running_evidence_until_fresh_host_recove
                 }
             })
             .await;
-            let running = manager.inventory(&proof).unwrap();
+            let running = manager.inventory().unwrap();
             let operation = running.operations.last().unwrap();
             let operation_id = operation.id.clone();
             assert_eq!(operation.operation, AdminOperation::Install);
@@ -339,7 +326,7 @@ fn dropping_pending_acquisition_retains_running_evidence_until_fresh_host_recove
                     .is_err()
             );
             drop(installation);
-            let retained = manager.inventory(&proof).unwrap();
+            let retained = manager.inventory().unwrap();
             assert_eq!(
                 retained.operations.last().unwrap().status,
                 OperationStatus::Running
@@ -347,7 +334,6 @@ fn dropping_pending_acquisition_retains_running_evidence_until_fresh_host_recove
             assert!(matches!(
                 manager
                     .configure_provider(ConfigureProviderRequest {
-                        proof: proof.clone(),
                         provider_id: "memory".into(),
                         configuration: serde_json::json!({}),
                     })
@@ -360,11 +346,10 @@ fn dropping_pending_acquisition_retains_running_evidence_until_fresh_host_recove
             host.close().await.unwrap();
             drop(manager);
             let fresh_host = Host::with_driver(RUNTIME_HOST, "supervisor", driver.clone()).unwrap();
-            let restarted =
-                PluginManager::start(fresh_host.clone(), driver.clone(), &database, proof.clone())
-                    .await
-                    .unwrap();
-            let recovered = restarted.recover(&proof).await.unwrap();
+            let restarted = PluginManager::start(fresh_host.clone(), driver.clone(), &database)
+                .await
+                .unwrap();
+            let recovered = restarted.recover().await.unwrap();
             let interrupted = recovered
                 .operations
                 .iter()
@@ -386,7 +371,6 @@ fn dropping_pending_acquisition_retains_running_evidence_until_fresh_host_recove
             );
             restarted
                 .configure_provider(ConfigureProviderRequest {
-                    proof: proof.clone(),
                     provider_id: "memory".into(),
                     configuration: serde_json::json!({}),
                 })

@@ -1,9 +1,9 @@
 import { defineFacet, Type } from "@tembra/sdk";
 
-import { serveGenerated } from "./generated-provider";
-import { Counter } from "./generated/counter";
-import { PluginConfiguration } from "./generated/plugin-configuration";
-import { RemoteCounter } from "./generated/remote-counter";
+import { Counter } from "../../../target/generated/contracts/counter";
+import { PluginConfiguration } from "../../../target/generated/contracts/plugin-configuration";
+import { RemoteCounter } from "../../../target/generated/contracts/remote-counter";
+import { serveGenerated } from "../support/generated-provider";
 
 /** An independently distributed implementation of the canonical Counter contracts. */
 export default defineFacet({

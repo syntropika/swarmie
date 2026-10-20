@@ -18,7 +18,9 @@
           "plugin": "alternative-counter",
           "version": "1.0.0",
           "provider": "local",
-          "config": { "initial": 10 }
+          "config": {
+            "initial": 10
+          }
         }
       ]
     },
@@ -44,16 +46,23 @@
       "plugin": "alternative-counter",
       "version": "1.0.0",
       "kind": "dynamic",
-      "facets": [{ "id": "alternative-counter", "target": "server" }],
-      "provides": [{ "contract": "swarmie.counter", "version": 1 }]
+      "facets": [
+        {
+          "id": "alternative-counter",
+          "target": "server"
+        }
+      ]
     },
     {
       "plugin": "dynamic-consumer",
       "version": "1.0.0",
       "kind": "dynamic",
-      "facets": [{ "id": "dynamic-consumer", "target": "server" }],
-      "provides": [{ "contract": "swarmie.dynamic-consumer", "version": 1 }],
-      "requires": [{ "contract": "swarmie.counter", "version": 1 }]
+      "facets": [
+        {
+          "id": "dynamic-consumer",
+          "target": "server"
+        }
+      ]
     }
   ]
 }

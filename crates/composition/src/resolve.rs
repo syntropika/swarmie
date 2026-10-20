@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    Composition, CompositionError, Diagnostic, EffectiveComposition, EffectiveInstance,
-    InstanceState, Origin, PluginKind, Release, Selection, dependencies,
+    Composition, CompositionError, EffectiveComposition, EffectiveInstance, Origin, PluginKind,
+    Release, Selection, SelectionState,
     validation::{check_collisions, identifier, invalid, validate_catalog, validate_selection},
 };
 
@@ -12,12 +12,12 @@ use crate::{
 /// Inputs remain unchanged on success and failure. Bundle expansion follows declared order;
 /// duplicate instance declarations refuse resolution unless replaced by a profile override.
 /// An override replaces the entire selection. Disabled instances retain their origin.
-/// Missing releases or requirements produce inspectable blocked instances. Only ready
-/// instances enter the stable activation order; readiness here means metadata eligibility.
+/// Missing release metadata remains inspectable. Enabled selections enter declaration order;
+/// compatibility and actual object readiness are determined exclusively by Tembra.
 ///
 /// # Errors
 /// Returns [`CompositionError`] for invalid metadata, unknown layers, duplicate identities,
-/// fixed artifact collisions or required deployment cycles. Runtime configuration validation,
+/// fixed artifact collisions. Runtime configuration validation,
 /// installation, live capability readiness and lifecycle remain the caller's responsibility.
 ///
 /// # Examples
@@ -28,7 +28,7 @@ use crate::{
 /// })).unwrap();
 /// let before = input.clone();
 /// let output = resolve(&input, &[]).unwrap();
-/// assert!(output.activation_order.is_empty());
+/// assert!(output.deployment_order.is_empty());
 /// assert_eq!(input, before);
 /// let mut invalid = input.clone();
 /// invalid.schema_version = 2;
@@ -45,11 +45,12 @@ pub fn resolve(
     identifier("profile.id", &input.profile.id)?;
     let catalog = validate_catalog(catalog)?;
     let mut selections = BTreeMap::new();
+    let mut order = Vec::new();
     for bundle in &input.profile.bundles {
-        expand(input, bundle, &mut Vec::new(), &mut selections)?;
+        expand(input, bundle, &mut Vec::new(), &mut selections, &mut order)?;
     }
     for selection in &input.profile.plugins {
-        insert(&mut selections, selection, Origin::Profile)?;
+        insert(&mut selections, selection, Origin::Profile, &mut order)?;
     }
     let mut overridden = BTreeSet::new();
     for selection in &input.profile.overrides {
@@ -86,16 +87,14 @@ pub fn resolve(
             }
         }
         let state = if disabled.contains(&id) {
-            InstanceState::Disabled
+            SelectionState::Disabled
         } else if release.is_none() {
-            InstanceState::Blocked {
-                diagnostics: vec![Diagnostic::MissingRelease {
-                    plugin: selection.plugin.clone(),
-                    version: selection.version.clone(),
-                }],
+            SelectionState::UnavailableRelease {
+                plugin: selection.plugin.clone(),
+                version: selection.version.clone(),
             }
         } else {
-            InstanceState::Ready
+            SelectionState::Enabled
         };
         instances.insert(
             id,
@@ -108,11 +107,14 @@ pub fn resolve(
         );
     }
     check_collisions(&instances)?;
-    let activation_order = dependencies::resolve(&mut instances)?;
+    let deployment_order = order
+        .into_iter()
+        .filter(|id| instances[id].state == SelectionState::Enabled)
+        .collect();
     Ok(EffectiveComposition {
         profile: input.profile.id.clone(),
         instances,
-        activation_order,
+        deployment_order,
     })
 }
 
@@ -123,6 +125,7 @@ fn expand(
     id: &str,
     path: &mut Vec<String>,
     selections: &mut Selections,
+    order: &mut Vec<String>,
 ) -> Result<(), CompositionError> {
     identifier("bundle.id", id)?;
     if let Some(index) = path.iter().position(|part| part == id) {
@@ -136,10 +139,15 @@ fn expand(
         .ok_or_else(|| CompositionError::UnknownBundle(id.into()))?;
     path.push(id.into());
     for child in &bundle.bundles {
-        expand(input, child, path, selections)?;
+        expand(input, child, path, selections, order)?;
     }
     for selection in &bundle.plugins {
-        insert(selections, selection, Origin::Bundle { id: id.into() })?;
+        insert(
+            selections,
+            selection,
+            Origin::Bundle { id: id.into() },
+            order,
+        )?;
     }
     path.pop();
     Ok(())
@@ -149,11 +157,13 @@ fn insert(
     selections: &mut Selections,
     selection: &Selection,
     origin: Origin,
+    order: &mut Vec<String>,
 ) -> Result<(), CompositionError> {
     validate_selection(selection)?;
     if selections.contains_key(&selection.id) {
         return Err(CompositionError::DuplicateInstance(selection.id.clone()));
     }
+    order.push(selection.id.clone());
     selections.insert(selection.id.clone(), (selection.clone(), origin));
     Ok(())
 }

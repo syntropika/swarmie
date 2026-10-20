@@ -19,7 +19,6 @@ BINDGEN_VERSION = "0.2.129"
 CACHE = Path(os.environ.get("SWARMIE_TEMBRA_CACHE", Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "swarmie" / "tembra")) / REVISION
 CHECKOUT = CACHE / "source"
 SDK = ROOT / "packages" / "tembra-sdk"
-TARGET = ROOT / "target" / "tembra"
 
 
 def run(argv, cwd=ROOT, capture=False):
@@ -122,83 +121,13 @@ def verify_sdk():
     print("Verified the pinned SDK projection")
 
 
-CONTRACTS = {"counter": "Counter", "remote-counter": "RemoteCounter",
-             "dynamic-consumer": "DynamicConsumer",
-             "remote-browser-access": "RemoteBrowserAccess",
-             "plugin-configuration": "PluginConfiguration",
-             "remote-plugin-administration": "RemotePluginAdministration"}
-
-def generate_contracts(verify=False):
-    built_sdk()
-    verify_sdk()
-    descriptors = TARGET / "contracts"
-    run(["cargo", f"+{RUST_VERSION}", "run", "--locked", "--quiet", "-p", "swarmie-plugin-contracts", "--bin", "export-contract", "--", "--output-dir", descriptors])
-    output = TARGET / "fixture-bindings-check" if verify else ROOT / "examples/plugins/generated"
-    fixture_descriptor = TARGET / "fixture-contracts/dynamic-consumer-v2.json"
-    fixture_descriptor.parent.mkdir(parents=True, exist_ok=True)
-    fixture_descriptor.write_text(run(["cargo", f"+{RUST_VERSION}", "run", "--locked", "--quiet", "-p", "swarmie-plugin-contracts", "--bin", "export-contract", "--", "dynamic-consumer-v2"], capture=True))
-    config = {"root": str(ROOT), "builds": {}, "codegen": [
-        {"source": {"descriptor": str(descriptors / f"{name}.json")},
-         "typescript": str(output / f"{name}.ts"), "name": token}
-        for name, token in CONTRACTS.items()]}
-    config["codegen"].append({"source": {"descriptor": str(fixture_descriptor)},
-                              "typescript": str(output / "dynamic-consumer-v2.ts"),
-                              "name": "DynamicConsumerV2"})
-    path = TARGET / "contracts.config.ts"
-    path.write_text("export default " + json.dumps(config, indent=2) + ";\n")
-    run(["bun", ROOT / "scripts/tembra/build.ts", path])
-    expected = inventory(output)
-    if verify:
-        if expected != inventory(ROOT / "examples/plugins/generated"):
-            raise RuntimeError("Generated fixture bindings differ from the canonical Rust descriptors")
-        print("Verified the canonical generated fixture bindings")
+def prepare_sdk():
+    """Prepare absent ignored dependency output; existing output must retain its provenance."""
+    if not (SDK / "upstream").exists():
+        bootstrap()
+        project_sdk()
     else:
-        write_json(TARGET / "fixture-bindings-provenance.json", {
-            "tembra_revision": REVISION, "descriptor_source": "crates/plugin-contracts",
-            "descriptors": inventory(descriptors), "files": expected})
-
-
-def build_plugins():
-    built_sdk()
-    verify_sdk()
-    result = run(["bun", ROOT / "scripts/tembra/build.ts",
-                  "examples/plugins/tembra.config.ts"], capture=True)
-    paths = {name: str(Path(path).relative_to(ROOT))
-             for name, path in json.loads(result).items()}
-    write_json(ROOT / "target/plugins/artifacts.json", paths)
-    package_fixtures(paths)
-    run(["bun", ROOT / "examples/plugins/browser/build.ts"])
-    print(json.dumps(paths, indent=2))
-
-
-def package_fixtures(paths):
-    """Describe real Tembra outputs using the canonical Swarmie manifest DTO fields."""
-    releases = [("dynamic-consumer-v1", "1.0.0"), ("dynamic-consumer-v2", "1.1.0"),
-                ("dynamic-consumer-failing", "1.2.0"), ("dynamic-consumer-provider-removed", "1.3.0"),
-                ("dynamic-consumer-evaluation-failure", "1.4.0"),
-                ("dynamic-consumer-invalid-result", "1.5.0"),
-                ("dynamic-consumer-invalid-argument", "1.6.0"),
-                ("dynamic-consumer-incompatible", "1.7.0")]
-    releases.append(("alternative-counter", "1.0.0"))
-    for target, version in releases:
-        plugin_id = "alternative-counter" if target == "alternative-counter" else "dynamic-consumer"
-        destination = ROOT / "target/fixtures" / plugin_id / version
-        destination.mkdir(parents=True, exist_ok=True)
-        artifact = destination / "artifact.json"
-        shutil.copyfile(ROOT / paths[target], artifact)
-        envelope = json.loads(artifact.read_text())
-        if envelope["format"] != "tembra-esm-v1" or hashlib.sha256(envelope["source"].encode()).hexdigest() != envelope["sha256"]:
-            raise RuntimeError("The genuine tooling artifact failed source integrity verification")
-        sha256 = digest(artifact)
-        write_json(destination / "manifest.json", {
-            "schema_version": 1, "id": plugin_id, "version": version,
-            "compatibility": {"swarmie": "^0.1.0", "tembra_revision": REVISION},
-            "dependencies": [],
-            "facets": [{"id": plugin_id, "target": "server", "artifact_path": "artifact.json",
-                        "sha256": sha256, "selected_export": "default"}],
-            "files": [{"path": "artifact.json", "sha256": sha256}],
-            "distribution": {"provider": "local", "description": "Contract-based Counter composition acceptance fixture"},
-            "ui": []})
+        verify_sdk()
 
 
 def browser_wasm():
@@ -226,12 +155,12 @@ def verify_browser():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=["bootstrap", "project-sdk", "verify-sdk", "generate-contracts", "verify-contracts", "build-plugins", "browser-wasm", "verify-browser", "sdk-tooling"])
+    parser.add_argument("operation", choices=["bootstrap", "project-sdk", "verify-sdk", "prepare-sdk", "browser-wasm", "verify-browser"])
     args = parser.parse_args()
     operations = {"bootstrap": bootstrap, "project-sdk": project_sdk, "verify-sdk": verify_sdk,
-                  "generate-contracts": generate_contracts, "verify-contracts": lambda: generate_contracts(verify=True), "build-plugins": build_plugins,
+                  "prepare-sdk": prepare_sdk,
                   "browser-wasm": browser_wasm,
-                  "verify-browser": verify_browser, "sdk-tooling": lambda: print(built_sdk())}
+                  "verify-browser": verify_browser}
     operations[args.operation]()
 
 

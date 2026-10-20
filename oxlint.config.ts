@@ -52,8 +52,6 @@ export default defineConfig({
     ...core.ignorePatterns,
     "**/target/**",
     "packages/tembra-sdk/upstream/**",
-    // Generated verbatim from canonical Tembra descriptors; verified by tembra-contracts-check.
-    "examples/plugins/generated/**",
     "**/.tanstack/**",
     "**/.expo/**",
     "**/.wrangler/**",

@@ -3,11 +3,11 @@ use std::{
     collections::BTreeSet,
 };
 
-use swarmie_plugin_contracts::{AdminProof, PluginManifest};
+use swarmie_plugin_contracts::PluginManifest;
 
 use crate::{ManagerError, PluginManager, Result};
 
-/// Scoped supervisor permission to reconcile one validated declarative composition.
+/// Exclusive workflow for applying one validated desired composition.
 /// Dropping the guard restores the rejection of direct imperative lifecycle mutations.
 pub struct CompositionGuard<'a> {
     reconciling: &'a Flag<bool>,
@@ -23,12 +23,8 @@ impl Drop for CompositionGuard<'_> {
 }
 
 impl PluginManager {
-    /// Authorizes applying a validated desired composition using the administrative lifecycle.
-    pub fn begin_composition_reconciliation(
-        &self,
-        proof: &AdminProof,
-    ) -> Result<CompositionGuard<'_>> {
-        self.authorize(proof)?;
+    /// Starts an exclusive validated-composition reconciliation workflow.
+    pub fn begin_composition_reconciliation(&self) -> Result<CompositionGuard<'_>> {
         if self.busy.get() || self.reconciling.replace(true) {
             return Err(ManagerError::Busy);
         }
@@ -42,12 +38,7 @@ impl PluginManager {
     /// Scopes fresh-Host admission to this resolved revision's selected dynamic packages.
     /// Cached releases outside the revision retain their bytes but cannot reserve live facet
     /// identities or impose dependencies on the replacement composition. Call before staging.
-    pub fn set_composition_selection(
-        &self,
-        proof: &AdminProof,
-        selected: &BTreeSet<String>,
-    ) -> Result<()> {
-        self.authorize(proof)?;
+    pub fn set_composition_selection(&self, selected: &BTreeSet<String>) -> Result<()> {
         if !self.reconciling.get() || !self.fresh_session.get() {
             return Err(ManagerError::CompositionManaged);
         }
@@ -71,7 +62,7 @@ impl PluginManager {
         self.reconciling.get()
     }
 
-    pub(crate) fn require_composition_permission(&self) -> Result<()> {
+    pub(crate) fn require_composition_reconciliation(&self) -> Result<()> {
         if self.storage()?.composition()?.is_some() && !self.reconciling.get() {
             return Err(ManagerError::CompositionManaged);
         }
@@ -80,12 +71,7 @@ impl PluginManager {
 
     /// Persists the validated declared Profile and Bundles as the sole desired composition.
     /// Validation belongs to the composition caller; this layer does not interpret its schema.
-    pub fn save_composition(
-        &self,
-        proof: &AdminProof,
-        composition: &serde_json::Value,
-    ) -> Result<()> {
-        self.authorize(proof)?;
+    pub fn save_composition(&self, composition: &serde_json::Value) -> Result<()> {
         if !self.reconciling.get() {
             return Err(ManagerError::CompositionManaged);
         }
@@ -93,14 +79,12 @@ impl PluginManager {
     }
 
     /// Reads the durable declared composition without synthesizing an effective second copy.
-    pub fn composition(&self, proof: &AdminProof) -> Result<Option<serde_json::Value>> {
-        self.authorize(proof)?;
+    pub fn composition(&self) -> Result<Option<serde_json::Value>> {
         self.storage()?.composition()
     }
 
     /// Reads admitted immutable package metadata for composition planning before activation.
-    pub fn installed_packages(&self, proof: &AdminProof) -> Result<Vec<PluginManifest>> {
-        self.authorize(proof)?;
+    pub fn installed_packages(&self) -> Result<Vec<PluginManifest>> {
         Ok(self
             .storage()?
             .all()?

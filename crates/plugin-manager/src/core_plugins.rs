@@ -6,21 +6,18 @@ use crate::{ManagerError, PluginManager, Result};
 
 impl PluginManager {
     /// Records an already admitted Core Plugin whose sole facet has the same identity.
-    pub async fn record_core(&self, proof: &AdminProof, id: String, version: String) -> Result<()> {
-        self.record_core_facets(proof, id.clone(), version, vec![id])
-            .await
+    pub async fn record_core(&self, id: String, version: String) -> Result<()> {
+        self.record_core_facets(id.clone(), version, vec![id]).await
     }
 
     /// Records a compiled logical plugin and the actual facets admitted by its caller.
     /// Facet identities are distinct from package identities and cannot share ownership.
     pub async fn record_core_facets(
         &self,
-        proof: &AdminProof,
         id: String,
         version: String,
         facets: Vec<String>,
     ) -> Result<()> {
-        self.authorize(proof)?;
         let unique: BTreeSet<_> = facets.iter().cloned().collect();
         if id.is_empty()
             || facets.is_empty()

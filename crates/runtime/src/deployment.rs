@@ -1,10 +1,9 @@
-use std::{collections::BTreeMap, rc::Rc};
+use std::collections::{BTreeMap, BTreeSet};
 
-use serde_json::json;
 use swarmie_composition::{PluginKind, Release};
-use swarmie_plugin_contracts::{AdminProof, InstallRequest, PluginManifest};
-use swarmie_plugin_manager::PluginManager;
-use tembra::{Host, contracts::Contract, core};
+use swarmie_plugin_contracts::{DesiredState, InstallRequest, PluginManifest};
+use swarmie_plugin_manager::{CorePluginDeployment, ManagerError, PluginManager};
+use tembra::{Host, core};
 
 use crate::preparation::Prepared;
 
@@ -25,7 +24,7 @@ fn check_manifest(release: &Release, manifest: &PluginManifest) -> Result<(), Er
     expected.sort();
     if manifest.id != release.plugin || manifest.version != release.version || actual != expected {
         return Err(format!(
-            "approved package differs from composition release facts: {}",
+            "approved package differs from selected release: {}",
             release.plugin
         )
         .into());
@@ -36,32 +35,52 @@ fn check_manifest(release: &Release, manifest: &PluginManifest) -> Result<(), Er
 pub(crate) async fn apply(
     host: &Host,
     manager: &PluginManager,
-    proof: &AdminProof,
     prepared: &mut Prepared,
-    contracts: &[Rc<Contract>],
     managed: bool,
-) -> Result<
-    (
-        Option<swarmie_plugin_manager::ManagerError>,
-        BTreeMap<String, String>,
-    ),
-    Error,
-> {
-    for id in &prepared.effective.activation_order {
-        if let Some(facets) = prepared.native.remove(id) {
+) -> Result<(Option<ManagerError>, BTreeMap<String, String>), Error> {
+    let mut errors = BTreeMap::new();
+    let providers = prepared
+        .effective
+        .deployment_order
+        .iter()
+        .filter_map(|id| prepared.effective.instances[id].selection.provider.clone())
+        .collect::<BTreeSet<_>>();
+    // Acquisition must be available before its artifacts can be prepared. Other application
+    // Core Facets remain in the mixed declaration batch, including Core-to-Dynamic consumers.
+    let sources = prepared
+        .trusted_sources
+        .iter()
+        .filter(|(_, sources)| sources.iter().any(|source| providers.contains(source)))
+        .map(|(id, _)| id.clone())
+        .collect::<Vec<_>>();
+    let mut source_facets = Vec::new();
+    for id in &sources {
+        source_facets.extend(
+            prepared
+                .native
+                .remove(id)
+                .ok_or("source adapter Facets are absent")?,
+        );
+    }
+    if !source_facets.is_empty() {
+        let startup = match host.core().load(
+            source_facets.into_iter().map(Into::into).collect(),
+            core::LoadOptions::default(),
+        ) {
+            Ok(startup) => startup.await,
+            Err(error) => Err(error),
+        };
+        for id in &sources {
+            if let Err(error) = &startup {
+                errors.insert(id.clone(), error.to_string());
+                continue;
+            }
             let release = prepared.effective.instances[id]
                 .release
                 .as_ref()
-                .ok_or("compiled release absent")?;
-            host.core()
-                .load(
-                    facets.into_iter().map(Into::into).collect(),
-                    core::LoadOptions::default(),
-                )?
-                .await?;
+                .ok_or("source release absent")?;
             manager
                 .record_core_facets(
-                    proof,
                     release.plugin.clone(),
                     release.version.clone(),
                     release
@@ -71,28 +90,26 @@ pub(crate) async fn apply(
                         .collect(),
                 )
                 .await?;
-            for provider in prepared.trusted_sources.get(id).into_iter().flatten() {
-                manager.approve_trusted_source(proof, provider.clone())?;
+            for provider in &prepared.trusted_sources[id] {
+                manager.approve_trusted_source(provider.clone())?;
             }
         }
     }
-    let mut errors = BTreeMap::new();
     let mut selected = Vec::new();
-    for id in &prepared.effective.activation_order {
+    for id in &prepared.effective.deployment_order {
         let instance = &prepared.effective.instances[id];
-        let release = instance.release.as_ref().ok_or("eligible release absent")?;
+        let release = instance.release.as_ref().ok_or("selected release absent")?;
         if release.kind != PluginKind::Dynamic {
             continue;
         }
         let staged: Result<(), Error> = async {
             let manifest = manager
                 .stage_release(InstallRequest {
-                    proof: proof.clone(),
                     provider_id: instance
                         .selection
                         .provider
                         .clone()
-                        .ok_or("source provider is absent")?,
+                        .ok_or("source identity absent")?,
                     plugin_id: release.plugin.clone(),
                     version: release.version.clone(),
                     confirmed: true,
@@ -102,92 +119,63 @@ pub(crate) async fn apply(
         }
         .await;
         match staged {
-            Ok(()) => {
-                selected.push(release.plugin.clone());
-            }
+            Ok(()) => selected.push(release.plugin.clone()),
             Err(error) => {
                 errors.insert(id.clone(), error.to_string());
             }
         }
     }
-    let recovery = if managed {
-        manager.recover_selected_ordered(proof, &selected).await
-    } else {
-        manager.recover(proof).await
-    };
-    let recovery_error = match recovery {
-        Ok(_) => None,
-        Err(
-            error @ (swarmie_plugin_manager::ManagerError::Runtime(_)
-            | swarmie_plugin_manager::ManagerError::InvalidPackage(_)
-            | swarmie_plugin_manager::ManagerError::Integrity(_)
-            | swarmie_plugin_manager::ManagerError::Compatibility(_)
-            | swarmie_plugin_manager::ManagerError::Dependency(_)),
-        ) => Some(error),
-        Err(error) => return Err(error.into()),
-    };
-    for id in &prepared.effective.activation_order {
-        let instance = &prepared.effective.instances[id];
-        let release = instance.release.as_ref().ok_or("eligible release absent")?;
-        let result: Result<(), Error> = async {
-            if let Some(error) = errors.get(id) {
-                return Err(error.clone().into());
-            }
-            for capability in &release.provides {
-                let contract = contracts
-                    .iter()
-                    .find(|contract| {
-                        contract.name() == capability.contract
-                            && contract.version() == u64::from(capability.version)
-                    })
-                    .ok_or("qualified Contract is absent")?;
-                let reference =
-                    host.core()
-                        .hold(contract.clone(), json!({}), core::GetOptions::default())?;
-                manager.observe_reference(proof, &release.plugin, reference.clone())?;
-                reference.ready().await?;
-                let registry = core::Registry::new(
-                    swarmie_plugin_contracts::CAPABILITY_REGISTRY,
-                    core::ConflictPolicy::Error,
-                )?;
-                let table = host.core().registry(&registry)?.table(None)?;
-                if !table.entries().any(|(_, entry)| {
-                    entry.owner_id() == reference.object_id()
-                        && entry
-                            .data()
-                            .get("plugin_id")
-                            .and_then(serde_json::Value::as_str)
-                            == Some(release.plugin.as_str())
-                        && entry
-                            .data()
-                            .get("contract")
-                            .and_then(serde_json::Value::as_str)
-                            == Some(contract.name())
-                        && entry.operation().is_some_and(|operation| {
-                            operation.contract().fingerprint() == contract.fingerprint()
-                        })
-                }) {
-                    return Err(format!(
-                        "capability ownership is not established for {}: {}",
-                        release.plugin,
-                        contract.name()
-                    )
-                    .into());
-                }
-            }
-            Ok(())
+    if !managed {
+        selected = manager
+            .inventory()?
+            .plugins
+            .into_iter()
+            .filter(|plugin| {
+                plugin.kind == swarmie_plugin_contracts::PluginKind::Dynamic
+                    && plugin.desired == DesiredState::Active
+            })
+            .map(|plugin| plugin.plugin_id)
+            .collect();
+    }
+    let mut cores = Vec::new();
+    let mut batch_instances = Vec::new();
+    for id in &prepared.effective.deployment_order {
+        if let Some(facets) = prepared.native.remove(id) {
+            batch_instances.push(id.clone());
+            let release = prepared.effective.instances[id]
+                .release
+                .as_ref()
+                .ok_or("compiled release absent")?;
+            cores.push(CorePluginDeployment {
+                plugin_id: release.plugin.clone(),
+                version: release.version.clone(),
+                facets,
+            });
         }
-        .await;
-        if let Err(error) = result {
-            if manager
-                .inventory(proof)?
-                .plugins
-                .iter()
-                .any(|plugin| plugin.plugin_id == release.plugin)
-            {
-                manager.observe_failure(proof, &release.plugin, error.to_string())?;
+    }
+    for id in &prepared.effective.deployment_order {
+        let release = prepared.effective.instances[id]
+            .release
+            .as_ref()
+            .ok_or("selected release absent")?;
+        if release.kind == PluginKind::Dynamic && selected.contains(&release.plugin) {
+            batch_instances.push(id.clone());
+        }
+    }
+    let recovery_error = manager.recover_composed(cores, &selected).await.err();
+    if let Some(error) = &recovery_error {
+        // A mixed batch can fail after earlier declarations have been installed. Preserve the
+        // actual aggregate failure rather than inventing per-object readiness or rollback.
+        for id in &batch_instances {
+            errors
+                .entry(id.clone())
+                .or_insert_with(|| error.to_string());
+        }
+    } else {
+        for id in &batch_instances {
+            for source in prepared.trusted_sources.get(id).into_iter().flatten() {
+                manager.approve_trusted_source(source.clone())?;
             }
-            errors.insert(id.clone(), error.to_string());
         }
     }
     Ok((recovery_error, errors))

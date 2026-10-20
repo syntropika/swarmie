@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{CompositionError, EffectiveInstance, FacetTarget, InstanceState, Release, Selection};
+use crate::{CompositionError, EffectiveInstance, FacetTarget, Release, Selection, SelectionState};
 
 pub(crate) fn invalid(field: impl Into<String>, reason: impl Into<String>) -> CompositionError {
     CompositionError::Invalid {
@@ -40,16 +40,6 @@ pub(crate) fn validate_selection(selection: &Selection) -> Result<(), Compositio
             "configuration must be an object",
         ));
     }
-    let mut required = BTreeSet::new();
-    for dependency in &selection.requires {
-        identifier("requirement.instance", &dependency.instance)?;
-        if !required.insert(&dependency.instance) {
-            return Err(invalid(
-                format!("{}.requires", selection.id),
-                "duplicate instance requirement",
-            ));
-        }
-    }
     Ok(())
 }
 
@@ -76,35 +66,6 @@ pub(crate) fn validate_catalog(
                 ));
             }
         }
-        for (field, capabilities) in [
-            (
-                "release.provides",
-                release
-                    .provides
-                    .iter()
-                    .map(|c| (&c.contract, c.version))
-                    .collect::<Vec<_>>(),
-            ),
-            (
-                "release.requires",
-                release
-                    .requires
-                    .iter()
-                    .map(|c| (&c.contract, c.version))
-                    .collect::<Vec<_>>(),
-            ),
-        ] {
-            let mut contracts = BTreeSet::new();
-            for (contract, version) in capabilities {
-                identifier(field, contract)?;
-                if version == 0 || !contracts.insert((contract, version)) {
-                    return Err(invalid(
-                        field,
-                        "capability versions must be positive and declarations unique",
-                    ));
-                }
-            }
-        }
         let key = (release.plugin.clone(), release.version.clone());
         if index.insert(key, release).is_some() {
             return Err(CompositionError::DuplicateRelease {
@@ -129,7 +90,7 @@ pub(crate) fn check_collisions(
     let mut packages = BTreeMap::new();
     let mut facets = BTreeMap::new();
     for (id, instance) in instances {
-        if instance.state == InstanceState::Disabled {
+        if instance.state == SelectionState::Disabled {
             continue;
         }
         if let Some(first) = packages.insert(&instance.selection.plugin, id) {

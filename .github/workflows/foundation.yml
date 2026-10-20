@@ -7,6 +7,7 @@ on:
       - "packages/tembra-sdk/**"
       - "examples/plugins/**"
       - "scripts/tembra/**"
+      - "tests/plugins/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "package.json"

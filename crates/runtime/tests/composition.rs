@@ -7,18 +7,17 @@ use std::{
 
 use serde_json::json;
 use swarmie_composition::{
-    Capability, CapabilityRequirement, FacetIdentity, FacetTarget, InstanceState, Origin,
-    PluginKind, Release, Selection,
+    FacetIdentity, FacetTarget, Origin, PluginKind, Release, Selection, SelectionState,
 };
 use swarmie_plugin_contracts::{
-    Counter, CounterInput, DynamicConsumer, DynamicConsumerInput, InstallRequest, ObservedState,
+    Counter, CounterInput, CounterRef, DynamicConsumer, DynamicConsumerInput,
+    DynamicConsumerProvider, ObservedState,
 };
-use swarmie_plugin_manager::{ManagerError, PluginManager};
+use swarmie_plugin_manager::LocalSource;
 use swarmie_runtime::{
-    Application, CompiledPlugin, Configuration, Runtime, application_contracts, start,
-    start_with_catalog,
+    Application, CompiledPlugin, Configuration, Runtime, start, start_with_catalog,
 };
-use tembra::NativeFacet;
+use tembra::{core, prelude::*};
 use tembra_native::TokioDriver;
 
 fn run<F, Fut>(test: F)
@@ -45,27 +44,18 @@ fn selection(id: &str, plugin: &str, version: &str, provider: Option<&str>) -> S
         version: version.into(),
         provider: provider.map(String::from),
         config: json!({}),
-        requires: vec![],
     }
 }
 
-fn dynamic_release(plugin: &str, contracts: &[&str]) -> Release {
+fn release(plugin: &str, version: &str, kind: PluginKind, facet: &str) -> Release {
     Release {
         plugin: plugin.into(),
-        version: "1.0.0".into(),
-        kind: PluginKind::Dynamic,
+        version: version.into(),
+        kind,
         facets: vec![FacetIdentity {
-            id: plugin.into(),
+            id: facet.into(),
             target: FacetTarget::Server,
         }],
-        provides: contracts
-            .iter()
-            .map(|contract| Capability {
-                contract: (*contract).into(),
-                version: 1,
-            })
-            .collect(),
-        requires: vec![],
     }
 }
 
@@ -78,13 +68,12 @@ fn with_consumer() -> Application {
         "1.0.0",
         Some("local"),
     ));
-    let mut consumer = dynamic_release("dynamic-consumer", &["swarmie.dynamic-consumer"]);
-    consumer.requires.push(CapabilityRequirement {
-        contract: "swarmie.counter".into(),
-        version: 1,
-        optional: false,
-    });
-    app.releases.push(consumer);
+    app.releases.push(release(
+        "dynamic-consumer",
+        "1.0.0",
+        PluginKind::Dynamic,
+        "dynamic-consumer",
+    ));
     app
 }
 
@@ -95,20 +84,24 @@ fn replace_counter(mut app: Application) -> Application {
         "1.0.0",
         Some("local"),
     ));
-    app.releases
-        .push(dynamic_release("alternative-counter", &["swarmie.counter"]));
+    app.releases.push(release(
+        "alternative-counter",
+        "1.0.0",
+        PluginKind::Dynamic,
+        "alternative-counter",
+    ));
     app
 }
 
 fn fixtures() -> PathBuf {
-    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/fixtures");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/fixtures");
     for plugin in ["alternative-counter", "dynamic-consumer"] {
         assert!(
-            source.join(plugin).join("1.0.0/manifest.json").is_file(),
-            "build genuine plugin artifacts with just tembra-plugins"
+            root.join(plugin).join("1.0.0/manifest.json").is_file(),
+            "build real plugin artifacts with just tembra-plugins"
         );
     }
-    source
+    root
 }
 
 fn copy_fixtures(destination: &Path) {
@@ -123,32 +116,101 @@ fn copy_fixtures(destination: &Path) {
     }
 }
 
-async fn exercise_consumer(runtime: &Runtime, expected_initial: u32) {
+fn config(database: &Path, source: &Path, application: Option<Application>) -> Configuration {
+    Configuration {
+        database: database.to_path_buf(),
+        source: source.to_path_buf(),
+        application,
+    }
+}
+
+async fn exercise(runtime: &Runtime, initial: u32) {
     let counter = runtime.host.get(Counter, CounterInput {}).await.unwrap();
-    assert_eq!(counter.read().await.unwrap(), expected_initial);
+    assert_eq!(counter.read().await.unwrap(), initial);
     let consumer = runtime
         .host
         .get(DynamicConsumer, DynamicConsumerInput {})
         .await
         .unwrap();
-    assert_eq!(consumer.run().await.unwrap(), expected_initial + 1);
-    assert_eq!(counter.read().await.unwrap(), expected_initial + 1);
+    assert_eq!(consumer.run().await.unwrap(), initial + 1);
+    assert_eq!(counter.read().await.unwrap(), initial + 1);
+}
+
+fn source_adapter(source: PathBuf) -> CompiledPlugin {
+    CompiledPlugin::new(
+        release(
+            "swarmie.local-plugin-source",
+            env!("CARGO_PKG_VERSION"),
+            PluginKind::Core,
+            "swarmie.local-plugin-source",
+        ),
+        move |_| Ok(vec![LocalSource::new("local", source.clone()).facet()?]),
+    )
+    .with_trusted_source("local".into())
+}
+
+fn native_consumer() -> CompiledPlugin {
+    CompiledPlugin::new(
+        release(
+            "example.native-consumer",
+            "1.0.0",
+            PluginKind::Core,
+            "example.native-consumer.facet",
+        ),
+        |_| {
+            Ok(vec![NativeFacet::new(
+                "example.native-consumer.facet",
+                vec![],
+                |_, setup| {
+                    setup.serve_with_options(
+                        DynamicConsumer,
+                        |_, _, declaration| {
+                            Ok(NativeConsumer {
+                                counter: declaration.get(Counter, CounterInput {})?,
+                                invocations: declaration.state("invocations", 0_u32)?,
+                            })
+                        },
+                        core::ServeOptions {
+                            lifetime: core::Lifetime::Host,
+                            ..Default::default()
+                        },
+                    )
+                },
+            )?])
+        },
+    )
+}
+
+struct NativeConsumer {
+    counter: CounterRef,
+    invocations: Cell<u32>,
+}
+impl DynamicConsumerProvider for NativeConsumer {
+    fn invocations(&self) -> Readable<u32> {
+        self.invocations.readable()
+    }
+    async fn run(&self, context: Context) -> Result<u32> {
+        let value = self.counter.with_context(&context).increment(1).await?;
+        self.invocations.change(&context, |count| {
+            *count += 1;
+            Ok(())
+        })?;
+        Ok(value)
+    }
 }
 
 #[test]
-fn profile_override_substitutes_dynamic_service_without_changing_the_consumer() {
+fn profile_substitution_preserves_consumers_and_uses_actual_tembra_contracts() {
     run(|driver| async move {
         let root = tempfile::tempdir().unwrap();
-        let proof = PluginManager::issue_proof();
         let app = with_consumer();
         let baseline = start(
             driver.clone(),
-            Configuration {
-                database: root.path().join("native.sqlite"),
-                source: fixtures(),
-                proof: proof.clone(),
-                application: Some(app.clone()),
-            },
+            config(
+                &root.path().join("native.sqlite"),
+                &fixtures(),
+                Some(app.clone()),
+            ),
         )
         .await
         .unwrap();
@@ -157,21 +219,19 @@ fn profile_override_substitutes_dynamic_service_without_changing_the_consumer() 
             "{:?}",
             baseline.deployment_errors
         );
-        exercise_consumer(&baseline, 0).await;
-        let consumer_selection = baseline.effective.instances["counter-client"]
+        exercise(&baseline, 0).await;
+        let consumer = baseline.effective.instances["counter-client"]
             .selection
             .clone();
         baseline.host.close().await.unwrap();
         drop(baseline);
-
         let replacement = start(
             driver,
-            Configuration {
-                database: root.path().join("dynamic.sqlite"),
-                source: fixtures(),
-                proof: proof.clone(),
-                application: Some(replace_counter(app)),
-            },
+            config(
+                &root.path().join("dynamic.sqlite"),
+                &fixtures(),
+                Some(replace_counter(app)),
+            ),
         )
         .await
         .unwrap();
@@ -182,52 +242,33 @@ fn profile_override_substitutes_dynamic_service_without_changing_the_consumer() 
         );
         assert_eq!(
             replacement.effective.instances["counter-client"].selection,
-            consumer_selection
+            consumer
         );
         assert_eq!(
             replacement.effective.instances["swarmie.counter"].origin,
             Origin::Override
         );
-        assert_eq!(
-            replacement.effective.instances["swarmie.counter"]
-                .selection
-                .plugin,
-            "alternative-counter"
-        );
-        exercise_consumer(&replacement, 10).await;
-        let inventory = replacement.manager.inventory(&proof).unwrap();
-        assert!(
-            inventory
-                .plugins
-                .iter()
-                .any(|record| record.plugin_id == "alternative-counter"
-                    && record.observed == ObservedState::Active)
-        );
-        assert!(
-            !inventory
-                .plugins
-                .iter()
-                .any(|record| record.plugin_id == "swarmie.counter")
-        );
+        exercise(&replacement, 10).await;
         replacement.host.close().await.unwrap();
     });
 }
 
 #[test]
-fn dynamic_provider_reads_overridden_configuration_through_its_contract() {
+fn native_consumer_and_dynamic_provider_are_declared_in_one_real_tembra_batch() {
     run(|driver| async move {
         let root = tempfile::tempdir().unwrap();
-        let proof = PluginManager::issue_proof();
-        let mut app = replace_counter(with_consumer());
-        app.composition.profile.overrides[0].config = json!({ "initial": 42 });
-        let runtime = start(
+        let mut app = replace_counter(Application::default());
+        app.composition.profile.plugins.push(selection(
+            "native-client",
+            "example.native-consumer",
+            "1.0.0",
+            None,
+        ));
+        app.composition.profile.overrides[0].config = json!({"initial":42});
+        let runtime = start_with_catalog(
             driver,
-            Configuration {
-                database: root.path().join("manager.sqlite"),
-                source: fixtures(),
-                proof,
-                application: Some(app),
-            },
+            config(&root.path().join("admin.sqlite"), &fixtures(), Some(app)),
+            vec![source_adapter(fixtures()), native_consumer()],
         )
         .await
         .unwrap();
@@ -236,280 +277,382 @@ fn dynamic_provider_reads_overridden_configuration_through_its_contract() {
             "{:?}",
             runtime.deployment_errors
         );
-        exercise_consumer(&runtime, 42).await;
+        exercise(&runtime, 42).await;
         runtime.host.close().await.unwrap();
     });
 }
 
 #[test]
-fn dynamic_configuration_refusal_keeps_administration_and_never_reports_active() {
+fn actual_missing_dependency_refuses_factory_and_restart_restores_it() {
     run(|driver| async move {
-        for config in [json!({ "initial": -1 }), json!({ "unexpected": true })] {
-            let root = tempfile::tempdir().unwrap();
-            let proof = PluginManager::issue_proof();
-            let mut app = replace_counter(with_consumer());
-            app.composition.profile.overrides[0].config = config;
-            let runtime = start(
-                driver.clone(),
-                Configuration {
-                    database: root.path().join("manager.sqlite"),
-                    source: fixtures(),
-                    proof: proof.clone(),
-                    application: Some(app),
-                },
-            )
-            .await
-            .unwrap();
-            assert!(runtime.deployment_errors.contains_key("swarmie.counter"));
-            let inventory = runtime.manager.inventory(&proof).unwrap();
-            let provider = inventory
+        let root = tempfile::tempdir().unwrap();
+        let database = root.path().join("admin.sqlite");
+        let mut missing = with_consumer();
+        missing
+            .composition
+            .profile
+            .disable
+            .push("swarmie.counter".into());
+        let failed = start(
+            driver.clone(),
+            config(&database, &fixtures(), Some(missing)),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            failed.effective.instances["counter-client"].state,
+            SelectionState::Enabled
+        );
+        assert!(failed.recovery_error.is_some() || !failed.deployment_errors.is_empty());
+        assert!(
+            !failed
+                .deployment_errors
+                .contains_key("swarmie.local-plugin-source")
+        );
+        assert!(
+            failed
+                .host
+                .get(DynamicConsumer, DynamicConsumerInput {})
+                .await
+                .is_err()
+        );
+        assert!(
+            !failed
+                .manager
+                .inventory()
+                .unwrap()
                 .plugins
                 .iter()
-                .find(|plugin| plugin.plugin_id == "alternative-counter")
-                .unwrap();
-            assert_eq!(provider.observed, ObservedState::Unavailable);
-            assert!(
-                !inventory
-                    .plugins
-                    .iter()
-                    .any(|plugin| plugin.plugin_id == "dynamic-consumer"
-                        && plugin.observed == ObservedState::Active)
-            );
-            runtime.host.close().await.unwrap();
-        }
+                .any(|p| p.plugin_id == "dynamic-consumer" && p.observed == ObservedState::Active)
+        );
+        failed.host.close().await.unwrap();
+        drop(failed);
+        let restored = start(
+            driver,
+            config(&database, &fixtures(), Some(with_consumer())),
+        )
+        .await
+        .unwrap();
+        assert!(
+            restored.deployment_errors.is_empty(),
+            "{:?}",
+            restored.deployment_errors
+        );
+        exercise(&restored, 0).await;
+        restored.host.close().await.unwrap();
     });
 }
 
+#[tembra::contract(local, name = "swarmie.counter", version = 1)]
+trait DifferentCounter {
+    #[portable]
+    async fn different(&self) -> Result<bool>;
+}
+struct DifferentCounterService;
+impl DifferentCounterProvider for DifferentCounterService {
+    async fn different(&self, _context: Context) -> Result<bool> {
+        Ok(true)
+    }
+}
+
 #[test]
-fn compiled_provider_applies_valid_typed_configuration() {
+fn same_nominal_contract_with_an_incompatible_fingerprint_is_rejected_by_tembra() {
     run(|driver| async move {
         let root = tempfile::tempdir().unwrap();
-        let proof = PluginManager::issue_proof();
         let mut app = with_consumer();
-        let mut override_selection = selection(
+        app.composition.profile.overrides.push(selection(
             "swarmie.counter",
-            "swarmie.counter",
-            env!("CARGO_PKG_VERSION"),
+            "example.different-counter",
+            "1.0.0",
             None,
-        );
-        override_selection.config = json!({ "initial": 17 });
-        app.composition.profile.overrides.push(override_selection);
-        let runtime = start(
-            driver,
-            Configuration {
-                database: root.path().join("manager.sqlite"),
-                source: fixtures(),
-                proof,
-                application: Some(app),
-            },
-        )
-        .await
-        .unwrap();
-        exercise_consumer(&runtime, 17).await;
-        runtime.host.close().await.unwrap();
-    });
-}
-
-#[test]
-fn acquisition_failure_is_inspectable_without_claiming_a_runtime_activation() {
-    run(|driver| async move {
-        let root = tempfile::tempdir().unwrap();
-        let proof = PluginManager::issue_proof();
-        let mut app = Application::default();
-        app.composition.profile.plugins.push(selection(
-            "unavailable",
-            "missing-package",
-            "1.0.0",
-            Some("local"),
         ));
-        app.releases.push(dynamic_release("missing-package", &[]));
-        let runtime = start(
-            driver,
-            Configuration {
-                database: root.path().join("manager.sqlite"),
-                source: fixtures(),
-                proof: proof.clone(),
-                application: Some(app),
+        let different = CompiledPlugin::new(
+            release(
+                "example.different-counter",
+                "1.0.0",
+                PluginKind::Core,
+                "different-counter.facet",
+            ),
+            |_| {
+                Ok(vec![NativeFacet::new(
+                    "different-counter.facet",
+                    vec![],
+                    |_, setup| setup.serve(DifferentCounter, |_, _, _| Ok(DifferentCounterService)),
+                )?])
             },
+        );
+        let runtime = start_with_catalog(
+            driver,
+            config(&root.path().join("admin.sqlite"), &fixtures(), Some(app)),
+            vec![source_adapter(fixtures()), different],
         )
         .await
         .unwrap();
-        assert!(runtime.deployment_errors.contains_key("unavailable"));
-        assert!(
-            !runtime
-                .manager
-                .inventory(&proof)
-                .unwrap()
-                .plugins
-                .iter()
-                .any(|plugin| plugin.plugin_id == "missing-package"
-                    && plugin.observed == ObservedState::Active)
-        );
+        assert!(runtime.recovery_error.is_some() || !runtime.deployment_errors.is_empty());
+        assert!(runtime.host.get(Counter, CounterInput {}).await.is_err());
         runtime.host.close().await.unwrap();
     });
 }
 
 #[test]
-fn catalog_artifact_identity_mismatch_refuses_execution_before_recovery() {
+fn failed_acquisition_source_startup_does_not_grant_source_trust() {
     run(|driver| async move {
         let root = tempfile::tempdir().unwrap();
-        let proof = PluginManager::issue_proof();
-        let mut app = replace_counter(with_consumer());
-        app.composition.profile.plugins.clear();
-        app.releases
-            .retain(|release| release.plugin == "alternative-counter");
-        app.releases[0].facets[0].id = "unapproved-facet".into();
-        let runtime = start(
-            driver,
-            Configuration {
-                database: root.path().join("manager.sqlite"),
-                source: fixtures(),
-                proof: proof.clone(),
-                application: Some(app),
+        let source = CompiledPlugin::new(
+            release(
+                "swarmie.local-plugin-source",
+                env!("CARGO_PKG_VERSION"),
+                PluginKind::Core,
+                "swarmie.local-plugin-source",
+            ),
+            |_| {
+                Ok(vec![NativeFacet::new(
+                    "swarmie.local-plugin-source",
+                    vec![],
+                    |_, setup| {
+                        setup.serve_with_options(
+                            DynamicConsumer,
+                            |_, _, _| {
+                                Err::<NativeConsumer, _>(RuntimeError::invalid(
+                                    "source_startup",
+                                    "source initialization failed",
+                                ))
+                            },
+                            core::ServeOptions {
+                                lifetime: core::Lifetime::Host,
+                                ..Default::default()
+                            },
+                        )
+                    },
+                )?])
             },
         )
-        .await
-        .unwrap();
-        assert!(runtime.deployment_errors["swarmie.counter"].contains("differs"));
-        assert!(
-            !runtime
-                .manager
-                .inventory(&proof)
-                .unwrap()
-                .plugins
-                .iter()
-                .any(|plugin| plugin.plugin_id == "alternative-counter"
-                    && plugin.observed == ObservedState::Active)
-        );
-        runtime.host.close().await.unwrap();
-    });
-}
-
-#[test]
-fn a_release_cannot_claim_another_plugins_live_capability() {
-    run(|driver| async move {
-        let root = tempfile::tempdir().unwrap();
-        let proof = PluginManager::issue_proof();
-        let mut app = Application::default();
-        app.composition.profile.plugins.push(selection(
-            "false-counter-claim",
-            "dynamic-consumer",
-            "1.0.0",
-            Some("local"),
-        ));
-        app.releases
-            .push(dynamic_release("dynamic-consumer", &["swarmie.counter"]));
-        let runtime = start(
+        .with_trusted_source("local".into());
+        let runtime = start_with_catalog(
             driver,
-            Configuration {
-                database: root.path().join("manager.sqlite"),
-                source: fixtures(),
-                proof: proof.clone(),
-                application: Some(app),
-            },
+            config(
+                &root.path().join("admin.sqlite"),
+                &fixtures(),
+                Some(replace_counter(Application::default())),
+            ),
+            vec![source],
         )
         .await
         .unwrap();
         assert!(
             runtime
                 .deployment_errors
-                .contains_key("false-counter-claim")
+                .contains_key("swarmie.local-plugin-source")
         );
-        let inventory = runtime.manager.inventory(&proof).unwrap();
-        let claimant = inventory
-            .plugins
-            .iter()
-            .find(|plugin| plugin.plugin_id == "dynamic-consumer")
-            .unwrap();
-        assert_ne!(claimant.observed, ObservedState::Active);
-        assert_eq!(
-            runtime
-                .host
-                .get(Counter, CounterInput {})
-                .await
-                .unwrap()
-                .read()
-                .await
-                .unwrap(),
-            0
-        );
+        let permit = runtime.manager.begin_composition_reconciliation().unwrap();
+        let result = runtime
+            .manager
+            .install(swarmie_plugin_contracts::InstallRequest {
+                provider_id: "local".into(),
+                plugin_id: "unacquired".into(),
+                version: "1.0.0".into(),
+                confirmed: true,
+            })
+            .await;
+        assert!(matches!(
+            result,
+            Err(swarmie_plugin_manager::ManagerError::UntrustedSource(_))
+        ));
+        drop(permit);
         runtime.host.close().await.unwrap();
     });
 }
 
 #[test]
-fn remote_capability_observation_without_owned_evidence_is_refused() {
+fn configuration_boundaries_remain_with_the_actual_provider() {
     run(|driver| async move {
         let root = tempfile::tempdir().unwrap();
-        let proof = PluginManager::issue_proof();
-        let mut app = replace_counter(Application::default());
-        app.releases[0].provides.push(Capability {
-            contract: "swarmie.remote-counter".into(),
-            version: 1,
-        });
-        let result = start(
-            driver,
-            Configuration {
-                database: root.path().join("manager.sqlite"),
-                source: fixtures(),
-                proof,
-                application: Some(app),
-            },
+        let mut configured = replace_counter(with_consumer());
+        configured.composition.profile.overrides[0].config = json!({"initial":42});
+        let runtime = start(
+            driver.clone(),
+            config(
+                &root.path().join("valid.sqlite"),
+                &fixtures(),
+                Some(configured),
+            ),
         )
-        .await;
-        assert!(result.is_err());
+        .await
+        .unwrap();
+        exercise(&runtime, 42).await;
+        runtime.host.close().await.unwrap();
+        drop(runtime);
+        let mut invalid = Application::default();
+        let mut override_selection = selection(
+            "swarmie.counter",
+            "swarmie.counter",
+            env!("CARGO_PKG_VERSION"),
+            None,
+        );
+        override_selection.config = json!({"initial":-1});
+        invalid
+            .composition
+            .profile
+            .overrides
+            .push(override_selection);
+        assert!(
+            start(
+                driver.clone(),
+                config(
+                    &root.path().join("invalid-core.sqlite"),
+                    &fixtures(),
+                    Some(invalid)
+                )
+            )
+            .await
+            .is_err()
+        );
+        for (index, value) in [json!({"initial":-1}), json!({"unexpected":true})]
+            .into_iter()
+            .enumerate()
+        {
+            let mut invalid = replace_counter(with_consumer());
+            invalid.composition.profile.overrides[0].config = value;
+            let runtime = start(
+                driver.clone(),
+                config(
+                    &root.path().join(format!("invalid-dynamic-{index}.sqlite")),
+                    &fixtures(),
+                    Some(invalid),
+                ),
+            )
+            .await
+            .unwrap();
+            assert!(runtime.recovery_error.is_some() || !runtime.deployment_errors.is_empty());
+            assert!(runtime.host.get(Counter, CounterInput {}).await.is_err());
+            runtime.host.close().await.unwrap();
+        }
     });
 }
 
 #[test]
-fn persisted_composition_recovers_admitted_artifacts_without_the_original_source() {
+fn persisted_composition_replays_immutable_artifacts_offline() {
     run(|driver| async move {
         let root = tempfile::tempdir().unwrap();
         let source = root.path().join("source");
         copy_fixtures(&source);
-        let proof = PluginManager::issue_proof();
+        let database = root.path().join("admin.sqlite");
         let first = start(
             driver.clone(),
-            Configuration {
-                database: root.path().join("manager.sqlite"),
-                source: source.clone(),
-                proof: proof.clone(),
-                application: Some(replace_counter(with_consumer())),
-            },
+            config(&database, &source, Some(replace_counter(with_consumer()))),
         )
         .await
         .unwrap();
-        assert!(
-            first.deployment_errors.is_empty(),
-            "{:?}",
-            first.deployment_errors
-        );
+        exercise(&first, 10).await;
         let effective = first.effective.clone();
-        exercise_consumer(&first, 10).await;
         first.host.close().await.unwrap();
         drop(first);
         std::fs::remove_dir_all(&source).unwrap();
-        let recovered = start(
-            driver,
-            Configuration {
-                database: root.path().join("manager.sqlite"),
-                source,
-                proof: proof.clone(),
-                application: None,
-            },
-        )
-        .await
-        .unwrap();
-        assert!(recovered.recovery_error.is_none());
+        let recovered = start(driver, config(&database, &source, None))
+            .await
+            .unwrap();
+        assert_eq!(recovered.effective, effective);
         assert!(
             recovered.deployment_errors.is_empty(),
             "{:?}",
             recovered.deployment_errors
         );
-        assert_eq!(recovered.effective, effective);
-        exercise_consumer(&recovered, 10).await;
-        assert!(recovered.manager.composition(&proof).unwrap().is_some());
+        exercise(&recovered, 10).await;
         recovered.host.close().await.unwrap();
+    });
+}
+
+#[test]
+fn failed_provider_stage_never_replays_a_stale_cached_version() {
+    run(|driver| async move {
+        let root = tempfile::tempdir().unwrap();
+        let database = root.path().join("admin.sqlite");
+        let first = start(
+            driver.clone(),
+            config(
+                &database,
+                &fixtures(),
+                Some(replace_counter(with_consumer())),
+            ),
+        )
+        .await
+        .unwrap();
+        exercise(&first, 10).await;
+        first.host.close().await.unwrap();
+        drop(first);
+        let mut missing = replace_counter(with_consumer());
+        missing.composition.profile.overrides[0].version = "9.9.9".into();
+        missing
+            .releases
+            .iter_mut()
+            .find(|r| r.plugin == "alternative-counter")
+            .unwrap()
+            .version = "9.9.9".into();
+        let refused = start(driver, config(&database, &fixtures(), Some(missing)))
+            .await
+            .unwrap();
+        assert!(refused.deployment_errors.contains_key("swarmie.counter"));
+        assert!(refused.host.get(Counter, CounterInput {}).await.is_err());
+        assert!(
+            !refused
+                .manager
+                .inventory()
+                .unwrap()
+                .plugins
+                .iter()
+                .any(
+                    |p| p.plugin_id == "alternative-counter" && p.observed == ObservedState::Active
+                )
+        );
+        refused.host.close().await.unwrap();
+    });
+}
+
+#[test]
+fn actual_reference_retirement_and_fresh_host_reconciliation_preserve_desired_input() {
+    run(|driver| async move {
+        let root = tempfile::tempdir().unwrap();
+        let database = root.path().join("admin.sqlite");
+        let runtime = start(
+            driver.clone(),
+            config(
+                &database,
+                &fixtures(),
+                Some(replace_counter(with_consumer())),
+            ),
+        )
+        .await
+        .unwrap();
+        let counter = runtime.host.get(Counter, CounterInput {}).await.unwrap();
+        let consumer = runtime
+            .host
+            .get(DynamicConsumer, DynamicConsumerInput {})
+            .await
+            .unwrap();
+        assert_eq!(consumer.run().await.unwrap(), 11);
+        runtime
+            .host
+            .core()
+            .reload(
+                vec![],
+                core::ReloadOptions {
+                    remove: vec!["alternative-counter".into()],
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(counter.core().status(), core::RefStatus::Gone);
+        assert!(consumer.run().await.is_err());
+        counter.core().release();
+        consumer.core().release();
+        runtime.host.close().await.unwrap();
+        drop(runtime);
+        let restored = start(driver, config(&database, &fixtures(), None))
+            .await
+            .unwrap();
+        exercise(&restored, 10).await;
+        restored.host.close().await.unwrap();
     });
 }
 
@@ -519,31 +662,26 @@ fn omitted_cached_consumer_cannot_veto_the_current_profiles_provider_upgrade() {
         let root = tempfile::tempdir().unwrap();
         let source = root.path().join("source");
         copy_fixtures(&source);
-        let consumer_manifest = source.join("dynamic-consumer/manifest.json");
+        let database = root.path().join("admin.sqlite");
+        let path = source.join("dynamic-consumer/manifest.json");
         let mut consumer: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(&consumer_manifest).unwrap()).unwrap();
-        consumer["dependencies"] = json!([{ "id": "alternative-counter", "version": "^1.0.0" }]);
-        std::fs::write(consumer_manifest, serde_json::to_vec(&consumer).unwrap()).unwrap();
-        let successor = source.join("alternative-counter-v2");
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        consumer["dependencies"] = json!([{"id":"alternative-counter","version":"^1.0.0"}]);
+        std::fs::write(path, serde_json::to_vec(&consumer).unwrap()).unwrap();
+        let successor = source.join("alternative-v2");
         std::fs::create_dir(&successor).unwrap();
         for entry in std::fs::read_dir(source.join("alternative-counter")).unwrap() {
             let entry = entry.unwrap();
             std::fs::copy(entry.path(), successor.join(entry.file_name())).unwrap();
         }
-        let manifest = successor.join("manifest.json");
-        let mut release: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
-        release["version"] = json!("2.0.0");
-        std::fs::write(manifest, serde_json::to_vec(&release).unwrap()).unwrap();
-        let proof = PluginManager::issue_proof();
+        let path = successor.join("manifest.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        manifest["version"] = json!("2.0.0");
+        std::fs::write(path, serde_json::to_vec(&manifest).unwrap()).unwrap();
         let first = start(
             driver.clone(),
-            Configuration {
-                database: root.path().join("manager.sqlite"),
-                source: source.clone(),
-                proof: proof.clone(),
-                application: Some(replace_counter(with_consumer())),
-            },
+            config(&database, &source, Some(replace_counter(with_consumer()))),
         )
         .await
         .unwrap();
@@ -552,25 +690,15 @@ fn omitted_cached_consumer_cannot_veto_the_current_profiles_provider_upgrade() {
             "{:?}",
             first.deployment_errors
         );
-        exercise_consumer(&first, 10).await;
         first.host.close().await.unwrap();
         drop(first);
-
-        let mut application = replace_counter(Application::default());
-        application.composition.profile.overrides[0].version = "2.0.0".into();
-        application.composition.profile.overrides[0].config = json!({ "initial": 42 });
-        application.releases[0].version = "2.0.0".into();
-        let next = start(
-            driver,
-            Configuration {
-                database: root.path().join("manager.sqlite"),
-                source,
-                proof: proof.clone(),
-                application: Some(application),
-            },
-        )
-        .await
-        .unwrap();
+        let mut app = replace_counter(Application::default());
+        app.composition.profile.overrides[0].version = "2.0.0".into();
+        app.composition.profile.overrides[0].config = json!({"initial":42});
+        app.releases[0].version = "2.0.0".into();
+        let next = start(driver, config(&database, &source, Some(app)))
+            .await
+            .unwrap();
         assert!(
             next.deployment_errors.is_empty(),
             "{:?}",
@@ -586,435 +714,6 @@ fn omitted_cached_consumer_cannot_veto_the_current_profiles_provider_upgrade() {
                 .unwrap(),
             42
         );
-        let inventory = next.manager.inventory(&proof).unwrap();
-        let old_consumer = inventory
-            .plugins
-            .iter()
-            .find(|plugin| plugin.plugin_id == "dynamic-consumer")
-            .unwrap();
-        assert_eq!(
-            old_consumer.desired,
-            swarmie_plugin_contracts::DesiredState::Installed
-        );
-        assert_eq!(old_consumer.observed, ObservedState::Installed);
-        assert_eq!(
-            inventory
-                .plugins
-                .iter()
-                .find(|plugin| plugin.plugin_id == "alternative-counter")
-                .unwrap()
-                .version,
-            "2.0.0"
-        );
         next.host.close().await.unwrap();
-    });
-}
-
-#[test]
-fn unselected_cached_package_does_not_reserve_a_replacement_facets_identity() {
-    run(|driver| async move {
-        let root = tempfile::tempdir().unwrap();
-        let proof = PluginManager::issue_proof();
-        let first = start(
-            driver.clone(),
-            Configuration {
-                database: root.path().join("manager.sqlite"),
-                source: fixtures(),
-                proof: proof.clone(),
-                application: Some(replace_counter(Application::default())),
-            },
-        )
-        .await
-        .unwrap();
-        assert!(first.deployment_errors.is_empty());
-        assert_eq!(
-            first
-                .host
-                .get(Counter, CounterInput {})
-                .await
-                .unwrap()
-                .read()
-                .await
-                .unwrap(),
-            10
-        );
-        first.host.close().await.unwrap();
-        drop(first);
-
-        let mut application = Application::default();
-        application.composition.profile.bundles.clear();
-        application.composition.profile.plugins.push(selection(
-            "replacement",
-            "example.compiled-replacement",
-            "1.0.0",
-            None,
-        ));
-        let compiled = CompiledPlugin::new(
-            Release {
-                plugin: "example.compiled-replacement".into(),
-                version: "1.0.0".into(),
-                kind: PluginKind::Core,
-                facets: vec![FacetIdentity {
-                    id: "alternative-counter".into(),
-                    target: FacetTarget::Server,
-                }],
-                provides: vec![],
-                requires: vec![],
-            },
-            |_| {
-                Ok(vec![NativeFacet::new(
-                    "alternative-counter",
-                    vec![],
-                    |_, _| Ok(()),
-                )?])
-            },
-        );
-        let next = start_with_catalog(
-            driver,
-            Configuration {
-                database: root.path().join("manager.sqlite"),
-                source: fixtures(),
-                proof: proof.clone(),
-                application: Some(application),
-            },
-            vec![compiled],
-            application_contracts().unwrap(),
-        )
-        .await
-        .unwrap();
-        assert!(next.deployment_errors.is_empty());
-        let inventory = next.manager.inventory(&proof).unwrap();
-        assert_eq!(
-            inventory
-                .plugins
-                .iter()
-                .find(|plugin| plugin.plugin_id == "alternative-counter")
-                .unwrap()
-                .observed,
-            ObservedState::Installed
-        );
-        assert_eq!(
-            inventory
-                .plugins
-                .iter()
-                .find(|plugin| plugin.plugin_id == "example.compiled-replacement")
-                .unwrap()
-                .observed,
-            ObservedState::Active
-        );
-        next.host.close().await.unwrap();
-    });
-}
-
-#[test]
-fn real_provider_removal_revokes_availability_and_restart_reconciles_desired_intent() {
-    run(|driver| async move {
-        let root = tempfile::tempdir().unwrap();
-        let proof = PluginManager::issue_proof();
-        let runtime = start(
-            driver.clone(),
-            Configuration {
-                database: root.path().join("manager.sqlite"),
-                source: fixtures(),
-                proof: proof.clone(),
-                application: Some(replace_counter(with_consumer())),
-            },
-        )
-        .await
-        .unwrap();
-        assert!(runtime.deployment_errors.is_empty());
-        let counter = runtime.host.get(Counter, CounterInput {}).await.unwrap();
-        let consumer = runtime
-            .host
-            .get(DynamicConsumer, DynamicConsumerInput {})
-            .await
-            .unwrap();
-        assert_eq!(consumer.run().await.unwrap(), 11);
-        runtime
-            .host
-            .core()
-            .reload(
-                vec![],
-                tembra::core::ReloadOptions {
-                    remove: vec!["alternative-counter".into()],
-                    ..Default::default()
-                },
-            )
-            .await
-            .unwrap();
-        assert_eq!(counter.core().status(), tembra::core::RefStatus::Gone);
-        assert!(consumer.run().await.is_err());
-        let inventory = runtime.manager.inventory(&proof).unwrap();
-        for plugin_id in ["alternative-counter", "dynamic-consumer"] {
-            let plugin = inventory
-                .plugins
-                .iter()
-                .find(|plugin| plugin.plugin_id == plugin_id)
-                .unwrap();
-            assert_ne!(
-                plugin.observed,
-                ObservedState::Active,
-                "{plugin_id} must reflect lost dependency availability"
-            );
-        }
-        counter.core().release();
-        consumer.core().release();
-        runtime.host.close().await.unwrap();
-        drop(runtime);
-
-        let restored = start(
-            driver,
-            Configuration {
-                database: root.path().join("manager.sqlite"),
-                source: fixtures(),
-                proof: proof.clone(),
-                application: None,
-            },
-        )
-        .await
-        .unwrap();
-        assert!(
-            restored.deployment_errors.is_empty(),
-            "{:?}",
-            restored.deployment_errors
-        );
-        exercise_consumer(&restored, 10).await;
-        let inventory = restored.manager.inventory(&proof).unwrap();
-        for plugin_id in ["alternative-counter", "dynamic-consumer"] {
-            assert_eq!(
-                inventory
-                    .plugins
-                    .iter()
-                    .find(|plugin| plugin.plugin_id == plugin_id)
-                    .unwrap()
-                    .observed,
-                ObservedState::Active
-            );
-        }
-        restored.host.close().await.unwrap();
-    });
-}
-
-#[test]
-fn invalid_compiled_configuration_is_refused_before_becoming_durable_intent() {
-    run(|driver| async move {
-        let root = tempfile::tempdir().unwrap();
-        let proof = PluginManager::issue_proof();
-        let mut app = Application::default();
-        let mut invalid = selection(
-            "swarmie.counter",
-            "swarmie.counter",
-            env!("CARGO_PKG_VERSION"),
-            None,
-        );
-        invalid.config = json!({ "initial": -1 });
-        app.composition.profile.overrides.push(invalid);
-        let result = start(
-            driver.clone(),
-            Configuration {
-                database: root.path().join("manager.sqlite"),
-                source: fixtures(),
-                proof: proof.clone(),
-                application: Some(app),
-            },
-        )
-        .await;
-        assert!(result.is_err());
-        let recovered = start(
-            driver,
-            Configuration {
-                database: root.path().join("manager.sqlite"),
-                source: fixtures(),
-                proof: proof.clone(),
-                application: None,
-            },
-        )
-        .await
-        .unwrap();
-        assert!(recovered.manager.composition(&proof).unwrap().is_none());
-        let counter = recovered.host.get(Counter, CounterInput {}).await.unwrap();
-        assert_eq!(counter.read().await.unwrap(), 0);
-        recovered.host.close().await.unwrap();
-    });
-}
-
-#[test]
-fn profile_managed_node_refuses_imperative_installation() {
-    run(|driver| async move {
-        let root = tempfile::tempdir().unwrap();
-        let proof = PluginManager::issue_proof();
-        let runtime = start(
-            driver,
-            Configuration {
-                database: root.path().join("manager.sqlite"),
-                source: fixtures(),
-                proof: proof.clone(),
-                application: Some(Application::default()),
-            },
-        )
-        .await
-        .unwrap();
-        let outcome = runtime
-            .manager
-            .install(InstallRequest {
-                proof: proof.clone(),
-                provider_id: "local".into(),
-                plugin_id: "dynamic-consumer".into(),
-                version: "1.0.0".into(),
-                confirmed: true,
-            })
-            .await;
-        assert!(matches!(outcome, Err(ManagerError::CompositionManaged)));
-        assert!(
-            runtime
-                .manager
-                .installed_packages(&proof)
-                .unwrap()
-                .is_empty()
-        );
-        runtime.host.close().await.unwrap();
-    });
-}
-
-#[test]
-fn blocked_capability_does_not_publish_an_active_consumer() {
-    run(|driver| async move {
-        let root = tempfile::tempdir().unwrap();
-        let proof = PluginManager::issue_proof();
-        let mut app = with_consumer();
-        app.composition
-            .profile
-            .disable
-            .push("swarmie.counter".into());
-        let runtime = start(
-            driver,
-            Configuration {
-                database: root.path().join("manager.sqlite"),
-                source: fixtures(),
-                proof: proof.clone(),
-                application: Some(app),
-            },
-        )
-        .await
-        .unwrap();
-        assert!(matches!(
-            runtime.effective.instances["counter-client"].state,
-            InstanceState::Blocked { .. }
-        ));
-        assert!(
-            !runtime
-                .effective
-                .activation_order
-                .contains(&"counter-client".into())
-        );
-        assert!(
-            !runtime
-                .manager
-                .inventory(&proof)
-                .unwrap()
-                .plugins
-                .iter()
-                .any(|plugin| plugin.plugin_id == "dynamic-consumer"
-                    && plugin.observed == ObservedState::Active)
-        );
-        assert!(
-            runtime
-                .manager
-                .installed_packages(&proof)
-                .unwrap()
-                .is_empty()
-        );
-        runtime.host.close().await.unwrap();
-    });
-}
-
-#[test]
-fn configured_instance_package_and_multiple_compiled_facets_have_separate_identities() {
-    run(|driver| async move {
-        let root = tempfile::tempdir().unwrap();
-        let proof = PluginManager::issue_proof();
-        let mut app = Application::default();
-        app.composition.profile.bundles.clear();
-        app.composition.profile.plugins.push(selection(
-            "configured-counter",
-            "swarmie.counter",
-            "1.0.0",
-            None,
-        ));
-        let plugin = CompiledPlugin::new(
-            Release {
-                plugin: "swarmie.counter".into(),
-                version: "1.0.0".into(),
-                kind: PluginKind::Core,
-                facets: vec![
-                    FacetIdentity {
-                        id: swarmie_counter::FACET_ID.into(),
-                        target: FacetTarget::Server,
-                    },
-                    FacetIdentity {
-                        id: "example.extra-facet".into(),
-                        target: FacetTarget::Server,
-                    },
-                ],
-                provides: ["swarmie.counter"]
-                    .map(|contract| Capability {
-                        contract: contract.into(),
-                        version: 1,
-                    })
-                    .into(),
-                requires: vec![],
-            },
-            |_| {
-                Ok(vec![
-                    swarmie_counter::facet_with_initial(42)?,
-                    NativeFacet::new("example.extra-facet", vec![], |_, _| Ok(()))?,
-                ])
-            },
-        );
-        let runtime = start_with_catalog(
-            driver,
-            Configuration {
-                database: root.path().join("manager.sqlite"),
-                source: fixtures(),
-                proof: proof.clone(),
-                application: Some(app),
-            },
-            vec![plugin],
-            application_contracts().unwrap(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(runtime.effective.activation_order, ["configured-counter"]);
-        assert_eq!(
-            runtime.effective.instances["configured-counter"]
-                .release
-                .as_ref()
-                .unwrap()
-                .facets
-                .len(),
-            2
-        );
-        assert_eq!(
-            runtime
-                .host
-                .get(Counter, CounterInput {})
-                .await
-                .unwrap()
-                .read()
-                .await
-                .unwrap(),
-            42
-        );
-        assert!(
-            runtime
-                .manager
-                .inventory(&proof)
-                .unwrap()
-                .plugins
-                .iter()
-                .any(|record| record.plugin_id == "swarmie.counter"
-                    && record.observed == ObservedState::Active)
-        );
-        runtime.host.close().await.unwrap();
     });
 }

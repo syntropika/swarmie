@@ -7,13 +7,7 @@ impl PluginManager {
     /// Retains an actual Tembra Reference to observe a selected capability's availability.
     /// The caller must acquire the intended Contract; this does not register a provider or
     /// create another dependency graph. All references for one plugin must remain live.
-    pub fn observe_reference(
-        &self,
-        proof: &AdminProof,
-        plugin_id: &str,
-        reference: core::Reference,
-    ) -> Result<()> {
-        self.authorize(proof)?;
+    pub fn observe_reference(&self, plugin_id: &str, reference: core::Reference) -> Result<()> {
         if !self
             .cores
             .borrow()
@@ -36,13 +30,7 @@ impl PluginManager {
 
     /// Records a failed acquisition when Tembra could not return a Reference to observe.
     /// A successful replacement observation clears this session-local failure.
-    pub fn observe_failure(
-        &self,
-        proof: &AdminProof,
-        plugin_id: &str,
-        error: String,
-    ) -> Result<()> {
-        self.authorize(proof)?;
+    pub fn observe_failure(&self, plugin_id: &str, error: String) -> Result<()> {
         if !self
             .cores
             .borrow()
@@ -52,19 +40,17 @@ impl PluginManager {
         {
             return Err(ManagerError::NotInstalled(plugin_id.into()));
         }
-        self.observe_contract_failure(proof, plugin_id, "", error)?;
+        self.observe_contract_failure(plugin_id, "", error)?;
         Ok(())
     }
 
     /// Records a failed acquisition for one Contract without masking other capabilities.
     pub fn observe_contract_failure(
         &self,
-        proof: &AdminProof,
         plugin_id: &str,
         contract: &str,
         error: String,
     ) -> Result<()> {
-        self.authorize(proof)?;
         if !self
             .cores
             .borrow()
@@ -78,10 +64,7 @@ impl PluginManager {
             .borrow_mut()
             .entry(plugin_id.into())
             .or_default()
-            .insert(
-                contract.into(),
-                error.replace(self.proof.as_str(), "[redacted]"),
-            );
+            .insert(contract.into(), error);
         Ok(())
     }
 

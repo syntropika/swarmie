@@ -1,6 +1,6 @@
 import { defineHook, defineRegistry, local, method, Type } from "@tembra/sdk";
 
-import type { RemoteBrowserAccessMainActivePackageResult } from "../generated/remote-browser-access";
+import type { RemoteBrowserAccessMainActivePackageResult } from "../../../target/generated/contracts/remote-browser-access";
 
 export type WidgetContribution =
   RemoteBrowserAccessMainActivePackageResult["manifest"]["ui"][number];

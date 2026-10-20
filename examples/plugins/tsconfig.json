@@ -1,7 +1,5 @@
 {
   "extends": "../../packages/config/ts/base.json",
-  "compilerOptions": {
-    "types": []
-  },
-  "include": ["*.ts"]
+  "compilerOptions": { "types": ["bun"] },
+  "include": ["**/*.ts"]
 }

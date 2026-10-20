@@ -74,10 +74,10 @@ tembra-sdk: tembra-bootstrap
     python3 scripts/tembra/tooling.py verify-sdk
 
 tembra-contracts:
-    python3 scripts/tembra/tooling.py generate-contracts
+    bun run plugins:contracts
 
 tembra-plugins:
-    python3 scripts/tembra/tooling.py build-plugins
+    bun run plugins:build
 
 tembra-browser:
     RUSTUP_TOOLCHAIN={{rust_version}} python3 scripts/tembra/tooling.py browser-wasm
@@ -107,16 +107,12 @@ rust-check: rust-fmt-check rust-clippy
     cargo +{{rust_version}} test --locked --workspace
     just rust-doc
 
-# Canonical Rust descriptors generate the committed TypeScript bindings.
-tembra-contracts-check:
-    python3 scripts/tembra/tooling.py verify-contracts
-
 tembra-tooling-test:
     python3 -m unittest discover -s scripts/tembra -p 'test_*.py'
 
-foundation-check: tembra-contracts-check tembra-tooling-test tembra-plugins rust-check
+foundation-check: tembra-tooling-test tembra-plugins rust-check
     bunx tsc --noEmit -p examples/plugins/tsconfig.json
-    bunx tsc --noEmit -p examples/plugins/browser/tsconfig.json
+    bunx tsc --noEmit -p tests/plugins/tsconfig.json
     bunx tsc --noEmit -p scripts/tembra/tsconfig.json
 
 # The checked browser ABI must match the dependency's pinned wasm-bindgen version.
@@ -125,5 +121,5 @@ tembra-browser-tools:
     cargo +{{rust_version}} install wasm-bindgen-cli --version 0.2.129 --locked
 
 # Real Browser Host ESM, React, managed contribution and server RPC acceptance.
-plugin-browser-check: tembra-browser
-    bun examples/plugins/browser/check.ts
+plugin-browser-check: tembra-plugins tembra-browser
+    bun tests/plugins/browser/check.ts

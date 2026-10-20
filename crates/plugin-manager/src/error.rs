@@ -6,8 +6,6 @@ use tembra::RuntimeError;
 /// after runtime publication or filesystem/provider activity does not imply rollback.
 #[derive(Debug, thiserror::Error)]
 pub enum ManagerError {
-    #[error("administrative capability is absent or invalid")]
-    Unauthorized,
     #[error("explicit installation confirmation is required")]
     ConfirmationRequired,
     #[error("invalid package: {0}")]
@@ -63,11 +61,6 @@ impl ManagerError {
     pub(crate) fn into_runtime(self) -> RuntimeError {
         match self {
             Self::Runtime(error) => error,
-            Self::Unauthorized => RuntimeError::new(
-                tembra::core::ErrorCode::Forbidden,
-                "administration",
-                "administrative capability is absent or invalid",
-            ),
             other => RuntimeError::invalid("plugin_administration", other.to_string()),
         }
     }

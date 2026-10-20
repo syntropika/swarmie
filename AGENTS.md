@@ -110,8 +110,9 @@ The website belongs in `apps/web`; Mobile belongs in `apps/mobile`. Bun shared p
 belong in `packages/`. The retired language SDKs, native bindings and WIT boundary have been
 removed. The source-built Tembra SDK is a required implementation dependency. The standalone
 TypeScript contracts and plugin UI packages and the browser acceptance application have been
-retired. Rust contracts remain authoritative; generated TypeScript bindings live only with
-the native plugin acceptance fixtures that consume them. Mobile retains account onboarding
+retired. Rust contracts remain authoritative; generated TypeScript bindings are reproducible,
+ignored build outputs under `target/generated/contracts/`, consumed by the named plugin examples
+and acceptance fixtures. Mobile retains account onboarding
 and native UI, with old runtime-dependent views removed and connectivity unavailable;
 do not restore the retired transport or advertise native builds or live connectivity before
 a new client integration is qualified. Do not recreate Tembra's transport engine in each language.

@@ -1,6 +1,6 @@
 import { defineFacet } from "@tembra/sdk";
 
-import { DynamicConsumer } from "./generated/dynamic-consumer";
+import { DynamicConsumer } from "../../../../target/generated/contracts/dynamic-consumer";
 
 export default defineFacet({
   name: "dynamic-consumer",

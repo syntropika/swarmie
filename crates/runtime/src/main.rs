@@ -1,7 +1,6 @@
 use std::{path::PathBuf, process::ExitCode};
 
 use swarmie_plugin_contracts::*;
-use swarmie_plugin_manager::PluginManager;
 use swarmie_runtime::{Configuration, start};
 use tembra_native::TokioDriver;
 
@@ -46,11 +45,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             Ok(serde_json::from_slice(&std::fs::read(path)?)?)
         })
         .transpose()?;
-    let proof = match std::env::var("SWARMIE_ADMIN_PROOF") {
-        Ok(value) => AdminProof::new(value),
-        Err(std::env::VarError::NotPresent) => PluginManager::issue_proof(),
-        Err(error) => return Err(error.into()),
-    };
     let driver = TokioDriver::new();
     let scheduler = driver.clone();
     tokio::runtime::Builder::new_current_thread()
@@ -62,7 +56,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 Configuration {
                     database: PathBuf::from(database),
                     source: PathBuf::from(source),
-                    proof: proof.clone(),
                     application,
                 },
             )
@@ -98,7 +91,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         println!("{}", serde_json::to_string_pretty(&runtime.effective)?);
                         return Ok(());
                     }
-                    "inventory" => manager.inventory(&proof)?,
+                    "inventory" => manager.inventory()?,
                     "install" | "update" => {
                         let plugin_id = id()?;
                         let version = arguments.get(4).ok_or("a version is required")?.clone();
@@ -108,7 +101,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         if command == "install" {
                             manager
                                 .install(InstallRequest {
-                                    proof: proof.clone(),
                                     provider_id: "local".into(),
                                     plugin_id,
                                     version,
@@ -118,7 +110,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         } else {
                             manager
                                 .update(UpdateRequest {
-                                    proof: proof.clone(),
                                     provider_id: "local".into(),
                                     plugin_id,
                                     version,
@@ -129,26 +120,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     "activate" => {
                         manager
-                            .activate(ActivateRequest {
-                                proof: proof.clone(),
-                                plugin_id: id()?,
-                            })
+                            .activate(ActivateRequest { plugin_id: id()? })
                             .await?
                     }
                     "deactivate" => {
                         manager
-                            .deactivate(DeactivateRequest {
-                                proof: proof.clone(),
-                                plugin_id: id()?,
-                            })
+                            .deactivate(DeactivateRequest { plugin_id: id()? })
                             .await?
                     }
                     "uninstall" => {
                         manager
-                            .uninstall(UninstallRequest {
-                                proof: proof.clone(),
-                                plugin_id: id()?,
-                            })
+                            .uninstall(UninstallRequest { plugin_id: id()? })
                             .await?
                     }
                     _ => return Err("unknown runtime command".into()),

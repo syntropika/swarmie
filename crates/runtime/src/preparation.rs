@@ -1,10 +1,7 @@
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    rc::Rc,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
-use swarmie_composition::{EffectiveComposition, InstanceState, PluginKind};
-use tembra::{NativeFacet, contracts::Contract};
+use swarmie_composition::{EffectiveComposition, PluginKind};
+use tembra::NativeFacet;
 
 use crate::{Application, CompiledPlugin};
 
@@ -19,29 +16,33 @@ pub(crate) struct Prepared {
 pub(crate) fn prepare(
     application: &Application,
     compiled: &[CompiledPlugin],
-    contracts: &[Rc<Contract>],
 ) -> Result<Prepared, Error> {
     if application
         .releases
         .iter()
         .any(|release| release.kind != PluginKind::Dynamic)
+        || compiled
+            .iter()
+            .any(|adapter| adapter.release.kind != PluginKind::Core)
     {
-        return Err("imported release facts must describe Dynamic Plugins".into());
+        return Err(
+            "compiled and imported release origins do not match their execution adapters".into(),
+        );
     }
     let catalog = compiled
         .iter()
-        .map(|plugin| plugin.release.clone())
+        .map(|adapter| adapter.release.clone())
         .chain(application.releases.clone())
         .collect::<Vec<_>>();
-    let mut effective = swarmie_composition::resolve(&application.composition, &catalog)?;
+    let effective = swarmie_composition::resolve(&application.composition, &catalog)?;
     let mut native = BTreeMap::new();
     let mut trusted_sources = BTreeMap::new();
-    for id in &effective.activation_order {
+    for id in &effective.deployment_order {
         let instance = &effective.instances[id];
         let release = instance
             .release
             .as_ref()
-            .ok_or("eligible release metadata is absent")?;
+            .ok_or("selected release metadata is absent")?;
         if ["swarmie.plugin-manager", crate::configuration::PLUGIN_ID]
             .contains(&release.plugin.as_str())
             || release.facets.iter().any(|facet| {
@@ -51,103 +52,39 @@ pub(crate) fn prepare(
         {
             return Err("application selection conflicts with indispensable administration".into());
         }
-        for capability in &release.provides {
-            if !contracts.iter().any(|contract| {
-                contract.name() == capability.contract
-                    && contract.version() == u64::from(capability.version)
-                    && contract.kind() == tembra::contracts::ContractKind::Local
-            }) {
-                return Err(format!(
-                    "unqualified singleton capability: {}@{}",
-                    capability.contract, capability.version
-                )
-                .into());
-            }
+        if release.kind != PluginKind::Core {
+            continue;
         }
-        match release.kind {
-            PluginKind::Core => {
-                let adapter = compiled
-                    .iter()
-                    .find(|adapter| adapter.release == *release)
-                    .ok_or("compiled adapter is absent")?;
-                let facets = adapter.prepare(&instance.selection.config)?;
-                let actual = facets
-                    .iter()
-                    .map(|facet| facet.core().name().to_owned())
-                    .collect::<BTreeSet<_>>();
-                let expected = release
-                    .facets
-                    .iter()
-                    .map(|facet| facet.id.clone())
-                    .collect::<BTreeSet<_>>();
-                if facets.len() != actual.len()
-                    || actual != expected
-                    || release
-                        .facets
-                        .iter()
-                        .any(|facet| facet.target != swarmie_composition::FacetTarget::Server)
-                {
-                    return Err(format!(
-                        "compiled adapter Facets differ from catalog: {}",
-                        release.plugin
-                    )
-                    .into());
-                }
-                native.insert(id.clone(), facets);
-                trusted_sources.insert(id.clone(), adapter.trusted_sources.clone());
-            }
-            PluginKind::Dynamic => {}
-        }
-    }
-    // Current compiled factories provide acquisition and foundational capabilities. Refuse an
-    // unsupported eager Core-to-Dynamic edge instead of hanging initial native installation.
-    for id in native.keys() {
-        let instance = &effective.instances[id];
-        for requirement in &instance.selection.requires {
-            if !requirement.optional
-                && effective
-                    .instances
-                    .get(&requirement.instance)
-                    .and_then(|other| other.release.as_ref())
-                    .is_some_and(|other| other.kind == PluginKind::Dynamic)
-            {
-                return Err(
-                    "compiled startup dependencies cannot require a later Dynamic deployment"
-                        .into(),
-                );
-            }
-        }
-        for requirement in &instance
-            .release
-            .as_ref()
-            .ok_or("compiled release absent")?
-            .requires
+        let adapter = compiled
+            .iter()
+            .find(|adapter| adapter.release == *release)
+            .ok_or("compiled adapter is absent")?;
+        let facets = adapter.prepare(&instance.selection.config)?;
+        let actual = facets
+            .iter()
+            .map(|facet| facet.core().name().to_owned())
+            .collect::<BTreeSet<_>>();
+        let expected = release
+            .facets
+            .iter()
+            .map(|facet| facet.id.clone())
+            .collect::<BTreeSet<_>>();
+        if facets.len() != actual.len()
+            || actual != expected
+            || release
+                .facets
+                .iter()
+                .any(|facet| facet.target != swarmie_composition::FacetTarget::Server)
         {
-            if !requirement.optional
-                && effective.instances.values().any(|other| {
-                    other.state == InstanceState::Ready
-                        && other.release.as_ref().is_some_and(|release| {
-                            release.kind == PluginKind::Dynamic
-                                && release.provides.iter().any(|capability| {
-                                    capability.contract == requirement.contract
-                                        && capability.version == requirement.version
-                                })
-                        })
-                })
-            {
-                return Err(
-                    "compiled startup capabilities cannot require a later Dynamic deployment"
-                        .into(),
-                );
-            }
+            return Err(format!(
+                "compiled adapter Facets differ from release: {}",
+                release.plugin
+            )
+            .into());
         }
+        native.insert(id.clone(), facets);
+        trusted_sources.insert(id.clone(), adapter.trusted_sources.clone());
     }
-    // The qualified adapter admits acquisition Core Plugins before staged JavaScript. The
-    // refused Core-to-Dynamic edges above make this stable partition preserve dependencies.
-    let core_ids = native.keys().cloned().collect::<BTreeSet<_>>();
-    effective
-        .activation_order
-        .sort_by_key(|id| !core_ids.contains(id));
     Ok(Prepared {
         effective,
         native,

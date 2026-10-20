@@ -13,10 +13,10 @@ impl PluginManager {
     /// Returns approved metadata and a receipt without transferring package-file bytes.
     ///
     /// # Errors
-    /// Refuses invalid proofs, unknown plugins, invalid cached bytes and inactive intent.
+    /// Refuses unknown plugins, invalid cached bytes and inactive intent.
     /// Metadata does not assert that a browser has loaded or activated the package.
-    pub fn active_package(&self, proof: &AdminProof, id: &str) -> Result<ActivePackage> {
-        let plugin = self.active_selection(proof, id)?;
+    pub fn active_package(&self, id: &str) -> Result<ActivePackage> {
+        let plugin = self.active_selection(id)?;
         Ok(ActivePackage {
             manifest: plugin.package.manifest,
             provenance: plugin.package.provenance,
@@ -24,8 +24,7 @@ impl PluginManager {
         })
     }
 
-    fn active_selection(&self, proof: &AdminProof, id: &str) -> Result<CachedPlugin> {
-        self.authorize(proof)?;
+    fn active_selection(&self, id: &str) -> Result<CachedPlugin> {
         if self.uncertain.borrow().contains_key(id) {
             return Err(ManagerError::RecoveryRequired);
         }
@@ -41,17 +40,17 @@ impl PluginManager {
 
     /// Reads an exact bounded range from a currently approved cached package file.
     ///
-    /// Every call verifies authorization, current activation receipt, manifest membership and
+    /// Every call verifies the current activation identity, manifest membership and
     /// cached integrity. Length must be 1 through 32,768 bytes; offset may equal the total file
     /// length to read an empty end-of-file range. No provider or network acquisition occurs.
     /// # Errors
     /// Refuses stale/inactive/uncertain selections, unsafe or absent paths, invalid bounds,
-    /// unauthorized callers and corrupted cache bytes. Refusal does not mutate package state.
+    /// corrupted cache bytes. Refusal does not mutate package state.
     pub fn read_package_file(
         &self,
         request: ReadPackageFileRequest,
     ) -> Result<ReadPackageFileResult> {
-        let plugin = self.active_selection(&request.proof, &request.plugin_id)?;
+        let plugin = self.active_selection(&request.plugin_id)?;
         if plugin.activation_id != request.activation_id {
             return Err(ManagerError::InvalidPackage(
                 "stale package activation receipt".into(),
@@ -111,9 +110,8 @@ impl PluginManager {
     /// physical generation's pending removal acknowledgement. Native deactivation alone does not establish that
     /// a browser stopped running old code; its last observation remains until acknowledged.
     /// # Errors
-    /// Refuses stale receipts, unknown sessions, invalid proofs and SQLite failures.
+    /// Refuses stale receipts, unknown sessions and SQLite failures.
     pub fn report_browser(&self, request: ReportBrowserRequest) -> Result<Inventory> {
-        self.authorize(&request.proof)?;
         let _guard = self.guard()?;
         if request.session_id.is_empty()
             || request.session_id.len() > 128
@@ -166,7 +164,7 @@ impl PluginManager {
             activation_id: request.activation_id,
             session_id: request.session_id,
             observed: request.observed,
-            error: request.error.replace(self.proof.as_str(), "[redacted]"),
+            error: request.error,
         })?;
         self.snapshot()
     }

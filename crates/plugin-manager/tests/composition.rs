@@ -11,33 +11,28 @@ fn durable_composition_requires_scoped_reconciliation_and_keeps_provider_setting
         .unwrap()
         .block_on(driver.run_until(async {
             let directory = tempfile::tempdir().unwrap();
-            let proof = PluginManager::issue_proof();
+
             let database = directory.path().join("admin.sqlite");
             let host = Host::with_driver(RUNTIME_HOST, "supervisor", driver.clone()).unwrap();
-            let manager =
-                PluginManager::start(host.clone(), driver.clone(), &database, proof.clone())
-                    .await
-                    .unwrap();
-            let declared = serde_json::json!({"profile":{"id":"headless"}, "bundles":[]});
-            assert!(matches!(
-                manager.save_composition(&proof, &declared),
-                Err(ManagerError::CompositionManaged)
-            ));
-            let permit = manager.begin_composition_reconciliation(&proof).unwrap();
-            manager.save_composition(&proof, &declared).unwrap();
-            manager
-                .recover_selected(&proof, &Default::default())
+            let manager = PluginManager::start(host.clone(), driver.clone(), &database)
                 .await
                 .unwrap();
+            let declared = serde_json::json!({"profile":{"id":"headless"}, "bundles":[]});
             assert!(matches!(
-                manager.begin_composition_reconciliation(&proof),
+                manager.save_composition(&declared),
+                Err(ManagerError::CompositionManaged)
+            ));
+            let permit = manager.begin_composition_reconciliation().unwrap();
+            manager.save_composition(&declared).unwrap();
+            manager.recover_composed(vec![], &[]).await.unwrap();
+            assert!(matches!(
+                manager.begin_composition_reconciliation(),
                 Err(ManagerError::Busy)
             ));
             drop(permit);
-            assert_eq!(manager.composition(&proof).unwrap(), Some(declared.clone()));
+            assert_eq!(manager.composition().unwrap(), Some(declared.clone()));
             let refused = manager
                 .install(InstallRequest {
-                    proof: proof.clone(),
                     provider_id: "local".into(),
                     plugin_id: "example".into(),
                     version: "1.0.0".into(),
@@ -47,7 +42,6 @@ fn durable_composition_requires_scoped_reconciliation_and_keeps_provider_setting
             assert!(matches!(refused, Err(ManagerError::CompositionManaged)));
             manager
                 .configure_provider(ConfigureProviderRequest {
-                    proof: proof.clone(),
                     provider_id: "local".into(),
                     configuration: serde_json::json!("sources"),
                 })
@@ -57,17 +51,12 @@ fn durable_composition_requires_scoped_reconciliation_and_keeps_provider_setting
             drop(manager);
             let restarted_host =
                 Host::with_driver(RUNTIME_HOST, "supervisor", driver.clone()).unwrap();
-            let restarted = PluginManager::start(
-                restarted_host.clone(),
-                driver.clone(),
-                &database,
-                proof.clone(),
-            )
-            .await
-            .unwrap();
-            assert_eq!(restarted.composition(&proof).unwrap(), Some(declared));
+            let restarted = PluginManager::start(restarted_host.clone(), driver.clone(), &database)
+                .await
+                .unwrap();
+            assert_eq!(restarted.composition().unwrap(), Some(declared));
             assert!(matches!(
-                restarted.recover(&proof).await,
+                restarted.recover().await,
                 Err(ManagerError::CompositionManaged)
             ));
             restarted_host.close().await.unwrap();
@@ -83,7 +72,7 @@ fn actual_reference_observation_overrides_administrative_success_and_can_be_rest
         .unwrap()
         .block_on(driver.run_until(async {
             let directory = tempfile::tempdir().unwrap();
-            let proof = PluginManager::issue_proof();
+
             let host = Host::with_driver(RUNTIME_HOST, "supervisor", driver.clone()).unwrap();
             host.install(
                 swarmie_counter::facet().unwrap(),
@@ -96,16 +85,12 @@ fn actual_reference_observation_overrides_administrative_success_and_can_be_rest
                 host.clone(),
                 driver.clone(),
                 directory.path().join("admin.sqlite"),
-                proof.clone(),
             )
             .await
             .unwrap();
-            manager
-                .approve_trusted_source(&proof, "local".into())
-                .unwrap();
+            manager.approve_trusted_source("local".into()).unwrap();
             manager
                 .record_core_facets(
-                    &proof,
                     "counter-package".into(),
                     "1.0.0".into(),
                     vec!["swarmie.counter".into()],
@@ -114,11 +99,11 @@ fn actual_reference_observation_overrides_administrative_success_and_can_be_rest
                 .unwrap();
             let counter = host.get(Counter, CounterInput {}).await.unwrap();
             manager
-                .observe_reference(&proof, "counter-package", counter.core().clone())
+                .observe_reference("counter-package", counter.core().clone())
                 .unwrap();
             let observed = || {
                 manager
-                    .inventory(&proof)
+                    .inventory()
                     .unwrap()
                     .plugins
                     .into_iter()
@@ -129,7 +114,7 @@ fn actual_reference_observation_overrides_administrative_success_and_can_be_rest
             counter.core().release();
             assert_eq!(observed().observed, ObservedState::Unavailable);
             manager
-                .observe_failure(&proof, "counter-package", "required contract absent".into())
+                .observe_failure("counter-package", "required contract absent".into())
                 .unwrap();
             assert!(
                 observed()
@@ -139,13 +124,12 @@ fn actual_reference_observation_overrides_administrative_success_and_can_be_rest
             );
             let restored = host.get(Counter, CounterInput {}).await.unwrap();
             manager
-                .observe_reference(&proof, "counter-package", restored.core().clone())
+                .observe_reference("counter-package", restored.core().clone())
                 .unwrap();
             assert_eq!(observed().observed, ObservedState::Active);
             assert!(
                 manager
                     .record_core_facets(
-                        &proof,
                         "other-package".into(),
                         "1.0.0".into(),
                         vec!["swarmie.counter".into()]

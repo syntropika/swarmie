@@ -23,9 +23,10 @@ impl Drop for Session {
 
 /// Serves actual Tembra RPC over one local WebSocket listener until the stop future resolves.
 ///
-/// Counter access is public to local clients. Administrative methods independently require
-/// the supervisor proof. This development embedding admits loopback listeners only; network
-/// embeddings must supply their own authenticated transport admission policy.
+/// Counter access and approved browser artifact delivery are public to loopback clients.
+/// No remote administration or lifecycle-reporting Contract is installed. Local Contracts
+/// remain local to the Host. This development embedding does not authenticate callers;
+/// network embeddings must establish caller authority before exposing privileged services.
 ///
 /// # Errors
 /// Refuses non-loopback listeners and returns bind, RPC-identity or accept errors. Individual
@@ -77,7 +78,7 @@ pub async fn serve(
                                 socket,
                                 connection_driver,
                                 options,
-                                async { Ok(serde_json::json!("local-browser")) },
+                                async { Ok(serde_json::json!("anonymous-loopback")) },
                             )
                             .await?;
                             let connection = host.core().accept_client(

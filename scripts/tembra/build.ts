@@ -1,15 +1,16 @@
-import process from "node:process";
-
-/** Root-owned adapter to Tembra's programmatic tooling; no runtime loading occurs here. */
 import { build, loadConfig } from "@tembra/sdk/tooling";
 
-const configuration = process.argv.at(2);
-if (configuration === undefined || process.argv.length !== 3) {
-  throw new Error("Usage: bun scripts/tembra/build.ts <configuration>");
+import { packageFixtures } from "./package";
+
+const mode = Bun.argv.at(2);
+if (mode !== "contracts" && mode !== "plugins") {
+  throw new Error("Usage: bun scripts/tembra/build.ts <contracts|plugins>");
 }
-const result = await build(await loadConfig(configuration));
+const configuration = await loadConfig("examples/plugins/tembra.config.ts");
+const result = await build(configuration, mode === "contracts" ? { targets: [] } : {});
+if (mode === "plugins") {
+  await packageFixtures(result.artifacts);
+}
 console.log(
-  JSON.stringify(
-    Object.fromEntries(result.artifacts.map((output) => [output.target, output.artifactPath])),
-  ),
+  `Generated ${result.generated.files.length} contract bindings and built ${result.artifacts.length} artifacts`,
 );

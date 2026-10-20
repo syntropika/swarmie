@@ -2,7 +2,7 @@ use std::{path::PathBuf, rc::Rc};
 
 use swarmie_plugin_contracts::ConfigureProviderRequest;
 use swarmie_plugin_manager::PluginManager;
-use tembra::{Host, contracts::Contract, core};
+use tembra::{Host, core};
 
 use crate::{CompiledPlugin, Configuration, Runtime, application, configuration, deployment};
 
@@ -10,18 +10,11 @@ pub(crate) async fn start(
     driver: Rc<dyn core::Driver>,
     configuration: Configuration,
     compiled: Option<Vec<CompiledPlugin>>,
-    contracts: Vec<Rc<Contract>>,
 ) -> Result<Runtime, Box<dyn std::error::Error>> {
     let host = Host::with_driver("swarmie-runtime", "runtime-supervisor", driver.clone())?;
     let result = async {
-        let manager = PluginManager::start(
-            host.clone(),
-            driver,
-            configuration.database,
-            configuration.proof.clone(),
-        )
-        .await?;
-        let persisted = manager.composition(&configuration.proof)?;
+        let manager = PluginManager::start(host.clone(), driver, configuration.database).await?;
+        let persisted = manager.composition()?;
         let managed = configuration.application.is_some() || persisted.is_some();
         let application = match configuration.application {
             Some(application) => application,
@@ -30,19 +23,19 @@ pub(crate) async fn start(
                 .transpose()?
                 .unwrap_or_default(),
         };
-        let configured = manager.provider_configuration(&configuration.proof, "local")?;
+        let configured = manager.provider_configuration("local")?;
         let persist_source = configured.is_none();
         let source = configured
             .map(serde_json::from_value::<PathBuf>)
             .transpose()?
             .unwrap_or_else(|| configuration.source.clone());
         let compiled = compiled.unwrap_or_else(|| application::compiled(source));
-        let mut prepared = crate::preparation::prepare(&application, &compiled, &contracts)?;
-        let permit = manager.begin_composition_reconciliation(&configuration.proof)?;
+        let mut prepared = crate::preparation::prepare(&application, &compiled)?;
+        let permit = manager.begin_composition_reconciliation()?;
         if managed {
             let selected = prepared
                 .effective
-                .activation_order
+                .deployment_order
                 .iter()
                 .filter_map(|id| {
                     let release = prepared.effective.instances[id].release.as_ref()?;
@@ -50,8 +43,8 @@ pub(crate) async fn start(
                         .then_some(release.plugin.clone())
                 })
                 .collect();
-            manager.set_composition_selection(&configuration.proof, &selected)?;
-            manager.save_composition(&configuration.proof, &serde_json::to_value(&application)?)?;
+            manager.set_composition_selection(&selected)?;
+            manager.save_composition(&serde_json::to_value(&application)?)?;
             host.install(
                 configuration::facet(&prepared.effective)?,
                 core::LoadOptions::default(),
@@ -59,26 +52,17 @@ pub(crate) async fn start(
             .await?;
             manager
                 .record_core_facets(
-                    &configuration.proof,
                     configuration::PLUGIN_ID.into(),
                     env!("CARGO_PKG_VERSION").into(),
                     vec![configuration::FACET_ID.into()],
                 )
                 .await?;
         }
-        let (recovery_error, deployment_errors) = deployment::apply(
-            &host,
-            &manager,
-            &configuration.proof,
-            &mut prepared,
-            &contracts,
-            managed,
-        )
-        .await?;
+        let (recovery_error, deployment_errors) =
+            deployment::apply(&host, &manager, &mut prepared, managed).await?;
         if persist_source {
             manager
                 .configure_provider(ConfigureProviderRequest {
-                    proof: configuration.proof.clone(),
                     provider_id: "local".into(),
                     configuration: serde_json::to_value(&configuration.source)?,
                 })

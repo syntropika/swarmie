@@ -1,13 +1,10 @@
-//! Supervised loopback acceptance fixture. Only scoped browser grants reach the browser.
+//! Supervised loopback acceptance fixture with read-only remote artifact delivery.
 
-use std::{cell::RefCell, collections::BTreeSet, io::BufRead, path::PathBuf};
+use std::{cell::RefCell, io::BufRead, path::PathBuf};
 
 use futures::{StreamExt, channel::mpsc};
-use swarmie_composition::{
-    FacetIdentity, PluginKind as DistributionKind, Release, Requirement, Selection,
-};
+use swarmie_composition::{FacetIdentity, PluginKind as DistributionKind, Release, Selection};
 use swarmie_plugin_contracts::*;
-use swarmie_plugin_manager::PluginManager;
 use swarmie_runtime::{Application, Configuration, Runtime, resolve_application, start};
 use tembra_native::TokioDriver;
 
@@ -21,10 +18,6 @@ fn application() -> Application {
         version: "1.0.0".into(),
         provider: Some("local".into()),
         config: serde_json::json!({}),
-        requires: vec![Requirement {
-            instance: "swarmie.counter".into(),
-            optional: false,
-        }],
     });
     application.releases.push(Release {
         plugin: "multi-host-widget".into(),
@@ -40,22 +33,15 @@ fn application() -> Application {
                 target: FacetTarget::Browser,
             },
         ],
-        provides: vec![],
-        requires: vec![],
     });
     application
 }
 
-fn record_intent(
-    runtime: &Runtime,
-    proof: &AdminProof,
-    version: Option<&str>,
-    disable: bool,
-) -> Result<(), Error> {
+fn record_intent(runtime: &Runtime, version: Option<&str>, disable: bool) -> Result<(), Error> {
     let mut application: Application = serde_json::from_value(
         runtime
             .manager
-            .composition(proof)?
+            .composition()?
             .ok_or("acceptance Profile is absent")?,
     )?;
     if let Some(version) = version {
@@ -84,11 +70,11 @@ fn record_intent(
     resolve_application(&application)?;
     runtime
         .manager
-        .save_composition(proof, &serde_json::to_value(application)?)?;
+        .save_composition(&serde_json::to_value(application)?)?;
     Ok(())
 }
 
-async fn exercise_server(runtime: &Runtime, proof: &AdminProof) -> Result<(), Error> {
+async fn exercise_server(runtime: &Runtime) -> Result<(), Error> {
     let consumer = runtime
         .host
         .get(DynamicConsumer, DynamicConsumerInput {})
@@ -98,74 +84,84 @@ async fn exercise_server(runtime: &Runtime, proof: &AdminProof) -> Result<(), Er
     }
     runtime
         .manager
-        .observe_reference(proof, "multi-host-widget", consumer.core().clone())?;
+        .observe_reference("multi-host-widget", consumer.core().clone())?;
     Ok(())
 }
 
-fn announcement(
-    runtime: &Runtime,
-    proof: &AdminProof,
-    address: &str,
-    event: &str,
-) -> Result<(), Error> {
-    let session_id = "acceptance-browser";
-    let grant = runtime.manager.issue_browser_grant(
-        proof,
-        session_id.into(),
-        &BTreeSet::from(["multi-host-widget".into()]),
-    )?;
+const SESSION_ID: &str = "acceptance-browser";
+
+fn announcement(address: &str, event: &str) {
     println!(
         "{}",
-        serde_json::json!({"event":event,"address":address,"session_id":session_id,"grant":grant})
+        serde_json::json!({"event":event,"address":address,"session_id":SESSION_ID})
+    );
+}
+
+/// Only the supervised local runner can submit observations on this process's stdin.
+/// The embedding assigns the session; remote RPC exposes no reporting method.
+fn report(runtime: &Runtime, address: &str, command: &str) -> Result<(), Error> {
+    let mut value: serde_json::Value = serde_json::from_str(command)?;
+    if value["action"] != "report" {
+        return Err("unknown acceptance supervisor action".into());
+    }
+    value
+        .as_object_mut()
+        .ok_or("report must be an object")?
+        .remove("action");
+    value["session_id"] = serde_json::json!(SESSION_ID);
+    let request: ReportBrowserRequest = serde_json::from_value(value)?;
+    let observed = request.observed;
+    let activation_id = request.activation_id.clone();
+    runtime.manager.report_browser(request)?;
+    println!(
+        "{}",
+        serde_json::json!({
+            "event":"reported", "address":address, "session_id":SESSION_ID,
+            "observed":observed, "activation_id":activation_id
+        })
     );
     Ok(())
 }
 
 async fn commands(
     runtime: &Runtime,
-    proof: &AdminProof,
     address: &str,
     mut input: mpsc::UnboundedReceiver<String>,
 ) -> Result<(), Error> {
-    exercise_server(runtime, proof).await?;
-    announcement(runtime, proof, address, "ready")?;
+    exercise_server(runtime).await?;
+    announcement(address, "ready");
     while let Some(command) = input.next().await {
         match command.as_str() {
             "update" => {
-                let permit = runtime.manager.begin_composition_reconciliation(proof)?;
-                record_intent(runtime, proof, Some("1.1.0"), false)?;
+                let permit = runtime.manager.begin_composition_reconciliation()?;
+                record_intent(runtime, Some("1.1.0"), false)?;
                 runtime
                     .manager
                     .update(UpdateRequest {
-                        proof: proof.clone(),
                         provider_id: "local".into(),
                         plugin_id: "multi-host-widget".into(),
                         version: "1.1.0".into(),
                         confirmed: true,
                     })
                     .await?;
-                exercise_server(runtime, proof).await?;
+                exercise_server(runtime).await?;
                 drop(permit);
-                announcement(runtime, proof, address, "updated")?;
+                announcement(address, "updated");
             }
             "deactivate" => {
-                let permit = runtime.manager.begin_composition_reconciliation(proof)?;
-                record_intent(runtime, proof, None, true)?;
+                let permit = runtime.manager.begin_composition_reconciliation()?;
+                record_intent(runtime, None, true)?;
                 runtime
                     .manager
                     .deactivate(DeactivateRequest {
-                        proof: proof.clone(),
                         plugin_id: "multi-host-widget".into(),
                     })
                     .await?;
                 drop(permit);
-                // The original grant remains valid only for its own acknowledged retirement.
-                println!(
-                    "{}",
-                    serde_json::json!({"event":"deactivated","address":address,"session_id":"acceptance-browser","grant":"retirement-only"})
-                );
+                announcement(address, "deactivated");
             }
             "close" => break,
+            _ if command.starts_with('{') => report(runtime, address, &command)?,
             _ => return Err("unknown acceptance supervisor command".into()),
         }
     }
@@ -199,13 +195,11 @@ fn main() -> Result<(), Error> {
         .enable_all()
         .build()?
         .block_on(scheduler.run_until(async {
-            let proof = PluginManager::issue_proof();
             let runtime = start(
                 driver.clone(),
                 Configuration {
                     database,
                     source,
-                    proof: proof.clone(),
                     application: Some(application()),
                 },
             )
@@ -222,8 +216,7 @@ fn main() -> Result<(), Error> {
             drop(reservation);
             let failure = RefCell::new(None);
             let stopped = async {
-                if let Err(error) = commands(&runtime, &proof, &address.to_string(), receiver).await
-                {
+                if let Err(error) = commands(&runtime, &address.to_string(), receiver).await {
                     *failure.borrow_mut() = Some(error);
                 }
             };
