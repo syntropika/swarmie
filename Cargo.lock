@@ -1777,6 +1777,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "swarmie-task-session-contracts"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "swarmie-task-contracts",
+ "tembra",
+]
+
+[[package]]
 name = "swarmie-task-storage-sqlite"
 version = "0.1.0"
 dependencies = [
