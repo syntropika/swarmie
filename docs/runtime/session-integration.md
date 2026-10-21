@@ -45,6 +45,33 @@ A checkpoint can lag a Session result without data loss. Conversely, if a task c
 Session append, reconciliation can record the task's current state but cannot recreate every
 missing transition. Store ownership and task execution ownership remain separate concepts.
 
+## Required Agent Loop conversation admission
+
+SessionStore deliberately permits session-wide administrative reads and base projections.
+`EventQuery::new(session_id)` is a full-session query even for `ModelContext`; its optional
+selector is a storage capability, not an Agent Loop safety policy. A loop reconstructing one
+conversation must enforce these requirements at its own public and recovery boundaries:
+
+- Require a valid nonempty conversation ID on turn admission; persist it with the task/session
+  binding and immutable turn identity before runnable execution. Missing identity is an error,
+  including for a session that currently happens to contain only one conversation.
+- Check that the committed input event belongs to that exact session and conversation. Propagate
+  the identity through turn context, checkpoints, hooks and all produced message/event correlation.
+- On initial execution, resume and external-result reconciliation, construct every context source
+  query with the persisted conversation selector. Keep it on every continuation and reject a
+  mismatched cursor. Never fall back to a full-session scan when a binding or selector is absent.
+- Validate context contributions against the admitted identity. Cross-conversation retrieval or
+  session-wide instructions require an explicit authorized context policy; they are not implicit
+  consequences of omitted correlation. Administrative history exploration remains unrestricted
+  by this loop-level guard.
+
+Agent Loop acceptance must interleave two conversations in one session, reuse a turn label,
+include unscoped entries, and force pagination. Verify exact context isolation on initial run
+and after process recovery; missing conversation identity and an input event from the other
+conversation must fail before task admission or any model/tool call. Recover with the persisted
+binding even when the caller's current conversation changes. These checks are an integration
+release gate. This SessionStore branch does not implement or claim the Agent Loop guard.
+
 ## Durable task routing association
 
 The outbox fact identity `(store_id, sequence, ordinal)` identifies a TaskStorage transition;
@@ -138,6 +165,15 @@ must test process death before/after binding, task commit, Session append and ac
 child inheritance, exact retry after lost replies, mapping absence and store replacement against
 the actual selected providers. Hook-only physical-settlement observations remain best effort;
 the transition outbox does not manufacture durable physical-settlement facts.
+
+The embedding must supervise the publisher as an explicitly selected managed Facet and satisfy
+TaskStorage's accepted consumer-ownership contract. A consumer ID alone is not authority; do
+not register or acknowledge from an unrelated caller. After confirmed prefix acknowledgement,
+explicitly request source compaction under its retention policy and all required consumers.
+Acknowledgement alone need not free capacity. Monitor lag, hard-capacity refusal and unresolved
+bindings; no implicit skip, drain, deletion or replacement consumer is assumed. Consumer-owner
+identity and dependency revisions are still being qualified in the independent task branch;
+compare accepted descriptors and the actual selected providers before building the bridge.
 
 ## Extensions and integration checklist
 
