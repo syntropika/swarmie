@@ -5,7 +5,7 @@ use swarmie_task_contracts::{
     MAX_PORTABLE_INTEGER, MAX_TASK_OUTBOX_EVENT_BYTES, MAX_TASK_PAGE_BYTES,
     TaskOutboxAcknowledgement, TaskOutboxCompaction, TaskOutboxConsumer, TaskOutboxConsumerState,
     TaskOutboxEvent, TaskOutboxEventId, TaskOutboxPage, TaskOutboxQuery, TaskOutboxRetention,
-    TaskRecord, TaskTransaction, task_wire_bytes, validate_identity,
+    TaskOutboxStatus, TaskRecord, TaskTransaction, task_wire_bytes, validate_identity,
 };
 
 use crate::{
@@ -124,6 +124,72 @@ pub(crate) fn append_events(connection: &Connection, events: &[(u64, u32, String
 }
 
 impl Store {
+    pub(crate) fn outbox_status(&self) -> Result<TaskOutboxStatus> {
+        let mut connection = self.connection.borrow_mut();
+        let transaction = connection
+            .as_mut()
+            .ok_or(Error::Closed)?
+            .transaction_with_behavior(TransactionBehavior::Deferred)?;
+        let (_, store_id) = metadata(&transaction)?;
+        let (retained_events, retained_bytes, floor) = usage(&transaction)?;
+        let positions = {
+            let mut statement = transaction.prepare("SELECT id,ack_sequence,ack_ordinal,delivered_sequence,delivered_ordinal FROM task_outbox_consumers ORDER BY id COLLATE BINARY LIMIT 65")?;
+            statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        (row.get::<_, u64>(1)?, row.get::<_, i64>(2)?),
+                        (row.get::<_, u64>(3)?, row.get::<_, i64>(4)?),
+                    ))
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?
+        };
+        if positions.len() > 64 {
+            return Err(Error::Corrupt(
+                "outbox exceeds bounded consumer count".into(),
+            ));
+        }
+        let acknowledged = positions.iter().map(|(_, ack, _)| *ack).min();
+        let compactable_events = if let Some(ack) = acknowledged {
+            transaction.query_row(
+                "SELECT count(*) FROM task_outbox WHERE (sequence,ordinal)<=(?1,?2)",
+                params![ack.0, ack.1],
+                |row| row.get::<_, u64>(0),
+            )?
+        } else {
+            0
+        };
+        let pending_events = retained_events
+            .checked_sub(compactable_events)
+            .ok_or_else(|| {
+                Error::Corrupt("outbox retained usage disagrees with event rows".into())
+            })?;
+        let consumers = positions
+            .into_iter()
+            .map(|(consumer_id, ack, delivered)| TaskOutboxConsumerState {
+                consumer_id,
+                store_id: store_id.clone(),
+                acknowledged: event_id(ack, &store_id),
+                delivered: event_id(delivered, &store_id),
+                retained_after: event_id(floor, &store_id),
+            })
+            .collect();
+        let status = TaskOutboxStatus {
+            store_id: store_id.clone(),
+            limits: self.outbox_limits,
+            retained_after: event_id(floor, &store_id),
+            retained_events,
+            retained_bytes,
+            compactable_events,
+            pending_events,
+            consumers,
+        };
+        swarmie_task_contracts::validate_task_payload_size(&status)
+            .map_err(|error| Error::TooLarge(error.to_string()))?;
+        transaction.commit()?;
+        Ok(status)
+    }
+
     pub(crate) fn register_outbox_consumer(
         &self,
         request: TaskOutboxConsumer,

@@ -10,6 +10,7 @@ async fn open(host: &Host, database: &Path) -> Result<TaskStorageRef> {
     host.install(
         swarmie_task_storage_sqlite::facet(&Configuration {
             database: database.into(),
+            outbox: Default::default(),
         })?,
         core::LoadOptions::default(),
     )?
@@ -145,14 +146,16 @@ fn configuration_schema_version_and_corruption_fail_explicitly() -> Result<()> {
     for database in ["", ":memory:", "file:memory?mode=memory"] {
         assert!(
             swarmie_task_storage_sqlite::facet(&Configuration {
-                database: database.into()
+                database: database.into(),
+                outbox: Default::default(),
             })
             .is_err()
         );
     }
     assert_eq!(
         Configuration {
-            database: "".into()
+            database: "".into(),
+            outbox: Default::default(),
         }
         .validate(),
         Err(ConfigurationError::EmptyDatabase)

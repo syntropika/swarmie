@@ -668,6 +668,17 @@ async fn outbox(storage: &TaskStorageRef) -> Result<()> {
     use crate::{
         TaskOutboxAcknowledgement, TaskOutboxCompaction, TaskOutboxConsumer, TaskOutboxQuery,
     };
+    let initial = storage.outbox_status().await?;
+    initial.limits.validate()?;
+    assert!(initial.consumers.is_empty());
+    assert_eq!(initial.compactable_events, 0);
+    assert_eq!(initial.pending_events, initial.retained_events);
+    assert!(crate::task_wire_bytes(&initial)? <= crate::MAX_TASK_PAGE_BYTES);
+    assert_eq!(
+        storage.outbox_status().await?,
+        initial,
+        "status is read-only"
+    );
     let fast = "conformance-outbox-fast";
     let slow = "conformance-outbox-offline";
     let state = storage
@@ -677,6 +688,11 @@ async fn outbox(storage: &TaskStorageRef) -> Result<()> {
         .register_outbox_consumer(TaskOutboxConsumer { id: slow.into() })
         .await?;
     assert_eq!(state.store_id, other.store_id);
+    let registered = storage.outbox_status().await?;
+    assert_eq!(registered.store_id, state.store_id);
+    assert_eq!(registered.consumers.len(), 2);
+    assert_eq!(registered.retained_events, initial.retained_events);
+    assert_eq!(registered.retained_bytes, initial.retained_bytes);
     let before = storage
         .compact_outbox(TaskOutboxCompaction { limit: 4096 })
         .await?;
@@ -811,6 +827,9 @@ async fn outbox(storage: &TaskStorageRef) -> Result<()> {
     storage
         .remove_outbox_consumer(TaskOutboxConsumer { id: slow.into() })
         .await?;
+    let releasable = storage.outbox_status().await?;
+    assert_eq!(releasable.pending_events, 0);
+    assert_eq!(releasable.compactable_events, releasable.retained_events);
     assert!(
         storage
             .compact_outbox(TaskOutboxCompaction { limit: 4096 })

@@ -18,6 +18,7 @@ async fn open(host: &Host, database: &Path) -> Result<TaskStorageRef> {
     host.install(
         swarmie_task_storage_sqlite::facet(&Configuration {
             database: database.into(),
+            outbox: Default::default(),
         })?,
         core::LoadOptions::default(),
     )?

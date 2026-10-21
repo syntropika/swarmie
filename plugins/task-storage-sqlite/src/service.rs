@@ -2,12 +2,12 @@ use futures::FutureExt;
 use swarmie_task_contracts::{
     CommitResult, StorageOwner, TaskLookup, TaskOutboxAcknowledgement, TaskOutboxCompaction,
     TaskOutboxConsumer, TaskOutboxConsumerState, TaskOutboxPage, TaskOutboxQuery,
-    TaskOutboxRetention, TaskPage, TaskQuery, TaskRecord, TaskStorage, TaskStorageProvider,
-    TaskTransaction,
+    TaskOutboxRetention, TaskOutboxStatus, TaskPage, TaskQuery, TaskRecord, TaskStorage,
+    TaskStorageProvider, TaskTransaction,
 };
 use tembra::{core, prelude::*};
 
-use crate::{Configuration, FACET_ID, TaskOutboxLimits, store::Store};
+use crate::{Configuration, FACET_ID, store::Store};
 
 /// Declares the ordinary application Facet and its eagerly opened, Host-owned SQLite Resource.
 ///
@@ -15,23 +15,10 @@ use crate::{Configuration, FACET_ID, TaskOutboxLimits, store::Store};
 /// Invalid configuration fails before installation. Filesystem, ownership, schema and database
 /// failures reject the Host installation waiter. Resource closure retains every committed row.
 pub fn facet(configuration: &Configuration) -> Result<NativeFacet> {
-    facet_with_outbox_limits(configuration, TaskOutboxLimits::default())
-}
-
-/// Opens the provider with explicit retained outbox admission limits.
-///
-/// # Errors
-/// Refuses invalid limits or configuration before installation; database errors reject Resource opening.
-pub fn facet_with_outbox_limits(
-    configuration: &Configuration,
-    outbox_limits: TaskOutboxLimits,
-) -> Result<NativeFacet> {
-    outbox_limits
-        .validate()
-        .map_err(|error| RuntimeError::invalid("task_storage_configuration", error.to_string()))?;
     configuration
         .validate()
         .map_err(|error| RuntimeError::invalid("task_storage_configuration", error.to_string()))?;
+    let outbox_limits = configuration.outbox;
     let database = configuration.database.clone();
     NativeFacet::new(FACET_ID, vec![], move |_, setup| {
         let database = database.clone();
@@ -107,6 +94,13 @@ impl TaskStorageProvider for Service {
             .commit(transaction)
             .map_err(crate::store::Error::into_runtime)
     }
+    async fn outbox_status(&self, _context: Context) -> Result<TaskOutboxStatus> {
+        self.resource
+            .value()?
+            .outbox_status()
+            .map_err(crate::store::Error::into_runtime)
+    }
+
     async fn register_outbox_consumer(
         &self,
         request: TaskOutboxConsumer,

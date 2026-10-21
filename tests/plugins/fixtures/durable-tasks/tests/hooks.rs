@@ -56,6 +56,7 @@ async fn open_config(
     host.install(
         swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
             database: directory.path().join("tasks.sqlite"),
+            outbox: Default::default(),
         })?,
         core::LoadOptions::default(),
     )?
@@ -458,6 +459,7 @@ fn cas_conflict_after_effect_never_publishes_fictitious_completion() {
             .install(
                 swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
                     database: directory.path().join("tasks.sqlite"),
+                    outbox: Default::default(),
                 })?,
                 core::LoadOptions::default(),
             )?
@@ -783,16 +785,14 @@ fn full_outbox_retains_settled_handler_decision_until_acknowledgement_frees_capa
         let directory = tempfile::tempdir().unwrap();
         let host = Host::with_driver("outbox-capacity", "application", driver.clone())?;
         host.install(
-            swarmie_task_storage_sqlite::facet_with_outbox_limits(
-                &swarmie_task_storage_sqlite::Configuration {
-                    database: directory.path().join("tasks.sqlite"),
-                },
-                swarmie_task_storage_sqlite::TaskOutboxLimits {
+            swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
+                database: directory.path().join("tasks.sqlite"),
+                outbox: swarmie_task_storage_sqlite::TaskOutboxLimits {
                     max_events: 2,
                     max_bytes: 65_536,
                     max_consumers: 1,
                 },
-            )?,
+            })?,
             core::LoadOptions::default(),
         )?
         .await?;

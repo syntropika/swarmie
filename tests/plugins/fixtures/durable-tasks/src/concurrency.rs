@@ -163,6 +163,10 @@ struct Proxy {
 }
 
 impl TaskStorageProvider for Proxy {
+    async fn outbox_status(&self, _context: Context) -> Result<TaskOutboxStatus> {
+        self.control.backend.outbox_status().await
+    }
+
     async fn register_outbox_consumer(
         &self,
         request: TaskOutboxConsumer,

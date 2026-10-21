@@ -36,6 +36,7 @@ async fn open(
     host.install(
         swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
             database: directory.path().join("tasks.sqlite"),
+            outbox: Default::default(),
         })?,
         core::LoadOptions::default(),
     )?
@@ -237,6 +238,7 @@ fn graceful_close_joins_physical_work_and_retries_without_counting_a_crash() {
             .install(
                 swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
                     database: directory.path().join("tasks.sqlite"),
+                    outbox: Default::default(),
                 })?,
                 core::LoadOptions::default(),
             )?
@@ -320,6 +322,7 @@ fn cancellation_of_a_large_tree_blocks_all_descendant_handler_admission() {
             .install(
                 swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
                     database: directory.path().join("tasks.sqlite"),
+                    outbox: Default::default(),
                 })?,
                 core::LoadOptions::default(),
             )?

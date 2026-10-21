@@ -107,6 +107,7 @@ fn retained_terminal_roots_stay_cold_during_idle_and_saturated_scheduling() {
             .install(
                 swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
                     database: directory.path().join("tasks.sqlite"),
+                    outbox: Default::default(),
                 })?,
                 core::LoadOptions::default(),
             )?

@@ -72,6 +72,12 @@ fn invalid(message: &str) -> RuntimeError {
 }
 
 impl TaskStorageProvider for Service {
+    async fn outbox_status(&self, _context: Context) -> Result<TaskOutboxStatus> {
+        let value = self.resource.value()?;
+        let data = value.borrow();
+        Ok(data.outbox.status(&data.store_id))
+    }
+
     async fn claim_owner(&self, owner: StorageOwner, _context: Context) -> Result<()> {
         validate_identity(&owner.id)?;
         let value = self.resource.value()?;
@@ -340,6 +346,10 @@ mod tests {
                     .await
                     .unwrap();
                 let register = |id: &str| TaskOutboxConsumer { id: id.into() };
+                let empty = storage.outbox_status().await.unwrap();
+                assert_eq!(empty.retained_events, 0);
+                assert_eq!(empty.limits.max_events, 4096);
+                assert_eq!(storage.outbox_status().await.unwrap(), empty);
                 let initial = storage
                     .register_outbox_consumer(register("publisher"))
                     .await
@@ -366,6 +376,11 @@ mod tests {
                     after,
                     limit,
                 };
+                let pending = storage.outbox_status().await.unwrap();
+                assert_eq!(pending.retained_events, 2);
+                assert_eq!(pending.pending_events, 2);
+                assert_eq!(pending.compactable_events, 0);
+                assert_eq!(pending.consumers.len(), 2);
                 let first = storage
                     .read_outbox(query("publisher", None, 1))
                     .await
@@ -501,6 +516,10 @@ mod tests {
                         .await
                         .unwrap();
                 }
+                let before = storage.outbox_status().await.unwrap();
+                assert_eq!(before.retained_events, 4096);
+                assert_eq!(before.pending_events, 4096);
+                assert!(before.consumers.is_empty());
                 let error = storage
                     .commit(TaskTransaction {
                         owner: "owner".into(),
@@ -509,6 +528,7 @@ mod tests {
                     .await
                     .unwrap_err();
                 assert_eq!(error.reason, "task_storage_outbox_full");
+                assert_eq!(storage.outbox_status().await.unwrap(), before);
                 assert_eq!(error.code, tembra::ErrorCode::Unavailable);
                 assert!(
                     storage

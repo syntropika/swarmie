@@ -166,7 +166,7 @@ fn child_process() -> Result<()> {
                 let host = Host::with_driver("process-durable", "application", driver.clone())?;
                 host.install(
                     swarmie_task_storage_sqlite::facet(
-                        &swarmie_task_storage_sqlite::Configuration { database },
+                        &swarmie_task_storage_sqlite::Configuration { database, outbox: Default::default(), },
                     )?,
                     core::LoadOptions::default(),
                 )?

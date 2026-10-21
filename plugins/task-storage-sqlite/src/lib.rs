@@ -10,8 +10,9 @@ mod outbox;
 mod service;
 mod store;
 
-pub use configuration::{Configuration, ConfigurationError, TaskOutboxLimits};
-pub use service::{facet, facet_with_outbox_limits};
+pub use configuration::{Configuration, ConfigurationError};
+pub use service::facet;
+pub use swarmie_task_contracts::TaskOutboxLimits;
 
 /// Logical identity of the compiled storage plugin.
 pub const PLUGIN_ID: &str = "swarmie.task-storage-sqlite";

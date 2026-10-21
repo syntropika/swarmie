@@ -1753,6 +1753,7 @@ dependencies = [
  "swarmie-memory-store",
  "swarmie-plugin-contracts",
  "swarmie-plugin-manager",
+ "swarmie-task-contracts",
  "swarmie-task-storage-sqlite",
  "tembra",
  "tembra-executor-js",

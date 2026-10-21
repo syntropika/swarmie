@@ -45,6 +45,40 @@ fn id(position: Position, store_id: &str) -> Option<TaskOutboxEventId> {
 }
 
 impl MemoryOutbox {
+    pub fn status(&self, store_id: &str) -> TaskOutboxStatus {
+        let acknowledged = self.consumers.values().map(|(ack, _)| *ack).min();
+        let compactable_events = acknowledged.map_or(0, |ack| {
+            self.events
+                .iter()
+                .take_while(|(event, _)| (event.id.sequence, i64::from(event.id.ordinal)) <= ack)
+                .count() as u64
+        });
+        TaskOutboxStatus {
+            store_id: store_id.into(),
+            limits: TaskOutboxLimits {
+                max_events: MAX_EVENTS as u64,
+                max_bytes: MAX_BYTES as u64,
+                max_consumers: MAX_CONSUMERS as u32,
+            },
+            retained_after: self.floor.clone(),
+            retained_events: self.events.len() as u64,
+            retained_bytes: self.bytes as u64,
+            compactable_events,
+            pending_events: self.events.len() as u64 - compactable_events,
+            consumers: self
+                .consumers
+                .iter()
+                .map(|(consumer_id, (ack, delivered))| TaskOutboxConsumerState {
+                    consumer_id: consumer_id.clone(),
+                    store_id: store_id.into(),
+                    acknowledged: id(*ack, store_id),
+                    delivered: id(*delivered, store_id),
+                    retained_after: self.floor.clone(),
+                })
+                .collect(),
+        }
+    }
+
     fn floor(&self) -> Position {
         self.floor
             .as_ref()

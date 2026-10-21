@@ -2,8 +2,8 @@ use tembra::prelude::*;
 
 use crate::{
     TaskId, TaskOutboxAcknowledgement, TaskOutboxCompaction, TaskOutboxConsumer,
-    TaskOutboxConsumerState, TaskOutboxPage, TaskOutboxQuery, TaskOutboxRetention, TaskRecord,
-    TaskStatus,
+    TaskOutboxConsumerState, TaskOutboxPage, TaskOutboxQuery, TaskOutboxRetention,
+    TaskOutboxStatus, TaskRecord, TaskStatus,
 };
 
 /// Exact task identity, without implementation-specific lookup details.
@@ -149,6 +149,11 @@ pub trait TaskStorage {
 
     #[portable]
     async fn commit(&self, transaction: TaskTransaction) -> Result<CommitResult>;
+
+    /// Inspects capacity, retained usage, durable consumer progress, and pending history without
+    /// changing them. Available while the outbox is full and without claiming scheduler ownership.
+    #[portable]
+    async fn outbox_status(&self) -> Result<TaskOutboxStatus>;
 
     /// Registers or resumes a durable consumer; future commits atomically append one event per
     /// task write in input order. Existing stores gain events only for subsequent commits.

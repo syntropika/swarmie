@@ -7,6 +7,75 @@ use crate::{TaskBlockingKind, TaskOutcomeKind, TaskRecord, TaskStatus};
 /// Maximum canonical JSON byte size of one durable structural event across providers.
 pub const MAX_TASK_OUTBOX_EVENT_BYTES: usize = 4096;
 
+/// Hard retained capacity, applied by the provider independently of scheduler admission.
+/// Missing JSON fields use defaults. No expiry, eviction, or acknowledgement is implied.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", default, deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct TaskOutboxLimits {
+    #[schemars(range(min = 1, max = 9_007_199_254_740_991_u64))]
+    pub max_events: u64,
+    #[schemars(range(min = 1, max = 9_007_199_254_740_991_u64))]
+    pub max_bytes: u64,
+    #[schemars(range(min = 1, max = 64))]
+    pub max_consumers: u32,
+}
+
+impl Default for TaskOutboxLimits {
+    fn default() -> Self {
+        Self {
+            max_events: 1_000_000,
+            max_bytes: 1_073_741_824,
+            max_consumers: 64,
+        }
+    }
+}
+
+impl TaskOutboxLimits {
+    /// Checks bounded admission settings without reading or changing storage.
+    ///
+    /// # Errors
+    /// Rejects zero or nonportable byte/event counts and consumer limits outside 1..=64.
+    pub fn validate(self) -> Result<()> {
+        if self.max_events == 0
+            || self.max_events > crate::MAX_PORTABLE_INTEGER
+            || self.max_bytes == 0
+            || self.max_bytes > crate::MAX_PORTABLE_INTEGER
+            || !(1..=64).contains(&self.max_consumers)
+        {
+            return Err(RuntimeError::invalid(
+                "task_storage_invalid",
+                "outbox limits require positive portable event and byte counts and 1..=64 consumers",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Read-only coherent outbox snapshot, available independently of scheduler ownership and
+/// capacity. Consumers are ordered by their case-sensitive identifier and never exceed 64.
+/// `compactable_events` is the retained prefix acknowledged by every registered consumer;
+/// it is zero with no consumers. `pending_events` counts the remaining protected events.
+/// Retained byte counts measure canonical event JSON, not database/index/WAL disk usage.
+/// Reading status never registers a consumer, advances delivery, acknowledges, or deletes data.
+/// Computing the compactable count may traverse the acknowledged retained prefix; providers
+/// should expose this monitoring snapshot outside their scheduling hot path.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct TaskOutboxStatus {
+    #[schemars(length(min = 1, max = 128))]
+    pub store_id: String,
+    pub limits: TaskOutboxLimits,
+    pub retained_after: Option<TaskOutboxEventId>,
+    pub retained_events: u64,
+    pub retained_bytes: u64,
+    pub compactable_events: u64,
+    pub pending_events: u64,
+    #[schemars(length(max = 64))]
+    pub consumers: Vec<TaskOutboxConsumerState>,
+}
+
 /// Stable identity and total order within one TaskStorage instance. Ordinals are zero based
 /// in the transaction's input order; sequences may contain multiple events.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -93,6 +162,7 @@ impl TaskOutboxEvent {
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
 pub struct TaskOutboxConsumer {
+    #[schemars(length(min = 1, max = 128))]
     pub id: String,
 }
 
@@ -104,6 +174,7 @@ pub struct TaskOutboxConsumer {
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
 pub struct TaskOutboxConsumerState {
+    #[schemars(length(min = 1, max = 128))]
     pub consumer_id: String,
     #[schemars(length(min = 1, max = 128))]
     pub store_id: String,
@@ -120,8 +191,10 @@ pub struct TaskOutboxConsumerState {
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
 pub struct TaskOutboxQuery {
+    #[schemars(length(min = 1, max = 128))]
     pub consumer_id: String,
     pub after: Option<TaskOutboxEventId>,
+    #[schemars(range(min = 1, max = 256))]
     pub limit: u32,
 }
 
@@ -146,6 +219,7 @@ pub struct TaskOutboxPage {
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
 pub struct TaskOutboxAcknowledgement {
+    #[schemars(length(min = 1, max = 128))]
     pub consumer_id: String,
     pub through: TaskOutboxEventId,
 }
@@ -157,6 +231,7 @@ pub struct TaskOutboxAcknowledgement {
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
 pub struct TaskOutboxCompaction {
+    #[schemars(range(min = 1, max = 4096))]
     pub limit: u32,
 }
 
