@@ -157,6 +157,27 @@ struct LoopSetup {
     contributions: Vec<NativeFacet>,
     binding_configuration: Option<swarmie_task_session_integration::Configuration>,
     tolerate_binding_startup_failure: bool,
+    session_provider: Option<NativeFacet>,
+}
+
+pub async fn open_with_session_provider(
+    driver: Rc<TokioDriver>,
+    root: &Path,
+    session_provider: NativeFacet,
+) -> Result<Harness> {
+    open_with_loop(
+        driver,
+        root,
+        vec![Reply::text("verified destination")],
+        Default::default(),
+        Some(true),
+        true,
+        LoopSetup {
+            session_provider: Some(session_provider),
+            ..Default::default()
+        },
+    )
+    .await
 }
 
 async fn open_with_loop(
@@ -173,6 +194,7 @@ async fn open_with_loop(
         contributions,
         binding_configuration,
         tolerate_binding_startup_failure,
+        session_provider,
     } = setup;
     let host = Host::with_driver("agent-acceptance", "application", driver.clone())?;
     let model = ModelProbe::default();
@@ -184,12 +206,15 @@ async fn open_with_loop(
             outbox: Default::default(),
             outbox_legacy_owners: Default::default(),
         })?,
-        swarmie_session_store_sqlite::facet(
-            &swarmie_session_store_sqlite::Configuration {
-                database: root.join("sessions.sqlite"),
-            },
-            driver.clone(),
-        )?,
+        match session_provider {
+            Some(provider) => provider,
+            None => swarmie_session_store_sqlite::facet(
+                &swarmie_session_store_sqlite::Configuration {
+                    database: root.join("sessions.sqlite"),
+                },
+                driver.clone(),
+            )?,
+        },
         model::facet(replies, model.clone())?,
     ] {
         host.install(facet, core::LoadOptions::default())?.await?;

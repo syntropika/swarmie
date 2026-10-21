@@ -171,7 +171,7 @@ pub(crate) async fn append(
 /// Rechecks real selected References immediately before history I/O, including cleanup roots.
 /// Store replacement during a call is not atomic with this check; returned source identities
 /// are checked separately and never establish a checkpoint for a foreign destination.
-async fn guard(
+pub(crate) async fn guard(
     sessions: &SessionStoreRef,
     turn: &TurnContext,
     context: &Context,

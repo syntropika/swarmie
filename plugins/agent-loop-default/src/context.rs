@@ -89,6 +89,7 @@ pub(crate) async fn select_messages(
     use swarmie_agent_contracts::{ContextBudget, ContextRange, ContextSelection, select_context};
     use swarmie_session_contracts::{EventQuery, SessionLookup};
 
+    let binding = journal::guard(store, &cp.turn(request), context).await?;
     let record = store
         .with_context(context)
         .open(SessionLookup {
@@ -96,6 +97,13 @@ pub(crate) async fn select_messages(
         })
         .await?
         .ok_or_else(|| crate::state::invalid("context session is absent"))?;
+    if record.store_id != binding.destination.session_store_id
+        || record.session_id != binding.destination.session_id
+    {
+        return Err(crate::state::invalid(
+            "context session differs from the confirmed destination",
+        ));
+    }
     let mut ranges = vec![ContextRange {
         after_sequence: 0,
         through_sequence: cp.input_sequence,
@@ -135,6 +143,13 @@ pub(crate) async fn select_messages(
         loop {
             context.check(context.host_id())?;
             let page = store.with_context(context).events(query.clone()).await?;
+            if page.store_id != binding.destination.session_store_id
+                || page.session_id != binding.destination.session_id
+            {
+                return Err(crate::state::invalid(
+                    "selected context belongs to a different routed destination",
+                ));
+            }
             for event in page.events {
                 if event.session_id != request.session_id
                     || event.event.correlation.conversation_id.as_deref()

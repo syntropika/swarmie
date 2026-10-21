@@ -1,6 +1,7 @@
 //! Joint Profile selection and fresh-Host recovery of independently composed capabilities.
 
 use serde_json::json;
+use swarmie_agent_contracts::{AgentLoop, AgentLoopInput, TurnLookup};
 use swarmie_composition::Selection;
 use swarmie_model_contracts::{
     ModelEndpoint, ModelIdentity, ModelProviderSchemaInput, ProviderRegistration, Support,
@@ -14,6 +15,7 @@ use swarmie_session_contracts::{
 use swarmie_task_contracts::{
     DurableTasks, DurableTasksInput, TaskLookup, TaskSpec, TaskStorage, TaskStorageInput,
 };
+use swarmie_task_session_contracts::*;
 use tembra_native::TokioDriver;
 
 fn selection(id: &str, plugin: &str, config: serde_json::Value) -> Selection {
@@ -27,7 +29,7 @@ fn selection(id: &str, plugin: &str, config: serde_json::Value) -> Selection {
 }
 
 #[test]
-fn session_models_and_durable_tasks_share_a_host_and_recover_the_selected_profile() {
+fn all_selected_core_capabilities_recover_binding_publication_and_the_profile() {
     let driver = TokioDriver::new();
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -59,6 +61,50 @@ fn session_models_and_durable_tasks_share_a_host_and_recover_the_selected_profil
                         "id": "local", "provider": "ollama", "models": ["configured-model"]
                     }]}),
                 ),
+            ]);
+            let initial = start(
+                driver.clone(),
+                Configuration {
+                    database: directory.path().join("administration.sqlite"),
+                    source: directory.path().join("source"),
+                    application: Some(application.clone()),
+                },
+            )
+            .await
+            .unwrap();
+            assert!(initial.deployment_errors.is_empty());
+            let task_store_id = initial
+                .host
+                .get(TaskStorage, TaskStorageInput {})
+                .await
+                .unwrap()
+                .outbox_status()
+                .await
+                .unwrap()
+                .store_id;
+            let session_store_id = initial
+                .host
+                .get(SessionStore, SessionStoreInput {})
+                .await
+                .unwrap()
+                .publication_status()
+                .await
+                .unwrap()
+                .durable
+                .store_id;
+            initial.host.close().await.unwrap();
+            drop(initial);
+            application.composition.profile.plugins.extend([
+                selection(
+                    "history-bridge",
+                    swarmie_task_session_integration::PLUGIN_ID,
+                    json!({
+                        "database":directory.path().join("bindings.sqlite"),
+                        "task_store_id":task_store_id, "session_store_id":session_store_id,
+                        "consumer_id":"core-history", "auto_publish":false,
+                    }),
+                ),
+                selection("agent", swarmie_agent_loop_default::PLUGIN_ID, json!({})),
             ]);
             let append = AppendEvents {
                 session_id: "history".into(),
@@ -98,6 +144,8 @@ fn session_models_and_durable_tasks_share_a_host_and_recover_the_selected_profil
                     swarmie_task_storage_sqlite::PLUGIN_ID,
                     swarmie_durable_tasks::PLUGIN_ID,
                     swarmie_model_provider_genai::PLUGIN_ID,
+                    swarmie_task_session_integration::PLUGIN_ID,
+                    swarmie_agent_loop_default::PLUGIN_ID,
                 ] {
                     assert!(
                         inventory.plugins.iter().any(|entry| {
@@ -118,7 +166,11 @@ fn session_models_and_durable_tasks_share_a_host_and_recover_the_selected_profil
                     })
                     .await
                     .unwrap();
-                assert_eq!(session.head, u64::from(reopening));
+                if reopening {
+                    assert!(session.head >= 1);
+                } else {
+                    assert_eq!(session.head, 0);
+                }
                 let committed = sessions.append(append.clone()).await.unwrap();
                 assert_eq!(committed.store_id, session.store_id);
                 assert_eq!(committed.last_sequence, 1);
@@ -132,19 +184,75 @@ fn session_models_and_durable_tasks_share_a_host_and_recover_the_selected_profil
                     .get(DurableTasks, DurableTasksInput {})
                     .await
                     .unwrap();
+                let bindings = runtime
+                    .host
+                    .get(TaskSessionBindings, TaskSessionBindingsInput {})
+                    .await
+                    .unwrap();
+                let key = BindingKey {
+                    task_store_id: task_store_id.clone(),
+                    task_id: "retained-task".into(),
+                };
                 if !reopening {
-                    tasks
-                        .create(TaskSpec {
-                            id: "retained-task".into(),
-                            kind: "fixture.unavailable".into(),
-                            definition_version: 1,
-                            input: json!({"retained": true}),
-                            checkpoint: json!({}),
-                            phase: "start".into(),
+                    bindings
+                        .prepare(PrepareBinding {
+                            task_store_id: task_store_id.clone(),
+                            task: TaskSpec {
+                                id: "retained-task".into(),
+                                kind: "fixture.unavailable".into(),
+                                definition_version: 1,
+                                input: json!({"retained":true}),
+                                checkpoint: json!({}),
+                                phase: "start".into(),
+                            },
+                            destination: SessionDestination {
+                                session_store_id: session_store_id.clone(),
+                                session_id: "history".into(),
+                                conversation_id: "conversation".into(),
+                                turn_id: "core-turn".into(),
+                            },
+                            routing_version: 1,
                         })
                         .await
                         .unwrap();
+                    bindings.admit(key.clone()).await.unwrap();
                 }
+                assert_eq!(
+                    bindings
+                        .require_confirmed_binding(key)
+                        .await
+                        .unwrap()
+                        .admission,
+                    BindingAdmission::Active
+                );
+                let publisher = runtime
+                    .host
+                    .get(TaskSessionPublisher, TaskSessionPublisherInput {})
+                    .await
+                    .unwrap();
+                let published = publisher
+                    .publish(PublishRequest { limit: 128 })
+                    .await
+                    .unwrap();
+                if !reopening {
+                    assert!(published.published > 0);
+                }
+                let agent = runtime
+                    .host
+                    .get(AgentLoop, AgentLoopInput {})
+                    .await
+                    .unwrap();
+                assert!(
+                    agent
+                        .inspect(TurnLookup {
+                            session_id: "history".into(),
+                            conversation_id: "conversation".into(),
+                            turn_id: "absent-turn".into()
+                        })
+                        .await
+                        .unwrap()
+                        .is_none()
+                );
                 let retained = tasks
                     .get(TaskLookup {
                         id: "retained-task".into(),
