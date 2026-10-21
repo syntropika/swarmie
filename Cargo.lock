@@ -3063,7 +3063,7 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 [[package]]
 name = "tembra"
 version = "0.1.0"
-source = "git+https://github.com/syntropika/tembra.git?rev=5d57976f92459cf5497ae6e3941b30f903bea742#5d57976f92459cf5497ae6e3941b30f903bea742"
+source = "git+https://github.com/syntropika/tembra.git?rev=176e4d2df20f00ad3b5d565edc7fa2f0f804755b#176e4d2df20f00ad3b5d565edc7fa2f0f804755b"
 dependencies = [
  "futures",
  "schemars 1.2.3",
@@ -3079,7 +3079,7 @@ dependencies = [
 [[package]]
 name = "tembra-contracts"
 version = "0.1.0"
-source = "git+https://github.com/syntropika/tembra.git?rev=5d57976f92459cf5497ae6e3941b30f903bea742#5d57976f92459cf5497ae6e3941b30f903bea742"
+source = "git+https://github.com/syntropika/tembra.git?rev=176e4d2df20f00ad3b5d565edc7fa2f0f804755b#176e4d2df20f00ad3b5d565edc7fa2f0f804755b"
 dependencies = [
  "schemars 1.2.3",
  "serde",
@@ -3091,7 +3091,7 @@ dependencies = [
 [[package]]
 name = "tembra-core"
 version = "0.1.0"
-source = "git+https://github.com/syntropika/tembra.git?rev=5d57976f92459cf5497ae6e3941b30f903bea742#5d57976f92459cf5497ae6e3941b30f903bea742"
+source = "git+https://github.com/syntropika/tembra.git?rev=176e4d2df20f00ad3b5d565edc7fa2f0f804755b#176e4d2df20f00ad3b5d565edc7fa2f0f804755b"
 dependencies = [
  "futures",
  "serde",
@@ -3102,7 +3102,7 @@ dependencies = [
 [[package]]
 name = "tembra-executor-js"
 version = "0.1.0"
-source = "git+https://github.com/syntropika/tembra.git?rev=5d57976f92459cf5497ae6e3941b30f903bea742#5d57976f92459cf5497ae6e3941b30f903bea742"
+source = "git+https://github.com/syntropika/tembra.git?rev=176e4d2df20f00ad3b5d565edc7fa2f0f804755b#176e4d2df20f00ad3b5d565edc7fa2f0f804755b"
 dependencies = [
  "deno_core",
  "futures",
@@ -3118,7 +3118,7 @@ dependencies = [
 [[package]]
 name = "tembra-hooks"
 version = "0.1.0"
-source = "git+https://github.com/syntropika/tembra.git?rev=5d57976f92459cf5497ae6e3941b30f903bea742#5d57976f92459cf5497ae6e3941b30f903bea742"
+source = "git+https://github.com/syntropika/tembra.git?rev=176e4d2df20f00ad3b5d565edc7fa2f0f804755b#176e4d2df20f00ad3b5d565edc7fa2f0f804755b"
 dependencies = [
  "futures",
  "serde",
@@ -3131,7 +3131,7 @@ dependencies = [
 [[package]]
 name = "tembra-macros"
 version = "0.1.0"
-source = "git+https://github.com/syntropika/tembra.git?rev=5d57976f92459cf5497ae6e3941b30f903bea742#5d57976f92459cf5497ae6e3941b30f903bea742"
+source = "git+https://github.com/syntropika/tembra.git?rev=176e4d2df20f00ad3b5d565edc7fa2f0f804755b#176e4d2df20f00ad3b5d565edc7fa2f0f804755b"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3141,7 +3141,7 @@ dependencies = [
 [[package]]
 name = "tembra-native"
 version = "0.1.0"
-source = "git+https://github.com/syntropika/tembra.git?rev=5d57976f92459cf5497ae6e3941b30f903bea742#5d57976f92459cf5497ae6e3941b30f903bea742"
+source = "git+https://github.com/syntropika/tembra.git?rev=176e4d2df20f00ad3b5d565edc7fa2f0f804755b#176e4d2df20f00ad3b5d565edc7fa2f0f804755b"
 dependencies = [
  "futures",
  "getrandom 0.4.3",
