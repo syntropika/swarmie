@@ -1,5 +1,5 @@
 {
-  "extends": "../../packages/config/ts/base.json",
-  "compilerOptions": { "types": ["bun"] },
+  "extends": "../../packages/config/ts/react.json",
+  "compilerOptions": { "types": ["bun", "vite/client"] },
   "include": ["**/*.ts"]
 }

@@ -127,6 +127,10 @@ tembra-browser-tools:
 plugin-browser-check: tembra-plugins tembra-browser
     bun tests/plugins/browser/check.ts
 
+# Bounded real-Host UI composition spike. The optional --serve flag keeps the demo open.
+ui-composition-spike *arguments: tembra-plugins tembra-browser
+    bun tests/plugins/ui-composition-spike/run.ts "$@"
+
 # Session authority, replay and actual Tembra/SQLite durability acceptance.
 session-test:
     just rust-test -p swarmie-session-contracts -p swarmie-session-store-sqlite
