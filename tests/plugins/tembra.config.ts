@@ -1,6 +1,18 @@
 import { defineConfig } from "@tembra/sdk/tooling";
 
 const contracts = [
+  [
+    "task-session-bindings",
+    "TaskSessionBindings",
+    "swarmie-task-session-contracts",
+    "task-session-contract",
+  ],
+  [
+    "task-session-publisher",
+    "TaskSessionPublisher",
+    "swarmie-task-session-contracts",
+    "task-session-contract",
+  ],
   ["session-store", "SessionStore", "swarmie-session-contracts", "session-contract"],
   ["counter", "Counter", "swarmie-counter", "fixture-contract"],
   ["remote-counter", "RemoteCounter", "swarmie-counter", "fixture-contract"],
@@ -55,6 +67,7 @@ const watch = [
   ...[
     "crates/plugin-contracts",
     "crates/task-contracts",
+    "crates/task-session-contracts",
     "crates/session-contracts",
     "tests/plugins/fixtures/counter",
     "tests/plugins/fixtures/durable-tasks",

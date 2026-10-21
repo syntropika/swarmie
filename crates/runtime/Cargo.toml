@@ -9,6 +9,7 @@ rust-version.workspace = true
 swarmie-composition = { path = "../composition" }
 swarmie-memory-store = { path = "../../plugins/memory-store" }
 swarmie-session-store-sqlite = { path = "../../plugins/session-store-sqlite" }
+swarmie-task-session-integration = { path = "../../plugins/task-session-integration" }
 swarmie-task-storage-sqlite = { path = "../../plugins/task-storage-sqlite" }
 swarmie-durable-tasks = { path = "../../plugins/durable-tasks", features = ["javascript"] }
 swarmie-plugin-contracts = { path = "../plugin-contracts" }
@@ -24,6 +25,7 @@ serde.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+swarmie-task-session-contracts = { path = "../task-session-contracts" }
 swarmie-session-contracts = { path = "../session-contracts" }
 swarmie-counter = { path = "../../tests/plugins/fixtures/counter" }
 swarmie-task-contracts = { path = "../task-contracts" }

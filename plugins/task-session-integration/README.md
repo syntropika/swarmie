@@ -88,8 +88,8 @@ Automatic activity resumes from the durable ACK after reopening. `auto_publish=f
 an embedding to drive the same bounded `publish` method explicitly through the managed Facet.
 `diagnostics` reports authoritative capacity, positions, bounded retained lag and failure
 categories. Its bounded source reads can advance the delivery watermark, never the ACK.
-Lag is a lower bound when `lag_complete=false`. `capacity_exhausted` reports a reached retained
-event/byte limit; remaining bytes may still be insufficient for the next fact. No diagnostic
+Lag is a lower bound when `lag_complete=false`. `capacity_exhausted` is true when retained usage
+has reached an event or byte limit; remaining bytes may still be insufficient for the next fact. No diagnostic
 proves physical disk headroom. Failure counters clear on restart; ACKs and routes do not.
 
 ACK does not free retained capacity. Explicit `compact` delegates bounded deletion to

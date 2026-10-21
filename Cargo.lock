@@ -1758,6 +1758,8 @@ dependencies = [
  "swarmie-session-contracts",
  "swarmie-session-store-sqlite",
  "swarmie-task-contracts",
+ "swarmie-task-session-contracts",
+ "swarmie-task-session-integration",
  "swarmie-task-storage-sqlite",
  "tembra",
  "tembra-executor-js",

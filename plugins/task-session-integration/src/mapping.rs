@@ -72,3 +72,109 @@ pub(crate) fn receipt(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use swarmie_task_contracts::{TaskOutboxEventId, TaskRecord, TaskSpec};
+    use swarmie_task_session_contracts::{BindingAdmission, BindingKey, SessionDestination};
+
+    fn fixture() -> (TaskSessionBinding, TaskOutboxEvent) {
+        let task = TaskSpec {
+            id: "task".into(),
+            kind: "fixture.mapping".into(),
+            definition_version: 1,
+            input: serde_json::json!({}),
+            checkpoint: serde_json::json!({}),
+            phase: "start".into(),
+        };
+        let binding = TaskSessionBinding {
+            key: BindingKey {
+                task_store_id: "source".into(),
+                task_id: task.id.clone(),
+            },
+            destination: SessionDestination {
+                session_store_id: "destination".into(),
+                session_id: "session".into(),
+                conversation_id: "conversation".into(),
+                turn_id: "turn".into(),
+            },
+            root_task_id: task.id.clone(),
+            parent_task_id: None,
+            routing_version: 1,
+            task: task.clone(),
+            admission: BindingAdmission::Pending,
+        };
+        let fact = TaskOutboxEvent::from_records(
+            TaskOutboxEventId {
+                store_id: "source".into(),
+                sequence: 1,
+                ordinal: 0,
+            },
+            None,
+            &TaskRecord::new(task, None),
+            1,
+            None,
+        );
+        (binding, fact)
+    }
+
+    #[test]
+    fn exact_mapping_survives_admission_change_and_distinguishes_source_identity() {
+        let (mut binding, mut fact) = fixture();
+        let first = append(&binding, &fact).unwrap();
+        binding.admission = BindingAdmission::Active;
+        assert_eq!(append(&binding, &fact).unwrap(), first);
+        assert_ne!(first.batch_id, first.events[0].event_id);
+        assert_eq!(first.expected_head, None);
+        assert_eq!(first.events[0].occurred_at_ms, None);
+        binding.key.task_store_id = "replacement".into();
+        fact.id.store_id = "replacement".into();
+        assert_ne!(append(&binding, &fact).unwrap().batch_id, first.batch_id);
+        fact.version = 3;
+        assert_eq!(
+            append(&binding, &fact).unwrap_err().reason,
+            "binding_version"
+        );
+    }
+
+    #[test]
+    fn only_matching_single_event_receipts_are_confirmed() {
+        let (binding, fact) = fixture();
+        let request = append(&binding, &fact).unwrap();
+        let valid = AppendReceipt {
+            store_id: binding.destination.session_store_id.clone(),
+            session_id: request.session_id.clone(),
+            batch_id: request.batch_id.clone(),
+            first_sequence: 7,
+            last_sequence: 7,
+            commit_sequence: 10,
+        };
+        receipt(&binding, &request, &valid).unwrap();
+        let mut wrong = vec![];
+        let mut candidate = valid.clone();
+        candidate.store_id = "other".into();
+        wrong.push(candidate);
+        let mut candidate = valid.clone();
+        candidate.session_id = "other".into();
+        wrong.push(candidate);
+        let mut candidate = valid.clone();
+        candidate.batch_id = "other".into();
+        wrong.push(candidate);
+        let mut candidate = valid.clone();
+        candidate.last_sequence = 8;
+        wrong.push(candidate);
+        let mut candidate = valid.clone();
+        candidate.first_sequence = 0;
+        wrong.push(candidate);
+        let mut candidate = valid;
+        candidate.commit_sequence = 0;
+        wrong.push(candidate);
+        for candidate in wrong {
+            assert_eq!(
+                receipt(&binding, &request, &candidate).unwrap_err().reason,
+                "binding_session_receipt"
+            );
+        }
+    }
+}

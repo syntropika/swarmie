@@ -5,9 +5,9 @@ use tembra::ContractToken;
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let contract = match std::env::args().nth(1).as_deref() {
-        Some("bindings") => TaskSessionBindings.descriptor()?,
-        Some("publisher") => TaskSessionPublisher.descriptor()?,
-        _ => return Err("expected bindings or publisher".into()),
+        Some("task-session-bindings") => TaskSessionBindings.descriptor()?,
+        Some("task-session-publisher") => TaskSessionPublisher.descriptor()?,
+        _ => return Err("expected task-session-bindings or task-session-publisher".into()),
     };
     println!("{}", serde_json::to_string(contract.descriptor())?);
     Ok(())
