@@ -74,19 +74,31 @@ impl ModelReference {
         }
     }
     pub async fn capabilities(&self, model: ModelIdentity) -> Result<Capabilities> {
-        self.raw
-            .call("capabilities", (model,), self.context.as_ref())
-            .await
+        invoke(
+            &self.raw,
+            "capabilities",
+            Some(tembra::serde_json::json!(model)),
+            self.context.as_ref(),
+        )
+        .await
     }
     pub async fn models(&self, connection: String) -> Result<ModelList> {
-        self.raw
-            .call("models", (connection,), self.context.as_ref())
-            .await
+        invoke(
+            &self.raw,
+            "models",
+            Some(tembra::serde_json::json!(connection)),
+            self.context.as_ref(),
+        )
+        .await
     }
     pub async fn generate(&self, request: ModelRequest) -> Result<GenerateResult> {
-        self.raw
-            .call("generate", (request,), self.context.as_ref())
-            .await
+        invoke(
+            &self.raw,
+            "generate",
+            Some(tembra::serde_json::json!(request)),
+            self.context.as_ref(),
+        )
+        .await
     }
 }
 
@@ -141,14 +153,39 @@ impl GenerationReference {
         Readable::from_reference(self.raw.clone(), "progress")
     }
     pub async fn start(&self) -> Result<()> {
-        self.raw.call("start", (), self.context.as_ref()).await
+        self.raw
+            .call_json("start", None, self.context.as_ref())
+            .await
+            .map(|_| ())
     }
     pub async fn acknowledge(&self, through: u64) -> Result<()> {
         self.raw
-            .call("acknowledge", (through,), self.context.as_ref())
+            .call_json(
+                "acknowledge",
+                Some(tembra::serde_json::json!(through)),
+                self.context.as_ref(),
+            )
             .await
+            .map(|_| ())
     }
     pub async fn cancel(&self) -> Result<()> {
-        self.raw.call("cancel", (), self.context.as_ref()).await
+        self.raw
+            .call_json("cancel", None, self.context.as_ref())
+            .await
+            .map(|_| ())
     }
+}
+
+async fn invoke<T: tembra::serde::de::DeserializeOwned>(
+    raw: &core::Reference,
+    method: &str,
+    args: Option<tembra::serde_json::Value>,
+    context: Option<&core::Context>,
+) -> Result<T> {
+    let value = raw
+        .call_json(method, args, context)
+        .await?
+        .ok_or_else(|| RuntimeError::invalid("model_result", "missing model result"))?;
+    tembra::contracts::from_portable_value(&value)
+        .map_err(|_| RuntimeError::invalid("model_result", "invalid model result"))
 }
