@@ -147,6 +147,59 @@ struct Service {
     engine: Rc<Engine>,
 }
 
+impl Service {
+    /// A definite capacity refusal permits only local signalling, never durable intent claims.
+    async fn cancellation_unconfirmed(&self, context: &Context, root: &str) -> RuntimeError {
+        let active = self
+            .engine
+            .active
+            .borrow()
+            .iter()
+            .map(|(id, token)| (id.clone(), token.clone()))
+            .collect::<Vec<_>>();
+        let cancellation = RuntimeError::aborted(
+            "task_cancelled",
+            "local cancellation signal; durable intent is unconfirmed",
+        );
+        let mut signalled = 0;
+        // The requested active task must not depend on another successful storage read.
+        if let Some((_, token)) = active.iter().find(|(id, _)| id == root) {
+            token.cancel(cancellation.clone());
+            signalled += 1;
+        }
+        let mut failed = 0;
+        let mut first_failure = None;
+        for (id, token) in active {
+            if id == root {
+                continue;
+            }
+            match self.engine.family(context, &id).await {
+                Ok(family) if family.ancestors.iter().any(|ancestor| ancestor.id == root) => {
+                    token.cancel(cancellation.clone());
+                    signalled += 1;
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    self.engine.observations.record_error(&error);
+                    failed += 1;
+                    first_failure.get_or_insert_with(|| {
+                        error.to_string().chars().take(256).collect::<String>()
+                    });
+                }
+            }
+        }
+        let detail = first_failure.map_or_else(String::new, |error| {
+            format!("; first descendant check failure: {error}")
+        });
+        RuntimeError::unavailable(
+            "durable_tasks_cancellation_unconfirmed",
+            format!(
+                "outbox capacity rejected cancellation: intent was not persisted; local cancellation was signalled to {signalled} active invocations; {failed} descendant checks failed{detail}; restore outbox capacity and retry cancel to confirm durable intent"
+            ),
+        )
+    }
+}
+
 struct Monitor {
     observations: Rc<Observations>,
 }
@@ -278,11 +331,13 @@ impl DurableTasksProvider for Service {
                 let mut next = root.clone();
                 let change = Change::from_record(&root, TaskLifecycleOrigin::Cancellation);
                 next.cancellation_requested = true;
-                if matches!(
-                    self.engine.update(&context, next, change).await?,
-                    CommitResult::Conflict { .. }
-                ) {
-                    continue;
+                match self.engine.update(&context, next, change).await {
+                    Ok(CommitResult::Conflict { .. }) => continue,
+                    Ok(CommitResult::Committed { .. }) => {}
+                    Err(error) if error.reason == "task_storage_outbox_full" => {
+                        return Err(self.cancellation_unconfirmed(&context, &request.id).await);
+                    }
+                    Err(error) => return Err(error),
                 }
             }
             // Persist root intent first. Work hints enqueue its active subtree; fresh
