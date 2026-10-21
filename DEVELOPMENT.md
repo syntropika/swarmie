@@ -3,6 +3,72 @@
 This guide covers local setup, development commands, extension points and repository structure.
 For an introduction to the project, see [README.md](README.md).
 
+## Verification tiers and evidence
+
+Run `just quality-local-plan /path/to/fresh/evidence BASE` to inspect local feedback and
+`just quality-local /path/to/fresh/evidence BASE` to execute it. The plan includes pending
+tracked edits and untracked inputs. Rust tests and Clippy select affected workspace packages
+and their reverse dependents from real `cargo metadata --locked --all-features`; test
+dependencies participate in affected-test selection. Unknown paths, foundational settings,
+dependency or workflow changes and unavailable history select full verification. Frontend
+feedback retains the root formatting, lint and test policies. Prepare the source SDK and
+generated Contracts through the normal setup first.
+
+`just quality-integration` verifies Contracts, integration behavior, default and all workspace
+features, the declared Rust minimum and root frontend policy. The feature/MSRV inventory records
+actual package declarations. The supported MSRV currently equals the pinned compiler; changing
+it requires an explicit additional qualified toolchain lane. The all-features profile does not
+claim every feature subset or target combination. GitHub's existing `Plugin foundation / verify`
+and `Shared frontend / verify` jobs keep stable identities and record explicit family selection.
+A failed selection job fails its verification job. No private service credentials are needed.
+These integration checks apply before direct publication to `develop` or `main` and also run
+for pull request events when applicable; creating a pull request is not required.
+
+`just quality-exhaustive` adds the real Chromium Browser Host and WASM ABI checks. The foundation
+workflow runs that additional lane on selected `develop`/`main` pushes, manual runs and nightly
+runs. Existing native JavaScript/V8 lifecycle, replacement and storage conformance fixtures are
+part of Rust integration tests. This is not the upstream runtime's complete conformance suite.
+Dedicated fuzzing and mutation harnesses are not implemented. Linux browser checks do not
+qualify macOS builds, native Mobile devices or credentialed distribution/signing workflows;
+those retain their independent scopes.
+
+Coverage uses the existing Bun LCOV producer and pinned `cargo-llvm-cov` rather than a custom
+instrumenter. The `Quality evidence` workflow retains raw reports, producer failures and source
+identities. Global coverage is initially a nonblocking trend observation. The changed executable
+line objective is **90% after establishing a qualified baseline**; this delivery captures baseline
+evidence and does not activate a percentage gate. The summary inventories all tracked supported
+source suffixes, including fixtures, tests and vendored sources, so its instrumented-line total
+is not a claim of complete production-source coverage. Python/Ruby/shell code, unloaded frontend
+modules, excluded Rust targets and any other source absent from LCOV remain explicitly unmeasured.
+Do not interpret absent source files as fully covered.
+
+To summarize a report, run `python3 tools/quality/coverage.py --lcov REPORT --base BASE
+--evidence PRODUCER_RESULT_JSON --output SUMMARY_JSON`. A matching successful producer receipt
+must identify the current source bytes and report hash to verify source provenance. Without it,
+the summary is explicitly unverified. Added/modified destination lines form the diff; deleted
+source lines are excluded and renamed destinations are treated as added files. Only producer
+`DA` entries enter the executable-line denominator. Added lines outside that map are listed
+separately, without claiming they cannot execute. Missing comparison history yields unavailable
+diff coverage, never a synthetic 100%. Coverage is execution evidence, not correctness proof.
+
+`python3 tools/quality/evidence.py --output /path/to/fresh/evidence --tool cargo --criterion ID
+-- COMMAND ...` records actual exit status, complete source hashes before/after, tool identity,
+logs and explicitly requested artifacts. Evidence stays outside the checkout. A failed or
+interrupted command remains failed/incomplete and its output cannot be reused by a later run.
+`tools/quality/critical-cases.json` maps the quality tooling's success, rejection and recovery
+cases; `just quality-test OUTPUT_JSON` records individual executed outcomes and rejects missing
+or skipped mapped cases. It does not qualify application critical behavior. Runtime authorization,
+durability and recovery need their own reviewed scenario mappings and actual results. Neither
+aggregate pass counts, a build, coverage percentage nor a criterion label automatically marks
+acceptance complete; evidence records leave acceptance undetermined for review.
+
+Architecture checks inspect resolved package IDs and transitive normal/build dependencies,
+including target conditions, while recording and excluding dev-only edges. They enforce portable
+Contract independence, Agent loop/provider separation, scheduler/storage separation, public
+source ownership and a consistent immutable Tembra Rust/SDK pin. Static dependency checks cannot
+prove runtime authorization, lifecycle, transaction semantics or absence of another scheduler;
+real behavioral tests remain required.
+
 ## Architecture
 
 The runtime bootstraps Tembra and plugin administration. Application capabilities live in

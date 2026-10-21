@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "scope": "quality automation tooling only",
+  "limitations": [
+    "This manifest does not qualify the application's critical authorization, task durability, replay or recovery behavior.",
+    "Runtime critical behavior needs its own reviewed per-scenario mapping and actual executed evidence."
+  ],
+  "criteria": {
+    "selection.fail-safe": {
+      "success": ["test_quality.SelectionTests.test_known_families_and_foundational_changes"],
+      "rejection": ["test_quality.SelectionTests.test_missing_history_runs_every_family"],
+      "recovery": [
+        "test_quality.SelectionTests.test_rename_selects_both_sides_and_recovers_after_valid_base"
+      ]
+    },
+    "architecture.production-ownership": {
+      "success": [
+        "test_quality.ArchitectureTests.test_real_workspace_passes",
+        "test_quality.ArchitectureTests.test_development_fixture_dependency_is_allowed"
+      ],
+      "rejection": [
+        "test_quality.ArchitectureTests.test_contract_cannot_import_provider_transitively",
+        "test_quality.ArchitectureTests.test_target_build_edge_cannot_bypass_agent_policy"
+      ],
+      "recovery": [
+        "test_quality.ArchitectureTests.test_scheduler_cannot_import_sqlite_and_original_graph_recovers"
+      ]
+    },
+    "coverage.no-false-completeness": {
+      "success": [
+        "test_quality.CoverageTests.test_diff_reports_uncovered_missing_unmapped_and_deletions"
+      ],
+      "rejection": [
+        "test_quality.CoverageTests.test_missing_history_is_unavailable_never_full_coverage"
+      ],
+      "recovery": [
+        "test_quality.CoverageTests.test_invalid_counts_are_rejected_and_duplicate_records_merge"
+      ]
+    },
+    "evidence.actual-outcome": {
+      "success": [
+        "test_quality.EvidenceTests.test_source_change_and_missing_executable_are_explicit"
+      ],
+      "rejection": [
+        "test_quality.EvidenceTests.test_output_reuse_and_output_inside_source_are_rejected"
+      ],
+      "recovery": [
+        "test_quality.EvidenceTests.test_failure_is_retained_then_success_is_independently_recorded"
+      ]
+    }
+  }
+}

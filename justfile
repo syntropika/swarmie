@@ -114,7 +114,7 @@ tembra-tooling-test:
 tembra-authoring-test: tembra-plugins
     bun test tests/plugins/lifecycle-authoring.test.ts tests/plugins/fixtures/agent-context/contracts.test.ts
 
-foundation-check: tembra-tooling-test tembra-authoring-test rust-check
+foundation-check: tembra-tooling-test diagnostics-test tembra-authoring-test rust-check
     bunx tsc --noEmit -p tests/plugins/tsconfig.json
     bunx tsc --noEmit -p scripts/tembra/tsconfig.json
 
@@ -175,3 +175,29 @@ diagnostics-check:
     cargo +{{rust_version}} clippy --locked -p swarmie-agent-loop-fixture --example runtime-diagnostic --test diagnostic -- -D warnings
     RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D rustdoc::broken_intra_doc_links" cargo +{{rust_version}} doc --locked -p swarmie-agent-loop-fixture --no-deps
     just diagnostics-test
+
+# Fast local planning includes dirty files and actual reverse Cargo dependencies.
+# Evidence output must be a fresh directory outside the checkout.
+quality-local output base="HEAD":
+    python3 tools/quality/local.py --base {{quote(base)}} --output {{quote(output)}} --execute
+
+quality-local-plan output base="HEAD":
+    python3 tools/quality/local.py --base {{quote(base)}} --output {{quote(output)}}
+
+quality-architecture output:
+    python3 tools/quality/architecture.py --output {{quote(output)}}
+
+quality-test output:
+    python3 tools/quality/cases.py --output {{quote(output)}}
+
+quality-coverage report output base="HEAD":
+    python3 tools/quality/coverage.py --lcov {{quote(report)}} --base {{quote(base)}} --output {{quote(output)}}
+
+# Default integration retains Contracts, actual native lifecycle and existing policy.
+quality-integration: foundation-check
+    bun run check
+    python3 tools/quality/matrix.py --output target/quality/feature-msrv-inventory.json
+    cargo +{{rust_version}} test --locked --workspace --all-features
+
+# Browser/WASM and JavaScript execution are actual supported qualification paths.
+quality-exhaustive: quality-integration tembra-browser-tools plugin-browser-check

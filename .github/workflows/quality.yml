@@ -1,0 +1,150 @@
+name: Quality evidence
+
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-evidence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      foundation: ${{ steps.select.outputs.foundation }}
+      frontend: ${{ steps.select.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: select
+        run: python3 tools/quality/plan.py --output "$RUNNER_TEMP/selection.json" --github-output "$GITHUB_OUTPUT"
+      - name: Install the declared Rust toolchain
+        run: rustup toolchain install 1.99.0 --profile minimal
+      - name: Verify architecture and quality failure modes
+        run: |
+          python3 tools/quality/evidence.py --output "$RUNNER_TEMP/evidence/architecture" --tool cargo --tool rustc --criterion architecture.production-dependency-ownership --artifact target/quality/architecture.json -- python3 tools/quality/architecture.py --output target/quality/architecture.json
+          python3 tools/quality/matrix.py --output target/quality/feature-msrv-inventory.json
+          python3 tools/quality/evidence.py --output "$RUNNER_TEMP/evidence/tool-tests" --tool python3 --criterion quality.success-rejection-recovery --artifact target/quality/critical-cases.json -- python3 tools/quality/cases.py --output target/quality/critical-cases.json
+      - name: Retain graph, plan and executed outcomes
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: quality-policy-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/selection.json
+            ${{ runner.temp }}/evidence
+            target/quality
+          if-no-files-found: error
+
+  features:
+    needs: verify
+    if: needs.verify.outputs.foundation == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24.14.0"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.3"
+      - name: Prepare actual workspace feature test inputs
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal
+          bun install --frozen-lockfile
+          python3 scripts/tembra/tooling.py bootstrap
+          python3 scripts/tembra/tooling.py project-sdk
+          bun run plugins:build
+          python3 tools/quality/matrix.py --output target/quality/feature-msrv-inventory.json
+      - name: Verify all declared workspace features on the declared MSRV
+        run: python3 tools/quality/evidence.py --output "$RUNNER_TEMP/evidence/all-features" --tool cargo --tool rustc --criterion integration.workspace-all-features --artifact target/quality/feature-msrv-inventory.json -- cargo +1.99.0 test --locked --workspace --all-features
+      - name: Retain feature qualification outcome
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: features-${{ github.run_attempt }}
+          path: |
+            target/quality
+            ${{ runner.temp }}/evidence
+          if-no-files-found: warn
+
+  coverage:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [foundation, frontend]
+    # Producer failures remain visible as failed jobs. Percentages are initially
+    # nonblocking observations; no unqualified baseline enables the 90% objective.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      SELECTED: ${{ needs.verify.outputs[matrix.family] }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        if: env.SELECTED == 'true'
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        if: env.SELECTED == 'true'
+        with:
+          node-version: "24.14.0"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: env.SELECTED == 'true'
+        with:
+          bun-version: "1.4.3"
+      - name: Prepare pinned public dependencies
+        if: env.SELECTED == 'true'
+        run: |
+          bun install --frozen-lockfile
+      - name: Prepare Rust and actual plugin fixtures
+        if: env.SELECTED == 'true' && matrix.family == 'foundation'
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --component llvm-tools-preview
+          python3 scripts/tembra/tooling.py bootstrap
+          python3 scripts/tembra/tooling.py project-sdk
+          bun run plugins:build
+      - name: Capture Rust line baseline
+        if: env.SELECTED == 'true' && matrix.family == 'foundation'
+        run: |
+          cargo +1.99.0 install cargo-llvm-cov --version 0.9.1 --locked
+          mkdir -p target/quality
+          python3 tools/quality/evidence.py --output "$RUNNER_TEMP/evidence/rust-coverage" --tool cargo --tool rustc --criterion coverage.rust-instrumented-tests --artifact 'target/quality/*.lcov' -- cargo +1.99.0 llvm-cov --locked --workspace --all-features --lcov --output-path target/quality/rust.lcov
+      - name: Capture frontend line baseline
+        if: env.SELECTED == 'true' && matrix.family == 'frontend'
+        run: python3 tools/quality/evidence.py --output "$RUNNER_TEMP/evidence/frontend-coverage" --tool bun --criterion coverage.frontend-instrumented-tests --artifact 'target/quality/lcov.info' -- bun test ./packages/ui ./apps/mobile/test ./apps/web/src --coverage --coverage-reporter=lcov --coverage-dir=target/quality
+      - name: Summarize global trend and changed executable lines
+        if: env.SELECTED == 'true'
+        run: |
+          python3 tools/quality/plan.py --output "$RUNNER_TEMP/selection.json"
+          BASE=$(python3 -c 'import json,os; print(json.load(open(os.environ["RUNNER_TEMP"]+"/selection.json"))["base"] or "")')
+          test -f target/quality/rust.lcov || test -f target/quality/lcov.info
+          RECEIPT="$RUNNER_TEMP/evidence/frontend-coverage/result.json"
+          if test "${{ matrix.family }}" = foundation; then RECEIPT="$RUNNER_TEMP/evidence/rust-coverage/result.json"; fi
+          for REPORT in target/quality/*.lcov target/quality/lcov.info; do
+            if test -f "$REPORT"; then
+              python3 tools/quality/coverage.py --lcov "$REPORT" --base "$BASE" --evidence "$RECEIPT" --output "${REPORT}.json"
+            fi
+          done
+      - name: Retain raw coverage and command evidence
+        if: always() && env.SELECTED == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage-${{ matrix.family }}-${{ github.run_attempt }}
+          path: |
+            target/quality
+            ${{ runner.temp }}/evidence
+          if-no-files-found: error
