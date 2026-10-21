@@ -7,14 +7,17 @@ use std::{
 
 use futures::FutureExt;
 use swarmie_task_contracts::{
-    CommitResult, DurableTasks, DurableTasksProvider, ResumeResult, StorageOwner, TaskLookup,
-    TaskOutcome, TaskPage, TaskQuery, TaskRecord, TaskSpec, TaskStatus, TaskStorage,
-    TaskStorageInput, TaskStorageRef, TaskTransaction, TaskWrite, task_definitions,
+    CommitResult, DurableTasks, DurableTasksProvider, ResumeResult, StorageOwner, TaskLifecycle,
+    TaskLifecycleDiagnostics, TaskLifecycleOrigin, TaskLifecycleProvider, TaskLookup, TaskOutcome,
+    TaskPage, TaskQuery, TaskRecord, TaskSpec, TaskStatus, TaskStorage, TaskStorageInput,
+    TaskStorageRef, TaskTransaction, TaskWrite, task_definitions,
 };
 use tembra::{core, prelude::*};
 
 use crate::{
     Configuration, FACET_ID,
+    mutation::{Change, Mutation},
+    observation::Observations,
     reads::is_contention,
     scheduler::{Engine, Wake},
     work::Work,
@@ -36,6 +39,20 @@ pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Res
         let driver = driver.clone();
         let configuration = configuration.clone();
         let registry = scope.registry(&task_definitions()?)?;
+        let observations = Observations::new(scope.clone(), driver.clone())?;
+        let monitor = observations.clone();
+        setup.serve_with_options(
+            TaskLifecycle,
+            move |_, _, _| {
+                Ok(Monitor {
+                    observations: monitor.clone(),
+                })
+            },
+            core::ServeOptions {
+                lifetime: core::Lifetime::Host,
+                ..Default::default()
+            },
+        )?;
         setup.serve_with_options(
             DurableTasks,
             move |_, _, declaration| {
@@ -92,6 +109,7 @@ pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Res
                     }
                 })?)?;
                 let engine = Rc::new(Engine {
+                    observations: observations.clone(),
                     storage,
                     owner,
                     registry: registry.clone(),
@@ -111,6 +129,10 @@ pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Res
                 declaration
                     .core_mut()
                     .task(move |scope| activity.clone().run(scope).boxed_local())?;
+                let observer_activity = observations.clone();
+                declaration.core_mut().task(move |scope| {
+                    observer_activity.clone().run(scope).boxed_local()
+                })?;
                 Ok(Service { engine })
             },
             core::ServeOptions {
@@ -123,6 +145,16 @@ pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Res
 
 struct Service {
     engine: Rc<Engine>,
+}
+
+struct Monitor {
+    observations: Rc<Observations>,
+}
+
+impl TaskLifecycleProvider for Monitor {
+    async fn diagnostics(&self, _context: Context) -> Result<TaskLifecycleDiagnostics> {
+        Ok(self.observations.diagnostics())
+    }
 }
 
 /// The Resource closer runs after managed activity and physical invocation ownership settles.
@@ -191,13 +223,7 @@ impl DurableTasksProvider for Service {
         let record = TaskRecord::new(task, None);
         match self
             .engine
-            .commit(
-                &context,
-                vec![TaskWrite {
-                    expected_revision: None,
-                    record: record.clone(),
-                }],
-            )
+            .commit(&context, vec![Mutation::create(record.clone())])
             .await?
         {
             CommitResult::Conflict { .. } => Err(RuntimeError::invalid(
@@ -250,9 +276,10 @@ impl DurableTasksProvider for Service {
             }
             if !root.cancellation_requested {
                 let mut next = root.clone();
+                let change = Change::from_record(&root, TaskLifecycleOrigin::Cancellation);
                 next.cancellation_requested = true;
                 if matches!(
-                    self.engine.update(&context, next).await?,
+                    self.engine.update(&context, next, change).await?,
                     CommitResult::Conflict { .. }
                 ) {
                     continue;
@@ -304,11 +331,12 @@ impl DurableTasksProvider for Service {
                     "only uncancelled parked or blocked tasks can be retried",
                 ));
             }
+            let change = Change::from_record(&task, TaskLifecycleOrigin::Retry);
             task.status = TaskStatus::Pending;
             task.restarts = 0;
             task.blocking_reason = None;
             if matches!(
-                self.engine.update(&context, task).await?,
+                self.engine.update(&context, task, change).await?,
                 CommitResult::Committed { .. }
             ) {
                 return self.engine.require(&context, &request.id).await;

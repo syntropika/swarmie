@@ -4,12 +4,18 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::Duration;
 
 use swarmie_task_contracts::{
-    CommitResult, MAX_PORTABLE_INTEGER, MAX_TASK_PAGE_BYTES, TaskOutcome, TaskQuery, TaskRecord,
-    TaskStatus, TaskTransaction, TaskWrite, task_wire_bytes,
+    CommitResult, MAX_PORTABLE_INTEGER, MAX_TASK_PAGE_BYTES, TaskLifecycleOrigin, TaskOutcome,
+    TaskQuery, TaskRecord, TaskStatus, TaskTransaction, TaskWrite, task_wire_bytes,
 };
 use tembra::{Context, Result, RuntimeError};
 
-use crate::{ownership, reads::ACTIVE, reads::busy, scheduler::Engine};
+use crate::{
+    mutation::{Change, Mutation},
+    ownership,
+    reads::ACTIVE,
+    reads::busy,
+    scheduler::Engine,
+};
 
 impl Engine {
     /// The operation-scoped snapshot is discarded after CAS. No subtree records survive as
@@ -145,7 +151,10 @@ impl Engine {
             let comma = usize::from(!writes.is_empty());
             transaction_bytes += comma + write_bytes;
             receipt_bytes += comma + record_bytes;
-            writes.push(write);
+            writes.push(Mutation {
+                write,
+                change: Change::from_record(old, TaskLifecycleOrigin::Cancellation),
+            });
         }
         if !writes.is_empty() && !self.cancel_batch(context, writes).await? {
             return Ok(());
@@ -159,8 +168,11 @@ impl Engine {
         Ok(())
     }
 
-    async fn cancel_batch(&self, context: &Context, writes: Vec<TaskWrite>) -> Result<bool> {
-        let ids: Vec<_> = writes.iter().map(|write| write.record.id.clone()).collect();
+    async fn cancel_batch(&self, context: &Context, writes: Vec<Mutation>) -> Result<bool> {
+        let ids: Vec<_> = writes
+            .iter()
+            .map(|mutation| mutation.write.record.id.clone())
+            .collect();
         let result = match self.commit(context, writes).await {
             // An unseen child can invalidate a terminal relationship without changing the
             // parent's revision. No handler ran here: abandon the stale read and retry.

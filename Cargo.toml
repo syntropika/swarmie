@@ -14,6 +14,7 @@ tembra-core = { git = "https://github.com/syntropika/tembra.git", rev = "415051f
 tembra-contracts = { git = "https://github.com/syntropika/tembra.git", rev = "415051fcfc937a54d17f6193ce2d05c9c0429900" }
 tembra-native = { git = "https://github.com/syntropika/tembra.git", rev = "415051fcfc937a54d17f6193ce2d05c9c0429900" }
 tembra-executor-js = { git = "https://github.com/syntropika/tembra.git", rev = "415051fcfc937a54d17f6193ce2d05c9c0429900" }
+tembra-hooks = { git = "https://github.com/syntropika/tembra.git", rev = "415051fcfc937a54d17f6193ce2d05c9c0429900" }
 futures = "0.3"
 tokio = { version = "1.53.3", features = ["rt", "time", "net", "macros", "signal"] }
 tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["handshake", "connect"] }

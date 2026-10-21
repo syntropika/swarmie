@@ -595,3 +595,157 @@ fn dynamic_definition_unload_blocks_saved_checkpoint_and_reinstall_resumes() {
         runtime.host.close().await.unwrap();
     });
 }
+
+#[test]
+fn javascript_lifecycle_contribution_reloads_and_retires_with_physical_ownership() {
+    run(|driver| async move {
+        use swarmie_memory_store::{
+            GetRequest, GetResult, ListRequest, MemoryStore, MemoryStoreInput,
+        };
+
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("tasks.sqlite");
+        let mut desired = application(&database, false, false);
+        desired
+            .composition
+            .profile
+            .disable
+            .retain(|id| id != "swarmie.memory-store");
+        desired
+            .composition
+            .bundles
+            .get_mut("swarmie.foundation")
+            .unwrap()
+            .plugins
+            .iter_mut()
+            .find(|selection| selection.id == "swarmie.memory-store")
+            .unwrap()
+            .config = json!({"database": directory.path().join("observations.sqlite")});
+        desired.composition.profile.plugins.push(Selection {
+            id: "observer".into(),
+            plugin: "durable-observer".into(),
+            version: "1.0.0".into(),
+            provider: Some("local".into()),
+            config: json!({}),
+        });
+        for version in ["1.0.0", "1.1.0"] {
+            desired.releases.push(release(
+                "durable-observer",
+                "fixture.durable-observer",
+                version,
+                PluginKind::Dynamic,
+            ));
+        }
+        let mut runtime = start_with_catalog(
+            driver.clone(),
+            configuration(directory.path(), desired),
+            catalog(driver),
+        )
+        .await
+        .unwrap();
+        assert!(
+            runtime.deployment_errors.is_empty(),
+            "{:?}",
+            runtime.deployment_errors
+        );
+        let tasks = runtime
+            .host
+            .get(DurableTasks, DurableTasksInput {})
+            .await
+            .unwrap();
+        let lifecycle = runtime
+            .host
+            .get(TaskLifecycle, TaskLifecycleInput {})
+            .await
+            .unwrap();
+        let memory = runtime
+            .host
+            .get(MemoryStore, MemoryStoreInput {})
+            .await
+            .unwrap();
+        let gate = runtime.host.get(TaskGate, TaskGateInput {}).await.unwrap();
+        tasks.create(task("observer-gated")).await.unwrap();
+        while gate.entered().value().unwrap() == 0 {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        // A slow observer must not prevent this task's persisted completion.
+        terminal(&tasks, "observer-gated").await;
+        let mut replacement = runtime.desired_application().clone();
+        replacement
+            .composition
+            .profile
+            .plugins
+            .iter_mut()
+            .find(|selection| selection.id == "observer")
+            .unwrap()
+            .version = "1.1.0".into();
+        let report = runtime.apply_application(replacement).await.unwrap();
+        assert!(matches!(
+            report.results["observer"].outcome,
+            swarmie_runtime::TransitionOutcome::Applied
+        ));
+        gate.release_gate().await.unwrap();
+        loop {
+            let diagnostics = lifecycle.diagnostics().await.unwrap();
+            assert_eq!(diagnostics.failed, 0, "{diagnostics:?}");
+            if !diagnostics.active && diagnostics.queued == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        let GetResult::Present { value: first } = memory
+            .get(GetRequest {
+                namespace: "lifecycle-acceptance".into(),
+                key: "observer-gated:1:committed".into(),
+            })
+            .await
+            .unwrap()
+        else {
+            panic!("old admitted JavaScript observer must physically finish");
+        };
+        assert_eq!(first["version"], 1);
+        assert_eq!(first["event"]["origin"], "creation");
+        tasks.create(task("observer-new")).await.unwrap();
+        let new = terminal(&tasks, "observer-new").await;
+        let key = format!("observer-new:{}:committed", new.revision);
+        let value = loop {
+            if let GetResult::Present { value } = memory
+                .get(GetRequest {
+                    namespace: "lifecycle-acceptance".into(),
+                    key: key.clone(),
+                })
+                .await
+                .unwrap()
+            {
+                break value;
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        };
+        assert_eq!(value["version"], 2);
+        assert_eq!(value["event"]["current_status"], "terminal");
+        assert_eq!(value["event"]["outcome"], "completed");
+        // Explicit removal retracts the contribution from subsequent managed plans.
+        let mut removed = runtime.desired_application().clone();
+        removed
+            .composition
+            .profile
+            .plugins
+            .retain(|selection| selection.id != "observer");
+        let report = runtime.apply_application(removed).await.unwrap();
+        assert!(matches!(
+            report.results["observer"].outcome,
+            swarmie_runtime::TransitionOutcome::Applied
+        ));
+        tasks.create(task("observer-removed")).await.unwrap();
+        terminal(&tasks, "observer-removed").await;
+        let keys = memory
+            .list(ListRequest {
+                namespace: "lifecycle-acceptance".into(),
+            })
+            .await
+            .unwrap();
+        assert!(keys.iter().all(|key| !key.starts_with("observer-removed:")));
+        assert!(lifecycle.diagnostics().await.unwrap().skipped > 0);
+        runtime.host.close().await.unwrap();
+    });
+}

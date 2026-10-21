@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 swarmie-task-contracts = { path = "../../crates/task-contracts" }
 tembra.workspace = true
+tembra-hooks.workspace = true
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true

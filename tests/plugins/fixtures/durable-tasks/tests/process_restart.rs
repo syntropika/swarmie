@@ -4,12 +4,17 @@ use std::{
     env, fs,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
+    rc::Rc,
     thread,
     time::{Duration, Instant},
 };
 
 use serde_json::json;
-use swarmie_durable_tasks_fixture::{facet, task};
+use swarmie_durable_tasks_fixture::{
+    facet,
+    hooks::{self, Observer},
+    task,
+};
 use swarmie_task_contracts::*;
 use tembra::{core, prelude::*};
 use tembra_native::TokioDriver;
@@ -97,6 +102,54 @@ fn repeated_process_crashes_park_and_explicit_retry_preserves_checkpoint() {
 }
 
 #[test]
+fn killed_after_terminal_commit_does_not_replay_an_undelivered_notification() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("tasks.sqlite");
+    let log = directory.path().join("effects.log");
+    let committed = log.with_extension("committed");
+    let mut child = child(&database, &log, "commit-gap");
+    let started = Instant::now();
+    while !committed.exists() {
+        if let Some(status) = child.try_wait().unwrap() {
+            let output = child.wait_with_output().unwrap();
+            panic!(
+                "workflow exited before terminal commit: {status}; stdout={} stderr={}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
+        }
+        if started.elapsed() > Duration::from_secs(15) {
+            child.kill().unwrap();
+            panic!("workflow did not acknowledge terminal commit");
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    child
+        .kill()
+        .expect("terminate after confirmed commit and before terminal observation");
+    assert!(!child.wait_with_output().unwrap().status.success());
+    finish(&database, &log, "reopen-terminal");
+    assert_eq!(
+        effect_count(&log),
+        1,
+        "reopening terminal work must not replay its handler"
+    );
+}
+
+async fn drained(host: &Host) -> Result<()> {
+    let lifecycle = host.get(TaskLifecycle, TaskLifecycleInput {}).await?;
+    loop {
+        let diagnostics = lifecycle.diagnostics().await?;
+        if diagnostics.queued == 0 && !diagnostics.active {
+            assert_eq!(diagnostics.failed, 0);
+            assert_eq!(diagnostics.dropped, 0);
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+}
+
+#[test]
 fn child_process() -> Result<()> {
     let Some(phase) = env::var_os("SWARMIE_TASK_FIXTURE_PHASE") else {
         return Ok(());
@@ -120,6 +173,14 @@ fn child_process() -> Result<()> {
                 .await?;
                 host.install(facet(1)?, core::LoadOptions::default())?
                     .await?;
+                let observer = Rc::new(Observer::default());
+                observer.hold.set(phase == "commit-gap");
+                // Startup recovery can commit immediately when the scheduler becomes ready.
+                host.install(
+                    hooks::facet("process-audit", 0, observer.clone())?,
+                    core::LoadOptions::default(),
+                )?
+                .await?;
                 host.install(
                     swarmie_durable_tasks::facet(
                         &swarmie_durable_tasks::Configuration {
@@ -178,8 +239,115 @@ fn child_process() -> Result<()> {
                     })
                     .await?
                     .unwrap();
-                assert!(record.attempts >= 4);
                 assert_eq!(record.phase, "finish");
+                if phase == "commit-gap" {
+                    assert_eq!(record.attempts, 3);
+                    while !observer.started.get() {
+                        tokio::time::sleep(Duration::from_millis(2)).await;
+                    }
+                    // Retained physical ownership blocks publication of later queued events,
+                    // while task state and external work have already completed independently.
+                    assert!(!observer.events.borrow().iter().any(|(_, event)| matches!(
+                        event,
+                        TaskLifecycleEvent::Committed {
+                            current_status: TaskStatus::Terminal,
+                            ..
+                        }
+                    )));
+                    fs::write(
+                        log.with_extension("committed"),
+                        "terminal committed before notification",
+                    )
+                    .expect("acknowledge the persisted terminal state");
+                    futures::future::pending::<()>().await;
+                }
+                for _ in 0..5 {
+                    tasks.resume().await?;
+                }
+                drained(&host).await?;
+                {
+                    let events = observer.events.borrow();
+                    if phase == "reopen-terminal" {
+                        assert_eq!(record.attempts, 3);
+                        assert!(
+                            events.is_empty(),
+                            "retained terminal state does not replay lifecycle observations"
+                        );
+                    } else {
+                        assert!(record.attempts >= 4);
+                        assert_eq!(
+                            events
+                                .iter()
+                                .filter(|(_, event)| matches!(
+                                    event,
+                                    TaskLifecycleEvent::Committed {
+                                        current_status: TaskStatus::Terminal,
+                                        ..
+                                    }
+                                ))
+                                .count(),
+                            1,
+                            "normal reconciliation must not duplicate terminal notification"
+                        );
+                        let recovered: Vec<_> = events
+                            .iter()
+                            .filter_map(|(_, event)| match event {
+                                TaskLifecycleEvent::Committed {
+                                    task,
+                                    previous_status: Some(TaskStatus::Running),
+                                    current_status,
+                                    origin: TaskLifecycleOrigin::Recovery,
+                                    blocking,
+                                    ..
+                                } => Some((task, current_status, blocking)),
+                                _ => None,
+                            })
+                            .collect();
+                        assert_eq!(
+                            recovered.len(),
+                            1,
+                            "one confirmed recovery follows this real process death"
+                        );
+                        assert_eq!(recovered[0].0.phase, "effect");
+                        assert_eq!(recovered[0].0.task_id, "process-task");
+                        if phase == "retry" {
+                            assert_eq!(*recovered[0].1, TaskStatus::Parked);
+                            assert_eq!(*recovered[0].2, Some(TaskBlockingKind::RestartLimit));
+                            assert_eq!(
+                                events
+                                    .iter()
+                                    .filter(|(_, event)| matches!(
+                                        event,
+                                        TaskLifecycleEvent::Committed {
+                                            previous_status: Some(TaskStatus::Parked),
+                                            current_status: TaskStatus::Pending,
+                                            origin: TaskLifecycleOrigin::Retry,
+                                            ..
+                                        }
+                                    ))
+                                    .count(),
+                                1
+                            );
+                        } else {
+                            assert_eq!(*recovered[0].1, TaskStatus::Pending);
+                            assert_eq!(*recovered[0].2, None);
+                        }
+                        assert!(events.iter().any(|(_, event)| matches!(
+                            event,
+                            TaskLifecycleEvent::Committed {
+                                checkpoint_committed: true,
+                                ..
+                            }
+                        )));
+                        assert!(events.iter().any(|(_, event)| matches!(
+                            event,
+                            TaskLifecycleEvent::PhaseSettled {
+                                outcome: TaskPhaseOutcome::Returned,
+                                ..
+                            }
+                        )));
+                    }
+                }
                 host.close().await
             })
             .await

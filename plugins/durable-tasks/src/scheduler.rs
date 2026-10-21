@@ -13,7 +13,12 @@ use swarmie_task_contracts::{
 };
 use tembra::{Context, Resource, Result, RuntimeError, core};
 
-use crate::{Configuration, reads::is_contention, work::Work};
+use crate::{
+    Configuration,
+    mutation::{Change, Mutation},
+    reads::is_contention,
+    work::Work,
+};
 
 /// Coalesced local pump notification. Task transitions remain exclusively in TaskStorage.
 #[derive(Default)]
@@ -31,7 +36,7 @@ impl Wake {
         }
     }
 
-    fn wait(&self) -> impl Future<Output = ()> + '_ {
+    pub(crate) fn wait(&self) -> impl Future<Output = ()> + '_ {
         futures::future::poll_fn(|context| {
             if self.pending.replace(false) {
                 Poll::Ready(())
@@ -44,6 +49,7 @@ impl Wake {
 }
 
 pub(crate) struct Engine {
+    pub observations: Rc<crate::observation::Observations>,
     pub storage: TaskStorageRef,
     pub owner: Resource<StorageOwner>,
     pub registry: core::RegistryView,
@@ -93,7 +99,22 @@ impl Engine {
         self.wake.notify();
     }
 
-    pub async fn commit(&self, context: &Context, writes: Vec<TaskWrite>) -> Result<CommitResult> {
+    pub async fn commit(
+        &self,
+        context: &Context,
+        mutations: Vec<Mutation>,
+    ) -> Result<CommitResult> {
+        let mut changes = BTreeMap::new();
+        let writes: Vec<_> = mutations
+            .into_iter()
+            .map(|mutation| {
+                changes.insert(
+                    mutation.write.record.id.clone(),
+                    (mutation.write.record.revision, mutation.change),
+                );
+                mutation.write
+            })
+            .collect();
         if writes.is_empty() {
             return Err(RuntimeError::invalid(
                 "durable_tasks_transaction",
@@ -113,6 +134,14 @@ impl Engine {
             .await?
         {
             CommitResult::Committed { sequence, records } => {
+                // Admission is infallible and never awaits plugins. Failed commits never reach it.
+                for record in &records {
+                    if let Some((revision, change)) = changes.remove(&record.id)
+                        && revision == record.revision
+                    {
+                        self.observations.emit(change.event(record, sequence));
+                    }
+                }
                 let mut work = self.work.borrow_mut();
                 if work.initialized && sequence > work.sequence.saturating_add(1) {
                     work.rescan = true;
@@ -125,8 +154,18 @@ impl Engine {
                     }
                 }
                 drop(work);
-                if sequence > self.committed_sequence.value()? {
-                    self.committed_sequence.replace(context, sequence)?;
+                // The durable receipt is final even if caller cancellation closes live state.
+                let refreshed = self.committed_sequence.value().and_then(|current| {
+                    if sequence > current {
+                        self.committed_sequence
+                            .replace(context, sequence)
+                            .map(|_| ())
+                    } else {
+                        Ok(())
+                    }
+                });
+                if let Err(error) = refreshed {
+                    self.observations.record_error(&error);
                 }
                 self.wake.notify();
                 Ok(CommitResult::Committed { sequence, records })
@@ -135,16 +174,24 @@ impl Engine {
         }
     }
 
-    pub async fn update(&self, context: &Context, mut record: TaskRecord) -> Result<CommitResult> {
+    pub async fn update(
+        &self,
+        context: &Context,
+        mut record: TaskRecord,
+        change: Change,
+    ) -> Result<CommitResult> {
         let revision = record.revision;
         record.revision = revision.checked_add(1).ok_or_else(|| {
             RuntimeError::invalid("durable_tasks_revision", "task revision is exhausted")
         })?;
         self.commit(
             context,
-            vec![TaskWrite {
-                expected_revision: Some(revision),
-                record,
+            vec![Mutation {
+                write: TaskWrite {
+                    expected_revision: Some(revision),
+                    record,
+                },
+                change,
             }],
         )
         .await

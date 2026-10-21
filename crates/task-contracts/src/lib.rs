@@ -7,12 +7,14 @@
 #[cfg(feature = "conformance")]
 pub mod conformance;
 
+mod lifecycle;
 mod model;
 mod schema;
 mod storage;
 mod tasks;
 mod transport;
 
+pub use lifecycle::*;
 pub use model::*;
 pub use storage::*;
 pub use tasks::*;

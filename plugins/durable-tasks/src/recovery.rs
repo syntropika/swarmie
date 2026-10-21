@@ -1,11 +1,13 @@
 use std::time::Duration;
 
 use swarmie_task_contracts::{
-    BlockingReason, CommitResult, TaskOutcome, TaskQuery, TaskRecord, TaskStatus, WaitPolicy,
+    BlockingReason, CommitResult, TaskLifecycleOrigin, TaskOutcome, TaskQuery, TaskRecord,
+    TaskStatus, WaitPolicy,
 };
 use tembra::{Context, Result, RuntimeError};
 
 use crate::{
+    mutation::Change,
     ownership,
     reads::{ACTIVE, busy, is_contention},
     registry,
@@ -98,13 +100,15 @@ impl Engine {
         let now = now_ms()?;
         let record = family.task.clone();
         let mut next = record.clone();
+        let mut change = Change::from_record(&record, TaskLifecycleOrigin::Reconciliation);
         let cancelled = self.cancelled(&family);
         if self.inflight.borrow().contains(id) {
             if cancelled {
                 if !record.cancellation_requested {
+                    change.origin = TaskLifecycleOrigin::Cancellation;
                     next.cancellation_requested = true;
                     if matches!(
-                        self.update(context, next).await?,
+                        self.update(context, next, change).await?,
                         CommitResult::Conflict { .. }
                     ) {
                         self.work.borrow_mut().schedule(id.to_owned());
@@ -132,6 +136,7 @@ impl Engine {
                     if !self.work.borrow().recover.contains(id) {
                         return Ok(None);
                     }
+                    change.origin = TaskLifecycleOrigin::Recovery;
                     if next.restarts < self.configuration.restart_limit {
                         next.restarts += 1;
                     }
@@ -206,7 +211,7 @@ impl Engine {
             }
         }
         if next != record {
-            match self.update(context, next).await? {
+            match self.update(context, next, change).await? {
                 CommitResult::Committed { .. } => {
                     self.work.borrow_mut().recover.remove(id);
                 }

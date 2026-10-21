@@ -7,6 +7,8 @@
 mod cancellation;
 mod configuration;
 mod execution;
+mod mutation;
+mod observation;
 mod ownership;
 mod reads;
 mod recovery;

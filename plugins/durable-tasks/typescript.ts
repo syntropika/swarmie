@@ -35,3 +35,5 @@ export function defineTask(definition: TaskDefinition) {
     return { state: {}, methods: { step } };
   };
 }
+
+export { TaskLifecycle, type TaskLifecycleEvent } from "./lifecycle-typescript";

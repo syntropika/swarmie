@@ -78,12 +78,14 @@ impl PluginManager {
         driver: Rc<dyn core::Driver>,
         database: impl Into<PathBuf>,
     ) -> Result<Rc<Self>> {
+        let executor = Executor::new(driver, ExecutorOptions::default())?;
+        crate::lifecycle_hooks::register(&executor)?;
         let manager = Rc::new(Self {
             host: host.clone(),
 
             database: database.into(),
             store: RefCell::new(None),
-            executor: Executor::new(driver, ExecutorOptions::default())?,
+            executor,
             busy: Flag::new(false),
             fresh_session: Flag::new(true),
             restart_required: Flag::new(false),

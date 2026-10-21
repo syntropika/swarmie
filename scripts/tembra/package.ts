@@ -23,6 +23,8 @@ export async function packageFixtures(artifacts: readonly BuiltArtifact[]): Prom
   const releases = [
     ["durable-workflow-v1", "durable-workflow", "1.0.0", "fixture.durable-workflow"],
     ["durable-workflow-v2", "durable-workflow", "1.1.0", "fixture.durable-workflow"],
+    ["durable-observer-v1", "durable-observer", "1.0.0", "fixture.durable-observer"],
+    ["durable-observer-v2", "durable-observer", "1.1.0", "fixture.durable-observer"],
     ["counter-provider-gated", "counter-provider-gated", "1.0.0", "counter-provider-gated.runtime"],
     ["dynamic-consumer-v1", "dynamic-consumer", "1.0.0", "dynamic-consumer"],
     ["dynamic-consumer-v2", "dynamic-consumer", "1.1.0", "dynamic-consumer"],

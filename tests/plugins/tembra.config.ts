@@ -12,6 +12,8 @@ const contracts = [
   ["task-storage", "TaskStorage", "swarmie-task-contracts", "task-contract"],
   ["durable-tasks", "DurableTasks", "swarmie-task-contracts", "task-contract"],
   ["task-handler", "TaskHandler", "swarmie-task-contracts", "task-contract"],
+  ["task-lifecycle-observer", "TaskLifecycleObserver", "swarmie-task-contracts", "task-contract"],
+  ["task-lifecycle", "TaskLifecycle", "swarmie-task-contracts", "task-contract"],
   [
     "durable-workflow",
     "DurableWorkflow",
@@ -56,6 +58,14 @@ export default defineConfig({
     name,
   })),
   builds: {
+    "durable-observer-v1": {
+      entry: "tests/plugins/fixtures/durable-tasks/observer-v1.ts",
+      platform: "server",
+    },
+    "durable-observer-v2": {
+      entry: "tests/plugins/fixtures/durable-tasks/observer-v2.ts",
+      platform: "server",
+    },
     "durable-workflow-v1": {
       entry: "tests/plugins/fixtures/durable-tasks/v1.ts",
       platform: "server",

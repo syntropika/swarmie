@@ -1669,6 +1669,7 @@ dependencies = [
  "serde_json",
  "swarmie-task-contracts",
  "tembra",
+ "tembra-hooks",
  "uuid",
 ]
 
@@ -1681,10 +1682,12 @@ dependencies = [
  "serde_json",
  "swarmie-composition",
  "swarmie-durable-tasks",
+ "swarmie-memory-store",
  "swarmie-runtime",
  "swarmie-task-contracts",
  "swarmie-task-storage-sqlite",
  "tembra",
+ "tembra-hooks",
  "tembra-native",
  "tempfile",
  "tokio",
@@ -1723,6 +1726,7 @@ dependencies = [
  "sha2",
  "swarmie-counter",
  "swarmie-plugin-contracts",
+ "swarmie-task-contracts",
  "tembra",
  "tembra-executor-js",
  "tempfile",
@@ -1759,6 +1763,7 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "tembra",
+ "tembra-hooks",
 ]
 
 [[package]]
