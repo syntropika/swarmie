@@ -7,6 +7,44 @@ use crate::{TaskBlockingKind, TaskLifecycleOrigin, TaskOutcomeKind, TaskRecord, 
 /// Maximum canonical JSON byte size of one durable structural event across providers.
 pub const MAX_TASK_OUTBOX_EVENT_BYTES: usize = 4096;
 
+/// Maximum UTF-8 bytes in a stable installed Facet name used for consumer ownership.
+pub const MAX_TASK_OUTBOX_OWNER_BYTES: usize = 256;
+
+/// Checks an outbox owner's bounded installed Facet name without truncation.
+///
+/// # Errors
+/// Refuses empty, oversized, or control-containing names before provider mutation.
+pub fn validate_task_outbox_owner_facet(name: &str) -> Result<()> {
+    if name.is_empty()
+        || name.len() > MAX_TASK_OUTBOX_OWNER_BYTES
+        || name.chars().any(char::is_control)
+    {
+        return Err(RuntimeError::new(
+            tembra::core::ErrorCode::Forbidden,
+            "task_storage_outbox_owner_invalid",
+            "consumer owners require 1..=256 UTF-8 bytes without control characters",
+        ));
+    }
+    Ok(())
+}
+
+/// Derives consumer authority only from Tembra's immediate managed caller identity.
+///
+/// # Errors
+/// Unattributed Host/RPC roots are refused. Principal values and request fields confer no
+/// authority. The name must satisfy [`validate_task_outbox_owner_facet`].
+pub fn task_outbox_consumer_owner(context: &tembra::Context) -> Result<String> {
+    let owner = context.caller_facet().ok_or_else(|| {
+        RuntimeError::new(
+            tembra::core::ErrorCode::Forbidden,
+            "task_storage_outbox_owner_required",
+            "consumer operations require an attributed managed Facet caller",
+        )
+    })?;
+    validate_task_outbox_owner_facet(owner)?;
+    Ok(owner.to_owned())
+}
+
 /// Hard retained capacity, applied by the provider independently of scheduler admission.
 /// Missing JSON fields use defaults. No expiry, eviction, or acknowledgement is implied.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -177,7 +215,10 @@ impl TaskOutboxEvent {
     }
 }
 
-/// Durable consumer identity. Registering an existing ID is idempotent. Registration starts at
+/// Durable consumer identity, bound on first registration to Tembra's managed caller Facet.
+/// Another Facet cannot register/resume, read, acknowledge, or remove that identity. Direct Host
+/// and RPC roots are unattributed and refused. No caller-provided owner or bearer token exists.
+/// Registering an existing ID by its owner is idempotent. Registration starts at
 /// the earliest retained event, not necessarily the beginning of storage history after compaction.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
@@ -195,6 +236,10 @@ pub struct TaskOutboxConsumer {
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
 pub struct TaskOutboxConsumerState {
+    /// Informational installed Facet name, never consumption authority. None marks a legacy
+    /// unowned row, which retains history and refuses use until explicit operator adoption.
+    #[schemars(length(min = 1, max = 256))]
+    pub owner_facet: Option<String>,
     #[schemars(length(min = 1, max = 128))]
     pub consumer_id: String,
     #[schemars(length(min = 1, max = 128))]

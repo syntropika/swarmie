@@ -423,6 +423,7 @@ mod tests {
                         &swarmie_task_storage_sqlite::Configuration {
                             database: directory.path().join("tasks.sqlite"),
                             outbox: Default::default(),
+                            outbox_legacy_owners: Default::default(),
                         },
                     )
                     .unwrap(),
@@ -432,17 +433,16 @@ mod tests {
                 .await
                 .unwrap();
                 let storage = host.get(TaskStorage, TaskStorageInput {}).await.unwrap();
-                storage
-                    .register_outbox_consumer(TaskOutboxConsumer { id: "audit".into() })
-                    .await
-                    .unwrap();
                 let reject = Rc::new(std::cell::Cell::new(true));
                 let captured = Rc::new(RefCell::new(None));
+                let audit_scope = Rc::new(RefCell::new(None));
+                let captured_scope = audit_scope.clone();
                 let rejected = reject.clone();
                 let selected = captured.clone();
                 let factory_driver = driver.clone();
                 host.install(
                     NativeFacet::new("fixture.sequence-repair", vec![], move |scope, setup| {
+                        *captured_scope.borrow_mut() = Some(scope.clone());
                         let scope = scope.clone();
                         let driver = factory_driver.clone();
                         let reject = rejected.clone();
@@ -538,6 +538,20 @@ mod tests {
                 .unwrap()
                 .await
                 .unwrap();
+                let audit_scope = audit_scope.borrow().clone().unwrap();
+                let audit_storage = storage.clone();
+                audit_scope
+                    .root(move |context| {
+                        async move {
+                            audit_storage
+                                .with_context(&Context::from_core(context))
+                                .register_outbox_consumer(TaskOutboxConsumer { id: "audit".into() })
+                                .await
+                        }
+                        .boxed_local()
+                    })
+                    .await
+                    .unwrap();
                 let repair = host
                     .get(SequenceRepair, SequenceRepairInput {})
                     .await
@@ -586,11 +600,19 @@ mod tests {
                     storage.scan(TaskQuery::default()).await.unwrap().sequence,
                     1
                 );
-                let events = storage
-                    .read_outbox(TaskOutboxQuery {
-                        consumer_id: "audit".into(),
-                        after: None,
-                        limit: 256,
+                let events = audit_scope
+                    .root(move |context| {
+                        async move {
+                            storage
+                                .with_context(&Context::from_core(context))
+                                .read_outbox(TaskOutboxQuery {
+                                    consumer_id: "audit".into(),
+                                    after: None,
+                                    limit: 256,
+                                })
+                                .await
+                        }
+                        .boxed_local()
                     })
                     .await
                     .unwrap();

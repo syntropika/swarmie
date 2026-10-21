@@ -7,7 +7,10 @@ use std::{
     time::Duration,
 };
 
-use swarmie_durable_tasks_fixture::hooks::{self, Observer};
+use swarmie_durable_tasks_fixture::{
+    hooks::{self, Observer},
+    outbox_consumer::{self, Consumer},
+};
 use swarmie_task_contracts::*;
 use tembra::{core, prelude::*};
 use tembra_native::TokioDriver;
@@ -122,7 +125,7 @@ where
 struct Rig {
     host: Host,
     tasks: DurableTasksRef,
-    storage: TaskStorageRef,
+    consumer: Consumer,
     control: Rc<Control>,
     observer: Rc<Observer>,
     _directory: tempfile::TempDir,
@@ -133,6 +136,7 @@ async fn open(driver: Rc<TokioDriver>, events: u64) -> Result<Rig> {
     let host = Host::with_driver("capacity-cancellation", "test", driver.clone())?;
     host.install(
         swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
+            outbox_legacy_owners: Default::default(),
             database: directory.path().join("tasks.sqlite"),
             outbox: swarmie_task_storage_sqlite::TaskOutboxLimits {
                 max_events: events,
@@ -144,7 +148,8 @@ async fn open(driver: Rc<TokioDriver>, events: u64) -> Result<Rig> {
     )?
     .await?;
     let storage = host.get(TaskStorage, TaskStorageInput {}).await?;
-    storage
+    let consumer = outbox_consumer::install(&host, "fixture.capacity-publisher", storage).await?;
+    consumer
         .register_outbox_consumer(TaskOutboxConsumer {
             id: "publisher".into(),
         })
@@ -173,7 +178,7 @@ async fn open(driver: Rc<TokioDriver>, events: u64) -> Result<Rig> {
     Ok(Rig {
         host,
         tasks,
-        storage,
+        consumer,
         control,
         observer,
         _directory: directory,
@@ -186,7 +191,7 @@ async fn until(mut condition: impl FnMut() -> bool) {
     }
 }
 
-async fn read(storage: &TaskStorageRef) -> Result<TaskOutboxPage> {
+async fn read(storage: &Consumer) -> Result<TaskOutboxPage> {
     storage
         .read_outbox(TaskOutboxQuery {
             consumer_id: "publisher".into(),
@@ -196,7 +201,7 @@ async fn read(storage: &TaskStorageRef) -> Result<TaskOutboxPage> {
         .await
 }
 
-async fn drain(storage: &TaskStorageRef) -> Result<()> {
+async fn drain(storage: &Consumer) -> Result<()> {
     let page = read(storage).await?;
     storage
         .acknowledge_outbox(TaskOutboxAcknowledgement {
@@ -226,7 +231,7 @@ fn full_outbox_signals_active_root_but_retry_is_required_for_durable_cancellatio
         let rig = open(driver, 2).await?;
         rig.tasks.create(task("root", "held")).await?;
         until(|| rig.control.entered.get()).await;
-        let before = read(&rig.storage).await?;
+        let before = read(&rig.consumer).await?;
         assert_eq!(before.events.len(), 2);
         let error = rig
             .tasks
@@ -244,7 +249,7 @@ fn full_outbox_signals_active_root_but_retry_is_required_for_durable_cancellatio
             .unwrap();
         assert_eq!(unconfirmed.status, TaskStatus::Running);
         assert!(!unconfirmed.cancellation_requested);
-        assert_eq!(read(&rig.storage).await?.events, before.events);
+        assert_eq!(read(&rig.consumer).await?.events, before.events);
         assert_eq!(cancellation_notifications(&rig.observer), 0);
         assert!(
             !rig.observer
@@ -253,7 +258,7 @@ fn full_outbox_signals_active_root_but_retry_is_required_for_durable_cancellatio
                 .iter()
                 .any(|notification| notification.hook == "swarmie.task-phase-settled")
         );
-        drain(&rig.storage).await?;
+        drain(&rig.consumer).await?;
         let confirmed = rig.tasks.cancel(TaskLookup { id: "root".into() }).await?;
         assert!(confirmed.cancellation_requested);
         rig.control.release();
@@ -262,7 +267,7 @@ fn full_outbox_signals_active_root_but_retry_is_required_for_durable_cancellatio
             TaskOutcome::Aborted { .. }
         ));
         until(|| cancellation_notifications(&rig.observer) > 0).await;
-        let after = read(&rig.storage).await?;
+        let after = read(&rig.consumer).await?;
         assert_eq!(after.events.len(), 2);
         assert!(after.events[0].cancellation_requested);
         assert_eq!(after.events[1].current_status, TaskStatus::Terminal);
@@ -277,7 +282,7 @@ fn full_outbox_parent_cancellation_signals_owned_child_without_inventing_family_
         let rig = open(driver, 5).await?;
         rig.tasks.create(task("parent", "spawn")).await?;
         until(|| rig.control.entered.get()).await;
-        let before = read(&rig.storage).await?;
+        let before = read(&rig.consumer).await?;
         assert_eq!(before.events.len(), 5);
         let error = rig
             .tasks
@@ -297,9 +302,9 @@ fn full_outbox_parent_cancellation_signals_owned_child_without_inventing_family_
             assert_eq!(record.status, status);
             assert!(!record.cancellation_requested);
         }
-        assert_eq!(read(&rig.storage).await?.events, before.events);
+        assert_eq!(read(&rig.consumer).await?.events, before.events);
         assert_eq!(cancellation_notifications(&rig.observer), 0);
-        drain(&rig.storage).await?;
+        drain(&rig.consumer).await?;
         assert!(
             rig.tasks
                 .cancel(TaskLookup {

@@ -9,7 +9,7 @@ use futures::{StreamExt, stream};
 use swarmie_durable_tasks_fixture::{
     facet,
     hooks::{self, Observer},
-    task,
+    outbox_consumer, task,
 };
 use swarmie_task_contracts::*;
 use tembra::{core, prelude::*};
@@ -27,6 +27,7 @@ async fn measure(driver: Rc<TokioDriver>, with_observer: bool, sample: usize) ->
     let host = Host::with_driver("lifecycle-performance", "application", driver.clone())?;
     host.install(
         swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
+            outbox_legacy_owners: Default::default(),
             database: directory.path().join("tasks.sqlite"),
             outbox: Default::default(),
         })?,
@@ -109,12 +110,13 @@ async fn measure(driver: Rc<TokioDriver>, with_observer: bool, sample: usize) ->
     );
     let observer_drain_us = drain_started.elapsed().as_micros();
     let storage = host.get(TaskStorage, TaskStorageInput {}).await?;
-    storage
+    let consumer = outbox_consumer::install(&host, "fixture.performance-audit", storage).await?;
+    consumer
         .register_outbox_consumer(TaskOutboxConsumer {
             id: "performance-audit".into(),
         })
         .await?;
-    let page = storage
+    let page = consumer
         .read_outbox(TaskOutboxQuery {
             consumer_id: "performance-audit".into(),
             after: None,

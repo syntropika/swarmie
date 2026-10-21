@@ -2,6 +2,8 @@
 //!
 //! Run against a fresh provider. The suite has no concrete backend dependencies and leaves
 //! committed records available for a backend-specific restart or process-crash fixture.
+//! The Reference must be bound to a live Context from an installed Facet-owned root, so
+//! consumer operations exercise the same authenticated caller boundary as real plugins.
 
 use tembra::prelude::*;
 
@@ -692,6 +694,9 @@ async fn outbox(storage: &TaskStorageRef) -> Result<()> {
         .register_outbox_consumer(TaskOutboxConsumer { id: slow.into() })
         .await?;
     assert_eq!(state.store_id, other.store_id);
+    let owner = state.owner_facet.as_ref().expect("managed consumer owner");
+    crate::validate_task_outbox_owner_facet(owner)?;
+    assert_eq!(state.owner_facet, other.owner_facet);
     let registered = storage.outbox_status().await?;
     assert_eq!(registered.store_id, state.store_id);
     assert_eq!(registered.consumers.len(), 2);

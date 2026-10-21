@@ -1,20 +1,23 @@
+mod common;
+
 use std::path::Path;
 
 use swarmie_task_contracts::{
     CommitResult, StorageOwner, TaskOutboxAcknowledgement, TaskOutboxCompaction,
     TaskOutboxConsumer, TaskOutboxLimits, TaskOutboxQuery, TaskRecord, TaskSpec, TaskStorage,
-    TaskStorageInput, TaskStorageRef, TaskTransaction, TaskWrite,
+    TaskStorageInput, TaskTransaction, TaskWrite,
 };
 use swarmie_task_storage_sqlite::{Configuration, ConfigurationError};
 use tembra::{core, prelude::*};
 
-async fn open(host: &Host, configuration: Configuration) -> Result<TaskStorageRef> {
+async fn open(host: &Host, configuration: Configuration) -> Result<common::Consumer> {
     host.install(
         swarmie_task_storage_sqlite::facet(&configuration)?,
         core::LoadOptions::default(),
     )?
     .await?;
-    host.get(TaskStorage, TaskStorageInput {}).await
+    let storage = host.get(TaskStorage, TaskStorageInput {}).await?;
+    common::install(host, "test.outbox.consumer", storage).await
 }
 
 fn configuration(database: &Path, events: u64) -> Configuration {
@@ -25,7 +28,10 @@ fn configuration(database: &Path, events: u64) -> Configuration {
     .expect("operator JSON configuration")
 }
 
-async fn commit(storage: &TaskStorageRef, id: &str) -> Result<CommitResult> {
+async fn commit(
+    storage: &swarmie_task_contracts::TaskStorageRef,
+    id: &str,
+) -> Result<CommitResult> {
     storage
         .commit(TaskTransaction {
             owner: "operations-owner".into(),
@@ -103,6 +109,27 @@ fn limits_json_defaults_partial_values_and_validation_are_explicit() {
             .is_err()
         );
     }
+    for mapping in [
+        serde_json::json!({"consumer":""}),
+        serde_json::json!({"consumer":"x".repeat(257)}),
+        serde_json::json!({"bad consumer":"owner"}),
+        serde_json::json!({"consumer":"bad\nowner"}),
+    ] {
+        let parsed: Configuration = serde_json::from_value(
+            serde_json::json!({"database":"tasks.sqlite","outbox_legacy_owners":mapping}),
+        )
+        .unwrap();
+        assert_eq!(
+            parsed.validate(),
+            Err(ConfigurationError::OutboxLegacyOwners)
+        );
+    }
+    assert!(
+        serde_json::from_value::<TaskOutboxConsumer>(
+            serde_json::json!({"id":"publisher","owner_facet":"forged"})
+        )
+        .is_err()
+    );
 }
 
 #[test]

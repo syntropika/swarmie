@@ -49,9 +49,21 @@ fn usage(connection: &Connection) -> Result<(u64, u64, Position)> {
     Ok(connection.query_row("SELECT retained_events, retained_bytes, floor_sequence, floor_ordinal FROM task_outbox_metadata WHERE singleton=1", [], |row| Ok((row.get(0)?, row.get(1)?, (row.get(2)?, row.get(3)?))))?)
 }
 
-fn consumer(connection: &Connection, id: &str) -> Result<(Position, Position)> {
-    connection.query_row("SELECT ack_sequence, ack_ordinal, delivered_sequence, delivered_ordinal FROM task_outbox_consumers WHERE id=?1", [id], |row| Ok(((row.get(0)?, row.get(1)?), (row.get(2)?, row.get(3)?))))
-        .optional()?.ok_or_else(|| invalid("outbox consumer is not registered"))
+fn consumer(connection: &Connection, id: &str, owner: &str) -> Result<(Position, Position)> {
+    let (actual,ack,delivered) = connection.query_row(
+        "SELECT owner_facet,ack_sequence,ack_ordinal,delivered_sequence,delivered_ordinal FROM task_outbox_consumers WHERE id=?1",[id],
+        |row| Ok((row.get::<_,Option<String>>(0)?,(row.get(1)?,row.get(2)?),(row.get(3)?,row.get(4)?))))
+        .optional()?.ok_or_else(|| invalid("outbox consumer is not registered"))?;
+    match actual {
+        None => Err(Error::OutboxOwnerUnassigned),
+        Some(actual) if actual != owner => Err(Error::OutboxOwnerMismatch),
+        Some(_) => Ok((ack, delivered)),
+    }
+}
+
+fn owner_name(owner: &str) -> Result<()> {
+    swarmie_task_contracts::validate_task_outbox_owner_facet(owner)
+        .map_err(|error| Error::Invalid(error.to_string()))
 }
 
 fn boundary(connection: &Connection, position: Position, floor: Position) -> Result<()> {
@@ -134,13 +146,14 @@ impl Store {
         let (_, store_id) = metadata(&transaction)?;
         let (retained_events, retained_bytes, floor) = usage(&transaction)?;
         let positions = {
-            let mut statement = transaction.prepare("SELECT id,ack_sequence,ack_ordinal,delivered_sequence,delivered_ordinal FROM task_outbox_consumers ORDER BY id COLLATE BINARY LIMIT 65")?;
+            let mut statement = transaction.prepare("SELECT id,ack_sequence,ack_ordinal,delivered_sequence,delivered_ordinal,owner_facet FROM task_outbox_consumers ORDER BY id COLLATE BINARY LIMIT 65")?;
             statement
                 .query_map([], |row| {
                     Ok((
                         row.get::<_, String>(0)?,
                         (row.get::<_, u64>(1)?, row.get::<_, i64>(2)?),
                         (row.get::<_, u64>(3)?, row.get::<_, i64>(4)?),
+                        row.get::<_, Option<String>>(5)?,
                     ))
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()?
@@ -150,7 +163,7 @@ impl Store {
                 "outbox exceeds bounded consumer count".into(),
             ));
         }
-        let acknowledged = positions.iter().map(|(_, ack, _)| *ack).min();
+        let acknowledged = positions.iter().map(|(_, ack, _, _)| *ack).min();
         let compactable_events = if let Some(ack) = acknowledged {
             transaction.query_row(
                 "SELECT count(*) FROM task_outbox WHERE (sequence,ordinal)<=(?1,?2)",
@@ -167,13 +180,16 @@ impl Store {
             })?;
         let consumers = positions
             .into_iter()
-            .map(|(consumer_id, ack, delivered)| TaskOutboxConsumerState {
-                consumer_id,
-                store_id: store_id.clone(),
-                acknowledged: event_id(ack, &store_id),
-                delivered: event_id(delivered, &store_id),
-                retained_after: event_id(floor, &store_id),
-            })
+            .map(
+                |(consumer_id, ack, delivered, owner_facet)| TaskOutboxConsumerState {
+                    owner_facet,
+                    consumer_id,
+                    store_id: store_id.clone(),
+                    acknowledged: event_id(ack, &store_id),
+                    delivered: event_id(delivered, &store_id),
+                    retained_after: event_id(floor, &store_id),
+                },
+            )
             .collect();
         let status = TaskOutboxStatus {
             store_id: store_id.clone(),
@@ -194,8 +210,10 @@ impl Store {
     pub(crate) fn register_outbox_consumer(
         &self,
         request: TaskOutboxConsumer,
+        owner: &str,
     ) -> Result<TaskOutboxConsumerState> {
         identity(&request.id)?;
+        owner_name(owner)?;
         let mut connection = self.connection.borrow_mut();
         let transaction = connection
             .as_mut()
@@ -217,12 +235,13 @@ impl Store {
                 return Err(Error::OutboxFull);
             }
             transaction.execute(
-                "INSERT INTO task_outbox_consumers VALUES(?1, ?2, ?3, ?2, ?3)",
-                params![request.id, floor.0, floor.1],
+                "INSERT INTO task_outbox_consumers(id,ack_sequence,ack_ordinal,delivered_sequence,delivered_ordinal,owner_facet) VALUES(?1, ?2, ?3, ?2, ?3, ?4)",
+                params![request.id, floor.0, floor.1, owner],
             )?;
         }
-        let (ack, delivered) = consumer(&transaction, &request.id)?;
+        let (ack, delivered) = consumer(&transaction, &request.id, owner)?;
         let state = TaskOutboxConsumerState {
+            owner_facet: Some(owner.into()),
             consumer_id: request.id,
             store_id: store_id.clone(),
             acknowledged: event_id(ack, &store_id),
@@ -233,8 +252,13 @@ impl Store {
         Ok(state)
     }
 
-    pub(crate) fn read_outbox(&self, request: TaskOutboxQuery) -> Result<TaskOutboxPage> {
+    pub(crate) fn read_outbox(
+        &self,
+        request: TaskOutboxQuery,
+        owner: &str,
+    ) -> Result<TaskOutboxPage> {
         identity(&request.consumer_id)?;
+        owner_name(owner)?;
         if !(1..=256).contains(&request.limit) {
             return Err(invalid("outbox page limit requires 1..=256"));
         }
@@ -245,7 +269,7 @@ impl Store {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let (_, store_id) = metadata(&transaction)?;
         let (_, _, floor) = usage(&transaction)?;
-        let (ack, delivered) = consumer(&transaction, &request.consumer_id)?;
+        let (ack, delivered) = consumer(&transaction, &request.consumer_id, owner)?;
         let after = request
             .after
             .as_ref()
@@ -307,8 +331,13 @@ impl Store {
         Ok(page)
     }
 
-    pub(crate) fn acknowledge_outbox(&self, request: TaskOutboxAcknowledgement) -> Result<()> {
+    pub(crate) fn acknowledge_outbox(
+        &self,
+        request: TaskOutboxAcknowledgement,
+        owner: &str,
+    ) -> Result<()> {
         identity(&request.consumer_id)?;
+        owner_name(owner)?;
         let mut connection = self.connection.borrow_mut();
         let transaction = connection
             .as_mut()
@@ -316,7 +345,7 @@ impl Store {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let (_, store_id) = metadata(&transaction)?;
         let through = position(&request.through, &store_id)?;
-        let (ack, delivered) = consumer(&transaction, &request.consumer_id)?;
+        let (ack, delivered) = consumer(&transaction, &request.consumer_id, owner)?;
         if through > delivered {
             return Err(invalid("outbox acknowledgement exceeds delivered prefix"));
         }
@@ -332,15 +361,32 @@ impl Store {
         Ok(())
     }
 
-    pub(crate) fn remove_outbox_consumer(&self, request: TaskOutboxConsumer) -> Result<()> {
+    pub(crate) fn remove_outbox_consumer(
+        &self,
+        request: TaskOutboxConsumer,
+        owner: &str,
+    ) -> Result<()> {
         identity(&request.id)?;
-        self.with(|connection| {
-            connection.execute(
+        owner_name(owner)?;
+        let mut connection = self.connection.borrow_mut();
+        let transaction = connection
+            .as_mut()
+            .ok_or(Error::Closed)?
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let exists: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM task_outbox_consumers WHERE id=?1)",
+            [&request.id],
+            |row| row.get(0),
+        )?;
+        if exists {
+            consumer(&transaction, &request.id, owner)?;
+            transaction.execute(
                 "DELETE FROM task_outbox_consumers WHERE id=?1",
                 [request.id],
             )?;
-            Ok(())
-        })
+        }
+        transaction.commit()?;
+        Ok(())
     }
 
     pub(crate) fn compact_outbox(
@@ -456,7 +502,7 @@ mod tests {
         })
     }
     fn register(store: &Store, id: &str) -> Result<TaskOutboxConsumerState> {
-        store.register_outbox_consumer(TaskOutboxConsumer { id: id.into() })
+        store.register_outbox_consumer(TaskOutboxConsumer { id: id.into() }, OWNER)
     }
     fn read(
         store: &Store,
@@ -464,17 +510,23 @@ mod tests {
         after: Option<TaskOutboxEventId>,
         limit: u32,
     ) -> Result<TaskOutboxPage> {
-        store.read_outbox(TaskOutboxQuery {
-            consumer_id: id.into(),
-            after,
-            limit,
-        })
+        store.read_outbox(
+            TaskOutboxQuery {
+                consumer_id: id.into(),
+                after,
+                limit,
+            },
+            OWNER,
+        )
     }
     fn ack(store: &Store, id: &str, through: TaskOutboxEventId) -> Result<()> {
-        store.acknowledge_outbox(TaskOutboxAcknowledgement {
-            consumer_id: id.into(),
-            through,
-        })
+        store.acknowledge_outbox(
+            TaskOutboxAcknowledgement {
+                consumer_id: id.into(),
+                through,
+            },
+            OWNER,
+        )
     }
     fn compact(store: &Store) -> Result<TaskOutboxRetention> {
         store.compact_outbox(TaskOutboxCompaction { limit: 4096 })
@@ -643,9 +695,12 @@ mod tests {
         ack(&store, "offline", page.events[0].id.clone())?;
         assert_eq!(compact(&store)?.removed, 1);
         assert_eq!(compact(&store)?.retained_events, 1);
-        store.remove_outbox_consumer(TaskOutboxConsumer {
-            id: "offline".into(),
-        })?;
+        store.remove_outbox_consumer(
+            TaskOutboxConsumer {
+                id: "offline".into(),
+            },
+            OWNER,
+        )?;
         let cleanup = compact(&store)?;
         assert_eq!(cleanup.removed, 1);
         assert_eq!(cleanup.retained_bytes, 0);
@@ -692,6 +747,7 @@ mod tests {
                 max_bytes: 4096,
                 max_consumers: 1,
             },
+            &BTreeMap::new(),
         )?;
         store.claim_owner(StorageOwner { id: OWNER.into() })?;
         register(&store, "observer")?;
@@ -724,6 +780,7 @@ mod tests {
                 max_bytes: 1,
                 max_consumers: 1,
             },
+            &BTreeMap::new(),
         )?;
         store.claim_owner(StorageOwner { id: OWNER.into() })?;
         let state = register(&store, "observer")?;

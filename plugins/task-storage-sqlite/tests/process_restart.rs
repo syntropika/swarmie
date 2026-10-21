@@ -1,3 +1,5 @@
+mod common;
+
 use std::{
     io::{BufRead, BufReader, Write},
     path::Path,
@@ -9,21 +11,23 @@ use std::{
 use swarmie_task_contracts::{
     CommitResult, StorageOwner, TaskLookup, TaskOutboxAcknowledgement, TaskOutboxCompaction,
     TaskOutboxConsumer, TaskOutboxEvent, TaskOutboxQuery, TaskRecord, TaskSpec, TaskStatus,
-    TaskStorage, TaskStorageInput, TaskStorageRef, TaskTransaction, TaskWrite,
+    TaskStorage, TaskStorageInput, TaskTransaction, TaskWrite,
 };
 use swarmie_task_storage_sqlite::Configuration;
 use tembra::{core, prelude::*};
 
-async fn open(host: &Host, database: &Path) -> Result<TaskStorageRef> {
+async fn open(host: &Host, database: &Path) -> Result<common::Consumer> {
     host.install(
         swarmie_task_storage_sqlite::facet(&Configuration {
             database: database.into(),
             outbox: Default::default(),
+            outbox_legacy_owners: Default::default(),
         })?,
         core::LoadOptions::default(),
     )?
     .await?;
-    host.get(TaskStorage, TaskStorageInput {}).await
+    let storage = host.get(TaskStorage, TaskStorageInput {}).await?;
+    common::install(host, "test.outbox.consumer", storage).await
 }
 
 struct Process(Child);

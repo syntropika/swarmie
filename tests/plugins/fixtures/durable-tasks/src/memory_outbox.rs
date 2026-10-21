@@ -14,7 +14,7 @@ const MAX_CONSUMERS: usize = 64;
 #[derive(Default)]
 pub(crate) struct MemoryOutbox {
     events: VecDeque<(TaskOutboxEvent, usize)>,
-    consumers: BTreeMap<String, (Position, Position)>,
+    consumers: BTreeMap<String, (Position, Position, String)>,
     floor: Option<TaskOutboxEventId>,
     bytes: usize,
 }
@@ -46,7 +46,7 @@ fn id(position: Position, store_id: &str) -> Option<TaskOutboxEventId> {
 
 impl MemoryOutbox {
     pub fn status(&self, store_id: &str) -> TaskOutboxStatus {
-        let acknowledged = self.consumers.values().map(|(ack, _)| *ack).min();
+        let acknowledged = self.consumers.values().map(|(ack, _, _)| *ack).min();
         let compactable_events = acknowledged.map_or(0, |ack| {
             self.events
                 .iter()
@@ -68,15 +68,34 @@ impl MemoryOutbox {
             consumers: self
                 .consumers
                 .iter()
-                .map(|(consumer_id, (ack, delivered))| TaskOutboxConsumerState {
-                    consumer_id: consumer_id.clone(),
-                    store_id: store_id.into(),
-                    acknowledged: id(*ack, store_id),
-                    delivered: id(*delivered, store_id),
-                    retained_after: self.floor.clone(),
-                })
+                .map(
+                    |(consumer_id, (ack, delivered, owner))| TaskOutboxConsumerState {
+                        owner_facet: Some(owner.clone()),
+                        consumer_id: consumer_id.clone(),
+                        store_id: store_id.into(),
+                        acknowledged: id(*ack, store_id),
+                        delivered: id(*delivered, store_id),
+                        retained_after: self.floor.clone(),
+                    },
+                )
                 .collect(),
         }
+    }
+
+    fn owned_consumer(&self, id: &str, owner: &str) -> Result<(Position, Position)> {
+        validate_task_outbox_owner_facet(owner)?;
+        let (ack, delivered, actual) = self
+            .consumers
+            .get(id)
+            .ok_or_else(|| invalid("outbox consumer is not registered"))?;
+        if actual != owner {
+            return Err(RuntimeError::new(
+                tembra::core::ErrorCode::Forbidden,
+                "task_storage_outbox_owner_mismatch",
+                "the caller does not own this outbox consumer",
+            ));
+        }
+        Ok((*ack, *delivered))
     }
 
     fn floor(&self) -> Position {
@@ -152,8 +171,10 @@ impl MemoryOutbox {
         &mut self,
         consumer: TaskOutboxConsumer,
         store_id: &str,
+        owner: &str,
     ) -> Result<TaskOutboxConsumerState> {
         validate_identity(&consumer.id)?;
+        validate_task_outbox_owner_facet(owner)?;
         if !self.consumers.contains_key(&consumer.id) {
             if self.consumers.len() >= MAX_CONSUMERS {
                 return Err(RuntimeError::unavailable(
@@ -162,10 +183,12 @@ impl MemoryOutbox {
                 ));
             }
             let floor = self.floor();
-            self.consumers.insert(consumer.id.clone(), (floor, floor));
+            self.consumers
+                .insert(consumer.id.clone(), (floor, floor, owner.into()));
         }
-        let (acknowledged, delivered) = self.consumers[&consumer.id];
+        let (acknowledged, delivered) = self.owned_consumer(&consumer.id, owner)?;
         Ok(TaskOutboxConsumerState {
+            owner_facet: Some(owner.into()),
             consumer_id: consumer.id,
             store_id: store_id.into(),
             acknowledged: id(acknowledged, store_id),
@@ -174,15 +197,17 @@ impl MemoryOutbox {
         })
     }
 
-    pub fn read(&mut self, query: TaskOutboxQuery, store_id: &str) -> Result<TaskOutboxPage> {
+    pub fn read(
+        &mut self,
+        query: TaskOutboxQuery,
+        store_id: &str,
+        owner: &str,
+    ) -> Result<TaskOutboxPage> {
         validate_identity(&query.consumer_id)?;
         if !(1..=256).contains(&query.limit) {
             return Err(invalid("outbox page limit requires 1..=256"));
         }
-        let (ack, delivered) = *self
-            .consumers
-            .get(&query.consumer_id)
-            .ok_or_else(|| invalid("outbox consumer is not registered"))?;
+        let (ack, delivered) = self.owned_consumer(&query.consumer_id, owner)?;
         let after = query
             .after
             .as_ref()
@@ -229,13 +254,11 @@ impl MemoryOutbox {
         &mut self,
         request: TaskOutboxAcknowledgement,
         store_id: &str,
+        owner: &str,
     ) -> Result<()> {
         validate_identity(&request.consumer_id)?;
         let through = position(&request.through, store_id)?;
-        let (ack, delivered) = *self
-            .consumers
-            .get(&request.consumer_id)
-            .ok_or_else(|| invalid("outbox consumer is not registered"))?;
+        let (ack, delivered) = self.owned_consumer(&request.consumer_id, owner)?;
         if through > delivered {
             return Err(invalid("outbox acknowledgement exceeds delivered prefix"));
         }
@@ -246,8 +269,12 @@ impl MemoryOutbox {
         Ok(())
     }
 
-    pub fn remove(&mut self, request: TaskOutboxConsumer) -> Result<()> {
+    pub fn remove(&mut self, request: TaskOutboxConsumer, owner: &str) -> Result<()> {
         validate_identity(&request.id)?;
+        validate_task_outbox_owner_facet(owner)?;
+        if self.consumers.contains_key(&request.id) {
+            self.owned_consumer(&request.id, owner)?;
+        }
         self.consumers.remove(&request.id);
         Ok(())
     }
@@ -256,7 +283,7 @@ impl MemoryOutbox {
         if !(1..=4096).contains(&request.limit) {
             return Err(invalid("outbox compaction limit requires 1..=4096"));
         }
-        let protected = self.consumers.values().map(|(ack, _)| *ack).min();
+        let protected = self.consumers.values().map(|(ack, _, _)| *ack).min();
         let mut removed = 0;
         while removed < request.limit
             && self.events.front().is_some_and(|(event, _)| {

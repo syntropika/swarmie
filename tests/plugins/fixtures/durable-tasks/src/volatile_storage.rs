@@ -269,42 +269,50 @@ impl TaskStorageProvider for Service {
     async fn register_outbox_consumer(
         &self,
         consumer: TaskOutboxConsumer,
-        _context: Context,
+        context: Context,
     ) -> Result<TaskOutboxConsumerState> {
+        let owner = task_outbox_consumer_owner(&context)?;
         let value = self.resource.value()?;
         let mut data = value.borrow_mut();
         let store_id = data.store_id.clone();
-        data.outbox.register(consumer, &store_id)
+        data.outbox.register(consumer, &store_id, &owner)
     }
 
     async fn read_outbox(
         &self,
         query: TaskOutboxQuery,
-        _context: Context,
+        context: Context,
     ) -> Result<TaskOutboxPage> {
+        let owner = task_outbox_consumer_owner(&context)?;
         let value = self.resource.value()?;
         let mut data = value.borrow_mut();
         let store_id = data.store_id.clone();
-        data.outbox.read(query, &store_id)
+        data.outbox.read(query, &store_id, &owner)
     }
 
     async fn acknowledge_outbox(
         &self,
         acknowledgement: TaskOutboxAcknowledgement,
-        _context: Context,
+        context: Context,
     ) -> Result<()> {
+        let owner = task_outbox_consumer_owner(&context)?;
         let value = self.resource.value()?;
         let mut data = value.borrow_mut();
         let store_id = data.store_id.clone();
-        data.outbox.acknowledge(acknowledgement, &store_id)
+        data.outbox.acknowledge(acknowledgement, &store_id, &owner)
     }
 
     async fn remove_outbox_consumer(
         &self,
         consumer: TaskOutboxConsumer,
-        _context: Context,
+        context: Context,
     ) -> Result<()> {
-        self.resource.value()?.borrow_mut().outbox.remove(consumer)
+        let owner = task_outbox_consumer_owner(&context)?;
+        self.resource
+            .value()?
+            .borrow_mut()
+            .outbox
+            .remove(consumer, &owner)
     }
 
     async fn compact_outbox(
@@ -346,17 +354,24 @@ mod tests {
                     .claim_owner(StorageOwner { id: "owner".into() })
                     .await
                     .unwrap();
+                let consumer = crate::outbox_consumer::install(
+                    &host,
+                    "fixture.memory-consumer",
+                    storage.clone(),
+                )
+                .await
+                .unwrap();
                 let register = |id: &str| TaskOutboxConsumer { id: id.into() };
                 let empty = storage.outbox_status().await.unwrap();
                 assert_eq!(empty.retained_events, 0);
                 assert_eq!(empty.limits.max_events, 4096);
                 assert_eq!(storage.outbox_status().await.unwrap(), empty);
-                let initial = storage
+                let initial = consumer
                     .register_outbox_consumer(register("publisher"))
                     .await
                     .unwrap();
                 assert!(uuid::Uuid::parse_str(&initial.store_id).is_ok());
-                storage
+                consumer
                     .register_outbox_consumer(register("offline"))
                     .await
                     .unwrap();
@@ -382,7 +397,7 @@ mod tests {
                 assert_eq!(pending.pending_events, 2);
                 assert_eq!(pending.compactable_events, 0);
                 assert_eq!(pending.consumers.len(), 2);
-                let first = storage
+                let first = consumer
                     .read_outbox(query("publisher", None, 1))
                     .await
                     .unwrap();
@@ -390,14 +405,14 @@ mod tests {
                 assert_eq!(first.events[0].task_id, "z-first");
                 assert_eq!(first.events[0].id.ordinal, 0);
                 assert_eq!(first.events[0].transaction_size, 2);
-                let second = storage
+                let second = consumer
                     .read_outbox(query("publisher", first.next.clone(), 1))
                     .await
                     .unwrap();
                 assert_eq!(second.events[0].task_id, "a-second");
                 assert_eq!(second.events[0].id.ordinal, 1);
                 assert!(
-                    storage
+                    consumer
                         .read_outbox(query("publisher", second.next.clone(), 256))
                         .await
                         .unwrap()
@@ -405,12 +420,12 @@ mod tests {
                         .is_empty()
                 );
                 // Publication without acknowledgement repeats the stable identity on resume.
-                let replay = storage
+                let replay = consumer
                     .read_outbox(query("publisher", None, 256))
                     .await
                     .unwrap();
                 assert_eq!(replay.events[0].id, first.events[0].id);
-                storage
+                consumer
                     .acknowledge_outbox(TaskOutboxAcknowledgement {
                         consumer_id: "publisher".into(),
                         through: second.next.clone().unwrap(),
@@ -425,12 +440,12 @@ mod tests {
                         .removed,
                     0
                 );
-                let recovered = storage
+                let recovered = consumer
                     .read_outbox(query("offline", None, 256))
                     .await
                     .unwrap();
                 assert_eq!(recovered.events, replay.events);
-                storage
+                consumer
                     .remove_outbox_consumer(register("offline"))
                     .await
                     .unwrap();
@@ -442,13 +457,13 @@ mod tests {
                         .removed,
                     1
                 );
-                let late = storage
+                let late = consumer
                     .register_outbox_consumer(register("late"))
                     .await
                     .unwrap();
                 assert_eq!(late.retained_after, first.next);
                 assert_eq!(
-                    storage
+                    consumer
                         .read_outbox(query("late", None, 256))
                         .await
                         .unwrap()
@@ -464,7 +479,7 @@ mod tests {
                     .await
                     .unwrap();
                 assert_eq!(
-                    storage
+                    consumer
                         .read_outbox(query("publisher", second.next, 256))
                         .await
                         .unwrap()
@@ -475,7 +490,7 @@ mod tests {
                 let mut foreign = first.events[0].id.clone();
                 foreign.store_id = uuid::Uuid::new_v4().to_string();
                 assert!(
-                    storage
+                    consumer
                         .acknowledge_outbox(TaskOutboxAcknowledgement {
                             consumer_id: "publisher".into(),
                             through: foreign
@@ -557,6 +572,92 @@ mod tests {
                     .unwrap();
                 assert_eq!(retention.removed, 0);
                 assert_eq!(retention.retained_events, 4096);
+                host.close().await.unwrap();
+            }));
+    }
+
+    #[test]
+    fn independent_provider_refuses_foreign_and_unattributed_consumer_mutations() {
+        let driver = tembra_native::TokioDriver::new();
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(driver.run_until(async {
+                let host =
+                    Host::with_driver("volatile-owned-consumers", "test", driver.clone()).unwrap();
+                host.install(facet().unwrap(), core::LoadOptions::default())
+                    .unwrap()
+                    .await
+                    .unwrap();
+                let storage = host.get(TaskStorage, TaskStorageInput {}).await.unwrap();
+                storage
+                    .claim_owner(StorageOwner { id: "owner".into() })
+                    .await
+                    .unwrap();
+                storage
+                    .commit(TaskTransaction {
+                        owner: "owner".into(),
+                        writes: vec![write("owned")],
+                    })
+                    .await
+                    .unwrap();
+                let a =
+                    crate::outbox_consumer::install(&host, "fixture.consumer.a", storage.clone())
+                        .await
+                        .unwrap();
+                let b =
+                    crate::outbox_consumer::install(&host, "fixture.consumer.b", storage.clone())
+                        .await
+                        .unwrap();
+                let request = || TaskOutboxConsumer {
+                    id: "publisher".into(),
+                };
+                let query = || TaskOutboxQuery {
+                    consumer_id: "publisher".into(),
+                    after: None,
+                    limit: 256,
+                };
+                assert_eq!(
+                    a.register_outbox_consumer(request())
+                        .await
+                        .unwrap()
+                        .owner_facet
+                        .as_deref(),
+                    Some("fixture.consumer.a")
+                );
+                let page = a.read_outbox(query()).await.unwrap();
+                let acknowledgement = TaskOutboxAcknowledgement {
+                    consumer_id: "publisher".into(),
+                    through: page.next.unwrap(),
+                };
+                let before = storage.outbox_status().await.unwrap();
+                for error in [
+                    b.register_outbox_consumer(request()).await.unwrap_err(),
+                    b.read_outbox(query()).await.unwrap_err(),
+                    b.acknowledge_outbox(acknowledgement.clone())
+                        .await
+                        .unwrap_err(),
+                    b.remove_outbox_consumer(request()).await.unwrap_err(),
+                ] {
+                    assert_eq!(error.reason, "task_storage_outbox_owner_mismatch");
+                }
+                for error in [
+                    storage
+                        .register_outbox_consumer(request())
+                        .await
+                        .unwrap_err(),
+                    storage.read_outbox(query()).await.unwrap_err(),
+                    storage
+                        .acknowledge_outbox(acknowledgement.clone())
+                        .await
+                        .unwrap_err(),
+                    storage.remove_outbox_consumer(request()).await.unwrap_err(),
+                ] {
+                    assert_eq!(error.reason, "task_storage_outbox_owner_required");
+                }
+                assert_eq!(storage.outbox_status().await.unwrap(), before);
+                a.acknowledge_outbox(acknowledgement).await.unwrap();
                 host.close().await.unwrap();
             }));
     }

@@ -1,21 +1,23 @@
+mod common;
+
 use std::path::Path;
 
-use swarmie_task_contracts::{
-    StorageOwner, TaskLookup, TaskStorage, TaskStorageInput, TaskStorageRef,
-};
+use swarmie_task_contracts::{StorageOwner, TaskLookup, TaskStorage, TaskStorageInput};
 use swarmie_task_storage_sqlite::{Configuration, ConfigurationError};
 use tembra::{core, prelude::*};
 
-async fn open(host: &Host, database: &Path) -> Result<TaskStorageRef> {
+async fn open(host: &Host, database: &Path) -> Result<common::Consumer> {
     host.install(
         swarmie_task_storage_sqlite::facet(&Configuration {
             database: database.into(),
             outbox: Default::default(),
+            outbox_legacy_owners: Default::default(),
         })?,
         core::LoadOptions::default(),
     )?
     .await?;
-    host.get(TaskStorage, TaskStorageInput {}).await
+    let storage = host.get(TaskStorage, TaskStorageInput {}).await?;
+    common::install(host, "test.outbox.consumer", storage).await
 }
 
 #[test]
@@ -26,7 +28,7 @@ fn public_contract_backend_conformance_and_restart_persistence() -> Result<()> {
     let host = Host::with_driver("storage-conformance", "application", driver.clone())?;
     driver.run_until(async {
         let storage = open(&host, &database).await?;
-        swarmie_task_contracts::conformance::run(&storage).await?;
+        storage.conformance().await?;
         let before = storage
             .get(TaskLookup {
                 id: "parent".into(),
@@ -148,6 +150,7 @@ fn configuration_schema_version_and_corruption_fail_explicitly() -> Result<()> {
             swarmie_task_storage_sqlite::facet(&Configuration {
                 database: database.into(),
                 outbox: Default::default(),
+                outbox_legacy_owners: Default::default(),
             })
             .is_err()
         );
@@ -156,6 +159,7 @@ fn configuration_schema_version_and_corruption_fail_explicitly() -> Result<()> {
         Configuration {
             database: "".into(),
             outbox: Default::default(),
+            outbox_legacy_owners: Default::default(),
         }
         .validate(),
         Err(ConfigurationError::EmptyDatabase)
@@ -177,7 +181,7 @@ fn configuration_schema_version_and_corruption_fail_explicitly() -> Result<()> {
     let host = Host::with_driver("storage-initialize", "application", driver.clone())?;
     driver.run_until(async {
         let storage = open(&host, &database).await?;
-        swarmie_task_contracts::conformance::run(&storage).await?;
+        storage.conformance().await?;
         let persisted = storage
             .get(TaskLookup {
                 id: "parent".into(),

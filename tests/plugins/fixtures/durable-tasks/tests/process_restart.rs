@@ -13,7 +13,7 @@ use serde_json::json;
 use swarmie_durable_tasks_fixture::{
     facet,
     hooks::{self, Observer},
-    task,
+    outbox_consumer, task,
 };
 use swarmie_task_contracts::*;
 use tembra::{core, prelude::*};
@@ -166,7 +166,8 @@ fn child_process() -> Result<()> {
                 let host = Host::with_driver("process-durable", "application", driver.clone())?;
                 host.install(
                     swarmie_task_storage_sqlite::facet(
-                        &swarmie_task_storage_sqlite::Configuration { database, outbox: Default::default(), },
+                        &swarmie_task_storage_sqlite::Configuration {
+ outbox_legacy_owners: Default::default(), database, outbox: Default::default(), },
                     )?,
                     core::LoadOptions::default(),
                 )?
@@ -352,8 +353,9 @@ fn child_process() -> Result<()> {
                 }
                 if phase == "complete" || phase == "retry" {
                     let storage = host.get(TaskStorage, TaskStorageInput {}).await?;
-                    storage.register_outbox_consumer(TaskOutboxConsumer { id: "recovery-provenance".into() }).await?;
-                    let durable = storage.read_outbox(TaskOutboxQuery { consumer_id: "recovery-provenance".into(), after: None, limit: 256 }).await?;
+                    let consumer = outbox_consumer::install(&host, "fixture.process-outbox-reader", storage).await?;
+                    consumer.register_outbox_consumer(TaskOutboxConsumer { id: "recovery-provenance".into() }).await?;
+                    let durable = consumer.read_outbox(TaskOutboxQuery { consumer_id: "recovery-provenance".into(), after: None, limit: 256 }).await?;
                     assert!(durable.events.iter().any(|event| event.task_id == "process-task" && event.previous_status == Some(TaskStatus::Running) && event.provenance == Some(TaskTransitionProvenance { origin: TaskLifecycleOrigin::Recovery, checkpoint_committed: false })), "real process restart records recovery provenance atomically");
                     if phase == "retry" {
                         assert!(durable.events.iter().any(|event| event.provenance == Some(TaskTransitionProvenance { origin: TaskLifecycleOrigin::Retry, checkpoint_committed: false })));
@@ -361,11 +363,12 @@ fn child_process() -> Result<()> {
                 }
                 if phase == "reopen-terminal" {
                     let storage = host.get(TaskStorage, TaskStorageInput {}).await?;
-                    storage.register_outbox_consumer(TaskOutboxConsumer { id: "process-session-log".into() }).await?;
+                    let consumer = outbox_consumer::install(&host, "fixture.process-outbox-reader", storage).await?;
+                    consumer.register_outbox_consumer(TaskOutboxConsumer { id: "process-session-log".into() }).await?;
                     let mut after = None;
                     let mut retained = Vec::new();
                     loop {
-                        let page = storage.read_outbox(TaskOutboxQuery { consumer_id: "process-session-log".into(), after: after.clone(), limit: 16 }).await?;
+                        let page = consumer.read_outbox(TaskOutboxQuery { consumer_id: "process-session-log".into(), after: after.clone(), limit: 16 }).await?;
                         if page.events.is_empty() { break; }
                         after = page.next;
                         retained.extend(page.events);
@@ -373,10 +376,10 @@ fn child_process() -> Result<()> {
                     assert_eq!(retained.iter().filter(|event| event.current_status == TaskStatus::Terminal && event.task_id == "process-task" && event.revision == record.revision).count(), 1, "the terminal commit survives the crash gap through its atomic outbox fact");
                     assert!(retained.iter().any(|event| event.checkpoint_changed && event.task_id == "process-task"));
                     let through = retained.last().expect("retained committed history").id.clone();
-                    storage.acknowledge_outbox(TaskOutboxAcknowledgement { consumer_id: "process-session-log".into(), through: through.clone() }).await?;
-                    let state = storage.register_outbox_consumer(TaskOutboxConsumer { id: "process-session-log".into() }).await?;
+                    consumer.acknowledge_outbox(TaskOutboxAcknowledgement { consumer_id: "process-session-log".into(), through: through.clone() }).await?;
+                    let state = consumer.register_outbox_consumer(TaskOutboxConsumer { id: "process-session-log".into() }).await?;
                     assert_eq!(state.acknowledged, Some(through));
-                    assert!(storage.read_outbox(TaskOutboxQuery { consumer_id: "process-session-log".into(), after: None, limit: 16 }).await?.events.is_empty());
+                    assert!(consumer.read_outbox(TaskOutboxQuery { consumer_id: "process-session-log".into(), after: None, limit: 16 }).await?.events.is_empty());
                 }
                 host.close().await
             })

@@ -1,12 +1,94 @@
 //! Application configuration and provider monitoring without a scheduler or publisher.
 
-use std::{path::Path, rc::Rc};
+use std::{cell::RefCell, path::Path, rc::Rc};
+
+use futures::FutureExt;
 
 use serde_json::json;
 use swarmie_composition::Selection;
 use swarmie_runtime::{Application, Configuration, Runtime};
 use swarmie_task_contracts::*;
-use tembra::native::TokioDriver;
+use tembra::{Context, Host, NativeFacet, Result, core, native::TokioDriver};
+
+/// Publisher operations enter through their installed Facet's live managed root.
+struct Publisher {
+    storage: TaskStorageRef,
+    scope: core::FacetScope,
+}
+
+impl Publisher {
+    async fn install(host: &Host, storage: TaskStorageRef) -> Self {
+        let selected = Rc::new(RefCell::new(None));
+        let selected_scope = selected.clone();
+        host.install(
+            NativeFacet::new("fixture.operational-publisher", vec![], move |scope, _| {
+                *selected_scope.borrow_mut() = Some(scope.clone());
+                Ok(())
+            })
+            .unwrap(),
+            core::LoadOptions::default(),
+        )
+        .unwrap()
+        .await
+        .unwrap();
+        let scope = selected.borrow().clone().unwrap();
+        Self { storage, scope }
+    }
+
+    async fn register(&self) -> Result<TaskOutboxConsumerState> {
+        let storage = self.storage.clone();
+        self.scope
+            .root(move |context| {
+                async move {
+                    storage
+                        .with_context(&Context::from_core(context))
+                        .register_outbox_consumer(TaskOutboxConsumer {
+                            id: "publisher".into(),
+                        })
+                        .await
+                }
+                .boxed_local()
+            })
+            .await
+    }
+
+    async fn read(&self) -> Result<TaskOutboxPage> {
+        let storage = self.storage.clone();
+        self.scope
+            .root(move |context| {
+                async move {
+                    storage
+                        .with_context(&Context::from_core(context))
+                        .read_outbox(TaskOutboxQuery {
+                            consumer_id: "publisher".into(),
+                            after: None,
+                            limit: 1,
+                        })
+                        .await
+                }
+                .boxed_local()
+            })
+            .await
+    }
+
+    async fn acknowledge(&self, through: TaskOutboxEventId) -> Result<()> {
+        let storage = self.storage.clone();
+        self.scope
+            .root(move |context| {
+                async move {
+                    storage
+                        .with_context(&Context::from_core(context))
+                        .acknowledge_outbox(TaskOutboxAcknowledgement {
+                            consumer_id: "publisher".into(),
+                            through,
+                        })
+                        .await
+                }
+                .boxed_local()
+            })
+            .await
+    }
+}
 
 async fn start(driver: Rc<TokioDriver>, root: &Path, capacity: u64) -> Runtime {
     let mut application = Application::default();
@@ -121,20 +203,9 @@ fn json_capacity_and_monitoring_allow_supervised_recovery_without_recompilation(
                 .await
                 .unwrap();
             storage.commit(transaction("second")).await.unwrap();
-            storage
-                .register_outbox_consumer(TaskOutboxConsumer {
-                    id: "publisher".into(),
-                })
-                .await
-                .unwrap();
-            let page = storage
-                .read_outbox(TaskOutboxQuery {
-                    consumer_id: "publisher".into(),
-                    after: None,
-                    limit: 1,
-                })
-                .await
-                .unwrap();
+            let publisher = Publisher::install(&runtime.host, storage.clone()).await;
+            publisher.register().await.unwrap();
+            let page = publisher.read().await.unwrap();
             assert_eq!(page.events[0].task_id, "first");
             let first = page.events[0].id.clone();
             let delivered = storage.outbox_status().await.unwrap();
@@ -149,13 +220,7 @@ fn json_capacity_and_monitoring_allow_supervised_recovery_without_recompilation(
                 delivered,
                 "monitoring must not acknowledge or advance delivery"
             );
-            storage
-                .acknowledge_outbox(TaskOutboxAcknowledgement {
-                    consumer_id: "publisher".into(),
-                    through: first.clone(),
-                })
-                .await
-                .unwrap();
+            publisher.acknowledge(first.clone()).await.unwrap();
             let acknowledged = storage.outbox_status().await.unwrap();
             assert_eq!(acknowledged.compactable_events, 1);
             assert_eq!(acknowledged.pending_events, 1);

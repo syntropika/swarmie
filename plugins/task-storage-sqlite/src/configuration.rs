@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 use swarmie_task_contracts::TaskOutboxLimits;
@@ -22,6 +22,11 @@ pub struct Configuration {
     /// Hard retained capacity; omitted JSON fields use defaults. Pending history never expires.
     #[serde(default)]
     pub outbox: TaskOutboxLimits,
+    /// Explicit operator adoption of legacy unowned consumers, applied atomically on opening.
+    /// Maps existing consumer IDs to installed Facet names. Existing owners are never changed;
+    /// missing consumers or conflicting mappings refuse opening without modifying storage.
+    #[serde(default)]
+    pub outbox_legacy_owners: BTreeMap<String, String>,
 }
 
 /// Invalid configuration detected before a Resource opens the database.
@@ -33,6 +38,8 @@ pub enum ConfigurationError {
     NonDurableDatabase,
     #[error("outbox limits require positive portable event and byte counts and 1..=64 consumers")]
     OutboxLimits,
+    #[error("legacy owner adoption requires at most 64 valid consumer IDs and bounded Facet names")]
+    OutboxLegacyOwners,
 }
 
 impl Configuration {
@@ -40,7 +47,7 @@ impl Configuration {
     ///
     /// # Errors
     /// Rejects empty paths, SQLite URI syntax, the special in-memory database name,
-    /// and invalid outbox capacity limits.
+    /// invalid outbox capacity limits, and invalid legacy-owner adoption mappings.
     pub fn validate(&self) -> Result<(), ConfigurationError> {
         if self.database.as_os_str().is_empty() {
             return Err(ConfigurationError::EmptyDatabase);
@@ -52,6 +59,15 @@ impl Configuration {
         }
         self.outbox
             .validate()
-            .map_err(|_| ConfigurationError::OutboxLimits)
+            .map_err(|_| ConfigurationError::OutboxLimits)?;
+        if self.outbox_legacy_owners.len() > 64
+            || self.outbox_legacy_owners.iter().any(|(id, owner)| {
+                swarmie_task_contracts::validate_identity(id).is_err()
+                    || swarmie_task_contracts::validate_task_outbox_owner_facet(owner).is_err()
+            })
+        {
+            return Err(ConfigurationError::OutboxLegacyOwners);
+        }
+        Ok(())
     }
 }

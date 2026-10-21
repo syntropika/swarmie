@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use swarmie_durable_tasks_fixture::{
     adversarial, concurrency, facet,
     hooks::{self, Observer},
-    task,
+    outbox_consumer, task,
 };
 use swarmie_task_contracts::*;
 use tembra::{core, prelude::*};
@@ -55,6 +55,7 @@ async fn open_config(
     let host = Host::with_driver("lifecycle-hooks", "application", driver.clone())?;
     host.install(
         swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
+            outbox_legacy_owners: Default::default(),
             database: directory.path().join("tasks.sqlite"),
             outbox: Default::default(),
         })?,
@@ -347,12 +348,15 @@ fn waiting_sleeping_parent_child_cancellation_are_confirmed_observations() {
         }
         assert!(observed(&observer, "tree:first", "sleeping"));
         let storage = host.get(TaskStorage, TaskStorageInput {}).await?;
-        storage
+        let consumer =
+            outbox_consumer::install(&host, "fixture.equal-checkpoint-audit", storage.clone())
+                .await?;
+        consumer
             .register_outbox_consumer(TaskOutboxConsumer {
                 id: "equal-checkpoint-audit".into(),
             })
             .await?;
-        let durable = storage
+        let durable = consumer
             .read_outbox(TaskOutboxQuery {
                 consumer_id: "equal-checkpoint-audit".into(),
                 after: None,
@@ -448,12 +452,14 @@ fn parked_handler_retry_emits_new_confirmed_revisions() {
         assert!(delivered.contains(&"swarmie.task-parked".into()));
         assert!(delivered.contains(&"swarmie.task-retry".into()));
         let storage = host.get(TaskStorage, TaskStorageInput {}).await?;
-        storage
+        let consumer =
+            outbox_consumer::install(&host, "fixture.retry-provenance", storage.clone()).await?;
+        consumer
             .register_outbox_consumer(TaskOutboxConsumer {
                 id: "retry-provenance".into(),
             })
             .await?;
-        let durable = storage
+        let durable = consumer
             .read_outbox(TaskOutboxQuery {
                 consumer_id: "retry-provenance".into(),
                 after: None,
@@ -533,6 +539,7 @@ fn cas_conflict_after_effect_never_publishes_fictitious_completion() {
         backend
             .install(
                 swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
+                    outbox_legacy_owners: Default::default(),
                     database: directory.path().join("tasks.sqlite"),
                     outbox: Default::default(),
                 })?,
@@ -861,6 +868,7 @@ fn full_outbox_retains_settled_handler_decision_until_acknowledgement_frees_capa
         let host = Host::with_driver("outbox-capacity", "application", driver.clone())?;
         host.install(
             swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
+                outbox_legacy_owners: Default::default(),
                 database: directory.path().join("tasks.sqlite"),
                 outbox: swarmie_task_storage_sqlite::TaskOutboxLimits {
                     max_events: 2,
@@ -872,7 +880,10 @@ fn full_outbox_retains_settled_handler_decision_until_acknowledgement_frees_capa
         )?
         .await?;
         let storage = host.get(TaskStorage, TaskStorageInput {}).await?;
-        storage
+        let consumer =
+            outbox_consumer::install(&host, "fixture.retained-history-owner", storage.clone())
+                .await?;
+        consumer
             .register_outbox_consumer(TaskOutboxConsumer {
                 id: "retained-history".into(),
             })
@@ -927,7 +938,7 @@ fn full_outbox_retains_settled_handler_decision_until_acknowledgement_frees_capa
         assert_eq!(running.status, TaskStatus::Running);
         assert_eq!(control.effects("retained-decision"), 1);
         assert!(!observed(&observer, "retained-decision", "terminal"));
-        let pending = storage
+        let pending = consumer
             .read_outbox(TaskOutboxQuery {
                 consumer_id: "retained-history".into(),
                 after: None,
@@ -937,7 +948,7 @@ fn full_outbox_retains_settled_handler_decision_until_acknowledgement_frees_capa
         assert_eq!(pending.events.len(), 2);
         assert_eq!(pending.events[0].current_status, TaskStatus::Pending);
         assert_eq!(pending.events[1].current_status, TaskStatus::Running);
-        storage
+        consumer
             .acknowledge_outbox(TaskOutboxAcknowledgement {
                 consumer_id: "retained-history".into(),
                 through: pending.events[1].id.clone(),
@@ -960,7 +971,7 @@ fn full_outbox_retains_settled_handler_decision_until_acknowledgement_frees_capa
             1,
             "freeing outbox capacity commits the retained decision without replaying its physical handler"
         );
-        let remaining = storage
+        let remaining = consumer
             .read_outbox(TaskOutboxQuery {
                 consumer_id: "retained-history".into(),
                 after: None,

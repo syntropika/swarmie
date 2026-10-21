@@ -39,6 +39,10 @@ pub(crate) enum Error {
     TooLarge(String),
     #[error("task outbox retained capacity or consumer capacity is exhausted")]
     OutboxFull,
+    #[error("the caller does not own this outbox consumer")]
+    OutboxOwnerMismatch,
+    #[error("this legacy outbox consumer requires explicit operator ownership adoption")]
+    OutboxOwnerUnassigned,
     #[error("task database is already owned")]
     Owned,
     #[error("the caller does not own task scheduling for this provider")]
@@ -59,6 +63,8 @@ impl Error {
             Self::Invalid(_) => "task_storage_invalid",
             Self::TooLarge(_) => "task_storage_too_large",
             Self::OutboxFull => "task_storage_outbox_full",
+            Self::OutboxOwnerMismatch => "task_storage_outbox_owner_mismatch",
+            Self::OutboxOwnerUnassigned => "task_storage_outbox_owner_unassigned",
             Self::Owned => "task_storage_owned",
             Self::OwnerMismatch => "task_storage_owner_mismatch",
             Self::Closed => "task_storage_closed",
@@ -69,7 +75,8 @@ impl Error {
             Self::Invalid(_) | Self::TooLarge(_) | Self::Cursor | Self::OwnerMismatch => {
                 ErrorCode::Invalid
             }
-            Self::Unsupported(_) => ErrorCode::UpgradeRequired,
+            Self::OutboxOwnerMismatch => ErrorCode::Forbidden,
+            Self::Unsupported(_) | Self::OutboxOwnerUnassigned => ErrorCode::UpgradeRequired,
             Self::Closed => ErrorCode::Released,
             _ => ErrorCode::Unavailable,
         };
@@ -80,12 +87,13 @@ impl Error {
 impl Store {
     #[cfg(test)]
     pub(crate) fn open(path: &Path) -> Result<Self> {
-        Self::open_with_outbox_limits(path, crate::TaskOutboxLimits::default())
+        Self::open_with_outbox_limits(path, crate::TaskOutboxLimits::default(), &BTreeMap::new())
     }
 
     pub(crate) fn open_with_outbox_limits(
         path: &Path,
         outbox_limits: crate::TaskOutboxLimits,
+        legacy_owners: &BTreeMap<String, String>,
     ) -> Result<Self> {
         outbox_limits
             .validate()
@@ -134,7 +142,7 @@ impl Store {
                 "SQLite refused FULL synchronization".into(),
             ));
         }
-        crate::migrations::apply(&mut connection)?;
+        crate::migrations::apply(&mut connection, legacy_owners)?;
         Ok(Self {
             connection: RefCell::new(Some(connection)),
             outbox_limits,

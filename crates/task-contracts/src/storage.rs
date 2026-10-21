@@ -137,6 +137,11 @@ pub struct StorageOwner {
 /// current consumers; with no consumers it removes nothing. No physical settlement fact belongs
 /// to this atomic record-transition log. Publication is at least once when a consumer retries
 /// pending events; consumers must deduplicate by the complete stable event identity.
+/// Consumer mutation/read authority comes only from Tembra's bounded immediate caller Facet,
+/// using [`crate::task_outbox_consumer_owner`]. Registration durably binds that stable name;
+/// foreign owners and unattributed roots are refused without mutation. Legacy unowned rows
+/// protect retention and fail closed until an explicit operator migration adopts them. Status
+/// inspection reveals positions and owner names without granting consumption authority.
 #[tembra::contract(local, name = "swarmie.task-storage", version = 1)]
 pub trait TaskStorage {
     #[portable]
@@ -173,7 +178,7 @@ pub trait TaskStorage {
     #[portable]
     async fn acknowledge_outbox(&self, acknowledgement: TaskOutboxAcknowledgement) -> Result<()>;
 
-    /// Explicitly abandons this consumer's pending history and retention protection.
+    /// Its registered managed Facet owner explicitly abandons this consumer's retention protection.
     #[portable]
     async fn remove_outbox_consumer(&self, consumer: TaskOutboxConsumer) -> Result<()>;
 

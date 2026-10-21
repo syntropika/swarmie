@@ -171,32 +171,60 @@ impl TaskStorageProvider for Proxy {
 
     async fn register_outbox_consumer(
         &self,
-        request: TaskOutboxConsumer,
-        _context: Context,
+        _request: TaskOutboxConsumer,
+        context: Context,
     ) -> Result<TaskOutboxConsumerState> {
-        self.control.backend.register_outbox_consumer(request).await
+        task_outbox_consumer_owner(&context)?;
+        // This fixture delegates to a different Host; a local Context cannot transfer its
+        // authenticated Facet attribution across that boundary. Do not impersonate callers.
+        Err(RuntimeError::invalid(
+            "fixture_outbox_delegation",
+            "cross-Host consumer delegation is unsupported",
+        ))
     }
+
     async fn read_outbox(
         &self,
-        request: TaskOutboxQuery,
-        _context: Context,
+        _request: TaskOutboxQuery,
+        context: Context,
     ) -> Result<TaskOutboxPage> {
-        self.control.backend.read_outbox(request).await
+        task_outbox_consumer_owner(&context)?;
+        // This fixture delegates to a different Host; a local Context cannot transfer its
+        // authenticated Facet attribution across that boundary. Do not impersonate callers.
+        Err(RuntimeError::invalid(
+            "fixture_outbox_delegation",
+            "cross-Host consumer delegation is unsupported",
+        ))
     }
+
     async fn acknowledge_outbox(
         &self,
-        request: TaskOutboxAcknowledgement,
-        _context: Context,
+        _request: TaskOutboxAcknowledgement,
+        context: Context,
     ) -> Result<()> {
-        self.control.backend.acknowledge_outbox(request).await
+        task_outbox_consumer_owner(&context)?;
+        // This fixture delegates to a different Host; a local Context cannot transfer its
+        // authenticated Facet attribution across that boundary. Do not impersonate callers.
+        Err(RuntimeError::invalid(
+            "fixture_outbox_delegation",
+            "cross-Host consumer delegation is unsupported",
+        ))
     }
+
     async fn remove_outbox_consumer(
         &self,
-        request: TaskOutboxConsumer,
-        _context: Context,
+        _request: TaskOutboxConsumer,
+        context: Context,
     ) -> Result<()> {
-        self.control.backend.remove_outbox_consumer(request).await
+        task_outbox_consumer_owner(&context)?;
+        // This fixture delegates to a different Host; a local Context cannot transfer its
+        // authenticated Facet attribution across that boundary. Do not impersonate callers.
+        Err(RuntimeError::invalid(
+            "fixture_outbox_delegation",
+            "cross-Host consumer delegation is unsupported",
+        ))
     }
+
     async fn compact_outbox(
         &self,
         request: TaskOutboxCompaction,
