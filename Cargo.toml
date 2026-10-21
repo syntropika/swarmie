@@ -1,5 +1,6 @@
 [workspace]
 members = ["crates/*", "plugins/*", "tests/plugins/fixtures/counter", "tests/plugins/fixtures/durable-tasks"]
+exclude = ["vendor/genai-0.7.0"]
 resolver = "2"
 
 [workspace.package]
@@ -37,3 +38,6 @@ all = { level = "warn", priority = -1 }
 dbg_macro = "deny"
 todo = "deny"
 unimplemented = "deny"
+
+[patch.crates-io]
+genai = { path = "vendor/genai-0.7.0" }

@@ -11,6 +11,7 @@ swarmie-memory-store = { path = "../../plugins/memory-store" }
 swarmie-session-store-sqlite = { path = "../../plugins/session-store-sqlite" }
 swarmie-task-storage-sqlite = { path = "../../plugins/task-storage-sqlite" }
 swarmie-durable-tasks = { path = "../../plugins/durable-tasks", features = ["javascript"] }
+swarmie-model-provider-genai = { path = "../../plugins/model-provider-genai" }
 swarmie-plugin-contracts = { path = "../plugin-contracts" }
 swarmie-plugin-manager = { path = "../plugin-manager" }
 tembra.workspace = true
@@ -25,6 +26,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 swarmie-session-contracts = { path = "../session-contracts" }
+swarmie-model-contracts = { path = "../model-contracts" }
 swarmie-counter = { path = "../../tests/plugins/fixtures/counter" }
 swarmie-task-contracts = { path = "../task-contracts" }
 tembra-hooks.workspace = true

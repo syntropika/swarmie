@@ -9,6 +9,8 @@ export default defineConfig({
     ...ultracite.ignorePatterns,
     "**/target/**",
     "packages/tembra-sdk/upstream/**",
+    // Preserve the reproducible third-party dependency snapshot and its patch digest.
+    "vendor/genai-0.7.0/**",
     ".agents/skills/heroui-native/**",
     ".agents/skills/heroui-react/**",
     "tests/fixtures/**",

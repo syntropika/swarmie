@@ -1,6 +1,8 @@
 import { defineConfig } from "@tembra/sdk/tooling";
 
 const contracts = [
+  ["model-provider", "ModelProviderSchema", "swarmie-model-contracts", "model-contract"],
+  ["model-generation", "ModelGenerationSchema", "swarmie-model-contracts", "model-contract"],
   ["session-store", "SessionStore", "swarmie-session-contracts", "session-contract"],
   ["counter", "Counter", "swarmie-counter", "fixture-contract"],
   ["remote-counter", "RemoteCounter", "swarmie-counter", "fixture-contract"],
@@ -49,6 +51,10 @@ const contracts = [
   ],
   ["durable-gate", "TaskGate", "swarmie-durable-tasks-fixture", "durable-fixture-contract"],
 ] as const;
+const selectors = new Map([
+  ["model-provider", "provider"],
+  ["model-generation", "generation"],
+]);
 const watch = [
   "Cargo.toml",
   "Cargo.lock",
@@ -56,6 +62,7 @@ const watch = [
     "crates/plugin-contracts",
     "crates/task-contracts",
     "crates/session-contracts",
+    "crates/model-contracts",
     "tests/plugins/fixtures/counter",
     "tests/plugins/fixtures/durable-tasks",
     "plugins/memory-store",
@@ -78,7 +85,9 @@ export default defineConfig({
         owner,
         "--bin",
         binary,
-        ...(["memory-store", "durable-workflow"].includes(source) ? [] : ["--", source]),
+        ...(["memory-store", "durable-workflow"].includes(source)
+          ? []
+          : ["--", selectors.get(source) ?? source]),
       ],
       watch,
     },

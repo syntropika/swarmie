@@ -285,3 +285,11 @@ mise exec -- just check
 
 This runs formatting, typechecks, lint, frontend tests, plugin generation, Rust workspace tests,
 Clippy and Rustdoc checks. Additional recipes are listed by `mise exec -- just --list`.
+
+Model inference integration, streaming ownership and provider configuration are described in
+[the model integration guide](plugins/model-provider-genai/guides/models.md). Run `just models-check` for its focused checks.
+
+Session history guarantees and the publication protocol are described in the
+[SessionStore guide](plugins/session-store-sqlite/guides/session-event-log.md) and
+[session integration guide](plugins/session-store-sqlite/guides/session-integration.md).
+Run `just session-test` for the focused SessionStore suite.
