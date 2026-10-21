@@ -31,13 +31,13 @@ jobs:
         run: rustup toolchain install 1.99.0 --profile minimal
       - name: Verify architecture and quality failure modes
         run: |
-          python3 tools/quality/evidence.py --output "$RUNNER_TEMP/evidence/architecture" --tool cargo --tool rustc --criterion architecture.production-dependency-ownership --artifact target/quality/architecture.json -- python3 tools/quality/architecture.py --output target/quality/architecture.json
+          python3 tools/quality/evidence.py --output "$RUNNER_TEMP/evidence/architecture" --tool cargo --tool rustc --criterion architecture.production-dependency-ownership --produce architecture.json -- python3 tools/quality/architecture.py --output "{quality_output}/architecture.json"
           python3 tools/quality/matrix.py --output target/quality/feature-msrv-inventory.json
           python3 -m venv "$RUNNER_TEMP/quality-python"
           "$RUNNER_TEMP/quality-python/bin/python" -m pip install coverage==7.16.2
-          python3 tools/quality/evidence.py --output "$RUNNER_TEMP/evidence/tool-tests" --tool python3 --criterion quality.success-rejection-recovery --artifact target/quality/critical-cases.json --artifact target/quality/python.lcov --artifact target/quality/python-producer.json -- "$RUNNER_TEMP/quality-python/bin/python" tools/quality/python_coverage.py
+          python3 tools/quality/evidence.py --output "$RUNNER_TEMP/evidence/tool-tests" --tool python3 --criterion quality.success-rejection-recovery --produce critical-cases.json --produce python.lcov --produce python-producer.json -- "$RUNNER_TEMP/quality-python/bin/python" tools/quality/python_coverage.py --output-dir "{quality_output}"
           BASE=$(python3 -c 'import json,os; print(json.load(open(os.environ["RUNNER_TEMP"]+"/selection.json"))["base"] or "")')
-          python3 tools/quality/line_coverage.py --lcov target/quality/python.lcov --base "$BASE" --evidence "$RUNNER_TEMP/evidence/tool-tests/result.json" --output target/quality/python-summary.json
+          python3 tools/quality/line_coverage.py --lcov "$RUNNER_TEMP/evidence/tool-tests/produced/python.lcov" --base "$BASE" --evidence "$RUNNER_TEMP/evidence/tool-tests/result.json" --output target/quality/python-summary.json
       - name: Retain graph, plan and executed outcomes
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -126,23 +126,22 @@ jobs:
         run: |
           cargo +1.99.0 install cargo-llvm-cov --version 0.9.1 --locked
           mkdir -p target/quality
-          python3 tools/quality/evidence.py --output "$RUNNER_TEMP/evidence/rust-coverage" --tool cargo --tool rustc --criterion coverage.rust-instrumented-tests --artifact 'target/quality/*.lcov' -- cargo +1.99.0 llvm-cov --locked --workspace --all-features --lcov --output-path target/quality/rust.lcov
+          python3 tools/quality/evidence.py --output "$RUNNER_TEMP/evidence/rust-coverage" --tool cargo --tool rustc --criterion coverage.rust-instrumented-tests --produce rust.lcov -- cargo +1.99.0 llvm-cov --locked --workspace --all-features --lcov --output-path "{quality_output}/rust.lcov"
       - name: Capture frontend line baseline
         if: env.SELECTED == 'true' && matrix.family == 'frontend'
-        run: python3 tools/quality/evidence.py --output "$RUNNER_TEMP/evidence/frontend-coverage" --tool bun --criterion coverage.frontend-instrumented-tests --artifact 'target/quality/lcov.info' -- bun test ./packages/ui ./apps/mobile/test ./apps/web/src --coverage --coverage-reporter=lcov --coverage-dir=target/quality
+        run: python3 tools/quality/evidence.py --output "$RUNNER_TEMP/evidence/frontend-coverage" --tool bun --criterion coverage.frontend-instrumented-tests --produce lcov.info -- bun test ./packages/ui ./apps/mobile/test ./apps/web/src --coverage --coverage-reporter=lcov --coverage-dir="{quality_output}"
       - name: Summarize global trend and changed executable lines
         if: env.SELECTED == 'true'
         run: |
           python3 tools/quality/plan.py --output "$RUNNER_TEMP/selection.json"
           BASE=$(python3 -c 'import json,os; print(json.load(open(os.environ["RUNNER_TEMP"]+"/selection.json"))["base"] or "")')
-          test -f target/quality/rust.lcov || test -f target/quality/lcov.info
           RECEIPT="$RUNNER_TEMP/evidence/frontend-coverage/result.json"
-          if test "${{ matrix.family }}" = foundation; then RECEIPT="$RUNNER_TEMP/evidence/rust-coverage/result.json"; fi
-          for REPORT in target/quality/*.lcov target/quality/lcov.info; do
-            if test -f "$REPORT"; then
-              python3 tools/quality/line_coverage.py --lcov "$REPORT" --base "$BASE" --evidence "$RECEIPT" --output "${REPORT}.json"
-            fi
-          done
+          REPORT="$RUNNER_TEMP/evidence/frontend-coverage/produced/lcov.info"
+          if test "${{ matrix.family }}" = foundation; then
+            RECEIPT="$RUNNER_TEMP/evidence/rust-coverage/result.json"
+            REPORT="$RUNNER_TEMP/evidence/rust-coverage/produced/rust.lcov"
+          fi
+          python3 tools/quality/line_coverage.py --lcov "$REPORT" --base "$BASE" --evidence "$RECEIPT" --output "${REPORT}.json"
       - name: Retain raw coverage and command evidence
         if: always() && env.SELECTED == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

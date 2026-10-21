@@ -188,37 +188,42 @@ class LocalTests(unittest.TestCase):
         self.assertEqual(cases.trace(manifest, {})["criterion"]["success"]["missing"], "not_executed")
 
 
-class RuntimeTraceTests(unittest.TestCase):
+class RuntimeTraceTests(Repository):
+    def setUp(self):
+        super().setUp()
+        (self.root / "scenario.rs").write_text("fn observed_case() {}\n")
+        self.commit()
+
     def fixture(self, log):
-        source = "tests/plugins/fixtures/agent-loop/tests/runtime.rs"
-        name = "functional_tool_turn_runs_multiple_steps_and_enforces_final_policy"
+        source, name = "scenario.rs", "observed_case"
         manifest = {"scope": "fixture", "limitations": [], "criteria": {"effect": {"success": {"source": source, "test": name}}}}
+        snapshot = evidence.source_identity(self.root)
         receipt = {"log_sha256": hashlib.sha256(log.encode()).hexdigest(), "source_changed": False,
-                   "source_before": {"commit": git(ROOT, "rev-parse", "HEAD").decode().strip(),
-                                     "files": {source: hashlib.sha256((ROOT / source).read_bytes()).hexdigest()}},
+                   "source_before": snapshot, "source_after": copy.deepcopy(snapshot),
                    "argv": ["cargo", "test"], "exit_code": 0}
         return manifest, receipt
 
     def test_named_runtime_result_is_bound_to_source_and_receipt(self):
-        log = "test functional_tool_turn_runs_multiple_steps_and_enforces_final_policy ... ok\n"
+        log = "test observed_case ... ok\n"
         manifest, receipt = self.fixture(log)
-        result = runtime_trace.trace(ROOT, manifest, log, receipt)
+        result = runtime_trace.trace(self.root, manifest, log, receipt)
         self.assertEqual(result["criteria"]["effect"]["success"]["outcome"], "passed")
         self.assertEqual(result["acceptance"], "not_determined")
         receipt["log_sha256"] = "wrong"
         with self.assertRaises(ValueError):
-            runtime_trace.trace(ROOT, manifest, log, receipt)
+            runtime_trace.trace(self.root, manifest, log, receipt)
 
     def test_missing_duplicate_skipped_and_changed_source_are_explicit(self):
-        name = "functional_tool_turn_runs_multiple_steps_and_enforces_final_policy"
+        name = "observed_case"
         for log, outcome in (("", "not_executed"), (f"test {name} ... ok\ntest {name} ... ok\n", "ambiguous"),
                              (f"test {name} ... ignored\n", "skipped")):
             manifest, receipt = self.fixture(log)
-            self.assertEqual(runtime_trace.trace(ROOT, manifest, log, receipt)["criteria"]["effect"]["success"]["outcome"], outcome)
+            self.assertEqual(runtime_trace.trace(self.root, manifest, log, receipt)["criteria"]["effect"]["success"]["outcome"], outcome)
         log = f"test {name} ... ok\n"
         manifest, receipt = self.fixture(log)
         receipt["source_before"]["files"] = {}
-        self.assertEqual(runtime_trace.trace(ROOT, manifest, log, receipt)["criteria"]["effect"]["success"]["outcome"], "source_unverified")
+        with self.assertRaises(ValueError):
+            runtime_trace.trace(self.root, manifest, log, receipt)
 
 
 class EvidenceTests(Repository):
@@ -242,9 +247,9 @@ class EvidenceTests(Repository):
         (self.root / ".gitignore").write_text("target/\n")
         self.commit()
         output = Path(self.directory.name) / "producer"
-        command = [sys.executable, "-c", "from pathlib import Path; p=Path('target/report.lcov'); p.parent.mkdir(); p.write_text('SF:input.rs\\nDA:1,1\\nend_of_record\\n')"]
-        self.assertEqual(evidence.run(self.root, output, command, artifacts=["target/*.lcov"]), 0)
-        lcov = self.root / "target/report.lcov"
+        command = [sys.executable, "-c", "from pathlib import Path; p=Path('{quality_output}/report.lcov'); p.write_text('SF:input.rs\\nDA:1,1\\nend_of_record\\n')"]
+        self.assertEqual(evidence.run(self.root, output, command, produces=["report.lcov"]), 0)
+        lcov = output / "produced/report.lcov"
         result = line_coverage.report(self.root, [lcov], "HEAD", [output / "result.json"])
         self.assertTrue(result["producer_identity_verified"])
         (self.root / "input.rs").write_text("new source")
@@ -259,12 +264,12 @@ class EvidenceTests(Repository):
         reports = []
         for index, (source, hits, exit_code) in enumerate((("input.rs", 1, 0), ("frontend.ts", 0, 0), ("frontend.ts", 0, 7))):
             output = Path(self.directory.name) / f"producer-{index}"
-            name = f"target/report-{index}.lcov"
+            name = f"report-{index}.lcov"
             content = f"SF:{source}\nDA:1,{hits}\nend_of_record\n"
-            command = [sys.executable, "-c", f"from pathlib import Path; p=Path({name!r}); p.parent.mkdir(exist_ok=True); p.write_text({content!r}); raise SystemExit({exit_code})"]
-            self.assertEqual(evidence.run(self.root, output, command, artifacts=[name]), exit_code)
+            command = [sys.executable, "-c", f"from pathlib import Path; p=Path('{{quality_output}}') / {name!r}; p.write_text({content!r}); raise SystemExit({exit_code})"]
+            self.assertEqual(evidence.run(self.root, output, command, produces=[name]), exit_code)
             receipts.append(output / "result.json")
-            reports.append(self.root / name)
+            reports.append(output / "produced" / name)
         with self.assertRaises(ValueError):
             line_coverage.report(self.root, reports[:2], "HEAD", receipts[:1])
         with self.assertRaises(ValueError):

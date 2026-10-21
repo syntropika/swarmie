@@ -8,6 +8,7 @@ import re
 import subprocess
 
 from common import ROOT, digest, git, write_json
+from evidence import committed_snapshot
 
 
 def command_receipt(receipt, log_hash):
@@ -19,9 +20,11 @@ def command_receipt(receipt, log_hash):
             raise ValueError("log does not match exactly one executed command receipt")
         step = matches[0]
         return step["commit"], step["exit_code"], step["argv"], None
+    if receipt.get("schema_version") == 2 and (receipt.get("runner_exit_code") != 0 or receipt.get("outcome") != "passed"):
+        raise ValueError("an interrupted or incomplete command cannot qualify runtime acceptance")
     if receipt.get("log_sha256") != log_hash or receipt.get("source_changed"):
         raise ValueError("command log identity or source stability is unverified")
-    return receipt["source_before"]["commit"], receipt["exit_code"], receipt["argv"], receipt["source_before"]["files"]
+    return receipt["source_before"]["commit"], receipt["exit_code"], receipt["argv"], receipt
 
 
 def observations(log):
@@ -40,7 +43,9 @@ def observations(log):
 
 def trace(root, manifest, log, receipt):
     log_hash = hashlib.sha256(log.encode()).hexdigest()
-    revision, code, argv, files = command_receipt(receipt, log_hash)
+    revision, code, argv, source_receipt = command_receipt(receipt, log_hash)
+    snapshot = committed_snapshot(root, source_receipt) if source_receipt is not None else None
+    files = snapshot["files"] if snapshot is not None else None
     source_commit = git(root, "rev-parse", "--verify", f"{revision}^{{commit}}").decode().strip()
     found = observations(log)
     criteria = {}
@@ -53,7 +58,7 @@ def trace(root, manifest, log, receipt):
             try:
                 source_bytes = git(root, "show", f"{source_commit}:{source}")
                 source_hash = hashlib.sha256(source_bytes).hexdigest()
-                verified = bool(re.search(rb"(?m)^(?:async )?fn " + re.escape(name.encode()) + rb"\(", source_bytes))
+                verified = snapshot is not None and bool(re.search(rb"(?m)^(?:async )?fn " + re.escape(name.encode()) + rb"\(", source_bytes))
                 if files is not None and files.get(source) != source_hash:
                     verified = False
             except subprocess.CalledProcessError:
@@ -64,9 +69,14 @@ def trace(root, manifest, log, receipt):
                 outcome = "source_unverified"
             criteria[criterion][branch] = {**selector, "outcome": outcome, "source_sha256": source_hash,
                                            "observations": matches}
-    return {"schema_version": 1, "source_commit": source_commit, "command": argv, "command_exit_code": code,
+    limitations = list(manifest["limitations"])
+    if snapshot is None:
+        limitations.append("Historical step receipt has no verified source snapshot; its reported commit is not execution attribution.")
+    identity = {key: snapshot[key] for key in ("commit", "tree", "files_sha256", "dirty")} if snapshot else None
+    return {"schema_version": 2, "source_commit": source_commit if snapshot else None,
+            "reported_source_commit": source_commit, "source_identity": identity, "command": argv, "command_exit_code": code,
             "log_sha256": log_hash, "criteria": criteria, "scope": manifest["scope"],
-            "acceptance": "not_determined", "limitations": manifest["limitations"]}
+            "acceptance": "not_determined", "limitations": limitations}
 
 
 def main():

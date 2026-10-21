@@ -48,9 +48,20 @@ Do not interpret absent source files as fully covered.
 
 To summarize a report, run `python3 tools/quality/line_coverage.py --lcov REPORT --base BASE
 --evidence PRODUCER_RESULT_JSON --output SUMMARY_JSON`. A matching successful producer receipt
-must identify the current source bytes and report hash to verify source provenance. Without it,
+must identify the exact clean committed source and a newly produced report to verify provenance. Without it,
 the summary is explicitly unverified. Repeat `--lcov` and `--evidence` to combine language
 producers; every report needs a matching successful receipt bound to the current source.
+`--artifact` captures existing inputs or observations and cannot qualify a coverage producer.
+Declare new outputs with `evidence.py --produce report.lcov`; the command writes to
+`{quality_output}/report.lcov`, expanded as an argument into a fresh wrapper-owned directory.
+For example: `evidence.py --output OUTPUT --produce rust.lcov -- cargo +VERSION llvm-cov
+--locked --workspace --all-features --lcov --output-path "{quality_output}/rust.lcov"`.
+Summarize `OUTPUT/produced/rust.lcov` against `OUTPUT/result.json`. Old outputs stay untouched;
+missing files, symbolic/hard links and captured stale reports never gain producer verification.
+The receipt namespace remains portable with its adjacent reports after artifact download.
+Older receipt schemas remain historical observations and cannot establish this new producer
+qualification; no receipt is silently upgraded. Creation in the namespace proves freshness/ownership, not that an arbitrary command
+instruments the intended code; the actual producer and behavior assertions still require review.
 Added/modified destination lines form the diff; deleted
 source lines are excluded and renamed destinations are treated as added files. Use `--previous PRIOR_SUMMARY_JSON` to compare dated global observations; changed instrumentation scope is disclosed and the comparison is nonblocking. Only producer
 `DA` entries enter the executable-line denominator. Added lines outside that map are listed
@@ -61,11 +72,18 @@ diff coverage, never a synthetic 100%. Coverage is execution evidence, not corre
 -- COMMAND ...` records actual exit status, complete source hashes before/after, tool identity,
 logs and explicitly requested artifacts. Evidence stays outside the checkout. A failed or
 interrupted command remains failed/incomplete and its output cannot be reused by a later run.
+SIGTERM, SIGINT and SIGHUP trigger bounded cleanup of the owned child process group, with
+TERM then KILL escalation; the receipt retains actual child status, wrapper status and cleanup.
+This excludes deliberately detached sessions, SIGKILL and host loss, which cannot guarantee a
+finalized receipt. Existing user artifacts and unrelated process groups are never cleanup targets.
 `tools/quality/critical-cases.json` maps the quality tooling's success, rejection and recovery
 cases; `just quality-test OUTPUT_JSON` records individual executed outcomes and rejects missing
 or skipped mapped cases. `tools/quality/runtime-cases.json` separately maps selected existing application authorization,
 external-effect confirmation, outbox/restart and cancellation scenarios. `runtime_trace.py` binds
-individual named Rust outcomes to a verified command log, source commit and test-file hashes;
+individual named Rust outcomes to a verified command log, complete committed source snapshot
+and test-file hashes. Dirty execution is rejected for commit qualification, even when the test
+file itself is unchanged. The full captured file map must match the claimed Git tree. Historical
+step receipts without snapshots retain a reported revision but mark outcomes source-unverified;
 missing, ignored, duplicate or source-unverified cases do not pass. The integration workflow
 emits this trace from its actual Rust execution. This is scoped behavioral evidence, not complete
 application acceptance or instrumented branch coverage. Unlisted critical cases remain gaps. Neither

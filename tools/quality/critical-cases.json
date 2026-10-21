@@ -48,6 +48,34 @@
       "recovery": [
         "test_quality.EvidenceTests.test_failure_is_retained_then_success_is_independently_recorded"
       ]
+    },
+    "source.committed-attribution": {
+      "success": [
+        "test_provenance.RuntimeProvenanceTests.test_dirty_implementation_is_rejected_then_clean_commit_is_attributed"
+      ],
+      "rejection": [
+        "test_provenance.RuntimeProvenanceTests.test_git_clean_flag_cannot_override_changed_committed_implementation_bytes",
+        "test_provenance.RuntimeProvenanceTests.test_historical_receipt_without_snapshot_does_not_qualify_a_commit",
+        "test_provenance.RuntimeProvenanceTests.test_interrupted_receipt_with_zero_command_exit_cannot_qualify"
+      ]
+    },
+    "producer.fresh-output-ownership": {
+      "success": [
+        "test_provenance.ProducerProvenanceTests.test_identical_fresh_reports_qualify_without_removing_old_user_artifacts"
+      ],
+      "rejection": [
+        "test_provenance.ProducerProvenanceTests.test_noop_cannot_rebind_a_stale_captured_report_to_new_source",
+        "test_provenance.ProducerProvenanceTests.test_missing_declared_output_retains_actual_exit_and_fails_runner",
+        "test_provenance.ProducerProvenanceTests.test_symlink_and_hardlink_outputs_cannot_claim_fresh_provenance"
+      ]
+    },
+    "evidence.owned-signal-settlement": {
+      "success": [
+        "test_provenance.SignalSettlementTests.test_sigterm_settles_owned_child_and_grandchild_and_retains_receipt"
+      ],
+      "rejection": [
+        "test_provenance.SignalSettlementTests.test_sigterm_escalates_for_an_owned_child_that_ignores_termination"
+      ]
     }
   }
 }

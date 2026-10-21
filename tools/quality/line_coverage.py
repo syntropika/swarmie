@@ -6,7 +6,7 @@ import re
 import subprocess
 
 from common import ROOT, changed_paths, digest, git, write_json
-from evidence import source_identity
+from evidence import committed_snapshot, produced_file, source_identity
 import json
 
 SOURCE_SUFFIXES = {".rs", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".rb", ".sh"}
@@ -114,18 +114,24 @@ def report(root, lcov, base=None, evidence_paths=(), previous=None):
                            "limitation": "Observations can differ in instrumentation scope, code and tools; a trend is not a like-for-like regression proof."}
     result["producer_identity_verified"] = False
     if evidence_paths:
-        expected = {entry["sha256"] for entry in result["reports"]}
-        actual = set()
-        current = source_identity(root)["files_sha256"]
+        actual = {}
+        current = source_identity(root)
         for evidence_path in evidence_paths:
             receipt = json.loads(Path(evidence_path).read_text())
-            if receipt.get("exit_code") != 0 or receipt.get("source_changed"):
-                raise ValueError("coverage producer receipt does not identify a successful immutable run")
-            if receipt["source_before"]["files_sha256"] != current:
-                raise ValueError("coverage producer source differs from the current source")
-            actual.update(receipt.get("artifacts", {}).values())
-        if not expected <= actual:
-            raise ValueError("coverage producer receipts do not match every report's immutable bytes")
+            if (receipt.get("schema_version") != 2 or receipt.get("output_provenance") != "fresh_owned_namespace"
+                    or receipt.get("exit_code") != 0 or receipt.get("runner_exit_code") != 0
+                    or receipt.get("outcome") != "passed"):
+                raise ValueError("coverage requires a successful fresh-output producer receipt")
+            snapshot = committed_snapshot(root, receipt)
+            if any(snapshot[key] != current[key] for key in ("commit", "tree", "files_sha256", "dirty")):
+                raise ValueError("coverage producer source differs from the current clean source")
+            for name, expected in receipt.get("produced_artifacts", {}).items():
+                path = produced_file(Path(evidence_path).parent, name)
+                if digest(path) != expected:
+                    raise ValueError("produced artifact bytes differ from the receipt")
+                actual[path.resolve()] = expected
+        if any(actual.get(Path(path).resolve()) != digest(Path(path)) for path in lcov):
+            raise ValueError("every coverage report must belong to its producer's fresh output namespace")
         result["producer_identity_verified"] = True
         result["producer_receipts_sha256"] = [digest(Path(path)) for path in evidence_paths]
     else:
