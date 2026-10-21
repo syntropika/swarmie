@@ -84,6 +84,7 @@ impl core::Driver for Driver {
 pub struct Snapshot {
     wall: Instant,
     cpu_ns: Option<u64>,
+    process_cpu_ns: Option<u64>,
     counts: Counts,
     process_elapsed_ns: u128,
 }
@@ -93,6 +94,7 @@ impl Snapshot {
         Self {
             counts: driver.counts(),
             cpu_ns: thread_cpu_ns(),
+            process_cpu_ns: process_cpu_ns(),
             wall: Instant::now(),
             process_elapsed_ns: origin.elapsed().as_nanos(),
         }
@@ -102,6 +104,7 @@ impl Snapshot {
         json!({
             "wall_ns": end.wall.duration_since(self.wall).as_nanos(),
             "thread_cpu_ns": self.cpu_ns.zip(end.cpu_ns).map(|(begin,end)| end-begin),
+            "process_cpu_ns": self.process_cpu_ns.zip(end.process_cpu_ns).map(|(begin,end)| end-begin),
             "start_process_ns": self.process_elapsed_ns,
             "end_process_ns": end.process_elapsed_ns,
             "global_driver_delta": end.counts.delta(&self.counts).json(),
@@ -115,12 +118,22 @@ impl Snapshot {
 
 #[cfg(target_os = "linux")]
 pub fn thread_cpu_ns() -> Option<u64> {
+    clock_ns(libc::CLOCK_THREAD_CPUTIME_ID)
+}
+
+#[cfg(target_os = "linux")]
+pub fn process_cpu_ns() -> Option<u64> {
+    clock_ns(libc::CLOCK_PROCESS_CPUTIME_ID)
+}
+
+#[cfg(target_os = "linux")]
+fn clock_ns(clock: libc::clockid_t) -> Option<u64> {
     let mut time = libc::timespec {
         tv_sec: 0,
         tv_nsec: 0,
     };
     // SAFETY: clock_gettime writes one initialized timespec at this valid pointer.
-    if unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut time) } != 0 {
+    if unsafe { libc::clock_gettime(clock, &mut time) } != 0 {
         return None;
     }
     Some(u64::try_from(time.tv_sec).ok()? * 1_000_000_000 + u64::try_from(time.tv_nsec).ok()?)
@@ -154,4 +167,9 @@ pub extern "C" fn swarmie_diagnostic_execution_begin() {
 #[inline(never)]
 pub extern "C" fn swarmie_diagnostic_execution_end() {
     std::hint::black_box(());
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn process_cpu_ns() -> Option<u64> {
+    None
 }

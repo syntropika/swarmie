@@ -1,6 +1,6 @@
 //! Diagnostic composition uses real plugins and the existing synthetic Registry contributors.
 
-use std::{path::Path, rc::Rc};
+use std::{collections::BTreeMap, path::Path, rc::Rc};
 
 use serde_json::json;
 use swarmie_agent_contracts::{
@@ -52,6 +52,26 @@ impl Harness {
 }
 
 pub async fn open(driver: Rc<Driver>, root: &Path, replies: Vec<Reply>) -> Result<Harness> {
+    open_scripts(driver, root, Some(replies), BTreeMap::new(), 16).await
+}
+
+pub async fn open_routed(
+    driver: Rc<Driver>,
+    root: &Path,
+    scripts: BTreeMap<String, Vec<Reply>>,
+    max_parallel: u32,
+) -> Result<Harness> {
+    open_scripts(driver, root, None, scripts, max_parallel).await
+}
+
+async fn open_scripts(
+    driver: Rc<Driver>,
+    root: &Path,
+    replies: Option<Vec<Reply>>,
+    scripts: BTreeMap<String, Vec<Reply>>,
+    max_parallel: u32,
+) -> Result<Harness> {
+    let prepare_single = replies.is_some();
     let host = Host::with_driver("agent-acceptance", "application", driver.clone())?;
     let model = ModelProbe::default();
     let tool = ToolProbe::default();
@@ -68,12 +88,16 @@ pub async fn open(driver: Rc<Driver>, root: &Path, replies: Vec<Reply>) -> Resul
             },
             driver.clone(),
         )?,
-        model::facet(replies, model.clone())?,
+        match replies {
+            Some(replies) => model::facet(replies, model.clone())?,
+            None => model::routed_facet(scripts, model.clone())?,
+        },
         tool::facet(Default::default(), tool.clone())?,
         policy::facet(true, policy.clone())?,
         swarmie_durable_tasks::facet(
             &swarmie_durable_tasks::Configuration {
                 poll_interval_ms: 2,
+                max_parallel,
                 ..Default::default()
             },
             driver.clone(),
@@ -120,23 +144,7 @@ pub async fn open(driver: Rc<Driver>, root: &Path, replies: Vec<Reply>) -> Resul
         },
         limits: TurnLimits::default(),
     };
-    sessions
-        .create(CreateSession {
-            session_id: request.session_id.clone(),
-            metadata: json!({}),
-        })
-        .await?;
-    sessions.append(AppendEvents {
-        session_id: request.session_id.clone(),
-        batch_id: request.input_event_id.clone(), expected_head: None,
-        events: vec![NewEvent {
-            event_id: request.input_event_id.clone(), kind: MESSAGE.into(), version: 1,
-            correlation: Correlation { conversation_id: Some(request.conversation_id.clone()), ..Default::default() },
-            occurred_at_ms: None,
-            payload: json!({"role":"user","content":[{"type":"text","text":"Compute the result."}],"reply_to":null,"tool_call_id":null}),
-        }],
-    }).await?;
-    Ok(Harness {
+    let harness = Harness {
         host,
         agent,
         tasks,
@@ -148,5 +156,30 @@ pub async fn open(driver: Rc<Driver>, root: &Path, replies: Vec<Reply>) -> Resul
         policy,
         task_store_id: configuration.task_store_id,
         request,
-    })
+    };
+    if prepare_single {
+        prepare(&harness, &harness.request).await?;
+    }
+    Ok(harness)
+}
+
+/// Session preparation is outside the admission-to-terminal observation window.
+pub async fn prepare(h: &Harness, request: &StartTurn) -> Result<()> {
+    h.sessions
+        .create(CreateSession {
+            session_id: request.session_id.clone(),
+            metadata: json!({}),
+        })
+        .await?;
+    h.sessions.append(AppendEvents {
+        session_id: request.session_id.clone(),
+        batch_id: request.input_event_id.clone(), expected_head: None,
+        events: vec![NewEvent {
+            event_id: request.input_event_id.clone(), kind: MESSAGE.into(), version: 1,
+            correlation: Correlation { conversation_id: Some(request.conversation_id.clone()), ..Default::default() },
+            occurred_at_ms: None,
+            payload: json!({"role":"user","content":[{"type":"text","text":"Compute the result."}],"reply_to":null,"tool_call_id":null}),
+        }],
+    }).await?;
+    Ok(())
 }

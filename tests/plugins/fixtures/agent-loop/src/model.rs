@@ -1,6 +1,10 @@
 //! A synthetic provider implementing the exact neutral Model Contract method schemas.
 
-use std::{cell::RefCell, collections::VecDeque, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, VecDeque},
+    rc::Rc,
+};
 
 use futures::FutureExt;
 use swarmie_model_contracts::*;
@@ -65,7 +69,48 @@ pub struct ModelProbe {
 
 /// Provides scripted replies through an ordinary Tembra-owned provider Facet.
 pub fn facet(replies: Vec<Reply>, probe: ModelProbe) -> Result<NativeFacet> {
-    let replies = Rc::new(RefCell::new(VecDeque::from(replies)));
+    scripted_facet(Scripts::Ordered(VecDeque::from(replies)), probe)
+}
+
+/// Independent turn scripts selected by the actual request's model identity.
+/// Each turn must use a unique model name; unknown names and exhausted scripts fail closed.
+pub fn routed_facet(
+    replies: BTreeMap<String, Vec<Reply>>,
+    probe: ModelProbe,
+) -> Result<NativeFacet> {
+    scripted_facet(
+        Scripts::Routed(
+            replies
+                .into_iter()
+                .map(|(key, value)| (key, value.into()))
+                .collect(),
+        ),
+        probe,
+    )
+}
+
+enum Scripts {
+    Ordered(VecDeque<Reply>),
+    Routed(BTreeMap<String, VecDeque<Reply>>),
+}
+
+impl Scripts {
+    fn next(&mut self, request: &ModelRequest) -> Result<Reply> {
+        let queue = match self {
+            Self::Ordered(queue) => Some(queue),
+            Self::Routed(scripts) => scripts.get_mut(&request.model.model),
+        };
+        queue.and_then(VecDeque::pop_front).ok_or_else(|| {
+            RuntimeError::invalid(
+                "fixture_model_exhausted",
+                "no response for this request's script",
+            )
+        })
+    }
+}
+
+fn scripted_facet(scripts: Scripts, probe: ModelProbe) -> Result<NativeFacet> {
+    let replies = Rc::new(RefCell::new(scripts));
     NativeFacet::new("fixture.agent-model", vec![], move |scope, setup| {
         let replies = replies.clone();
         let probe = probe.clone();
@@ -211,7 +256,7 @@ pub fn facet(replies: Vec<Reply>, probe: ModelProbe) -> Result<NativeFacet> {
 }
 
 struct Model {
-    replies: Rc<RefCell<VecDeque<Reply>>>,
+    replies: Rc<RefCell<Scripts>>,
     probe: ModelProbe,
 }
 
@@ -240,12 +285,7 @@ impl FixtureModelProvider for Model {
 
     async fn generate(&self, request: ModelRequest, _context: Context) -> Result<GenerateResult> {
         self.probe.requests.borrow_mut().push(request.clone());
-        let reply = self.replies.borrow_mut().pop_front().ok_or_else(|| {
-            RuntimeError::invalid(
-                "fixture_model_exhausted",
-                "the model script has no remaining response",
-            )
-        })?;
+        let reply = self.replies.borrow_mut().next(&request)?;
         if matches!(reply, Reply::Hang) {
             return futures::future::pending().await;
         }
@@ -274,7 +314,7 @@ trait FixtureGeneration {
 struct Generation {
     request: ModelRequest,
     state: Cell<GenerationState>,
-    replies: Rc<RefCell<VecDeque<Reply>>>,
+    replies: Rc<RefCell<Scripts>>,
     probe: ModelProbe,
     pending: RefCell<Option<GenerateResult>>,
     completion: Rc<RefCell<Option<GenerationState>>>,
@@ -299,12 +339,7 @@ impl FixtureGenerationProvider for Generation {
                 .and_then(|()| file.sync_all())
                 .map_err(|error| RuntimeError::invalid("fixture_model_log", error.to_string()))?;
         }
-        let reply = self.replies.borrow_mut().pop_front().ok_or_else(|| {
-            RuntimeError::invalid(
-                "fixture_model_exhausted",
-                "the model script has no remaining response",
-            )
-        })?;
+        let reply = self.replies.borrow_mut().next(&self.request)?;
         if matches!(reply, Reply::Hang) {
             return self
                 .state
@@ -557,5 +592,51 @@ fn scripted_response(request: ModelRequest, reply: Reply) -> GenerateResult {
             provider_response_id: None,
             extensions: vec![],
         }),
+    }
+}
+
+#[cfg(test)]
+mod routing_tests {
+    use super::*;
+
+    fn request(model: &str, id: &str) -> ModelRequest {
+        ModelRequest {
+            request_id: id.into(),
+            model: ModelIdentity {
+                connection: "fixture".into(),
+                model: model.into(),
+            },
+            messages: vec![],
+            tools: vec![],
+            options: Default::default(),
+        }
+    }
+
+    #[test]
+    fn independent_scripts_survive_interleaving_and_refuse_unknown_or_exhausted_routes() {
+        let mut scripts = Scripts::Routed(BTreeMap::from([
+            (
+                "a".into(),
+                VecDeque::from([Reply::double(21), Reply::text("42")]),
+            ),
+            (
+                "b".into(),
+                VecDeque::from([Reply::double(7), Reply::text("14")]),
+            ),
+        ]));
+        assert!(
+            matches!(scripts.next(&request("a", "a1")).unwrap(), Reply::Tool { arguments, .. } if arguments["value"] == 21)
+        );
+        assert!(
+            matches!(scripts.next(&request("b", "b1")).unwrap(), Reply::Tool { arguments, .. } if arguments["value"] == 7)
+        );
+        assert!(scripts.next(&request("unknown", "x")).is_err());
+        assert!(
+            matches!(scripts.next(&request("b", "b2")).unwrap(), Reply::Text(text) if text == "14")
+        );
+        assert!(
+            matches!(scripts.next(&request("a", "a2")).unwrap(), Reply::Text(text) if text == "42")
+        );
+        assert!(scripts.next(&request("a", "a3")).is_err());
     }
 }

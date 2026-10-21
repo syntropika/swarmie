@@ -1,4 +1,5 @@
 mod host;
+mod load;
 mod metrics;
 mod options;
 mod validate;
@@ -35,6 +36,9 @@ pub fn run_replies(
         return Ok(());
     };
     let output = create_output(&options.output)?;
+    if options.load.is_some() {
+        return load::run(&options, &output, replies);
+    }
     let origin = Instant::now();
     let mut runs = Vec::new();
     for run_index in 1..=options.repetitions {
