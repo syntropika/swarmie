@@ -10,8 +10,8 @@ Run `just quality-local-plan /path/to/fresh/evidence BASE` to inspect local feed
 tracked edits and untracked inputs. Rust tests and Clippy select affected workspace packages
 and their reverse dependents from real `cargo metadata --locked --all-features`; test
 dependencies participate in affected-test selection. Unknown paths, foundational settings,
-dependency or workflow changes and unavailable history select full verification. Frontend
-feedback retains the root formatting, lint and test policies. Prepare the source SDK and
+dependency, shared Contract or workflow changes and unavailable history select full verification. Frontend
+feedback retains the root formatting, typecheck, lint and test policies. Prepare the source SDK and
 generated Contracts through the normal setup first. Affected Rust consumers of JavaScript fixtures
 rebuild actual plugin artifacts before their tests. To include existing source-bound coverage in a
 local execution, use `python3 tools/quality/local.py --base BASE --output OUTPUT --execute
@@ -49,7 +49,9 @@ Do not interpret absent source files as fully covered.
 To summarize a report, run `python3 tools/quality/line_coverage.py --lcov REPORT --base BASE
 --evidence PRODUCER_RESULT_JSON --output SUMMARY_JSON`. A matching successful producer receipt
 must identify the current source bytes and report hash to verify source provenance. Without it,
-the summary is explicitly unverified. Added/modified destination lines form the diff; deleted
+the summary is explicitly unverified. Repeat `--lcov` and `--evidence` to combine language
+producers; every report needs a matching successful receipt bound to the current source.
+Added/modified destination lines form the diff; deleted
 source lines are excluded and renamed destinations are treated as added files. Use `--previous PRIOR_SUMMARY_JSON` to compare dated global observations; changed instrumentation scope is disclosed and the comparison is nonblocking. Only producer
 `DA` entries enter the executable-line denominator. Added lines outside that map are listed
 separately, without claiming they cannot execute. Missing comparison history yields unavailable

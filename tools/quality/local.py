@@ -53,7 +53,8 @@ def feedback(root, base, reports=(), producer=None):
             commands.extend([["cargo", f"+{rust}", "clippy", "--locked", *selectors, "--all-targets", "--", "-D", "warnings"],
                              ["cargo", f"+{rust}", "test", "--locked", *selectors]])
     if families["frontend"]:
-        commands.extend([["bun", "run", "format:check"], ["bun", "run", "lint"], ["bun", "run", "test"]])
+        commands.extend([["bun", "run", "format:check"], ["bun", "run", "typecheck"],
+                         ["bun", "run", "lint"], ["bun", "run", "test"]])
     coverage_status = {"status": "not_executed", "reason": "No producer report/receipt supplied; changed-line coverage remains unmeasured."}
     if reports:
         if not producer:

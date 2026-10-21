@@ -31,7 +31,8 @@
         "test_quality.CoverageTests.test_diff_reports_uncovered_missing_unmapped_and_deletions"
       ],
       "rejection": [
-        "test_quality.CoverageTests.test_missing_history_is_unavailable_never_full_coverage"
+        "test_quality.CoverageTests.test_missing_history_is_unavailable_never_full_coverage",
+        "test_quality.EvidenceTests.test_combined_coverage_requires_every_successful_producer"
       ],
       "recovery": [
         "test_quality.CoverageTests.test_invalid_counts_are_rejected_and_duplicate_records_merge"

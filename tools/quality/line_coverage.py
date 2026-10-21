@@ -9,7 +9,7 @@ from common import ROOT, changed_paths, digest, git, write_json
 from evidence import source_identity
 import json
 
-SOURCE_SUFFIXES = {".rs", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".py", ".rb", ".sh"}
+SOURCE_SUFFIXES = {".rs", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".rb", ".sh"}
 
 
 def source_path(root, value):
@@ -70,7 +70,7 @@ def counts(lines):
     return {"covered": hit, "executable": total, "percent": 100 * hit / total if total else None}
 
 
-def report(root, lcov, base=None, evidence_path=None, previous=None):
+def report(root, lcov, base=None, evidence_paths=(), previous=None):
     head = git(root, "rev-parse", "HEAD").decode().strip()
     paths = [p.decode() for p in git(root, "ls-files", "--cached", "--others", "--exclude-standard", "-z").split(b"\0") if p]
     sources = {p for p in paths if Path(p).suffix in SOURCE_SUFFIXES and (root / p).is_file()}
@@ -113,16 +113,21 @@ def report(root, lcov, base=None, evidence_path=None, previous=None):
                            "instrumented_file_set_changed": set(prior["files"]) != set(data),
                            "limitation": "Observations can differ in instrumentation scope, code and tools; a trend is not a like-for-like regression proof."}
     result["producer_identity_verified"] = False
-    if evidence_path:
-        receipt = json.loads(Path(evidence_path).read_text())
+    if evidence_paths:
         expected = {entry["sha256"] for entry in result["reports"]}
-        actual = set(receipt.get("artifacts", {}).values())
-        if not expected <= actual or receipt.get("exit_code") != 0 or receipt.get("source_changed"):
-            raise ValueError("coverage producer receipt does not match successful immutable report bytes")
-        if receipt["source_before"]["files_sha256"] != source_identity(root)["files_sha256"]:
-            raise ValueError("coverage producer source differs from the current source")
+        actual = set()
+        current = source_identity(root)["files_sha256"]
+        for evidence_path in evidence_paths:
+            receipt = json.loads(Path(evidence_path).read_text())
+            if receipt.get("exit_code") != 0 or receipt.get("source_changed"):
+                raise ValueError("coverage producer receipt does not identify a successful immutable run")
+            if receipt["source_before"]["files_sha256"] != current:
+                raise ValueError("coverage producer source differs from the current source")
+            actual.update(receipt.get("artifacts", {}).values())
+        if not expected <= actual:
+            raise ValueError("coverage producer receipts do not match every report's immutable bytes")
         result["producer_identity_verified"] = True
-        result["producer_receipt_sha256"] = digest(Path(evidence_path))
+        result["producer_receipts_sha256"] = [digest(Path(path)) for path in evidence_paths]
     else:
         result["limitations"].append("Producer source identity is unverified without --evidence; this report cannot establish a qualified baseline.")
     try:
@@ -150,7 +155,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--lcov", action="append", required=True)
     parser.add_argument("--base")
-    parser.add_argument("--evidence")
+    parser.add_argument("--evidence", action="append", default=[])
     parser.add_argument("--previous")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()

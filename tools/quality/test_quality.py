@@ -41,6 +41,7 @@ class SelectionTests(Repository):
         for path, expected in (("plugins/agent-loop-default/src/engine.rs", {"foundation": True, "frontend": False}),
                                ("apps/web/src/app.tsx", {"foundation": False, "frontend": True}),
                                ("Cargo.lock", {"foundation": True, "frontend": True}),
+                               ("crates/model-contracts/src/lib.rs", {"foundation": True, "frontend": True}),
                                (".github/workflows/new.yml", {"foundation": True, "frontend": True}),
                                ("plugins/new/Cargo.toml", {"foundation": True, "frontend": True}),
                                ("unknown/new.rs", {"foundation": True, "frontend": True})):
@@ -117,6 +118,14 @@ class CoverageTests(Repository):
         lcov.write_text("SF:covered.rs\nDA:1,0\nend_of_record\nSF:covered.rs\nDA:1,2\nend_of_record\n")
         self.assertEqual(line_coverage.read_lcov(self.root, [lcov])[0]["covered.rs"][1], 2)
 
+    def test_uninstrumented_commonjs_sources_remain_visible(self):
+        base, lcov = self.fixture()
+        (self.root / "config.cjs").write_text("module.exports = {};\n")
+        self.commit()
+        result = line_coverage.report(self.root, [lcov], base)
+        self.assertIn("config.cjs", result["uninstrumented_sources"])
+        self.assertIn("config.cjs", result["diff"]["unmeasured_files"])
+
 
 class ArchitectureTests(unittest.TestCase):
     @classmethod
@@ -156,15 +165,23 @@ class ArchitectureTests(unittest.TestCase):
 
 
 class LocalTests(unittest.TestCase):
-    def test_contract_change_selects_actual_transitive_consumers(self):
+    def test_provider_change_selects_actual_transitive_and_dev_consumers(self):
         metadata = architecture.load_metadata(ROOT)
-        with patch.object(local, "load_metadata", return_value=metadata), patch.object(local, "changed_paths", return_value=["crates/model-contracts/src/lib.rs"]), patch.object(local, "git", return_value=b""):
+        with patch.object(local, "load_metadata", return_value=metadata), patch.object(local, "changed_paths", return_value=["plugins/model-provider-genai/src/lib.rs"]), patch.object(local, "git", return_value=b""):
             result = local.feedback(ROOT, "HEAD")
-        self.assertIn("swarmie-agent-loop-default", result["affected_rust_packages"])
+        self.assertIn("swarmie-agent-loop-fixture", result["affected_rust_packages"])
         self.assertIn("swarmie-model-provider-genai", result["affected_rust_packages"])
         self.assertIn("swarmie-runtime", result["affected_rust_packages"])
         self.assertNotIn("swarmie-memory-store", result["affected_rust_packages"])
         self.assertFalse(result["families"]["frontend"])
+
+    def test_shared_contract_changes_select_full_families_and_typechecks(self):
+        metadata = architecture.load_metadata(ROOT)
+        with patch.object(local, "load_metadata", return_value=metadata), patch.object(local, "changed_paths", return_value=["crates/model-contracts/src/lib.rs"]), patch.object(local, "git", return_value=b""):
+            result = local.feedback(ROOT, "HEAD")
+        self.assertTrue(all(result["families"].values()))
+        self.assertEqual(len(result["affected_rust_packages"]), len(metadata["workspace_members"]))
+        self.assertIn(["bun", "run", "typecheck"], result["commands"])
 
     def test_missing_critical_case_is_not_presumed_passed(self):
         manifest = {"criteria": {"criterion": {"success": ["missing"]}}}
@@ -228,11 +245,36 @@ class EvidenceTests(Repository):
         command = [sys.executable, "-c", "from pathlib import Path; p=Path('target/report.lcov'); p.parent.mkdir(); p.write_text('SF:input.rs\\nDA:1,1\\nend_of_record\\n')"]
         self.assertEqual(evidence.run(self.root, output, command, artifacts=["target/*.lcov"]), 0)
         lcov = self.root / "target/report.lcov"
-        result = line_coverage.report(self.root, [lcov], "HEAD", output / "result.json")
+        result = line_coverage.report(self.root, [lcov], "HEAD", [output / "result.json"])
         self.assertTrue(result["producer_identity_verified"])
         (self.root / "input.rs").write_text("new source")
         with self.assertRaises(ValueError):
-            line_coverage.report(self.root, [lcov], "HEAD", output / "result.json")
+            line_coverage.report(self.root, [lcov], "HEAD", [output / "result.json"])
+
+    def test_combined_coverage_requires_every_successful_producer(self):
+        (self.root / ".gitignore").write_text("target/\n")
+        (self.root / "frontend.ts").write_text("export const value = 1;\n")
+        self.commit()
+        receipts = []
+        reports = []
+        for index, (source, hits, exit_code) in enumerate((("input.rs", 1, 0), ("frontend.ts", 0, 0), ("frontend.ts", 0, 7))):
+            output = Path(self.directory.name) / f"producer-{index}"
+            name = f"target/report-{index}.lcov"
+            content = f"SF:{source}\nDA:1,{hits}\nend_of_record\n"
+            command = [sys.executable, "-c", f"from pathlib import Path; p=Path({name!r}); p.parent.mkdir(exist_ok=True); p.write_text({content!r}); raise SystemExit({exit_code})"]
+            self.assertEqual(evidence.run(self.root, output, command, artifacts=[name]), exit_code)
+            receipts.append(output / "result.json")
+            reports.append(self.root / name)
+        with self.assertRaises(ValueError):
+            line_coverage.report(self.root, reports[:2], "HEAD", receipts[:1])
+        with self.assertRaises(ValueError):
+            line_coverage.report(self.root, [reports[0], reports[2]], "HEAD", [receipts[0], receipts[2]])
+        result = line_coverage.report(self.root, reports[:2], "HEAD", receipts[:2])
+        self.assertTrue(result["producer_identity_verified"])
+        self.assertEqual(result["global_instrumented_lines"], {"covered": 1, "executable": 2, "percent": 50})
+        reports[1].write_text("SF:frontend.ts\nDA:1,1\nend_of_record\n")
+        with self.assertRaises(ValueError):
+            line_coverage.report(self.root, reports[:2], "HEAD", receipts[:2])
 
     def test_output_reuse_and_output_inside_source_are_rejected(self):
         for output in (self.root / "reports", Path(self.directory.name)):

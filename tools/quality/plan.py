@@ -14,12 +14,13 @@ FAMILIES = ("foundation", "frontend")
 def classify(paths):
     selected = set()
     reasons = []
-    for path in paths:
+    for path in sorted(paths):
         parts = PurePosixPath(path).parts
         filename = PurePosixPath(path).name
         foundational = (filename in {"Cargo.toml", "Cargo.lock", "package.json", "bun.lock", "mise.toml", "justfile", "bunfig.toml"}
                         or filename.startswith(("tsconfig", "oxlint", "oxfmt"))
-                        or path.startswith((".github/", "packages/config/", "tools/quality/")))
+                        or path.startswith((".github/", "packages/config/", "tools/quality/"))
+                        or len(parts) > 1 and parts[0] == "crates" and parts[1].endswith("-contracts"))
         if foundational:
             selected.update(FAMILIES)
             reasons.append(f"full verification: {path}")
