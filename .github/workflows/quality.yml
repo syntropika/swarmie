@@ -33,7 +33,11 @@ jobs:
         run: |
           python3 tools/quality/evidence.py --output "$RUNNER_TEMP/evidence/architecture" --tool cargo --tool rustc --criterion architecture.production-dependency-ownership --artifact target/quality/architecture.json -- python3 tools/quality/architecture.py --output target/quality/architecture.json
           python3 tools/quality/matrix.py --output target/quality/feature-msrv-inventory.json
-          python3 tools/quality/evidence.py --output "$RUNNER_TEMP/evidence/tool-tests" --tool python3 --criterion quality.success-rejection-recovery --artifact target/quality/critical-cases.json -- python3 tools/quality/cases.py --output target/quality/critical-cases.json
+          python3 -m venv "$RUNNER_TEMP/quality-python"
+          "$RUNNER_TEMP/quality-python/bin/python" -m pip install coverage==7.16.2
+          python3 tools/quality/evidence.py --output "$RUNNER_TEMP/evidence/tool-tests" --tool python3 --criterion quality.success-rejection-recovery --artifact target/quality/critical-cases.json --artifact target/quality/python.lcov --artifact target/quality/python-producer.json -- "$RUNNER_TEMP/quality-python/bin/python" tools/quality/python_coverage.py
+          BASE=$(python3 -c 'import json,os; print(json.load(open(os.environ["RUNNER_TEMP"]+"/selection.json"))["base"] or "")')
+          python3 tools/quality/line_coverage.py --lcov target/quality/python.lcov --base "$BASE" --evidence "$RUNNER_TEMP/evidence/tool-tests/result.json" --output target/quality/python-summary.json
       - name: Retain graph, plan and executed outcomes
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -136,7 +140,7 @@ jobs:
           if test "${{ matrix.family }}" = foundation; then RECEIPT="$RUNNER_TEMP/evidence/rust-coverage/result.json"; fi
           for REPORT in target/quality/*.lcov target/quality/lcov.info; do
             if test -f "$REPORT"; then
-              python3 tools/quality/coverage.py --lcov "$REPORT" --base "$BASE" --evidence "$RECEIPT" --output "${REPORT}.json"
+              python3 tools/quality/line_coverage.py --lcov "$REPORT" --base "$BASE" --evidence "$RECEIPT" --output "${REPORT}.json"
             fi
           done
       - name: Retain raw coverage and command evidence

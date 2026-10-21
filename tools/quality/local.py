@@ -9,7 +9,7 @@ from evidence import run
 from plan import classify
 
 
-def feedback(root, base):
+def feedback(root, base, reports=(), producer=None):
     metadata = load_metadata(root)
     packages, _, edges = dependency_graph(metadata)
     members = set(metadata["workspace_members"])
@@ -44,6 +44,8 @@ def feedback(root, base):
     rust = tomllib.loads((root / "mise.toml").read_text())["tools"]["rust"]
     commands = [["python3", "tools/quality/architecture.py", "--output", "target/quality/local-architecture.json"],
                 ["python3", "-m", "unittest", "discover", "-s", "tools/quality", "-p", "test_*.py"]]
+    if names and set(names) & {"swarmie-agent-loop-fixture", "swarmie-durable-tasks-fixture", "swarmie-plugin-manager", "swarmie-session-store-sqlite"}:
+        commands.append(["bun", "run", "plugins:build"])
     if families["foundation"]:
         commands.append(["cargo", f"+{rust}", "fmt", "--all", "--check"])
         if names:
@@ -52,9 +54,20 @@ def feedback(root, base):
                              ["cargo", f"+{rust}", "test", "--locked", *selectors]])
     if families["frontend"]:
         commands.extend([["bun", "run", "format:check"], ["bun", "run", "lint"], ["bun", "run", "test"]])
+    coverage_status = {"status": "not_executed", "reason": "No producer report/receipt supplied; changed-line coverage remains unmeasured."}
+    if reports:
+        if not producer:
+            raise ValueError("Local coverage needs the actual successful source-bound producer receipt")
+        command = ["python3", "tools/quality/line_coverage.py", "--base", base, "--evidence", producer,
+                   "--output", "target/quality/local-diff-coverage.json"]
+        for report in reports:
+            command.extend(["--lcov", report])
+        commands.append(command)
+        coverage_status = {"status": "planned", "producer_receipt": producer, "reports": list(reports)}
     return {"schema_version": 1, "paths": sorted(paths), "families": families, "full_fallback_reasons": reasons,
             "affected_rust_packages": names, "commands": commands,
-            "diff_coverage": "Run the coverage producer for affected code, then quality coverage with source evidence; omitted coverage remains unmeasured.",
+            "diff_coverage": coverage_status,
+            "generated_inputs": "Rebuild actual plugin artifacts through plugins:build before affected JavaScript fixture consumers; setup/SDK validation remains mandatory.",
             "limitations": ["Local feedback does not replace the integration gate or qualify browser/native devices.",
                             "Frontend feedback retains the existing root policy and test scope; package-granular frontend selection is not qualified."]}
 
@@ -64,11 +77,13 @@ def main():
     parser.add_argument("--base", default="HEAD")
     parser.add_argument("--output", required=True)
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--lcov", action="append", default=[])
+    parser.add_argument("--coverage-evidence")
     args = parser.parse_args()
     output = Path(args.output).resolve()
     if output.is_relative_to(ROOT):
         parser.error("local output must be outside the source repository")
-    result = feedback(ROOT, args.base)
+    result = feedback(ROOT, args.base, args.lcov, args.coverage_evidence)
     write_json(output / "plan.json", result)
     print("Affected Rust packages:", ", ".join(result["affected_rust_packages"]) or "none")
     for index, command in enumerate(result["commands"]):

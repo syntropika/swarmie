@@ -43,6 +43,17 @@ def run(root, output, command, criteria=(), artifacts=(), tools=(), timeout=None
         raise ValueError("execution evidence belongs outside the source repository")
     output.mkdir(parents=True)
     before = source_identity(root)
+    event_file = os.environ.get("GITHUB_EVENT_PATH")
+    event_context = {}
+    if event_file:
+        import json
+        from plan import plan
+        selected = plan(root, json.loads(Path(event_file).read_text()))
+        event_context = {"base": selected["base"], "head": selected["head"],
+                         "comparison_fallback": selected["fallback"],
+                         "repository": os.environ.get("GITHUB_REPOSITORY"),
+                         "run_id": os.environ.get("GITHUB_RUN_ID"),
+                         "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT")}
     started = datetime.now(timezone.utc).isoformat()
     tool_versions = {}
     for tool in tools:
@@ -84,6 +95,7 @@ def run(root, output, command, criteria=(), artifacts=(), tools=(), timeout=None
                 recorded[relative] = digest(destination)
     result = {"schema_version": 1, "started_utc": started, "elapsed_seconds": time.monotonic() - start,
               "argv": command, "exit_code": code, "error": error,
+              "event_context": event_context,
               "outcome": "passed" if code == 0 else "failed", "source_before": before,
               "source_after": after, "source_changed": before != after,
               "tools": tool_versions, "artifacts": recorded, "log_sha256": digest(output / "command.log"),

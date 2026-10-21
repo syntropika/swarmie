@@ -13,7 +13,7 @@ import cases
 
 import architecture
 from common import ROOT, git
-import coverage as line_coverage
+import line_coverage
 import evidence
 import plan
 

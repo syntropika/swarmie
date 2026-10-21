@@ -72,8 +72,8 @@ def counts(lines):
 
 def report(root, lcov, base=None, evidence_path=None, previous=None):
     head = git(root, "rev-parse", "HEAD").decode().strip()
-    paths = [p.decode() for p in git(root, "ls-files", "-z").split(b"\0") if p]
-    sources = {p for p in paths if Path(p).suffix in SOURCE_SUFFIXES}
+    paths = [p.decode() for p in git(root, "ls-files", "--cached", "--others", "--exclude-standard", "-z").split(b"\0") if p]
+    sources = {p for p in paths if Path(p).suffix in SOURCE_SUFFIXES and (root / p).is_file()}
     data, ignored = read_lcov(root, lcov)
     data = {p: rows for p, rows in data.items() if p in sources}
     totals = counts({(p, line): hits for p, rows in data.items() for line, hits in rows.items()})
@@ -126,6 +126,8 @@ def report(root, lcov, base=None, evidence_path=None, previous=None):
     else:
         result["limitations"].append("Producer source identity is unverified without --evidence; this report cannot establish a qualified baseline.")
     try:
+        if result["working_tree_dirty"]:
+            raise ValueError("diff requires a committed source snapshot")
         if not base:
             raise ValueError("no comparison base")
         changed, deleted = added_lines(root, base, head, changed_paths(root, base, head))
@@ -140,7 +142,7 @@ def report(root, lcov, base=None, evidence_path=None, previous=None):
                           "deleted_paths_excluded": deleted}
     except (ValueError, UnicodeError, subprocess.CalledProcessError):
         result["diff"] = {"base": base, "available": False, "percent": None,
-                          "reason": "comparison history unavailable"}
+                          "reason": "comparison history unavailable or working tree is not committed"}
     return result
 
 

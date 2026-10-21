@@ -191,7 +191,7 @@ quality-test output:
     python3 tools/quality/cases.py --output {{quote(output)}}
 
 quality-coverage report output base="HEAD":
-    python3 tools/quality/coverage.py --lcov {{quote(report)}} --base {{quote(base)}} --output {{quote(output)}}
+    python3 tools/quality/line_coverage.py --lcov {{quote(report)}} --base {{quote(base)}} --output {{quote(output)}}
 
 # Default integration retains Contracts, actual native lifecycle and existing policy.
 quality-integration: foundation-check

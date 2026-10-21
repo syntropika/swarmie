@@ -12,7 +12,11 @@ and their reverse dependents from real `cargo metadata --locked --all-features`;
 dependencies participate in affected-test selection. Unknown paths, foundational settings,
 dependency or workflow changes and unavailable history select full verification. Frontend
 feedback retains the root formatting, lint and test policies. Prepare the source SDK and
-generated Contracts through the normal setup first.
+generated Contracts through the normal setup first. Affected Rust consumers of JavaScript fixtures
+rebuild actual plugin artifacts before their tests. To include existing source-bound coverage in a
+local execution, use `python3 tools/quality/local.py --base BASE --output OUTPUT --execute
+--lcov REPORT --coverage-evidence PRODUCER_RESULT_JSON`. Without that input the local plan
+explicitly records changed-line coverage as not executed.
 
 `just quality-integration` verifies Contracts, integration behavior, default and all workspace
 features, the declared Rust minimum and root frontend policy. The feature/MSRV inventory records
@@ -32,21 +36,21 @@ Dedicated fuzzing and mutation harnesses are not implemented. Linux browser chec
 qualify macOS builds, native Mobile devices or credentialed distribution/signing workflows;
 those retain their independent scopes.
 
-Coverage uses the existing Bun LCOV producer and pinned `cargo-llvm-cov` rather than a custom
-instrumenter. The `Quality evidence` workflow retains raw reports, producer failures and source
+Coverage uses Bun, `cargo-llvm-cov` and coverage.py LCOV producers. The `Quality evidence`
+workflow retains raw reports, producer failures and source
 identities. Global coverage is initially a nonblocking trend observation. The changed executable
 line objective is **90% after establishing a qualified baseline**; this delivery captures baseline
 evidence and does not activate a percentage gate. The summary inventories all tracked supported
 source suffixes, including fixtures, tests and vendored sources, so its instrumented-line total
-is not a claim of complete production-source coverage. Python/Ruby/shell code, unloaded frontend
+is not a claim of complete production-source coverage. Python outside the quality-tooling scope, Ruby/shell code, unloaded frontend
 modules, excluded Rust targets and any other source absent from LCOV remain explicitly unmeasured.
 Do not interpret absent source files as fully covered.
 
-To summarize a report, run `python3 tools/quality/coverage.py --lcov REPORT --base BASE
+To summarize a report, run `python3 tools/quality/line_coverage.py --lcov REPORT --base BASE
 --evidence PRODUCER_RESULT_JSON --output SUMMARY_JSON`. A matching successful producer receipt
 must identify the current source bytes and report hash to verify source provenance. Without it,
 the summary is explicitly unverified. Added/modified destination lines form the diff; deleted
-source lines are excluded and renamed destinations are treated as added files. Only producer
+source lines are excluded and renamed destinations are treated as added files. Use `--previous PRIOR_SUMMARY_JSON` to compare dated global observations; changed instrumentation scope is disclosed and the comparison is nonblocking. Only producer
 `DA` entries enter the executable-line denominator. Added lines outside that map are listed
 separately, without claiming they cannot execute. Missing comparison history yields unavailable
 diff coverage, never a synthetic 100%. Coverage is execution evidence, not correctness proof.
