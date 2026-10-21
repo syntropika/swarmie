@@ -17,6 +17,7 @@ serde_json.workspace = true
 futures.workspace = true
 
 [dev-dependencies]
+libc = "0.2"
 swarmie-model-provider-genai = { path = "../../../../plugins/model-provider-genai" }
 swarmie-task-session-integration = { path = "../../../../plugins/task-session-integration" }
 swarmie-agent-loop-default = { path = "../../../../plugins/agent-loop-default", features = ["javascript"] }

@@ -148,3 +148,26 @@ models-check:
 # Measures State publication batching with deterministic local HTTP SSE.
 models-benchmark:
     just rust-test -p swarmie-model-provider-genai benchmark_batched_state_publications -- --ignored --nocapture
+
+# Reusable diagnostics keep measurements and profiles outside the repository.
+diagnostics-doctor *arguments:
+    python3 tools/diagnostics/diagnose.py doctor "$@"
+
+diagnostics-bench *arguments:
+    python3 tools/diagnostics/diagnose.py bench "$@"
+
+diagnostics-profile *arguments:
+    python3 tools/diagnostics/diagnose.py profile "$@"
+
+diagnostics-compare *arguments:
+    python3 tools/diagnostics/diagnose.py compare "$@"
+
+diagnostics-test:
+    python3 -m unittest discover -s tools/diagnostics -p 'test_*.py'
+
+# Verify the synthetic Rust workload without rebuilding unrelated workspace targets.
+diagnostics-check:
+    cargo +{{rust_version}} test --locked -p swarmie-agent-loop-fixture --test diagnostic --example runtime-diagnostic
+    cargo +{{rust_version}} clippy --locked -p swarmie-agent-loop-fixture --example runtime-diagnostic --test diagnostic -- -D warnings
+    RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D rustdoc::broken_intra_doc_links" cargo +{{rust_version}} doc --locked -p swarmie-agent-loop-fixture --no-deps
+    just diagnostics-test

@@ -276,6 +276,7 @@ version control.
 | `packages/config/` | Shared frontend configuration, fonts and design tokens. |
 | `assets/brandkit/` | Brand assets. |
 | `tests/plugins/` | Plugin fixtures and Host integration tests. |
+| `tools/diagnostics/` | Internal runtime benchmarks and stack profiling. |
 
 ## Development checks
 
@@ -300,3 +301,59 @@ The [Agent Loop guide](plugins/agent-loop-default/guides/agent-loop.md) and
 [Agent integration guide](plugins/agent-loop-default/guides/agent-loop-integration.md)
 describe turn execution and capability composition. Durable admission and outbox publication
 are documented in the [task/session capability guide](plugins/task-session-integration/README.md).
+
+## Runtime diagnostics
+
+The internal CLI in `tools/diagnostics/diagnose.py` builds and runs the synthetic
+`runtime-diagnostic` Cargo example in `swarmie-agent-loop-fixture`. Run commands from the
+repository root with Python 3.11 or later and the pinned Rust toolchain:
+
+```sh
+mise exec -- just diagnostics-doctor
+mise exec -- just diagnostics-test
+mise exec -- just diagnostics-check
+mise exec -- just diagnostics-bench --output "$HOME/swarmie-diagnostics/wait" --observer wait
+mise exec -- just diagnostics-bench --output "$HOME/swarmie-diagnostics/store" --observer store
+mise exec -- just diagnostics-compare "$HOME/swarmie-diagnostics/wait" "$HOME/swarmie-diagnostics/store"
+```
+
+Each run requires a fresh output directory outside the repository. Raw profiles, temporary
+databases, logs, reports and machine details belong there. The retained source has no dependency
+on a previous report, local binary, another checkout or hand-selected Rust archives. Builds use
+ordinary `cargo --locked` with Cargo JSON artifact discovery. `CARGO_TARGET_DIR` may select an
+external shared build cache; no particular cache path is required.
+
+The default build profile is `dev`, with Cargo's unoptimized `opt-level = 0` and default debug
+symbols. `--profile` selects another Cargo profile explicitly. Recorded provenance includes
+the executable, source state, toolchain and build/profile environment. Keep the same profile,
+environment and workload when comparing runs; release timings do not qualify the debug baseline.
+Existing profile overrides remain visible in provenance and must be considered when interpreting
+measurements.
+
+Both observer modes retain a two-millisecond production scheduler and unchanged admission,
+identity and effect guards. `wait` calls the real Durable Tasks waiter; `store` uses slower
+authoritative TaskStorage reads. The exact workload performs two scripted model calls, one
+tool invocation and final answer 42, then validates task identity, outcome, transcript and routed
+facts. Setup, post-terminal validation/publication and closure are separate from the declared
+wall/thread-CPU window. These are diagnostic runs with their own explicit safety bounds; they
+do not execute or pass the original ten-second acceptance wrapper. Comparing observer modes
+does not isolate the cost of an individual portable call or establish a dominant hotspot.
+
+For a bounded native stack profile:
+
+```sh
+mise exec -- just diagnostics-profile --output "$HOME/swarmie-diagnostics/profile" --backend gdb --observer wait --interval-ms 25 --max-samples 128 --max-frames 128
+```
+
+The current stack backend requires Linux, a Python-enabled GDB and permission for GDB to launch
+and interrupt its own child. `doctor` probes actual capabilities and reports backend blockers;
+the optional perf probe may be unavailable independently. No privileged installation or kernel
+setting change is performed. Benchmark thread CPU requires a supported native thread clock;
+unavailable clocks remain `null` and are never replaced with whole-process CPU.
+
+Stack samples are bounded observations inside the diagnostic execution markers, with debugger
+overhead and sampling bias. Sample counts are not exact CPU percentages or terminal commit
+timestamps. Inspect the recorded target thread, collection window, symbols and missing samples
+before attributing cost. A timeout, missing capability, invalid semantic outcome or incomplete
+profile remains an explicit result, not a successful benchmark. Use `--help` on each command
+for the configurable run, build and process bounds.

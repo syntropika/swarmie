@@ -2723,6 +2723,7 @@ name = "swarmie-agent-loop-fixture"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "libc",
  "serde_json",
  "swarmie-agent-contracts",
  "swarmie-agent-loop-default",
