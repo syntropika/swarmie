@@ -668,8 +668,9 @@ fn javascript_lifecycle_contribution_reloads_and_retires_with_physical_ownership
         while gate.entered().value().unwrap() == 0 {
             tokio::time::sleep(Duration::from_millis(2)).await;
         }
-        // A slow observer must not prevent this task's persisted completion.
-        terminal(&tasks, "observer-gated").await;
+        // Replace while the old observation is physically admitted. Task completion is
+        // checked after releasing the barrier so unrelated SQLite latency cannot consume
+        // this observation's intentional one-second cancellation budget.
         let mut replacement = runtime.desired_application().clone();
         replacement
             .composition
@@ -685,6 +686,7 @@ fn javascript_lifecycle_contribution_reloads_and_retires_with_physical_ownership
             swarmie_runtime::TransitionOutcome::Applied
         ));
         gate.release_gate().await.unwrap();
+        terminal(&tasks, "observer-gated").await;
         loop {
             let diagnostics = lifecycle.diagnostics().await.unwrap();
             assert_eq!(diagnostics.failed, 0, "{diagnostics:?}");

@@ -36,4 +36,29 @@ export function defineTask(definition: TaskDefinition) {
   };
 }
 
-export { TaskLifecycle, type TaskLifecycleEvent } from "./lifecycle-typescript";
+export {
+  onTaskCreated,
+  type TaskCreated,
+  onTaskPhaseStarted,
+  type TaskPhaseStarted,
+  onTaskPhaseSettled,
+  type TaskPhaseSettled,
+  onTaskCheckpoint,
+  type TaskCheckpoint,
+  onTaskWaiting,
+  type TaskWaiting,
+  onTaskSleeping,
+  type TaskSleeping,
+  onTaskRecovered,
+  type TaskRecovered,
+  onTaskBlocked,
+  type TaskBlocked,
+  onTaskParked,
+  type TaskParked,
+  onTaskRetry,
+  type TaskRetry,
+  onTaskCancellationRequested,
+  type TaskCancellationRequested,
+  onTaskTerminal,
+  type TaskTerminal,
+} from "./lifecycle-typescript";

@@ -1,4 +1,17 @@
 //! Bounded observations over Tembra Hooks, separate from authoritative task state.
+//!
+//! One confirmed task write may produce several independent notifications. They are enqueued
+//! in this order when applicable: created, phase started, checkpoint, waiting, sleeping,
+//! recovered, blocked, parked, retry, cancellation requested, terminal. State-specific hooks
+//! describe entry into that status; reconciliation of an unchanged status does not repeat them.
+//! Checkpoint acceptance is observed even when its value is unchanged. A recovered write may
+//! also enter parked, and a checkpoint write may also enter waiting or sleeping.
+//!
+//! Physical phase settlement is a separate fact from any subsequent handler-result commit.
+//! Notification order is local to the publisher; it is not a global durable delivery order.
+//! Each Registry uses Tembra series composition: one failing contribution skips the remaining
+//! contributions in that invocation. Independent consumers requiring replay use TaskStorage's
+//! durable transition outbox instead of relying on these best-effort notifications.
 
 use tembra::{
     contracts::{Member, ValueSchema},
@@ -176,14 +189,6 @@ pub struct TaskLifecycleDiagnostics {
     pub last_error: Option<String>,
 }
 
-/// Schema export for generated DTOs, not a runtime observer service.
-/// Contributors use the exact managed method from [`task_lifecycle`]'s descriptor instead.
-#[tembra::contract(local, name = "swarmie.task-lifecycle-observer-schema", version = 1)]
-pub trait TaskLifecycleObserver {
-    #[portable]
-    async fn observe(&self, event: TaskLifecycleEvent) -> Result<()>;
-}
-
 /// Read-only local visibility into bounded best-effort notification delivery.
 #[tembra::contract(local, name = "swarmie.task-lifecycle", version = 1)]
 pub trait TaskLifecycle {
@@ -191,12 +196,408 @@ pub trait TaskLifecycle {
     async fn diagnostics(&self) -> Result<TaskLifecycleDiagnostics>;
 }
 
-/// Canonical typed series pipeline over Tembra's existing owned Registry operations.
+/// A confirmed storage transition, shared by the specialized lifecycle inputs.
+///
+/// The sequence is store-local. It is not a durable hook delivery receipt. Full checkpoints,
+/// inputs, results and diagnostic strings remain in TaskStorage.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct TaskCommittedObservation {
+    pub task: TaskLifecycleTask,
+    #[schemars(range(min = 1, max = 9_007_199_254_740_991_u64))]
+    pub sequence: u64,
+    pub previous_status: Option<TaskStatus>,
+    pub current_status: TaskStatus,
+    pub origin: TaskLifecycleOrigin,
+    pub checkpoint_committed: bool,
+    pub cancellation_requested: bool,
+    pub outcome: Option<TaskOutcomeKind>,
+    pub blocking: Option<TaskBlockingKind>,
+}
+
+/// Creation confirmed by TaskStorage.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct TaskCreated {
+    pub transition: TaskCommittedObservation,
+}
+
+/// An execution reservation was confirmed. Handler entry is not implied.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct TaskPhaseStarted {
+    pub transition: TaskCommittedObservation,
+}
+
+/// An accepted checkpoint payload was committed, even if unchanged.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct TaskCheckpoint {
+    pub transition: TaskCommittedObservation,
+}
+
+/// A confirmed transition entered Waiting.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct TaskWaiting {
+    pub transition: TaskCommittedObservation,
+}
+
+/// A confirmed transition entered Sleeping.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct TaskSleeping {
+    pub transition: TaskCommittedObservation,
+}
+
+/// A recovery transition was committed; no historical hook is replayed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct TaskRecovered {
+    pub transition: TaskCommittedObservation,
+}
+
+/// A confirmed transition entered Blocked.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct TaskBlocked {
+    pub transition: TaskCommittedObservation,
+}
+
+/// A confirmed transition entered Parked.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct TaskParked {
+    pub transition: TaskCommittedObservation,
+}
+
+/// An explicit retry request was committed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct TaskRetry {
+    pub transition: TaskCommittedObservation,
+}
+
+/// Cancellation intent changed from false to true in storage.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct TaskCancellationRequested {
+    pub transition: TaskCommittedObservation,
+}
+
+/// A confirmed transition entered a terminal status.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct TaskTerminal {
+    pub transition: TaskCommittedObservation,
+}
+
+/// Physical settlement of a managed invocation attempt, independent of state commits.
+///
+/// Rejected attempts may have been refused before handler entry. A cancellation signal alone
+/// never proves settlement. This input has no storage sequence and is never an atomic outbox fact.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct TaskPhaseSettled {
+    pub task: TaskLifecycleTask,
+    pub invocation: TaskPhaseKind,
+    pub outcome: TaskPhaseOutcome,
+}
+
+/// Schema export for the typed [`on_task_created`] input; not an observer service.
+#[tembra::contract(local, name = "swarmie.task-created-observer-schema", version = 1)]
+pub trait TaskCreatedObserver {
+    #[portable]
+    async fn observe(&self, event: TaskCreated) -> Result<()>;
+}
+
+/// Creation confirmed by TaskStorage.
+///
+/// Observers execute through Tembra's versioned series Registry. An error stops the remaining
+/// handlers in this hook invocation; it never invalidates a confirmed storage transition.
+/// Other lifecycle hooks produced by the same transition remain independent notifications.
 ///
 /// # Errors
-/// Refuses invalid generated schema or descriptor metadata before invoking any observer.
-pub fn task_lifecycle() -> Result<RustHookDefinition<TaskLifecycleEvent, ()>> {
-    let contract = TaskLifecycleObserver.descriptor()?;
+/// Refuses invalid canonical schema or descriptor metadata before invoking an observer.
+pub fn on_task_created() -> Result<RustHookDefinition<TaskCreated, ()>> {
+    series_hook(
+        "swarmie.task-created",
+        TaskCreatedObserver.descriptor()?.as_ref(),
+    )
+}
+
+/// Schema export for the typed [`on_task_phase_started`] input; not an observer service.
+#[tembra::contract(
+    local,
+    name = "swarmie.task-phase-started-observer-schema",
+    version = 1
+)]
+pub trait TaskPhaseStartedObserver {
+    #[portable]
+    async fn observe(&self, event: TaskPhaseStarted) -> Result<()>;
+}
+
+/// An execution reservation was confirmed. Handler entry is not implied.
+///
+/// Observers execute through Tembra's versioned series Registry. An error stops the remaining
+/// handlers in this hook invocation; it never invalidates a confirmed storage transition.
+/// Other lifecycle hooks produced by the same transition remain independent notifications.
+///
+/// # Errors
+/// Refuses invalid canonical schema or descriptor metadata before invoking an observer.
+pub fn on_task_phase_started() -> Result<RustHookDefinition<TaskPhaseStarted, ()>> {
+    series_hook(
+        "swarmie.task-phase-started",
+        TaskPhaseStartedObserver.descriptor()?.as_ref(),
+    )
+}
+
+/// Schema export for the typed [`on_task_phase_settled`] input; not an observer service.
+#[tembra::contract(
+    local,
+    name = "swarmie.task-phase-settled-observer-schema",
+    version = 1
+)]
+pub trait TaskPhaseSettledObserver {
+    #[portable]
+    async fn observe(&self, event: TaskPhaseSettled) -> Result<()>;
+}
+
+/// Physical settlement of a managed invocation attempt.
+///
+/// Observers execute through Tembra's versioned series Registry. An error stops the remaining
+/// handlers in this hook invocation; it never invalidates a confirmed storage transition.
+/// Other lifecycle hooks produced by the same transition remain independent notifications.
+///
+/// # Errors
+/// Refuses invalid canonical schema or descriptor metadata before invoking an observer.
+pub fn on_task_phase_settled() -> Result<RustHookDefinition<TaskPhaseSettled, ()>> {
+    series_hook(
+        "swarmie.task-phase-settled",
+        TaskPhaseSettledObserver.descriptor()?.as_ref(),
+    )
+}
+
+/// Schema export for the typed [`on_task_checkpoint`] input; not an observer service.
+#[tembra::contract(local, name = "swarmie.task-checkpoint-observer-schema", version = 1)]
+pub trait TaskCheckpointObserver {
+    #[portable]
+    async fn observe(&self, event: TaskCheckpoint) -> Result<()>;
+}
+
+/// An accepted checkpoint payload was committed, even if unchanged.
+///
+/// Observers execute through Tembra's versioned series Registry. An error stops the remaining
+/// handlers in this hook invocation; it never invalidates a confirmed storage transition.
+/// Other lifecycle hooks produced by the same transition remain independent notifications.
+///
+/// # Errors
+/// Refuses invalid canonical schema or descriptor metadata before invoking an observer.
+pub fn on_task_checkpoint() -> Result<RustHookDefinition<TaskCheckpoint, ()>> {
+    series_hook(
+        "swarmie.task-checkpoint",
+        TaskCheckpointObserver.descriptor()?.as_ref(),
+    )
+}
+
+/// Schema export for the typed [`on_task_waiting`] input; not an observer service.
+#[tembra::contract(local, name = "swarmie.task-waiting-observer-schema", version = 1)]
+pub trait TaskWaitingObserver {
+    #[portable]
+    async fn observe(&self, event: TaskWaiting) -> Result<()>;
+}
+
+/// A confirmed transition entered Waiting.
+///
+/// Observers execute through Tembra's versioned series Registry. An error stops the remaining
+/// handlers in this hook invocation; it never invalidates a confirmed storage transition.
+/// Other lifecycle hooks produced by the same transition remain independent notifications.
+///
+/// # Errors
+/// Refuses invalid canonical schema or descriptor metadata before invoking an observer.
+pub fn on_task_waiting() -> Result<RustHookDefinition<TaskWaiting, ()>> {
+    series_hook(
+        "swarmie.task-waiting",
+        TaskWaitingObserver.descriptor()?.as_ref(),
+    )
+}
+
+/// Schema export for the typed [`on_task_sleeping`] input; not an observer service.
+#[tembra::contract(local, name = "swarmie.task-sleeping-observer-schema", version = 1)]
+pub trait TaskSleepingObserver {
+    #[portable]
+    async fn observe(&self, event: TaskSleeping) -> Result<()>;
+}
+
+/// A confirmed transition entered Sleeping.
+///
+/// Observers execute through Tembra's versioned series Registry. An error stops the remaining
+/// handlers in this hook invocation; it never invalidates a confirmed storage transition.
+/// Other lifecycle hooks produced by the same transition remain independent notifications.
+///
+/// # Errors
+/// Refuses invalid canonical schema or descriptor metadata before invoking an observer.
+pub fn on_task_sleeping() -> Result<RustHookDefinition<TaskSleeping, ()>> {
+    series_hook(
+        "swarmie.task-sleeping",
+        TaskSleepingObserver.descriptor()?.as_ref(),
+    )
+}
+
+/// Schema export for the typed [`on_task_recovered`] input; not an observer service.
+#[tembra::contract(local, name = "swarmie.task-recovered-observer-schema", version = 1)]
+pub trait TaskRecoveredObserver {
+    #[portable]
+    async fn observe(&self, event: TaskRecovered) -> Result<()>;
+}
+
+/// A recovery transition was committed; no historical hook is replayed.
+///
+/// Observers execute through Tembra's versioned series Registry. An error stops the remaining
+/// handlers in this hook invocation; it never invalidates a confirmed storage transition.
+/// Other lifecycle hooks produced by the same transition remain independent notifications.
+///
+/// # Errors
+/// Refuses invalid canonical schema or descriptor metadata before invoking an observer.
+pub fn on_task_recovered() -> Result<RustHookDefinition<TaskRecovered, ()>> {
+    series_hook(
+        "swarmie.task-recovered",
+        TaskRecoveredObserver.descriptor()?.as_ref(),
+    )
+}
+
+/// Schema export for the typed [`on_task_blocked`] input; not an observer service.
+#[tembra::contract(local, name = "swarmie.task-blocked-observer-schema", version = 1)]
+pub trait TaskBlockedObserver {
+    #[portable]
+    async fn observe(&self, event: TaskBlocked) -> Result<()>;
+}
+
+/// A confirmed transition entered Blocked.
+///
+/// Observers execute through Tembra's versioned series Registry. An error stops the remaining
+/// handlers in this hook invocation; it never invalidates a confirmed storage transition.
+/// Other lifecycle hooks produced by the same transition remain independent notifications.
+///
+/// # Errors
+/// Refuses invalid canonical schema or descriptor metadata before invoking an observer.
+pub fn on_task_blocked() -> Result<RustHookDefinition<TaskBlocked, ()>> {
+    series_hook(
+        "swarmie.task-blocked",
+        TaskBlockedObserver.descriptor()?.as_ref(),
+    )
+}
+
+/// Schema export for the typed [`on_task_parked`] input; not an observer service.
+#[tembra::contract(local, name = "swarmie.task-parked-observer-schema", version = 1)]
+pub trait TaskParkedObserver {
+    #[portable]
+    async fn observe(&self, event: TaskParked) -> Result<()>;
+}
+
+/// A confirmed transition entered Parked.
+///
+/// Observers execute through Tembra's versioned series Registry. An error stops the remaining
+/// handlers in this hook invocation; it never invalidates a confirmed storage transition.
+/// Other lifecycle hooks produced by the same transition remain independent notifications.
+///
+/// # Errors
+/// Refuses invalid canonical schema or descriptor metadata before invoking an observer.
+pub fn on_task_parked() -> Result<RustHookDefinition<TaskParked, ()>> {
+    series_hook(
+        "swarmie.task-parked",
+        TaskParkedObserver.descriptor()?.as_ref(),
+    )
+}
+
+/// Schema export for the typed [`on_task_retry`] input; not an observer service.
+#[tembra::contract(local, name = "swarmie.task-retry-observer-schema", version = 1)]
+pub trait TaskRetryObserver {
+    #[portable]
+    async fn observe(&self, event: TaskRetry) -> Result<()>;
+}
+
+/// An explicit retry request was committed.
+///
+/// Observers execute through Tembra's versioned series Registry. An error stops the remaining
+/// handlers in this hook invocation; it never invalidates a confirmed storage transition.
+/// Other lifecycle hooks produced by the same transition remain independent notifications.
+///
+/// # Errors
+/// Refuses invalid canonical schema or descriptor metadata before invoking an observer.
+pub fn on_task_retry() -> Result<RustHookDefinition<TaskRetry, ()>> {
+    series_hook(
+        "swarmie.task-retry",
+        TaskRetryObserver.descriptor()?.as_ref(),
+    )
+}
+
+/// Schema export for the typed [`on_task_cancellation_requested`] input; not an observer service.
+#[tembra::contract(
+    local,
+    name = "swarmie.task-cancellation-requested-observer-schema",
+    version = 1
+)]
+pub trait TaskCancellationRequestedObserver {
+    #[portable]
+    async fn observe(&self, event: TaskCancellationRequested) -> Result<()>;
+}
+
+/// Cancellation intent changed from false to true in storage.
+///
+/// Observers execute through Tembra's versioned series Registry. An error stops the remaining
+/// handlers in this hook invocation; it never invalidates a confirmed storage transition.
+/// Other lifecycle hooks produced by the same transition remain independent notifications.
+///
+/// # Errors
+/// Refuses invalid canonical schema or descriptor metadata before invoking an observer.
+pub fn on_task_cancellation_requested() -> Result<RustHookDefinition<TaskCancellationRequested, ()>>
+{
+    series_hook(
+        "swarmie.task-cancellation-requested",
+        TaskCancellationRequestedObserver.descriptor()?.as_ref(),
+    )
+}
+
+/// Schema export for the typed [`on_task_terminal`] input; not an observer service.
+#[tembra::contract(local, name = "swarmie.task-terminal-observer-schema", version = 1)]
+pub trait TaskTerminalObserver {
+    #[portable]
+    async fn observe(&self, event: TaskTerminal) -> Result<()>;
+}
+
+/// A confirmed transition entered a terminal status.
+///
+/// Observers execute through Tembra's versioned series Registry. An error stops the remaining
+/// handlers in this hook invocation; it never invalidates a confirmed storage transition.
+/// Other lifecycle hooks produced by the same transition remain independent notifications.
+///
+/// # Errors
+/// Refuses invalid canonical schema or descriptor metadata before invoking an observer.
+pub fn on_task_terminal() -> Result<RustHookDefinition<TaskTerminal, ()>> {
+    series_hook(
+        "swarmie.task-terminal",
+        TaskTerminalObserver.descriptor()?.as_ref(),
+    )
+}
+
+fn series_hook<T: Serialize + 'static>(
+    name: &str,
+    contract: &tembra::contracts::Contract,
+) -> Result<RustHookDefinition<T, ()>> {
     let Some(Member::Method {
         args: Some(ValueSchema::Portable(schema)),
         ..
@@ -211,7 +612,7 @@ pub fn task_lifecycle() -> Result<RustHookDefinition<TaskLifecycleEvent, ()>> {
     };
     let input = HookType::serde(schema.clone())?;
     let descriptor = HookDescriptor::new(
-        "swarmie.task-lifecycle",
+        name,
         1,
         Strategy::Series,
         input.profile().clone(),

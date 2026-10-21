@@ -6,7 +6,10 @@
 
 mod cancellation;
 mod configuration;
+mod delivery;
 mod execution;
+#[cfg(feature = "javascript")]
+mod language;
 mod mutation;
 mod observation;
 mod ownership;
@@ -18,6 +21,8 @@ mod service;
 mod work;
 
 pub use configuration::Configuration;
+#[cfg(feature = "javascript")]
+pub use language::register_language_hooks;
 pub use service::facet;
 
 /// Logical identity of the independently composable compiled scheduler plugin.

@@ -9,11 +9,12 @@ rust-version.workspace = true
 swarmie-composition = { path = "../composition" }
 swarmie-memory-store = { path = "../../plugins/memory-store" }
 swarmie-task-storage-sqlite = { path = "../../plugins/task-storage-sqlite" }
-swarmie-durable-tasks = { path = "../../plugins/durable-tasks" }
+swarmie-durable-tasks = { path = "../../plugins/durable-tasks", features = ["javascript"] }
 swarmie-plugin-contracts = { path = "../plugin-contracts" }
 swarmie-plugin-manager = { path = "../plugin-manager" }
 tembra.workspace = true
 tembra-native.workspace = true
+tembra-executor-js.workspace = true
 futures.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true

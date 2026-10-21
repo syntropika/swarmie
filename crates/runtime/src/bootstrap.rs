@@ -3,6 +3,7 @@ use std::{path::PathBuf, rc::Rc};
 use swarmie_plugin_contracts::ConfigureProviderRequest;
 use swarmie_plugin_manager::PluginManager;
 use tembra::{Host, core};
+use tembra_executor_js::{Executor, ExecutorOptions};
 
 use crate::{CompiledPlugin, Configuration, Runtime, application, configuration, deployment};
 
@@ -13,9 +14,14 @@ pub(crate) async fn start(
 ) -> Result<Runtime, Box<dyn std::error::Error>> {
     let host = Host::with_driver("swarmie-runtime", "runtime-supervisor", driver.clone())?;
     let result = async {
-        let manager =
-            PluginManager::start(host.clone(), driver.clone(), configuration.database.clone())
-                .await?;
+        let executor = Executor::new(driver.clone(), ExecutorOptions::default())?;
+        swarmie_durable_tasks::register_language_hooks(&executor)?;
+        let manager = PluginManager::start_with_executor(
+            host.clone(),
+            executor,
+            configuration.database.clone(),
+        )
+        .await?;
         let persisted = manager.composition()?;
         let application = match configuration.application {
             Some(application) => application,

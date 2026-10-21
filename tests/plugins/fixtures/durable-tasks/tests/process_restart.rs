@@ -313,6 +313,8 @@ fn child_process() -> Result<()> {
                         if phase == "retry" {
                             assert_eq!(*recovered[0].1, TaskStatus::Parked);
                             assert_eq!(*recovered[0].2, Some(TaskBlockingKind::RestartLimit));
+                            let recovery_hooks: Vec<_> = observer.notifications.borrow().iter().filter(|notification| matches!(&notification.event, TaskLifecycleEvent::Committed { task, .. } if task.revision == recovered[0].0.revision)).map(|notification| notification.hook.clone()).collect();
+                            assert_eq!(recovery_hooks, ["swarmie.task-recovered", "swarmie.task-parked"], "recovery precedes status-entry notification for the same confirmed write");
                             assert_eq!(
                                 events
                                     .iter()
@@ -347,6 +349,25 @@ fn child_process() -> Result<()> {
                             }
                         )));
                     }
+                }
+                if phase == "reopen-terminal" {
+                    let storage = host.get(TaskStorage, TaskStorageInput {}).await?;
+                    storage.register_outbox_consumer(TaskOutboxConsumer { id: "process-session-log".into() }).await?;
+                    let mut after = None;
+                    let mut retained = Vec::new();
+                    loop {
+                        let page = storage.read_outbox(TaskOutboxQuery { consumer_id: "process-session-log".into(), after: after.clone(), limit: 16 }).await?;
+                        if page.events.is_empty() { break; }
+                        after = page.next;
+                        retained.extend(page.events);
+                    }
+                    assert_eq!(retained.iter().filter(|event| event.current_status == TaskStatus::Terminal && event.task_id == "process-task" && event.revision == record.revision).count(), 1, "the terminal commit survives the crash gap through its atomic outbox fact");
+                    assert!(retained.iter().any(|event| event.checkpoint_changed && event.task_id == "process-task"));
+                    let through = retained.last().expect("retained committed history").id.clone();
+                    storage.acknowledge_outbox(TaskOutboxAcknowledgement { consumer_id: "process-session-log".into(), through: through.clone() }).await?;
+                    let state = storage.register_outbox_consumer(TaskOutboxConsumer { id: "process-session-log".into() }).await?;
+                    assert_eq!(state.acknowledged, Some(through));
+                    assert!(storage.read_outbox(TaskOutboxQuery { consumer_id: "process-session-log".into(), after: None, limit: 16 }).await?.events.is_empty());
                 }
                 host.close().await
             })

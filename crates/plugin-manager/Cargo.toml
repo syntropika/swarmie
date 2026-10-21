@@ -6,7 +6,6 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-swarmie-task-contracts = { path = "../task-contracts" }
 swarmie-plugin-contracts = { path = "../plugin-contracts" }
 tembra.workspace = true
 tembra-executor-js.workspace = true
@@ -22,6 +21,7 @@ uuid.workspace = true
 
 [dev-dependencies]
 swarmie-counter = { path = "../../tests/plugins/fixtures/counter" }
+tembra-hooks.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 

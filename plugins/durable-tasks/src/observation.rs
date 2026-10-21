@@ -3,24 +3,24 @@
 use std::{cell::RefCell, collections::VecDeque, rc::Rc, time::Duration};
 
 use futures::FutureExt;
-use swarmie_task_contracts::{
-    MAX_PORTABLE_INTEGER, TaskLifecycleDiagnostics, TaskLifecycleEvent, task_lifecycle,
-};
+use swarmie_task_contracts::{MAX_PORTABLE_INTEGER, TaskLifecycleDiagnostics, TaskLifecycleEvent};
 use tembra::{Result, RuntimeError, core};
-use tembra_hooks::{HookManager, HookManagerOptions, RustHookDefinition};
+use tembra_hooks::{HookManager, HookManagerOptions};
 
-use crate::scheduler::Wake;
+use crate::{
+    delivery::{Notification, Pipelines, notifications},
+    scheduler::Wake,
+};
 
 const MAX_PENDING: usize = 256;
 const MAX_CONTRIBUTIONS: usize = 64;
 const DEADLINE: Duration = Duration::from_secs(1);
 
 pub(crate) struct Observations {
-    definition: RustHookDefinition<TaskLifecycleEvent, ()>,
-    registry: core::RegistryView,
+    pipelines: Pipelines,
     manager: HookManager,
     driver: Rc<dyn core::Driver>,
-    queue: RefCell<VecDeque<TaskLifecycleEvent>>,
+    queue: RefCell<VecDeque<Notification>>,
     diagnostics: RefCell<TaskLifecycleDiagnostics>,
     signal: RefCell<Option<core::FacetSignal>>,
     wake: Wake,
@@ -32,8 +32,7 @@ fn increment(counter: &mut u64) {
 
 impl Observations {
     pub fn new(scope: core::FacetScope, driver: Rc<dyn core::Driver>) -> Result<Rc<Self>> {
-        let definition = task_lifecycle()?;
-        let registry = scope.registry(definition.descriptor().registry())?;
+        let pipelines = Pipelines::new(&scope)?;
         let manager = HookManager::new(
             scope,
             driver.clone(),
@@ -43,8 +42,7 @@ impl Observations {
             },
         )?;
         Ok(Rc::new(Self {
-            definition,
-            registry,
+            pipelines,
             manager,
             driver,
             queue: RefCell::default(),
@@ -57,6 +55,12 @@ impl Observations {
     /// Infallible after-commit admission, independent of the submitting caller's Context.
     /// A current Registry probe avoids allocating queue entries when no observer exists.
     pub fn emit(&self, event: TaskLifecycleEvent) {
+        for notification in notifications(event) {
+            self.enqueue(notification);
+        }
+    }
+
+    fn enqueue(&self, event: Notification) {
         if self
             .signal
             .borrow()
@@ -66,12 +70,12 @@ impl Observations {
             increment(&mut self.diagnostics.borrow_mut().abandoned);
             return;
         }
-        match self.registry.table(None) {
-            Ok(table) if table.is_empty() => {
+        match self.pipelines.has_handlers(&event) {
+            Ok(false) => {
                 increment(&mut self.diagnostics.borrow_mut().skipped);
                 return;
             }
-            Ok(_) => {}
+            Ok(true) => {}
             Err(error) => {
                 self.record_error(&error);
                 return;
@@ -127,10 +131,7 @@ impl Observations {
                 let result = scope
                     .root(move |context| {
                         async move {
-                            let run =
-                                selected
-                                    .manager
-                                    .run_series(&selected.definition, event, &context);
+                            let run = selected.pipelines.run(&selected.manager, event, &context);
                             let timer = selected.driver.sleep(DEADLINE);
                             futures::pin_mut!(run, timer);
                             match futures::future::select(run, timer).await {

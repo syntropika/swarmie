@@ -12,7 +12,6 @@ mod composition;
 mod core_plugins;
 mod error;
 mod lifecycle;
-mod lifecycle_hooks;
 mod manager;
 mod observations;
 mod policy;

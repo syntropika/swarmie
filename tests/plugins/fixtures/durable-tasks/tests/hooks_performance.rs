@@ -106,19 +106,45 @@ async fn measure(driver: Rc<TokioDriver>, with_observer: bool, sample: usize) ->
         observer.events.borrow().len() as u64,
         final_diagnostics.completed
     );
+    let observer_drain_us = drain_started.elapsed().as_micros();
+    let storage = host.get(TaskStorage, TaskStorageInput {}).await?;
+    storage
+        .register_outbox_consumer(TaskOutboxConsumer {
+            id: "performance-audit".into(),
+        })
+        .await?;
+    let page = storage
+        .read_outbox(TaskOutboxQuery {
+            consumer_id: "performance-audit".into(),
+            after: None,
+            limit: 256,
+        })
+        .await?;
+    assert_eq!(
+        page.events.len(),
+        TASKS * 3,
+        "every confirmed write has an outbox event; physical settlement has none"
+    );
+    let outbox_bytes: usize = page
+        .events
+        .iter()
+        .map(|event| serde_json::to_vec(event).unwrap().len())
+        .sum();
     println!(
         "lifecycle_performance {}",
         serde_json::json!({
             "mode": if with_observer { "native_observer" } else { "absent_observer" },
             "sample": sample,
             "tasks": TASKS,
+            "outbox_events": page.events.len(),
+            "outbox_event_bytes": outbox_bytes,
             "terminal_us": terminal_us,
             "tasks_per_second": TASKS as f64 / task_elapsed.as_secs_f64(),
             "submission_p50_us": percentile(&mut submission, 50),
             "submission_p95_us": percentile(&mut submission, 95),
             "terminal_p50_us": percentile(&mut terminal, 50),
             "terminal_p95_us": percentile(&mut terminal, 95),
-            "observer_drain_us": drain_started.elapsed().as_micros(),
+            "observer_drain_us": observer_drain_us,
             "queued_at_terminal": at_terminal.queued,
             "diagnostics": final_diagnostics,
         })

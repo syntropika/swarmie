@@ -127,13 +127,20 @@ impl Engine {
         record.blocking_reason = None;
         record.attempts = attempts;
         self.reservations.borrow_mut().insert(id.clone());
-        if matches!(
-            self.update(&context, record, change).await?,
-            CommitResult::Conflict { .. }
-        ) {
-            self.reservations.borrow_mut().remove(&id);
-            self.schedule(&id);
-            return Ok(());
+        match self.update(&context, record, change).await {
+            Ok(CommitResult::Committed { .. }) => {}
+            Ok(CommitResult::Conflict { .. }) => {
+                self.reservations.borrow_mut().remove(&id);
+                self.schedule(&id);
+                return Ok(());
+            }
+            Err(error) if error.reason == "task_storage_outbox_full" => {
+                // Capacity rejection is definite: no Running reservation was committed.
+                self.reservations.borrow_mut().remove(&id);
+                self.schedule(&id);
+                return Ok(());
+            }
+            Err(error) => return Err(error),
         }
         let (handler_context, handler_guard) = context.child_call(context.principal().clone())?;
         self.active
@@ -336,6 +343,11 @@ impl Engine {
                 Ok(CommitResult::Conflict { .. }) => {
                     // A known atomic refusal cannot justify replaying an external effect.
                     decision = Decision::Park("settled phase transaction conflicted; checkpoint preserved; explicit retry required; external effect may have occurred".into());
+                    self.contention_pause(context).await?;
+                }
+                Err(error) if error.reason == "task_storage_outbox_full" => {
+                    // Capacity refusal committed nothing. Retain this physically settled
+                    // decision while consumers acknowledge/compact; never replay its effect.
                     self.contention_pause(context).await?;
                 }
                 Err(error) if invalid_decision(&error) => {

@@ -127,6 +127,22 @@ fn observed(observer: &Observer, id: &str, current: &str) -> bool {
         .any(|event| event["task"]["task_id"] == id && event["current_status"] == current)
 }
 
+fn raw_hooks(observer: &Observer, id: &str, revision: Option<u64>) -> Vec<String> {
+    observer
+        .notifications
+        .borrow()
+        .iter()
+        .filter_map(|notification| {
+            let task = match &notification.event {
+                TaskLifecycleEvent::Committed { task, .. }
+                | TaskLifecycleEvent::PhaseSettled { task, .. } => task,
+            };
+            (task.task_id == id && revision.is_none_or(|revision| task.revision == revision))
+                .then(|| notification.hook.clone())
+        })
+        .collect()
+}
+
 async fn terminal(tasks: &DurableTasksRef, id: &str) -> Result<TaskOutcome> {
     tasks.wait(TaskLookup { id: id.into() }).await
 }
@@ -156,6 +172,19 @@ fn native_observer_sees_confirmed_checkpoints_and_one_terminal_per_revision() {
         tasks.create(task("checkpointed")).await?;
         terminal(&tasks, "checkpointed").await?;
         eventually(|| observed(&observer, "checkpointed", "terminal")).await;
+        let delivered = raw_hooks(&observer, "checkpointed", None);
+        for name in [
+            "created",
+            "phase-started",
+            "phase-settled",
+            "checkpoint",
+            "terminal",
+        ] {
+            assert!(
+                delivered.contains(&format!("swarmie.task-{name}")),
+                "missing specialized {name} hook"
+            );
+        }
         let before = events(&observer);
         let committed: Vec<_> = before
             .iter()
@@ -267,7 +296,7 @@ fn waiting_sleeping_parent_child_cancellation_are_confirmed_observations() {
         parent.phase = "spawn".into();
         parent.input = json!({"children_sleep":true});
         tasks.create(parent).await?;
-        status(&tasks, "tree", TaskStatus::Waiting).await?;
+        let waiting = status(&tasks, "tree", TaskStatus::Waiting).await?;
         for id in ["tree:first", "tree:second"] {
             status(&tasks, id, TaskStatus::Sleeping).await?;
         }
@@ -283,6 +312,37 @@ fn waiting_sleeping_parent_child_cancellation_are_confirmed_observations() {
         })
         .await;
         assert!(observed(&observer, "tree", "waiting"));
+        assert_eq!(
+            raw_hooks(&observer, "tree", Some(waiting.revision)),
+            ["swarmie.task-checkpoint", "swarmie.task-waiting"]
+        );
+        for id in ["tree:first", "tree:second"] {
+            let notifications = observer.notifications.borrow();
+            let sleeping = notifications.iter().find(|notification| notification.hook == "swarmie.task-sleeping" && matches!(&notification.event, TaskLifecycleEvent::Committed { task, .. } if task.task_id == id)).expect("specialized sleeping notification");
+            let TaskLifecycleEvent::Committed { task, .. } = &sleeping.event else {
+                unreachable!()
+            };
+            let revision = task.revision;
+            drop(notifications);
+            assert_eq!(
+                raw_hooks(&observer, id, Some(revision)),
+                ["swarmie.task-checkpoint", "swarmie.task-sleeping"]
+            );
+            let notifications = observer.notifications.borrow();
+            let cancellation = notifications.iter().find(|notification| notification.hook == "swarmie.task-cancellation-requested" && matches!(&notification.event, TaskLifecycleEvent::Committed { task, current_status: TaskStatus::Terminal, .. } if task.task_id == id)).expect("sleeping child cancellation is terminal in the same write");
+            let TaskLifecycleEvent::Committed { task, .. } = &cancellation.event else {
+                unreachable!()
+            };
+            let revision = task.revision;
+            drop(notifications);
+            assert_eq!(
+                raw_hooks(&observer, id, Some(revision)),
+                [
+                    "swarmie.task-cancellation-requested",
+                    "swarmie.task-terminal"
+                ]
+            );
+        }
         assert!(observed(&observer, "tree:first", "sleeping"));
         for id in ["tree", "tree:first", "tree:second"] {
             assert!(
@@ -337,6 +397,9 @@ fn parked_handler_retry_emits_new_confirmed_revisions() {
                 .iter()
                 .any(|event| event["origin"] == "retry")
         );
+        let delivered = raw_hooks(&observer, "parked", None);
+        assert!(delivered.contains(&"swarmie.task-parked".into()));
+        assert!(delivered.contains(&"swarmie.task-retry".into()));
         host.close().await
     });
 }
@@ -591,6 +654,10 @@ fn migration_commit_and_rejected_migration_remain_distinct_from_physical_settlem
         tasks.create(rejected.clone()).await?;
         let blocked = status(&tasks, &rejected.id, TaskStatus::Blocked).await?;
         eventually(|| observed(&observer, &rejected.id, "blocked")).await;
+        assert!(
+            raw_hooks(&observer, &rejected.id, Some(blocked.revision))
+                .contains(&"swarmie.task-blocked".into())
+        );
         assert_eq!(blocked.definition_version, 1);
         assert_eq!(blocked.checkpoint, rejected.checkpoint);
         assert!(
@@ -615,6 +682,219 @@ fn migration_commit_and_rejected_migration_remain_distinct_from_physical_settlem
                 .count(),
             migration_events
         );
+        host.close().await
+    });
+}
+
+#[test]
+fn subscriber_selects_one_lifecycle_registry_without_filtering_events() {
+    run(|driver| async move {
+        let observer = Rc::new(Observer::default());
+        let (host, tasks, _directory) = open(driver, vec![]).await?;
+        host.install(
+            hooks::facet_with_hooks(
+                "terminal-only",
+                0,
+                observer.clone(),
+                &["swarmie.task-terminal"],
+            )?,
+            core::LoadOptions::default(),
+        )?
+        .await?;
+        let mut spec = task("selected-registry");
+        spec.phase = "finish".into();
+        tasks.create(spec).await?;
+        terminal(&tasks, "selected-registry").await?;
+        eventually(|| !observer.notifications.borrow().is_empty()).await;
+        assert_eq!(
+            raw_hooks(&observer, "selected-registry", None),
+            ["swarmie.task-terminal"]
+        );
+        assert_eq!(observer.events.borrow().len(), 1);
+        host.close().await
+    });
+}
+
+#[test]
+fn failing_series_contribution_skips_its_followers_but_other_hooks_still_run() {
+    run(|driver| async move {
+        let observer = Rc::new(Observer::default());
+        *observer.fail_on_hook.borrow_mut() = Some("swarmie.task-checkpoint".into());
+        let (host, tasks, _directory) = open(
+            driver,
+            vec![
+                ("later", 10, observer.clone()),
+                ("first", -10, observer.clone()),
+            ],
+        )
+        .await?;
+        let mut spec = task("independent-pipelines");
+        spec.phase = "sleep".into();
+        spec.input = json!({"wake_at_ms":4_000_000_000_000_u64});
+        tasks.create(spec).await?;
+        let sleeping = status(&tasks, "independent-pipelines", TaskStatus::Sleeping).await?;
+        eventually(|| {
+            observer.notifications.borrow().iter().any(|notification| {
+                notification.observer == "later" && notification.hook == "swarmie.task-sleeping"
+            })
+        })
+        .await;
+        {
+            let notifications = observer.notifications.borrow();
+            let same_write: Vec<_> = notifications.iter().filter(|notification| matches!(&notification.event, TaskLifecycleEvent::Committed { task, .. } if task.task_id == sleeping.id && task.revision == sleeping.revision)).map(|notification| (notification.hook.as_str(), notification.observer.as_str())).collect();
+            assert_eq!(
+                same_write,
+                [
+                    ("swarmie.task-checkpoint", "first"),
+                    ("swarmie.task-sleeping", "first"),
+                    ("swarmie.task-sleeping", "later")
+                ]
+            );
+        }
+        assert!(!sleeping.checkpoint.is_null());
+        tasks
+            .cancel(TaskLookup {
+                id: sleeping.id.clone(),
+            })
+            .await?;
+        assert!(matches!(
+            terminal(&tasks, &sleeping.id).await?,
+            TaskOutcome::Aborted { .. }
+        ));
+        eventually(|| {
+            observer.notifications.borrow().iter().any(|notification| {
+                notification.observer == "later" && notification.hook == "swarmie.task-terminal"
+            })
+        })
+        .await;
+        let diagnostics = host
+            .get(TaskLifecycle, TaskLifecycleInput {})
+            .await?
+            .diagnostics()
+            .await?;
+        assert_eq!(diagnostics.failed, 1);
+        host.close().await
+    });
+}
+
+#[test]
+fn full_outbox_retains_settled_handler_decision_until_acknowledgement_frees_capacity() {
+    run(|driver| async move {
+        let directory = tempfile::tempdir().unwrap();
+        let host = Host::with_driver("outbox-capacity", "application", driver.clone())?;
+        host.install(
+            swarmie_task_storage_sqlite::facet_with_outbox_limits(
+                &swarmie_task_storage_sqlite::Configuration {
+                    database: directory.path().join("tasks.sqlite"),
+                },
+                swarmie_task_storage_sqlite::TaskOutboxLimits {
+                    max_events: 2,
+                    max_bytes: 65_536,
+                    max_consumers: 1,
+                },
+            )?,
+            core::LoadOptions::default(),
+        )?
+        .await?;
+        let storage = host.get(TaskStorage, TaskStorageInput {}).await?;
+        storage
+            .register_outbox_consumer(TaskOutboxConsumer {
+                id: "retained-history".into(),
+            })
+            .await?;
+        let control = concurrency::StorageControl::new(storage.clone());
+        host.install(
+            concurrency::handler_facet(control.clone())?,
+            core::LoadOptions::default(),
+        )?
+        .await?;
+        let observer = Rc::new(Observer::default());
+        host.install(
+            hooks::facet("outbox-audit", 0, observer.clone())?,
+            core::LoadOptions::default(),
+        )?
+        .await?;
+        host.install(
+            swarmie_durable_tasks::facet(
+                &swarmie_durable_tasks::Configuration {
+                    poll_interval_ms: 2,
+                    ..Default::default()
+                },
+                driver,
+            )?,
+            core::LoadOptions::default(),
+        )?
+        .await?;
+        let tasks = host.get(DurableTasks, DurableTasksInput {}).await?;
+        tasks
+            .create(TaskSpec {
+                id: "retained-decision".into(),
+                kind: "fixture.concurrent".into(),
+                definition_version: 1,
+                input: json!({}),
+                checkpoint: json!({"operation_id":"retained-decision:effect"}),
+                phase: "effect".into(),
+            })
+            .await?;
+        eventually(|| {
+            control.effects("retained-decision") == 1
+                && raw_hooks(&observer, "retained-decision", None)
+                    .contains(&"swarmie.task-phase-settled".into())
+        })
+        .await;
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        let running = tasks
+            .get(TaskLookup {
+                id: "retained-decision".into(),
+            })
+            .await?
+            .unwrap();
+        assert_eq!(running.status, TaskStatus::Running);
+        assert_eq!(control.effects("retained-decision"), 1);
+        assert!(!observed(&observer, "retained-decision", "terminal"));
+        let pending = storage
+            .read_outbox(TaskOutboxQuery {
+                consumer_id: "retained-history".into(),
+                after: None,
+                limit: 16,
+            })
+            .await?;
+        assert_eq!(pending.events.len(), 2);
+        assert_eq!(pending.events[0].current_status, TaskStatus::Pending);
+        assert_eq!(pending.events[1].current_status, TaskStatus::Running);
+        storage
+            .acknowledge_outbox(TaskOutboxAcknowledgement {
+                consumer_id: "retained-history".into(),
+                through: pending.events[1].id.clone(),
+            })
+            .await?;
+        assert_eq!(
+            storage
+                .compact_outbox(TaskOutboxCompaction { limit: 2 })
+                .await?
+                .removed,
+            2
+        );
+        assert!(matches!(
+            terminal(&tasks, "retained-decision").await?,
+            TaskOutcome::Completed { .. }
+        ));
+        eventually(|| observed(&observer, "retained-decision", "terminal")).await;
+        assert_eq!(
+            control.effects("retained-decision"),
+            1,
+            "freeing outbox capacity commits the retained decision without replaying its physical handler"
+        );
+        let remaining = storage
+            .read_outbox(TaskOutboxQuery {
+                consumer_id: "retained-history".into(),
+                after: None,
+                limit: 16,
+            })
+            .await?;
+        assert_eq!(remaining.events.len(), 1);
+        assert_eq!(remaining.events[0].current_status, TaskStatus::Terminal);
+        assert_eq!(remaining.events[0].revision, running.revision + 1);
         host.close().await
     });
 }
