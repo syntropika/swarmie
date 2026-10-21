@@ -1768,6 +1768,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "swarmie-session-contracts"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tembra",
+]
+
+[[package]]
+name = "swarmie-session-store-sqlite"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "swarmie-counter",
+ "swarmie-session-contracts",
+ "tembra",
+ "tembra-executor-js",
+ "tembra-native",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "swarmie-task-contracts"
 version = "0.1.0"
 dependencies = [
@@ -1783,6 +1809,27 @@ dependencies = [
  "serde_json",
  "swarmie-task-contracts",
  "tembra",
+]
+
+[[package]]
+name = "swarmie-task-session-integration"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "hex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "swarmie-durable-tasks",
+ "swarmie-session-contracts",
+ "swarmie-session-store-sqlite",
+ "swarmie-task-contracts",
+ "swarmie-task-session-contracts",
+ "swarmie-task-storage-sqlite",
+ "tembra",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
