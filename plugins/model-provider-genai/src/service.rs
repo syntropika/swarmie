@@ -103,6 +103,7 @@ pub fn facet_with_credentials(
                     driver: driver.clone(),
                     wake: Wake::default(),
                     cancellation: core::CancellationToken::new(),
+                    completion: RefCell::new(None),
                 });
                 let activity = generation.clone();
                 let worker_scope = generation_scope.clone();
@@ -163,27 +164,7 @@ pub fn facet_with_credentials(
                     }
                     .boxed_local()
                 })
-                .with_close(|worker| {
-                    async move {
-                        worker.stop.cancel(RuntimeError::aborted(
-                            "model_closed",
-                            "generation Resource closed",
-                        ));
-                        worker.generation.wake.notify();
-                        let finished = worker.finished.borrow_mut().take();
-                        if let Some(finished) = finished {
-                            finished.await.map_err(|_| {
-                                RuntimeError::unavailable(
-                                    "model_worker",
-                                    "generation worker failed to settle",
-                                )
-                            })??;
-                        }
-                        worker.generation.admission.borrow_mut().take();
-                        Ok(())
-                    }
-                    .boxed_local()
-                });
+                .with_close(|worker| async move { worker.close().await }.boxed_local());
                 opening
                     .deps
                     .push(core::ResourceDependency::Reference(provider.core().clone()));

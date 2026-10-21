@@ -39,8 +39,15 @@ schemas and generation options. `Message` and `ContentPart` are inference DTOs. 
 can embed these parts in historical event envelopes, adding event identity, causal ordering and
 presentation metadata without defining another inference message hierarchy.
 
-Roles are system, developer, user, assistant and tool. The current adapter refuses developer
-messages because genai has no corresponding role; it never silently rewrites them to system.
+Roles are system, developer, user, assistant and tool. The maintained genai patch maps
+`Developer` natively to OpenAI Chat Completions and Responses input messages. Simultaneous
+system/developer messages retain their literal roles and request order. Responses does not
+hoist them into top-level `instructions`, which has different per-call replacement semantics.
+OpenAI model-specific instruction precedence remains the remote API's behavior; the adapter
+does not emulate it. `developer_role` is `ModelDependent` for these two adapters. Other
+adapters reject developer messages with `Unsupported`/`NotSent`; there is no implicit
+Developer-to-System or Developer-to-User translation. An explicit caller transformation must
+happen before inference, with its changed semantics owned by that caller.
 Text, reasoning, images, tool calls/results and versioned extensions are separate content parts.
 Final tool arguments must be JSON objects and call IDs remain byte-for-byte identical between
 assistant calls and tool results. Tool names in results are recovered from the preceding
@@ -58,7 +65,24 @@ particular image. Other modalities are outside this adapter's current public con
 Response format supports JSON mode and named JSON Schema. JSON output is parsed locally;
 provider-side schema enforcement and schema dialect conversion depend on the adapter/model.
 This is not a general local JSON Schema validator. Tool parameter schemas require an object
-root. Unknown or unsupported requested features fail explicitly before inference.
+root. Unknown or unsupported requested features fail explicitly before inference. Structured
+answer validation applies to completed answer text. A genuine tool-call branch can contain
+no answer JSON, including when it carries ordinary commentary; tool IDs and structured
+arguments remain authoritative. Length, filtering and explicit provider refusal finish reasons
+retain their original meaning instead of being replaced by a misleading JSON parsing failure.
+
+| Adapter | Developer | JSON mode | JSON Schema | Tools with structured output |
+| --- | --- | --- | --- | --- |
+| OpenAI Chat Completions | Native, model dependent | Model dependent | Model dependent | Qualified conversion path; remote model must support it |
+| OpenAI Responses | Native ordered input, model dependent | Model dependent | Model dependent | Qualified conversion path; remote model must support it |
+| Anthropic | Explicit refusal | Refused: ignored by upstream | Model dependent | JSON Schema path qualified; plain JSON refused |
+| Gemini generateContent | Explicit refusal | Refused: ignored by upstream | Model dependent | Refused before HTTP; this adapter does not use Interactions |
+| Native Ollama | Explicit refusal | Model dependent | Refused: ignored by upstream | Refused before HTTP |
+| Other genai adapters | Explicit refusal | Refused | Refused | Refused |
+
+Capabilities describe individual paths, not every Cartesian combination. Preflight also checks
+effective defaults and feature combinations. Local HTTP fixtures qualify translation and result
+handling; they do not establish live commercial model availability or schema dialect support.
 
 ## Streaming through Tembra
 
@@ -84,8 +108,10 @@ upstream polling when the count/byte window is full. The total deadline includes
 
 Events are batched by count, size and timer. No per-token RPC is required. Transport pings and
 genai's synthetic Start are not content events or evidence of remote admission. Publication
-failures cannot imply remote rollback. A failed stream has no successful final response;
-already published events remain available until acknowledged or the generation is disposed.
+failures cannot imply remote rollback. An inference or rejected incremental publication ends
+with a typed failure; already adopted events remain available until acknowledged or disposal.
+Terminal publication failure can coexist with a successful physically completed inference;
+recover its retained response rather than submitting another inference.
 
 The generation Resource owns a worker on the **same injected Tembra Driver** as the Host.
 Its closer signals cancellation and awaits the completion receipt before releasing clients.
@@ -93,11 +119,33 @@ Only short Facet-scope roots publish State; no root or consumer Reference spans 
 This avoids a long managed task retaining its own referenced object's lifetime in the pinned
 runtime. No second executor, EventEmitter or streaming wire protocol is introduced.
 
-`cancel()` requests local cancellation; wait for `physically_settled` to observe local I/O
-closure. Dropping the last consumer Reference closes its Resource and joins local work.
+`cancel()` requests local cancellation; wait for `physically_settled` in `progress()` or
+`recover()` to observe local I/O closure. Dropping the last consumer Reference closes its Resource and joins local work.
 After release or Host shutdown its weak State becomes unavailable; do not wait for a final
 State from a disposed reference. Host closure joins cleanup. Physical settlement describes
 the local HTTP future/stream only: a remote provider may still compute or charge for the call.
+
+`recover()` returns a bounded volatile snapshot of the same live generation. It performs no
+State publication, inference or request retry. After local I/O ends, the worker retains its
+terminal response/error before trying to publish Settled. Terminal publication repair makes
+at most three attempts, then stops. The retained result remains readable even if an internal
+projection rejects every terminal candidate; progress State can remain Running. Consumers
+must use recover when State delivery fails or cancellation cleanup needs an independent
+settlement observation. Recovery remains an ordinary portable Tembra operation, not another
+stream transport or a durable receipt.
+
+An internal derivation can reject an incremental candidate before adoption. That ends local
+inference with `Publication`, without inventing event sequences for rejected content. Native
+subscriber Result errors happen after source adoption and are reported independently by
+Tembra. They cannot roll it back. A native observer panic can interrupt delivery after adoption;
+the adapter checks adopted sequence/terminal state before a publication-only retry. This is
+limited to unwind-capable publication boundaries, not process-abort or arbitrary panic containment. An external projection can
+fail independently of an adopted source. Subscribers are responsible for rebuilding their
+projection from a current snapshot. The adapter does not rerun HTTP to repair these failures.
+Concurrent cancellation preserves whichever inference result has already physically settled;
+Host shutdown and last-Reference disposal cancel and join the worker before releasing its
+connection admission. A disposed object has no recoverable result, final notification or
+surviving completion guarantee. Preserve necessary evidence in the caller's own lifecycle.
 
 Reconnect by acquiring from a fresh Host and making an explicit new attempt. No generation
 history or idempotency receipt survives object disposal. A reused request ID on a new object
@@ -116,12 +164,25 @@ including provider-reported cost fields. The adapter does not invent a price tab
 billing amount. `swarmie.reported-model` records the provider's model observation separately
 from configured selection.
 
-Opaque continuation extensions use a provider namespace and version. A `reasoning_replay`
-extension retains the supplied reasoning blocks needed by that provider even when a consumer
-removes the separate display-oriented `Reasoning` parts. Replay prefers that opaque copy to
-avoid duplicating text. Preserve signed thinking
-text together with its signatures, and retain tool-associated signatures and custom provider
-content parts. Unknown namespaces/versions are refused on replay rather than silently dropped.
+Opaque continuation extensions use a provider namespace and version. Version 2 replay parts
+stay immediately after the visible reasoning block they represent, at its original position
+among text and tool calls. Removing the separate display-oriented `Reasoning` part leaves
+that extension in place. Full and display-filtered DTO round trips therefore replay one copy
+of each reasoning block. Conflicting visible text and replay payloads are refused. Preserve
+extension order and payloads verbatim; the former version 1 appended `reasoning_replay` array
+is refused because it cannot establish the original positions.
+
+Anthropic thinking/redacted-thinking blocks retain their native payload and opaque signatures
+in positional `provider_content` extensions. Responses preserves each complete reasoning item,
+including original item ID, summaries and encrypted continuation when supplied. Gemini keeps
+signed thought blocks separate from tool-associated signatures; actual provider tool IDs are
+required rather than accepting synthesized IDs as original. The local genai patch adds only
+narrow native Custom passthrough paths for representations its normalized API cannot retain.
+Already parsed raw response/frame reconstruction is bounded and provider-specific. Ambiguous
+or unsupported block shapes and lossy streaming arrangements fail with DataLoss rather than
+silently flattening or reordering them. Legitimately exposed reasoning remains available as
+Reasoning content; opaque values are never converted to conversational text.
+Unknown namespaces/versions are refused on replay rather than silently dropped.
 A namespace identifies a wire representation; continuation is not portable to another provider
 or necessarily another model. Keep the selected endpoint/connection with the original message.
 Do not expose opaque signatures as conversational text or interpret them as credentials.
@@ -190,13 +251,23 @@ space below Tembra's default frame bound. A bound failure returns no false compl
 **genai 0.7.0 buffers HTTP bodies and incomplete SSE frames internally before the adapter can
 inspect them. These limits do not provide a hard bound on that upstream transient memory.**
 A hostile/unbounded endpoint requires an upstream bounded-body transport change or an externally
-bounded inference gateway before it can be treated as memory-isolated.
+bounded inference gateway before it can be treated as memory-isolated. A concrete follow-up
+must count decoded body/error-body bytes before accumulation, scan SSE/NDJSON with a bound on
+incomplete frame bytes before normalization, and bound queued complete frames and total stream
+bytes. Content-Length checks and timeouts alone are insufficient. Both compressed/chunked bodies
+and a single chunk containing many events need qualification. This iteration does not implement
+those transport limits.
 
 The adapter disables parallel tool calls for OpenAI paths and inspects raw frames for known
 loss patterns. Multiple calls in one OpenAI frame, simultaneous tool/text fields or unsupported
 reasoning-detail blocks fail with `DataLoss` before publishing the affected normalized event.
 Provider-specific metadata that genai never exposes remains outside the common result. Raw
 frame capture is allowlisted and bounded after framing; it is not an unbounded transcript.
+Malformed non-JSON frames, unsupported content-bearing events and missing Responses or
+Anthropic terminal events are refused even if upstream would otherwise skip them or synthesize
+a successful EOF.
+Final tool IDs/names must match observed snapshots; complete argument snapshots cannot be
+contradicted by the final response. An incomplete snapshot can be finished by the terminal item.
 
 ## Verification commands
 
@@ -221,3 +292,22 @@ just rust-test -p swarmie-model-provider-genai --test live -- --ignored
 
 That opt-in test performs two remote inferences and may incur charges. Ordinary acceptance and
 benchmarks require no commercial credentials.
+
+## Dependency maintenance and integration changes
+
+The adapter pins genai 0.7.0 through the root crates.io patch to the self-contained
+`vendor/genai-0.7.0` source. Public model Contracts import none of its types. Original licenses
+and source provenance accompany the dependency. Keep the patch scoped to native developer
+serialization, explicit unsupported-role handling and narrow native continuation passthrough;
+do not turn it into an independent HTTP client. When upgrading, compare the recorded upstream
+source with local deltas, retain only fixes still needed, and run deterministic provider/Host
+acceptance before removing or rebasing a delta. Upstream contribution is desirable; no PR or
+upstream submission is implied by this local maintained patch.
+
+The generation descriptor now includes recover() and ProviderErrorKind includes Publication.
+Its exact fingerprint changes, including consumers that embed the error type. Rebuild Rust and
+generated TypeScript bindings and implement recover in alternate/synthetic generation providers.
+Registry contract version 1 is still the current development shape; old fingerprints do not
+bind silently. Agent Loop must consume this descriptor and use recover in error/cleanup paths.
+It must preserve ordered continuation extensions while filtering display reasoning. No peer
+worktree or persistent session schema was modified here; combined integration remains separate.

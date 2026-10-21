@@ -55,7 +55,7 @@ impl ClientConnection {
             } else {
                 Unsupported
             },
-            json: if native || ollama {
+            json: if matches!(self.kind, AdapterKind::OpenAI | AdapterKind::OpenAIResp) || ollama {
                 ModelDependent
             } else {
                 Unsupported
@@ -71,7 +71,11 @@ impl ClientConnection {
             } else {
                 Unsupported
             },
-            developer_role: Unsupported,
+            developer_role: if matches!(self.kind, AdapterKind::OpenAI | AdapterKind::OpenAIResp) {
+                ModelDependent
+            } else {
+                Unsupported
+            },
             model_discovery: ModelDependent,
         }
     }

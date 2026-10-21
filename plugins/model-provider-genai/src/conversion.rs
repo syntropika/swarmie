@@ -1,4 +1,10 @@
+mod fidelity;
 use crate::{Connection, Limits, backend::ClientConnection, error::failure};
+pub(crate) use fidelity::StreamCapture;
+use fidelity::{
+    prepare_replay, provider_content, provider_reasoning, replay_extension, replay_text,
+    validate_provider_content,
+};
 use genai::chat::{self as g, ChatOptions, ChatRequest};
 use std::collections::{BTreeMap, BTreeSet};
 use swarmie_model_contracts::*;
@@ -71,31 +77,58 @@ pub(crate) fn request(
         }
         let role = match message.role {
             Role::System => g::ChatRole::System,
+            Role::Developer
+                if matches!(
+                    c.kind,
+                    genai::adapter::AdapterKind::OpenAI | genai::adapter::AdapterKind::OpenAIResp
+                ) =>
+            {
+                g::ChatRole::Developer
+            }
             Role::Developer => return Err(unsupported()),
             Role::User => g::ChatRole::User,
             Role::Assistant => g::ChatRole::Assistant,
             Role::Tool => g::ChatRole::Tool,
         };
         let mut parts = Vec::new();
-        let has_reasoning_replay=message.content.iter().any(|part|matches!(part,ContentPart::Extension{extension} if extension.namespace==namespace(&c.configuration) && extension.version==1 && extension.value["kind"]=="reasoning_replay"));
-        for part in &message.content {
-            if has_reasoning_replay && matches!(part, ContentPart::Reasoning { .. }) {
+        let mut content = message.content.iter().peekable();
+        while let Some(part) = content.next() {
+            // Each replay block stays beside the visible reasoning it represents. Removing
+            // visible reasoning for persistence does not move its continuation position.
+            if let ContentPart::Reasoning { text } = part
+                && let Some(ContentPart::Extension { extension: ext }) = content.peek()
+                && ext.namespace == namespace(&c.configuration)
+                && ext.version == 2
+                && matches!(
+                    ext.value["kind"].as_str(),
+                    Some("reasoning_replay" | "provider_content")
+                )
+            {
+                if replay_text(c.kind, ext)?.as_deref() != Some(text) {
+                    return Err(invalid());
+                }
                 continue;
             }
             if let ContentPart::Extension { extension: ext } = part
                 && ext.namespace == namespace(&c.configuration)
-                && ext.version == 1
-                && ext.value["kind"] == "reasoning_replay"
+                && ext.version == 2
             {
                 if message.role != Role::Assistant {
                     return Err(invalid());
                 }
-                let replay: Vec<String> =
-                    serde_json::from_value(ext.value["value"].clone()).map_err(|_| invalid())?;
-                parts.extend(replay.into_iter().map(g::ContentPart::ReasoningContent));
+                parts.push(match ext.value["kind"].as_str() {
+                    Some("reasoning_replay") => g::ContentPart::ReasoningContent(
+                        ext.value["value"].as_str().ok_or_else(invalid)?.to_owned(),
+                    ),
+                    Some("provider_content") => {
+                        validate_provider_content(c.kind, &ext.value["value"])
+                            .map_err(|_| unsupported())?;
+                        g::ContentPart::from_custom(ext.value["value"].clone(), None)
+                    }
+                    _ => return Err(unsupported()),
+                });
                 continue;
             }
-
             parts.push(match part {
                 ContentPart::Text { text } if message.role != Role::Tool => {
                     g::ContentPart::Text(text.clone())
@@ -134,6 +167,9 @@ pub(crate) fn request(
                             || ext.value["kind"] != "tool_thought_signatures"
                         {
                             return Err(unsupported());
+                        }
+                        if signatures.is_some() {
+                            return Err(invalid());
                         }
                         signatures = Some(
                             serde_json::from_value(ext.value["value"].clone())
@@ -186,28 +222,13 @@ pub(crate) fn request(
         if parts.is_empty() {
             return Err(invalid());
         }
-        if c.kind == genai::adapter::AdapterKind::Anthropic && message.role == Role::Assistant {
-            let reasoning_count = parts
-                .iter()
-                .filter(|p| matches!(p, g::ContentPart::ReasoningContent(_)))
-                .count();
-            let signatures = parts
-                .iter()
-                .filter(|p| matches!(p, g::ContentPart::ThoughtSignature(_)))
-                .count();
-            let mirrored = parts
-                .iter()
-                .find_map(|p| match p {
-                    g::ContentPart::ToolCall(call) => {
-                        call.thought_signatures.as_ref().map(Vec::len)
-                    }
-                    _ => None,
-                })
-                .unwrap_or(0);
-            let signature_count = if signatures > 0 { signatures } else { mirrored };
-            if reasoning_count != signature_count {
-                return Err(invalid());
-            }
+        if matches!(message.role, Role::System | Role::Developer)
+            && parts.iter().any(|p| !matches!(p, g::ContentPart::Text(_)))
+        {
+            return Err(invalid());
+        }
+        if message.role == Role::Assistant {
+            parts = prepare_replay(c.kind, &request.model.model, parts)?;
         }
         messages.push(g::ChatMessage::new(
             role,
@@ -253,13 +274,36 @@ pub(crate) fn request(
         }
         options.reasoning_effort = Some(g::ReasoningEffort::from_keyword(v).ok_or_else(invalid)?);
     }
+    if !request.tools.is_empty()
+        && o.response_format
+            .as_ref()
+            .or(defaults.response_format.as_ref())
+            .is_some()
+        && !matches!(
+            c.kind,
+            genai::adapter::AdapterKind::OpenAI
+                | genai::adapter::AdapterKind::OpenAIResp
+                | genai::adapter::AdapterKind::Anthropic
+        )
+    {
+        // The current Gemini generateContent path does not implement Interactions' tool/JSON
+        // combination; Ollama and other adapters have no qualified combination policy.
+        return Err(unsupported());
+    }
     if let Some(format) = o
         .response_format
         .as_ref()
         .or(defaults.response_format.as_ref())
     {
         options.response_format = Some(match format {
-            ResponseFormat::Json if capabilities.json != Support::Unsupported => {
+            ResponseFormat::Json
+                if capabilities.json != Support::Unsupported
+                    && !matches!(
+                        c.kind,
+                        genai::adapter::AdapterKind::Anthropic
+                            | genai::adapter::AdapterKind::Gemini
+                    ) =>
+            {
                 g::ChatResponseFormat::JsonMode
             }
             ResponseFormat::JsonSchema { name, schema }
@@ -294,6 +338,7 @@ pub(crate) fn request(
 
 pub(crate) struct Completion {
     pub content: g::MessageContent,
+    pub raw_body: Option<serde_json::Value>,
     pub reasoning: Option<String>,
     pub stop: Option<g::StopReason>,
     pub usage: g::Usage,
@@ -319,6 +364,7 @@ impl From<g::ChatResponse> for Completion {
         });
         Self {
             content: response.content,
+            raw_body: response.captured_raw_body,
             reasoning: response.reasoning_content,
             stop: response.stop_reason,
             usage: response.usage,
@@ -336,7 +382,8 @@ pub(crate) fn response(
     limits: &Limits,
 ) -> Checked<ModelResponse> {
     let Completion {
-        content,
+        mut content,
+        raw_body,
         reasoning,
         stop,
         usage,
@@ -344,80 +391,115 @@ pub(crate) fn response(
         raw_usage,
         reported_model,
     } = completion;
+    if let Some(raw) = raw_body {
+        if bytes(&raw) > limits.response_bytes {
+            return Err(failure(
+                ProviderErrorKind::PayloadLimit,
+                Submission::ResponseReceived,
+            ));
+        }
+        if let Some(native) = provider_content(c.kind, &raw)? {
+            content = native;
+        }
+        if raw
+            .pointer("/choices/0/message/reasoning_details")
+            .is_some()
+        {
+            return Err(failure(
+                ProviderErrorKind::DataLoss,
+                Submission::ResponseReceived,
+            ));
+        }
+    }
     let mut parts = Vec::new();
     if content.parts().is_empty() && reasoning.is_none() && stop.is_none() {
         return Err(parse_error());
     }
-    if let Some(text) = reasoning
+    if let Some(text) = reasoning.filter(|text| !text.is_empty())
         && !content
             .parts()
             .iter()
-            .any(|p| matches!(p, g::ContentPart::ReasoningContent(_)))
+            .any(|p| matches!(p, g::ContentPart::ReasoningContent(_)) || matches!(p, g::ContentPart::Custom(custom) if provider_reasoning(c.kind, &custom.data).is_some()))
     {
-        parts.push(ContentPart::Reasoning { text });
+        parts.push(ContentPart::Reasoning { text: text.clone() });
+        parts.push(ContentPart::Extension { extension: replay_extension(&c.configuration, "reasoning_replay", text.into()) });
     }
     let mut ids = BTreeSet::new();
     for part in content.into_parts() {
-        parts.push(match part {
-            g::ContentPart::Text(text) => ContentPart::Text { text },
-            g::ContentPart::ReasoningContent(text) => ContentPart::Reasoning { text },
-            g::ContentPart::ThoughtSignature(s) => ContentPart::Extension {
-                extension: extension(&c.configuration, "thought_signature", s.into()),
-            },
-            g::ContentPart::Custom(custom) => ContentPart::Extension {
-                extension: extension(&c.configuration, "custom_content", custom.data),
-            },
-            g::ContentPart::ToolCall(call) => {
-                if call.call_id.is_empty()
-                    || !ids.insert(call.call_id.clone())
-                    || call.fn_name.is_empty()
-                    || !call.fn_arguments.is_object()
+        match part {
+            g::ContentPart::ReasoningContent(text) => {
+                parts.push(ContentPart::Reasoning { text: text.clone() });
+                parts.push(ContentPart::Extension {
+                    extension: replay_extension(&c.configuration, "reasoning_replay", text.into()),
+                });
+            }
+            g::ContentPart::Custom(custom) => {
+                validate_provider_content(c.kind, &custom.data)?;
+                if let Some(text) =
+                    provider_reasoning(c.kind, &custom.data).filter(|text| !text.is_empty())
                 {
-                    return Err(parse_error());
+                    parts.push(ContentPart::Reasoning { text });
                 }
-                let extensions = call
-                    .thought_signatures
-                    .map(|s| {
-                        vec![extension(
-                            &c.configuration,
-                            "tool_thought_signatures",
-                            serde_json::json!(s),
-                        )]
-                    })
-                    .unwrap_or_default();
-                ContentPart::ToolCall {
-                    call: ToolCall {
-                        id: call.call_id,
-                        name: call.fn_name,
-                        arguments: call.fn_arguments,
-                        extensions,
-                    },
+                parts.push(ContentPart::Extension {
+                    extension: replay_extension(&c.configuration, "provider_content", custom.data),
+                });
+            }
+            other => parts.push(match other {
+                g::ContentPart::Text(text) => ContentPart::Text { text },
+
+                g::ContentPart::ThoughtSignature(s) => ContentPart::Extension {
+                    extension: extension(&c.configuration, "thought_signature", s.into()),
+                },
+
+                g::ContentPart::ToolCall(call) => {
+                    if call.call_id.is_empty()
+                        || !ids.insert(call.call_id.clone())
+                        || call.fn_name.is_empty()
+                        || !call.fn_arguments.is_object()
+                    {
+                        return Err(parse_error());
+                    }
+                    let extensions = call
+                        .thought_signatures
+                        .map(|s| {
+                            vec![extension(
+                                &c.configuration,
+                                "tool_thought_signatures",
+                                serde_json::json!(s),
+                            )]
+                        })
+                        .unwrap_or_default();
+                    ContentPart::ToolCall {
+                        call: ToolCall {
+                            id: call.call_id,
+                            name: call.fn_name,
+                            arguments: call.fn_arguments,
+                            extensions,
+                        },
+                    }
                 }
-            }
-            _ => {
-                return Err(failure(
-                    ProviderErrorKind::DataLoss,
-                    Submission::ResponseReceived,
-                ));
-            }
-        });
+                _ => {
+                    return Err(failure(
+                        ProviderErrorKind::DataLoss,
+                        Submission::ResponseReceived,
+                    ));
+                }
+            }),
+        }
     }
-    let replay = parts
-        .iter()
-        .filter_map(|p| match p {
-            ContentPart::Reasoning { text } => Some(text.clone()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    if !replay.is_empty() {
-        parts.push(ContentPart::Extension {
-            extension: extension(
-                &c.configuration,
-                "reasoning_replay",
-                serde_json::json!(replay),
-            ),
-        });
-    }
+    let stop = match stop {
+        Some(g::StopReason::Completed(raw))
+            if matches!(
+                c.kind,
+                genai::adapter::AdapterKind::OpenAIResp | genai::adapter::AdapterKind::Gemini
+            ) && parts
+                .iter()
+                .any(|p| matches!(p, ContentPart::ToolCall { .. })) =>
+        {
+            Some(g::StopReason::ToolCall(raw))
+        }
+        stop => stop,
+    };
     if request
         .options
         .response_format
@@ -432,7 +514,17 @@ pub(crate) fn response(
                 _ => None,
             })
             .collect::<String>();
-        serde_json::from_str::<serde_json::Value>(&text).map_err(|_| parse_error())?;
+        let tool_branch = matches!(stop, Some(g::StopReason::ToolCall(_)))
+            && parts
+                .iter()
+                .any(|p| matches!(p, ContentPart::ToolCall { .. }));
+        let unfinished = matches!(
+            stop,
+            Some(g::StopReason::MaxTokens(_) | g::StopReason::ContentFilter(_))
+        ) || matches!(&stop, Some(g::StopReason::Other(raw)) if raw == "refusal");
+        if !tool_branch && !unfinished {
+            serde_json::from_str::<serde_json::Value>(&text).map_err(|_| parse_error())?;
+        }
     }
     let finish_reason = match &stop {
         Some(g::StopReason::Completed(_)) => FinishReason::Stop,

@@ -433,7 +433,7 @@ fn multiple_configured_models_and_connections_and_dynamic_discovery() {
                 .await
                 .unwrap()
                 .developer_role,
-            Support::Unsupported
+            Support::ModelDependent
         );
         host.close().await.unwrap();
     });
