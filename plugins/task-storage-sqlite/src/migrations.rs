@@ -2,7 +2,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 
 use crate::store::{Error, Result};
 
-const VERSION: i64 = 1;
+const VERSION: i64 = 2;
 const APPLICATION_ID: i64 = 0x5357544b;
 
 /// Refuses unrelated or newer databases and installs the complete schema atomically.
@@ -56,6 +56,33 @@ pub(crate) fn apply(connection: &mut Connection) -> Result<()> {
             [uuid::Uuid::new_v4().to_string()],
         )?;
         transaction.pragma_update(None, "application_id", APPLICATION_ID)?;
+        transaction.pragma_update(None, "user_version", VERSION)?;
+    }
+    if version < 2 {
+        transaction.execute_batch(
+            "CREATE TABLE task_outbox (
+                sequence INTEGER NOT NULL,
+                ordinal INTEGER NOT NULL,
+                event TEXT NOT NULL,
+                bytes INTEGER NOT NULL CHECK (bytes > 0),
+                PRIMARY KEY(sequence, ordinal)
+             ) WITHOUT ROWID;
+             CREATE TABLE task_outbox_metadata (
+                singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+                retained_events INTEGER NOT NULL,
+                retained_bytes INTEGER NOT NULL,
+                floor_sequence INTEGER NOT NULL,
+                floor_ordinal INTEGER NOT NULL
+             );
+             INSERT INTO task_outbox_metadata SELECT 1, 0, 0, sequence, CASE WHEN sequence=0 THEN -1 ELSE 255 END FROM task_storage_metadata WHERE singleton=1;
+             CREATE TABLE task_outbox_consumers (
+                id TEXT PRIMARY KEY COLLATE BINARY,
+                ack_sequence INTEGER NOT NULL,
+                ack_ordinal INTEGER NOT NULL,
+                delivered_sequence INTEGER NOT NULL,
+                delivered_ordinal INTEGER NOT NULL
+             ) WITHOUT ROWID;",
+        )?;
         transaction.pragma_update(None, "user_version", VERSION)?;
     }
     let metadata: Option<(i64, String)> = transaction

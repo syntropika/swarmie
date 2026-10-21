@@ -20,6 +20,8 @@ pub enum ConfigurationError {
     EmptyDatabase,
     #[error("in-memory databases and SQLite URI paths are not supported")]
     NonDurableDatabase,
+    #[error("outbox limits require positive portable event and byte counts and 1..=64 consumers")]
+    OutboxLimits,
 }
 
 impl Configuration {
@@ -35,6 +37,41 @@ impl Configuration {
             && (path == ":memory:" || path.starts_with("file:"))
         {
             return Err(ConfigurationError::NonDurableDatabase);
+        }
+        Ok(())
+    }
+}
+
+/// Hard retained outbox capacity. A full outbox refuses the complete task transaction before
+/// any task write; it never deletes pending history. Operators must acknowledge and compact,
+/// increase capacity, or explicitly remove an obsolete consumer. No automatic expiry exists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TaskOutboxLimits {
+    pub max_events: u64,
+    pub max_bytes: u64,
+    pub max_consumers: u32,
+}
+
+impl Default for TaskOutboxLimits {
+    fn default() -> Self {
+        Self {
+            max_events: 1_000_000,
+            max_bytes: 1_073_741_824,
+            max_consumers: 64,
+        }
+    }
+}
+
+impl TaskOutboxLimits {
+    pub(crate) fn validate(self) -> Result<(), ConfigurationError> {
+        if self.max_events == 0
+            || self.max_events > swarmie_task_contracts::MAX_PORTABLE_INTEGER
+            || self.max_bytes == 0
+            || self.max_bytes > swarmie_task_contracts::MAX_PORTABLE_INTEGER
+            || !(1..=64).contains(&self.max_consumers)
+        {
+            return Err(ConfigurationError::OutboxLimits);
         }
         Ok(())
     }

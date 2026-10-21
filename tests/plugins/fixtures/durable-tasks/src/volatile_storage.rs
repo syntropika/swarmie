@@ -1,10 +1,11 @@
 //! Deliberately ephemeral replacement fixture. Root tasks only; owned work is explicitly refused.
 //! This provider proves Profile substitution, and does not claim backend conformance or durability.
+//! Its atomic outbox retains at most 4096 events or 16 MiB and 64 consumers. Pending events
+//! never expire; capacity rejects the whole commit. Resource closure discards all fixture data.
 
 use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet},
-    sync::atomic::{AtomicU64, Ordering},
 };
 
 use futures::FutureExt;
@@ -19,19 +20,17 @@ struct Data {
     owner: Option<String>,
     records: BTreeMap<String, TaskRecord>,
     sequence: u64,
+    outbox: crate::memory_outbox::MemoryOutbox,
 }
 
 impl Default for Data {
     fn default() -> Self {
-        static NEXT_STORE: AtomicU64 = AtomicU64::new(1);
         Self {
-            store_id: format!(
-                "fixture-store-{}",
-                NEXT_STORE.fetch_add(1, Ordering::Relaxed)
-            ),
+            store_id: uuid::Uuid::new_v4().to_string(),
             owner: None,
             records: BTreeMap::new(),
             sequence: 0,
+            outbox: Default::default(),
         }
     }
 }
@@ -235,20 +234,309 @@ impl TaskStorageProvider for Service {
                 return Err(invalid("fixture outcome does not match status"));
             }
         }
+        let sequence = data
+            .sequence
+            .checked_add(1)
+            .filter(|sequence| *sequence <= MAX_PORTABLE_INTEGER)
+            .ok_or_else(|| invalid("sequence exhausted"))?;
+        let events = data
+            .outbox
+            .prepare(&transaction, &data.records, &data.store_id, sequence)?;
         let records = transaction
             .writes
             .into_iter()
             .map(|write| write.record)
             .collect::<Vec<_>>();
         let receipt = CommitResult::Committed {
-            sequence: data.sequence + 1,
+            sequence,
             records: records.clone(),
         };
         validate_task_payload_size(&receipt)?;
         for record in &records {
             data.records.insert(record.id.clone(), record.clone());
         }
-        data.sequence += 1;
+        data.outbox.append(events);
+        data.sequence = sequence;
         Ok(receipt)
+    }
+
+    async fn register_outbox_consumer(
+        &self,
+        consumer: TaskOutboxConsumer,
+        _context: Context,
+    ) -> Result<TaskOutboxConsumerState> {
+        let value = self.resource.value()?;
+        let mut data = value.borrow_mut();
+        let store_id = data.store_id.clone();
+        data.outbox.register(consumer, &store_id)
+    }
+
+    async fn read_outbox(
+        &self,
+        query: TaskOutboxQuery,
+        _context: Context,
+    ) -> Result<TaskOutboxPage> {
+        let value = self.resource.value()?;
+        let mut data = value.borrow_mut();
+        let store_id = data.store_id.clone();
+        data.outbox.read(query, &store_id)
+    }
+
+    async fn acknowledge_outbox(
+        &self,
+        acknowledgement: TaskOutboxAcknowledgement,
+        _context: Context,
+    ) -> Result<()> {
+        let value = self.resource.value()?;
+        let mut data = value.borrow_mut();
+        let store_id = data.store_id.clone();
+        data.outbox.acknowledge(acknowledgement, &store_id)
+    }
+
+    async fn remove_outbox_consumer(
+        &self,
+        consumer: TaskOutboxConsumer,
+        _context: Context,
+    ) -> Result<()> {
+        self.resource.value()?.borrow_mut().outbox.remove(consumer)
+    }
+
+    async fn compact_outbox(
+        &self,
+        request: TaskOutboxCompaction,
+        _context: Context,
+    ) -> Result<TaskOutboxRetention> {
+        self.resource.value()?.borrow_mut().outbox.compact(request)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write(id: &str) -> TaskWrite {
+        TaskWrite {
+            expected_revision: None,
+            record: TaskRecord::new(crate::task(id), None),
+        }
+    }
+
+    #[test]
+    fn independent_provider_outbox_preserves_atomicity_replay_and_retention() {
+        let driver = tembra_native::TokioDriver::new();
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(driver.run_until(async {
+                let host = Host::with_driver("volatile-outbox", "test", driver.clone()).unwrap();
+                host.install(facet().unwrap(), core::LoadOptions::default())
+                    .unwrap()
+                    .await
+                    .unwrap();
+                let storage = host.get(TaskStorage, TaskStorageInput {}).await.unwrap();
+                storage
+                    .claim_owner(StorageOwner { id: "owner".into() })
+                    .await
+                    .unwrap();
+                let register = |id: &str| TaskOutboxConsumer { id: id.into() };
+                let initial = storage
+                    .register_outbox_consumer(register("publisher"))
+                    .await
+                    .unwrap();
+                assert!(uuid::Uuid::parse_str(&initial.store_id).is_ok());
+                storage
+                    .register_outbox_consumer(register("offline"))
+                    .await
+                    .unwrap();
+                let transaction = TaskTransaction {
+                    owner: "owner".into(),
+                    writes: vec![write("z-first"), write("a-second")],
+                };
+                assert!(matches!(
+                    storage.commit(transaction.clone()).await.unwrap(),
+                    CommitResult::Committed { sequence: 1, .. }
+                ));
+                assert!(matches!(
+                    storage.commit(transaction).await.unwrap(),
+                    CommitResult::Conflict { .. }
+                ));
+                let query = |id: &str, after, limit| TaskOutboxQuery {
+                    consumer_id: id.into(),
+                    after,
+                    limit,
+                };
+                let first = storage
+                    .read_outbox(query("publisher", None, 1))
+                    .await
+                    .unwrap();
+                assert_eq!(first.events.len(), 1);
+                assert_eq!(first.events[0].task_id, "z-first");
+                assert_eq!(first.events[0].id.ordinal, 0);
+                assert_eq!(first.events[0].transaction_size, 2);
+                let second = storage
+                    .read_outbox(query("publisher", first.next.clone(), 1))
+                    .await
+                    .unwrap();
+                assert_eq!(second.events[0].task_id, "a-second");
+                assert_eq!(second.events[0].id.ordinal, 1);
+                assert!(
+                    storage
+                        .read_outbox(query("publisher", second.next.clone(), 256))
+                        .await
+                        .unwrap()
+                        .events
+                        .is_empty()
+                );
+                // Publication without acknowledgement repeats the stable identity on resume.
+                let replay = storage
+                    .read_outbox(query("publisher", None, 256))
+                    .await
+                    .unwrap();
+                assert_eq!(replay.events[0].id, first.events[0].id);
+                storage
+                    .acknowledge_outbox(TaskOutboxAcknowledgement {
+                        consumer_id: "publisher".into(),
+                        through: second.next.clone().unwrap(),
+                    })
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    storage
+                        .compact_outbox(TaskOutboxCompaction { limit: 4096 })
+                        .await
+                        .unwrap()
+                        .removed,
+                    0
+                );
+                let recovered = storage
+                    .read_outbox(query("offline", None, 256))
+                    .await
+                    .unwrap();
+                assert_eq!(recovered.events, replay.events);
+                storage
+                    .remove_outbox_consumer(register("offline"))
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    storage
+                        .compact_outbox(TaskOutboxCompaction { limit: 1 })
+                        .await
+                        .unwrap()
+                        .removed,
+                    1
+                );
+                let late = storage
+                    .register_outbox_consumer(register("late"))
+                    .await
+                    .unwrap();
+                assert_eq!(late.retained_after, first.next);
+                assert_eq!(
+                    storage
+                        .read_outbox(query("late", None, 256))
+                        .await
+                        .unwrap()
+                        .events[0]
+                        .id,
+                    second.events[0].id
+                );
+                storage
+                    .commit(TaskTransaction {
+                        owner: "owner".into(),
+                        writes: vec![write("appended")],
+                    })
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    storage
+                        .read_outbox(query("publisher", second.next, 256))
+                        .await
+                        .unwrap()
+                        .events[0]
+                        .task_id,
+                    "appended"
+                );
+                let mut foreign = first.events[0].id.clone();
+                foreign.store_id = uuid::Uuid::new_v4().to_string();
+                assert!(
+                    storage
+                        .acknowledge_outbox(TaskOutboxAcknowledgement {
+                            consumer_id: "publisher".into(),
+                            through: foreign
+                        })
+                        .await
+                        .is_err()
+                );
+                host.close().await.unwrap();
+            }));
+    }
+
+    #[test]
+    fn independent_provider_full_outbox_rejects_record_and_sequence_atomically() {
+        let driver = tembra_native::TokioDriver::new();
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(driver.run_until(async {
+                let host = Host::with_driver("volatile-capacity", "test", driver.clone()).unwrap();
+                host.install(facet().unwrap(), core::LoadOptions::default())
+                    .unwrap()
+                    .await
+                    .unwrap();
+                let storage = host.get(TaskStorage, TaskStorageInput {}).await.unwrap();
+                storage
+                    .claim_owner(StorageOwner { id: "owner".into() })
+                    .await
+                    .unwrap();
+                for batch in 0..16 {
+                    let writes = (0..256)
+                        .map(|ordinal| write(&format!("task-{batch}-{ordinal}")))
+                        .collect();
+                    storage
+                        .commit(TaskTransaction {
+                            owner: "owner".into(),
+                            writes,
+                        })
+                        .await
+                        .unwrap();
+                }
+                let error = storage
+                    .commit(TaskTransaction {
+                        owner: "owner".into(),
+                        writes: vec![write("rejected")],
+                    })
+                    .await
+                    .unwrap_err();
+                assert_eq!(error.reason, "task_storage_outbox_full");
+                assert_eq!(error.code, tembra::ErrorCode::Unavailable);
+                assert!(
+                    storage
+                        .get(TaskLookup {
+                            id: "rejected".into()
+                        })
+                        .await
+                        .unwrap()
+                        .is_none()
+                );
+                assert_eq!(
+                    storage
+                        .scan(TaskQuery {
+                            limit: 1,
+                            ..Default::default()
+                        })
+                        .await
+                        .unwrap()
+                        .sequence,
+                    16
+                );
+                let retention = storage
+                    .compact_outbox(TaskOutboxCompaction { limit: 4096 })
+                    .await
+                    .unwrap();
+                assert_eq!(retention.removed, 0);
+                assert_eq!(retention.retained_events, 4096);
+                host.close().await.unwrap();
+            }));
     }
 }

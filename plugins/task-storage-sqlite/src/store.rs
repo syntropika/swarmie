@@ -19,7 +19,8 @@ pub(crate) type Result<T> = std::result::Result<T, Error>;
 type Metadata = (u64, String);
 
 pub(crate) struct Store {
-    connection: RefCell<Option<Connection>>,
+    pub(crate) connection: RefCell<Option<Connection>>,
+    pub(crate) outbox_limits: crate::TaskOutboxLimits,
     lock: RefCell<Option<File>>,
     owner: RefCell<Option<String>>,
 }
@@ -36,6 +37,8 @@ pub(crate) enum Error {
     Invalid(String),
     #[error("task storage size limit exceeded: {0}")]
     TooLarge(String),
+    #[error("task outbox retained capacity or consumer capacity is exhausted")]
+    OutboxFull,
     #[error("task database is already owned")]
     Owned,
     #[error("the caller does not own task scheduling for this provider")]
@@ -55,6 +58,7 @@ impl Error {
             Self::Corrupt(_) => "task_storage_corrupt",
             Self::Invalid(_) => "task_storage_invalid",
             Self::TooLarge(_) => "task_storage_too_large",
+            Self::OutboxFull => "task_storage_outbox_full",
             Self::Owned => "task_storage_owned",
             Self::OwnerMismatch => "task_storage_owner_mismatch",
             Self::Closed => "task_storage_closed",
@@ -74,7 +78,18 @@ impl Error {
 }
 
 impl Store {
+    #[cfg(test)]
     pub(crate) fn open(path: &Path) -> Result<Self> {
+        Self::open_with_outbox_limits(path, crate::TaskOutboxLimits::default())
+    }
+
+    pub(crate) fn open_with_outbox_limits(
+        path: &Path,
+        outbox_limits: crate::TaskOutboxLimits,
+    ) -> Result<Self> {
+        outbox_limits
+            .validate()
+            .map_err(|error| invalid(error.to_string()))?;
         // Materialize before canonicalization so aliases resolve to one stable lock path.
         let database_file = OpenOptions::new()
             .read(true)
@@ -122,12 +137,13 @@ impl Store {
         crate::migrations::apply(&mut connection)?;
         Ok(Self {
             connection: RefCell::new(Some(connection)),
+            outbox_limits,
             lock: RefCell::new(Some(lock)),
             owner: RefCell::new(None),
         })
     }
 
-    fn with<T>(&self, action: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+    pub(crate) fn with<T>(&self, action: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
         let connection = self.connection.borrow();
         action(connection.as_ref().ok_or(Error::Closed)?)
     }
@@ -268,7 +284,7 @@ impl Store {
         let mut connection = self.connection.borrow_mut();
         let connection = connection.as_mut().ok_or(Error::Closed)?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let (sequence, _) = metadata(&transaction)?;
+        let (sequence, store_id) = metadata(&transaction)?;
         if sequence >= MAX_PORTABLE_INTEGER {
             return Err(invalid("commit sequence exhausted"));
         }
@@ -333,6 +349,14 @@ impl Store {
                 .collect(),
         };
         validate_task_payload_size(&committed).map_err(size_error)?;
+        let events = crate::outbox::prepare_events(
+            &transaction,
+            &batch,
+            &previous,
+            &store_id,
+            sequence + 1,
+            self.outbox_limits,
+        )?;
         for record in candidates.values() {
             let portable = tembra::contracts::to_portable_value(record)
                 .map_err(|error| invalid(error.to_string()))?;
@@ -344,6 +368,7 @@ impl Store {
                 params![record.id, record.revision, status_name(record.status), record.parent, encoded],
             )?;
         }
+        crate::outbox::append_events(&transaction, &events)?;
         let sequence = sequence + 1;
         transaction.execute(
             "UPDATE task_storage_metadata SET sequence = ?1 WHERE singleton = 1",
@@ -416,7 +441,7 @@ fn identity(value: &str) -> Result<()> {
     validate_identity(value).map_err(|error| invalid(error.to_string()))
 }
 
-fn metadata(connection: &Connection) -> Result<Metadata> {
+pub(crate) fn metadata(connection: &Connection) -> Result<Metadata> {
     connection
         .query_row(
             "SELECT sequence, store_id FROM task_storage_metadata WHERE singleton = 1",

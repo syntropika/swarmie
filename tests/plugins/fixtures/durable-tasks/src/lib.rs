@@ -11,6 +11,7 @@ pub mod adversarial;
 pub mod concurrency;
 pub mod gate;
 pub mod hooks;
+mod memory_outbox;
 pub mod volatile_storage;
 
 /// A fixture-owned Contract with the canonical task handler method schema.

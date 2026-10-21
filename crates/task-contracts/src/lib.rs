@@ -9,6 +9,7 @@ pub mod conformance;
 
 mod lifecycle;
 mod model;
+mod outbox;
 mod schema;
 mod storage;
 mod tasks;
@@ -16,6 +17,7 @@ mod transport;
 
 pub use lifecycle::*;
 pub use model::*;
+pub use outbox::*;
 pub use storage::*;
 pub use tasks::*;
 pub use transport::*;

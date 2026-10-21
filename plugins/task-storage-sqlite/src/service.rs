@@ -1,11 +1,13 @@
 use futures::FutureExt;
 use swarmie_task_contracts::{
-    CommitResult, StorageOwner, TaskLookup, TaskPage, TaskQuery, TaskRecord, TaskStorage,
-    TaskStorageProvider, TaskTransaction,
+    CommitResult, StorageOwner, TaskLookup, TaskOutboxAcknowledgement, TaskOutboxCompaction,
+    TaskOutboxConsumer, TaskOutboxConsumerState, TaskOutboxPage, TaskOutboxQuery,
+    TaskOutboxRetention, TaskPage, TaskQuery, TaskRecord, TaskStorage, TaskStorageProvider,
+    TaskTransaction,
 };
 use tembra::{core, prelude::*};
 
-use crate::{Configuration, FACET_ID, store::Store};
+use crate::{Configuration, FACET_ID, TaskOutboxLimits, store::Store};
 
 /// Declares the ordinary application Facet and its eagerly opened, Host-owned SQLite Resource.
 ///
@@ -13,6 +15,20 @@ use crate::{Configuration, FACET_ID, store::Store};
 /// Invalid configuration fails before installation. Filesystem, ownership, schema and database
 /// failures reject the Host installation waiter. Resource closure retains every committed row.
 pub fn facet(configuration: &Configuration) -> Result<NativeFacet> {
+    facet_with_outbox_limits(configuration, TaskOutboxLimits::default())
+}
+
+/// Opens the provider with explicit retained outbox admission limits.
+///
+/// # Errors
+/// Refuses invalid limits or configuration before installation; database errors reject Resource opening.
+pub fn facet_with_outbox_limits(
+    configuration: &Configuration,
+    outbox_limits: TaskOutboxLimits,
+) -> Result<NativeFacet> {
+    outbox_limits
+        .validate()
+        .map_err(|error| RuntimeError::invalid("task_storage_configuration", error.to_string()))?;
     configuration
         .validate()
         .map_err(|error| RuntimeError::invalid("task_storage_configuration", error.to_string()))?;
@@ -28,9 +44,10 @@ pub fn facet(configuration: &Configuration) -> Result<NativeFacet> {
                     ResourceDeclaration::new(move |_| {
                         let database = database.clone();
                         async move {
-                                Store::open(&database).map_err(crate::store::Error::into_runtime)
-                            }
-                            .boxed_local()
+                            Store::open_with_outbox_limits(&database, outbox_limits)
+                                .map_err(crate::store::Error::into_runtime)
+                        }
+                        .boxed_local()
                     })
                     .with_close(|store| {
                         async move { store.close().map_err(crate::store::Error::into_runtime) }
@@ -88,6 +105,60 @@ impl TaskStorageProvider for Service {
         self.resource
             .value()?
             .commit(transaction)
+            .map_err(crate::store::Error::into_runtime)
+    }
+    async fn register_outbox_consumer(
+        &self,
+        request: TaskOutboxConsumer,
+        _context: Context,
+    ) -> Result<TaskOutboxConsumerState> {
+        self.resource
+            .value()?
+            .register_outbox_consumer(request)
+            .map_err(crate::store::Error::into_runtime)
+    }
+
+    async fn read_outbox(
+        &self,
+        request: TaskOutboxQuery,
+        _context: Context,
+    ) -> Result<TaskOutboxPage> {
+        self.resource
+            .value()?
+            .read_outbox(request)
+            .map_err(crate::store::Error::into_runtime)
+    }
+
+    async fn acknowledge_outbox(
+        &self,
+        request: TaskOutboxAcknowledgement,
+        _context: Context,
+    ) -> Result<()> {
+        self.resource
+            .value()?
+            .acknowledge_outbox(request)
+            .map_err(crate::store::Error::into_runtime)
+    }
+
+    async fn remove_outbox_consumer(
+        &self,
+        request: TaskOutboxConsumer,
+        _context: Context,
+    ) -> Result<()> {
+        self.resource
+            .value()?
+            .remove_outbox_consumer(request)
+            .map_err(crate::store::Error::into_runtime)
+    }
+
+    async fn compact_outbox(
+        &self,
+        request: TaskOutboxCompaction,
+        _context: Context,
+    ) -> Result<TaskOutboxRetention> {
+        self.resource
+            .value()?
+            .compact_outbox(request)
             .map_err(crate::store::Error::into_runtime)
     }
 }

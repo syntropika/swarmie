@@ -163,6 +163,42 @@ struct Proxy {
 }
 
 impl TaskStorageProvider for Proxy {
+    async fn register_outbox_consumer(
+        &self,
+        request: TaskOutboxConsumer,
+        _context: Context,
+    ) -> Result<TaskOutboxConsumerState> {
+        self.control.backend.register_outbox_consumer(request).await
+    }
+    async fn read_outbox(
+        &self,
+        request: TaskOutboxQuery,
+        _context: Context,
+    ) -> Result<TaskOutboxPage> {
+        self.control.backend.read_outbox(request).await
+    }
+    async fn acknowledge_outbox(
+        &self,
+        request: TaskOutboxAcknowledgement,
+        _context: Context,
+    ) -> Result<()> {
+        self.control.backend.acknowledge_outbox(request).await
+    }
+    async fn remove_outbox_consumer(
+        &self,
+        request: TaskOutboxConsumer,
+        _context: Context,
+    ) -> Result<()> {
+        self.control.backend.remove_outbox_consumer(request).await
+    }
+    async fn compact_outbox(
+        &self,
+        request: TaskOutboxCompaction,
+        _context: Context,
+    ) -> Result<TaskOutboxRetention> {
+        self.control.backend.compact_outbox(request).await
+    }
+
     async fn claim_owner(&self, owner: StorageOwner, _context: Context) -> Result<()> {
         self.control.backend.claim_owner(owner.clone()).await?;
         *self.control.owner.borrow_mut() = Some(owner.id);
