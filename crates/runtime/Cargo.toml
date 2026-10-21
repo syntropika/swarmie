@@ -25,6 +25,9 @@ thiserror.workspace = true
 [dev-dependencies]
 swarmie-counter = { path = "../../tests/plugins/fixtures/counter" }
 swarmie-task-contracts = { path = "../task-contracts" }
+tembra-hooks.workspace = true
+sha2.workspace = true
+hex.workspace = true
 tempfile.workspace = true
 
 [lints]

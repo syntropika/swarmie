@@ -1745,8 +1745,10 @@ name = "swarmie-runtime"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "hex",
  "serde",
  "serde_json",
+ "sha2",
  "swarmie-composition",
  "swarmie-counter",
  "swarmie-durable-tasks",
@@ -1757,6 +1759,7 @@ dependencies = [
  "swarmie-task-storage-sqlite",
  "tembra",
  "tembra-executor-js",
+ "tembra-hooks",
  "tembra-native",
  "tempfile",
  "thiserror",

@@ -15,10 +15,9 @@ pub(crate) async fn start(
     let host = Host::with_driver("swarmie-runtime", "runtime-supervisor", driver.clone())?;
     let result = async {
         let executor = Executor::new(driver.clone(), ExecutorOptions::default())?;
-        swarmie_durable_tasks::register_language_hooks(&executor)?;
         let manager = PluginManager::start_with_executor(
             host.clone(),
-            executor,
+            executor.clone(),
             configuration.database.clone(),
         )
         .await?;
@@ -38,6 +37,11 @@ pub(crate) async fn start(
             .unwrap_or_else(|| configuration.source.clone());
         let compiled = compiled.unwrap_or_else(|| application::compiled(source, driver.clone()));
         let mut prepared = crate::preparation::prepare(&application, &compiled)?;
+        // Register capability-owned language definitions before any source/application
+        // installation or cached Dynamic activation. Administration startup evaluates no code.
+        for plugin in &compiled {
+            plugin.register_language_adapter(&executor)?;
+        }
         let permit = manager.begin_composition_reconciliation()?;
         let configuration_values =
             crate::configuration::ConfigurationValues::new(&prepared.effective);
