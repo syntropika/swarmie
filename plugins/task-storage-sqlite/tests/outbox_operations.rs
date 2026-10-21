@@ -30,6 +30,7 @@ async fn commit(storage: &TaskStorageRef, id: &str) -> Result<CommitResult> {
         .commit(TaskTransaction {
             owner: "operations-owner".into(),
             writes: vec![TaskWrite {
+                provenance: None,
                 expected_revision: None,
                 record: TaskRecord::new(
                     TaskSpec {

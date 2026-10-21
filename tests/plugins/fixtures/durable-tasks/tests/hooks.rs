@@ -296,6 +296,7 @@ fn waiting_sleeping_parent_child_cancellation_are_confirmed_observations() {
         let mut parent = task("tree");
         parent.phase = "spawn".into();
         parent.input = json!({"children_sleep":true});
+        parent.checkpoint = json!({"children_created":true});
         tasks.create(parent).await?;
         let waiting = status(&tasks, "tree", TaskStatus::Waiting).await?;
         for id in ["tree:first", "tree:second"] {
@@ -345,6 +346,51 @@ fn waiting_sleeping_parent_child_cancellation_are_confirmed_observations() {
             );
         }
         assert!(observed(&observer, "tree:first", "sleeping"));
+        let storage = host.get(TaskStorage, TaskStorageInput {}).await?;
+        storage
+            .register_outbox_consumer(TaskOutboxConsumer {
+                id: "equal-checkpoint-audit".into(),
+            })
+            .await?;
+        let durable = storage
+            .read_outbox(TaskOutboxQuery {
+                consumer_id: "equal-checkpoint-audit".into(),
+                after: None,
+                limit: 256,
+            })
+            .await?;
+        for (id, status) in [
+            ("tree", TaskStatus::Waiting),
+            ("tree:first", TaskStatus::Sleeping),
+            ("tree:second", TaskStatus::Sleeping),
+        ] {
+            let event = durable
+                .events
+                .iter()
+                .find(|event| event.task_id == id && event.current_status == status)
+                .expect("confirmed Wait or Sleep event");
+            assert_eq!(event.version, 2);
+            assert!(
+                !event.checkpoint_changed,
+                "equal checkpoint bytes do not hide accepted operations"
+            );
+            assert_eq!(
+                event.provenance,
+                Some(TaskTransitionProvenance {
+                    origin: TaskLifecycleOrigin::Handler,
+                    checkpoint_committed: true
+                })
+            );
+        }
+        assert!(
+            durable
+                .events
+                .iter()
+                .filter(|event| event.cancellation_requested)
+                .all(|event| event.provenance.is_some_and(
+                    |provenance| provenance.origin == TaskLifecycleOrigin::Cancellation
+                ))
+        );
         for id in ["tree", "tree:first", "tree:second"] {
             assert!(
                 events(&observer)
@@ -401,6 +447,35 @@ fn parked_handler_retry_emits_new_confirmed_revisions() {
         let delivered = raw_hooks(&observer, "parked", None);
         assert!(delivered.contains(&"swarmie.task-parked".into()));
         assert!(delivered.contains(&"swarmie.task-retry".into()));
+        let storage = host.get(TaskStorage, TaskStorageInput {}).await?;
+        storage
+            .register_outbox_consumer(TaskOutboxConsumer {
+                id: "retry-provenance".into(),
+            })
+            .await?;
+        let durable = storage
+            .read_outbox(TaskOutboxQuery {
+                consumer_id: "retry-provenance".into(),
+                after: None,
+                limit: 256,
+            })
+            .await?;
+        let retried = durable
+            .events
+            .iter()
+            .find(|event| {
+                event.task_id == "parked"
+                    && event.previous_status == Some(TaskStatus::Parked)
+                    && event.current_status == TaskStatus::Pending
+            })
+            .expect("confirmed retry");
+        assert_eq!(
+            retried.provenance,
+            Some(TaskTransitionProvenance {
+                origin: TaskLifecycleOrigin::Retry,
+                checkpoint_committed: false
+            })
+        );
         host.close().await
     });
 }

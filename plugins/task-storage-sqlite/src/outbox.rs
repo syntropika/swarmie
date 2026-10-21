@@ -90,6 +90,7 @@ pub(crate) fn prepare_events(
             previous.get(&write.record.id).and_then(Option::as_ref),
             &write.record,
             batch.writes.len() as u32,
+            write.provenance,
         );
         let portable = tembra::contracts::to_portable_value(&event)
             .map_err(|error| Error::Invalid(error.to_string()))?;
@@ -395,6 +396,13 @@ fn decode_event(encoded: &str) -> Result<TaskOutboxEvent> {
     }
     let value = tembra::contracts::parse_json(encoded)
         .map_err(|error| Error::Corrupt(error.to_string()))?;
+    if value.get("version").and_then(serde_json::Value::as_u64) == Some(1)
+        && value.get("provenance").is_some()
+    {
+        return Err(Error::Corrupt(
+            "version 1 outbox events cannot contain provenance".into(),
+        ));
+    }
     let event: TaskOutboxEvent =
         serde_json::from_value(value).map_err(|error| Error::Corrupt(error.to_string()))?;
     for id in [&event.task_id, &event.task_kind, &event.phase] {
@@ -405,7 +413,7 @@ fn decode_event(encoded: &str) -> Result<TaskOutboxEvent> {
     }
     if !(1..=256).contains(&event.transaction_size)
         || event.id.ordinal >= event.transaction_size
-        || event.version != 1
+        || !matches!(event.version, 1 | 2)
         || event.revision == 0
         || event.revision > MAX_PORTABLE_INTEGER
         || event.definition_version == 0
@@ -418,11 +426,15 @@ fn decode_event(encoded: &str) -> Result<TaskOutboxEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use swarmie_task_contracts::{CommitResult, StorageOwner, TaskLookup, TaskSpec, TaskWrite};
+    use swarmie_task_contracts::{
+        CommitResult, StorageOwner, TaskLifecycleOrigin, TaskLookup, TaskSpec,
+        TaskTransitionProvenance, TaskWrite,
+    };
 
     const OWNER: &str = "outbox-test-owner";
     fn pending(id: &str) -> TaskWrite {
         TaskWrite {
+            provenance: None,
             expected_revision: None,
             record: TaskRecord::new(
                 TaskSpec {
@@ -482,10 +494,25 @@ mod tests {
         let mut child = pending("a-child");
         child.record.parent = Some(parent.record.id.clone());
         parent.record.input = serde_json::json!("x".repeat(100_000));
+        parent.provenance = Some(TaskTransitionProvenance {
+            origin: TaskLifecycleOrigin::Creation,
+            checkpoint_committed: false,
+        });
         commit(&store, vec![parent.clone(), child.clone()])?;
         let page = read(&store, "observer", None, 256)?;
         assert_eq!(page.events.len(), 2);
         assert_eq!(page.events[0].task_id, "z-parent");
+        assert_eq!(page.events[0].version, 2);
+        assert_eq!(page.events[0].provenance, parent.provenance);
+        assert_eq!(page.events[1].version, 2);
+        assert_eq!(
+            page.events[1].provenance, None,
+            "unannotated direct storage writes remain unknown"
+        );
+        parent.provenance = Some(TaskTransitionProvenance {
+            origin: TaskLifecycleOrigin::Retry,
+            checkpoint_committed: true,
+        });
         assert_eq!(page.events[1].parent.as_deref(), Some("z-parent"));
         assert_eq!(page.events[0].id.sequence, page.events[1].id.sequence);
         assert_eq!(page.events[0].transaction_size, 2);
@@ -507,9 +534,15 @@ mod tests {
         update.record.checkpoint = serde_json::json!({"phase":"second"});
         update.record.phase = "second".into();
         update.record.cancellation_requested = true;
+        update.provenance = Some(TaskTransitionProvenance {
+            origin: TaskLifecycleOrigin::Handler,
+            checkpoint_committed: true,
+        });
+        let expected_provenance = update.provenance;
         commit(&store, vec![update])?;
         let event = read(&store, "observer", page.next, 256)?.events.remove(0);
         assert!(event.checkpoint_changed);
+        assert_eq!(event.provenance, expected_provenance);
         assert!(event.cancellation_requested);
         assert_eq!(
             event.previous_status,
@@ -527,11 +560,29 @@ mod tests {
         register(&store, "observer")?;
         let raw = Connection::open(&path)?;
         raw.execute_batch("CREATE TRIGGER refuse_event BEFORE INSERT ON task_outbox WHEN NEW.ordinal=1 BEGIN SELECT RAISE(FAIL, 'injected outbox failure'); END;")?;
-        assert!(commit(&store, vec![pending("a"), pending("b")]).is_err());
+        let writes: Vec<_> = ["a", "b"]
+            .into_iter()
+            .map(|id| {
+                let mut write = pending(id);
+                write.provenance = Some(TaskTransitionProvenance {
+                    origin: TaskLifecycleOrigin::Creation,
+                    checkpoint_committed: false,
+                });
+                write
+            })
+            .collect();
+        assert!(commit(&store, writes.clone()).is_err());
         assert!(read(&store, "observer", None, 256)?.events.is_empty());
         assert!(store.get(TaskLookup { id: "a".into() })?.is_none());
         assert_eq!(compact(&store)?.retained_events, 0);
         assert_eq!(store.scan(Default::default())?.sequence, 0);
+        raw.execute_batch("DROP TRIGGER refuse_event;")?;
+        commit(&store, writes)?;
+        let retried = read(&store, "observer", None, 256)?;
+        assert_eq!(retried.events.len(), 2);
+        assert!(retried.events.iter().all(|event| event.version == 2
+            && event.id.sequence == 1
+            && event.provenance.is_some()));
         Ok(())
     }
 
@@ -722,6 +773,87 @@ mod tests {
         assert_eq!(page.events[0].task_id, "new");
         Ok(())
     }
+    #[test]
+    fn historical_v1_payload_and_identity_remain_immutable_while_new_events_use_v2() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("tasks.sqlite");
+        let store = open(&path)?;
+        commit(&store, vec![pending("historical")])?;
+        store.close()?;
+        let raw = Connection::open(&path)?;
+        let encoded: String = raw.query_row(
+            "SELECT event FROM task_outbox WHERE sequence=1 AND ordinal=0",
+            [],
+            |row| row.get(0),
+        )?;
+        let mut historical = tembra::contracts::parse_json(&encoded).expect("canonical event");
+        historical["version"] = serde_json::json!(1);
+        historical
+            .as_object_mut()
+            .expect("event object")
+            .remove("provenance");
+        let historical =
+            tembra::contracts::canonical_json(&historical).expect("canonical historical event");
+        raw.execute(
+            "UPDATE task_outbox SET event=?1,bytes=?2 WHERE sequence=1 AND ordinal=0",
+            params![&historical, historical.len() as u64],
+        )?;
+        raw.execute(
+            "UPDATE task_outbox_metadata SET retained_bytes=?1 WHERE singleton=1",
+            [historical.len() as u64],
+        )?;
+        raw.close().map_err(|(_, error)| error)?;
+        let store = open(&path)?;
+        register(&store, "observer")?;
+        let first = read(&store, "observer", None, 256)?;
+        let event = &first.events[0];
+        assert_eq!(event.version, 1);
+        assert_eq!(event.provenance, None);
+        let portable =
+            tembra::contracts::to_portable_value(event).expect("portable historical event");
+        assert_eq!(
+            tembra::contracts::canonical_json(&portable).expect("canonical event"),
+            historical
+        );
+        assert_eq!(read(&store, "observer", None, 256)?.events, first.events);
+        ack(&store, "observer", event.id.clone())?;
+        store.close()?;
+        let store = open(&path)?;
+        assert_eq!(
+            register(&store, "observer")?.acknowledged,
+            Some(event.id.clone())
+        );
+        commit(&store, vec![pending("current")])?;
+        let current = read(&store, "observer", None, 256)?;
+        assert_eq!(current.events.len(), 1);
+        assert_eq!(current.events[0].version, 2);
+        assert_eq!(current.events[0].provenance, None);
+        assert!(
+            serde_json::to_value(&current.events[0])
+                .expect("event")
+                .get("provenance")
+                .is_none()
+        );
+        store.close()?;
+        let raw = Connection::open(&path)?;
+        let retained: (String, u64) = raw.query_row(
+            "SELECT event,bytes FROM task_outbox WHERE sequence=1 AND ordinal=0",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        assert_eq!(retained, (historical.clone(), historical.len() as u64));
+        let mut impossible = tembra::contracts::parse_json(&historical).expect("historical event");
+        impossible["provenance"] =
+            serde_json::json!({"origin":"recovery","checkpoint_committed":false});
+        assert!(
+            decode_event(&impossible.to_string()).is_err(),
+            "v1 cannot be backfilled with new operation claims"
+        );
+        impossible["version"] = serde_json::json!(3);
+        assert!(decode_event(&impossible.to_string()).is_err());
+        Ok(())
+    }
+
     #[test]
     #[ignore = "manual storage throughput measurement"]
     fn outbox_storage_throughput() -> Result<()> {

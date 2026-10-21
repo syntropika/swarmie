@@ -243,6 +243,7 @@ async fn restore_reservations(
                 .commit(TaskTransaction {
                     owner: owner.to_owned(),
                     writes: vec![TaskWrite {
+                        provenance: None,
                         expected_revision: Some(expected_revision),
                         record,
                     }],

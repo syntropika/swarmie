@@ -81,7 +81,8 @@ fn process_child() -> Result<()> {
             input: serde_json::json!({"report":"durable"}), checkpoint: serde_json::json!({"operation_id":"surviving-task:effect"}), phase: "effect".into(),
         }, None);
         record.status = TaskStatus::Running;
-        assert!(matches!(storage.commit(TaskTransaction { owner: "child-process-owner".into(), writes: vec![TaskWrite { expected_revision: None, record }] }).await?, CommitResult::Committed { .. }));
+        assert!(matches!(storage.commit(TaskTransaction { owner: "child-process-owner".into(), writes: vec![TaskWrite {
+ provenance: None, expected_revision: None, record }] }).await?, CommitResult::Committed { .. }));
         if mode == "outbox-published" {
             storage.register_outbox_consumer(TaskOutboxConsumer { id:"session-projection".into() }).await?;
             let page=storage.read_outbox(TaskOutboxQuery { consumer_id:"session-projection".into(),after:None,limit:256 }).await?;

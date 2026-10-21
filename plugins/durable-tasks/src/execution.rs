@@ -473,6 +473,7 @@ impl Engine {
         })?;
         created.push(Mutation {
             write: TaskWrite {
+                provenance: None,
                 expected_revision: Some(revision),
                 record: task,
             },

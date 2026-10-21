@@ -126,7 +126,9 @@ impl Engine {
             record.revision = old.revision.checked_add(1).ok_or_else(|| {
                 RuntimeError::invalid("durable_tasks_revision", "task revision is exhausted")
             })?;
+            let change = Change::from_record(old, TaskLifecycleOrigin::Cancellation);
             let write = TaskWrite {
+                provenance: Some(change.provenance()),
                 expected_revision: Some(old.revision),
                 record,
             };
@@ -151,10 +153,7 @@ impl Engine {
             let comma = usize::from(!writes.is_empty());
             transaction_bytes += comma + write_bytes;
             receipt_bytes += comma + record_bytes;
-            writes.push(Mutation {
-                write,
-                change: Change::from_record(old, TaskLifecycleOrigin::Cancellation),
-            });
+            writes.push(Mutation { write, change });
         }
         if !writes.is_empty() && !self.cancel_batch(context, writes).await? {
             return Ok(());

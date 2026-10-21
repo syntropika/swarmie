@@ -122,7 +122,8 @@ impl Engine {
         let mut changes = BTreeMap::new();
         let writes: Vec<_> = mutations
             .into_iter()
-            .map(|mutation| {
+            .map(|mut mutation| {
+                mutation.write.provenance = Some(mutation.change.provenance());
                 changes.insert(
                     mutation.write.record.id.clone(),
                     (mutation.write.record.revision, mutation.change),
@@ -192,6 +193,7 @@ impl Engine {
             context,
             vec![Mutation {
                 write: TaskWrite {
+                    provenance: None,
                     expected_revision: Some(revision),
                     record,
                 },

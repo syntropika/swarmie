@@ -1,7 +1,8 @@
 //! Compact mutation provenance; authoritative records come only from storage receipts.
 
 use swarmie_task_contracts::{
-    TaskLifecycleEvent, TaskLifecycleOrigin, TaskLifecycleTask, TaskRecord, TaskStatus, TaskWrite,
+    TaskLifecycleEvent, TaskLifecycleOrigin, TaskLifecycleTask, TaskRecord, TaskStatus,
+    TaskTransitionProvenance, TaskWrite,
 };
 
 /// A small before-image avoids rereading storage or retaining task inputs and checkpoints.
@@ -20,6 +21,13 @@ impl Change {
             previous_cancellation: record.cancellation_requested,
             origin,
             checkpoint_committed: false,
+        }
+    }
+
+    pub fn provenance(self) -> TaskTransitionProvenance {
+        TaskTransitionProvenance {
+            origin: self.origin,
+            checkpoint_committed: self.checkpoint_committed,
         }
     }
 
@@ -47,6 +55,7 @@ impl Mutation {
     pub fn create(record: TaskRecord) -> Self {
         Self {
             write: TaskWrite {
+                provenance: None,
                 expected_revision: None,
                 record,
             },

@@ -335,11 +335,13 @@ fn cancellation_of_a_large_tree_blocks_all_descendant_handler_admission() {
             .await?;
         let mut root = TaskRecord::new(spec("tree", "gate"), None);
         let mut writes = vec![TaskWrite {
+            provenance: None,
             expected_revision: None,
             record: root.clone(),
         }];
         for index in 0..255 {
             writes.push(TaskWrite {
+                provenance: None,
                 expected_revision: None,
                 record: TaskRecord::new(
                     spec(&format!("child-{index:03}"), "gate"),
@@ -358,6 +360,7 @@ fn cancellation_of_a_large_tree_blocks_all_descendant_handler_admission() {
                 owner: "fixture-writer".into(),
                 writes: (0..4)
                     .map(|index| TaskWrite {
+                        provenance: None,
                         expected_revision: None,
                         record: TaskRecord::new(
                             spec(&format!("grandchild-{index}"), "gate"),
@@ -373,6 +376,7 @@ fn cancellation_of_a_large_tree_blocks_all_descendant_handler_admission() {
             .commit(TaskTransaction {
                 owner: "fixture-writer".into(),
                 writes: vec![TaskWrite {
+                    provenance: None,
                     expected_revision: Some(1),
                     record: root,
                 }],

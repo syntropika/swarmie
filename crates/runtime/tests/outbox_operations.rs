@@ -47,6 +47,7 @@ fn transaction(id: &str) -> TaskTransaction {
     TaskTransaction {
         owner: "operator".into(),
         writes: vec![TaskWrite {
+            provenance: None,
             expected_revision: None,
             record: TaskRecord::new(
                 TaskSpec {

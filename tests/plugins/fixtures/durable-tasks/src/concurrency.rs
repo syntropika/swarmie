@@ -85,6 +85,7 @@ impl StorageControl {
             .commit(TaskTransaction {
                 owner,
                 writes: vec![TaskWrite {
+                    provenance: None,
                     expected_revision: None,
                     record: TaskRecord::new(spec, None),
                 }],
@@ -124,6 +125,7 @@ impl StorageControl {
             .commit(TaskTransaction {
                 owner: owner.into(),
                 writes: vec![TaskWrite {
+                    provenance: None,
                     expected_revision: Some(revision),
                     record,
                 }],
@@ -283,6 +285,7 @@ impl TaskStorageProvider for Proxy {
                     .commit(TaskTransaction {
                         owner: transaction.owner.clone(),
                         writes: vec![TaskWrite {
+                            provenance: None,
                             expected_revision: None,
                             record: child
                         }]
@@ -314,6 +317,7 @@ impl TaskStorageProvider for Proxy {
                     .commit(TaskTransaction {
                         owner: transaction.owner.clone(),
                         writes: vec![TaskWrite {
+                            provenance: None,
                             expected_revision: None,
                             record: child
                         }]

@@ -322,6 +322,7 @@ mod tests {
 
     fn write(id: &str) -> TaskWrite {
         TaskWrite {
+            provenance: None,
             expected_revision: None,
             record: TaskRecord::new(crate::task(id), None),
         }

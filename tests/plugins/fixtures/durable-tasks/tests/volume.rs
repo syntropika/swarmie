@@ -48,6 +48,7 @@ async fn seed(storage: &TaskStorageRef) -> Result<()> {
                     value: serde_json::json!({"retained":true}),
                 });
                 TaskWrite {
+                    provenance: None,
                     expected_revision: None,
                     record,
                 }
@@ -81,10 +82,12 @@ async fn seed(storage: &TaskStorageRef) -> Result<()> {
             owner: "archive-seed".into(),
             writes: vec![
                 TaskWrite {
+                    provenance: None,
                     expected_revision: None,
                     record: sleeper,
                 },
                 TaskWrite {
+                    provenance: None,
                     expected_revision: None,
                     record: exhausted,
                 },

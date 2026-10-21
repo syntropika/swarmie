@@ -2,7 +2,7 @@
 
 use tembra::prelude::*;
 
-use crate::{TaskBlockingKind, TaskOutcomeKind, TaskRecord, TaskStatus};
+use crate::{TaskBlockingKind, TaskLifecycleOrigin, TaskOutcomeKind, TaskRecord, TaskStatus};
 
 /// Maximum canonical JSON byte size of one durable structural event across providers.
 pub const MAX_TASK_OUTBOX_EVENT_BYTES: usize = 4096;
@@ -90,16 +90,35 @@ pub struct TaskOutboxEventId {
     pub ordinal: u32,
 }
 
+/// Bounded operation provenance reported by the claimed task writer.
+///
+/// Storage atomically retains this annotation after ownership, CAS and record validation.
+/// It does not independently prove handler entry, physical execution or checkpoint acceptance.
+/// `checkpoint_committed` means the writer accepted a checkpoint operation in this write,
+/// including an equal checkpoint value; `TaskOutboxEvent::checkpoint_changed` measures equality.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct TaskTransitionProvenance {
+    pub origin: TaskLifecycleOrigin,
+    pub checkpoint_committed: bool,
+}
+
 /// One confirmed record revision, persisted in the same transaction as that revision.
-/// Metadata is derived from actual pre/post records. Changed checkpoint equality does not
-/// claim that an unchanged checkpoint was not accepted. No input, checkpoint, output or free
-/// diagnostic text is copied here, and physical handler settlement is never represented.
+/// Structural metadata is derived from actual pre/post records. Optional provenance records
+/// the claimed writer's operation annotation, without independently verifying execution.
+/// Version 1 has no provenance; version 2 may omit it when the operation is unknown. Historical
+/// events retain their original version, identity and canonical payload; readers never backfill.
+/// No input, checkpoint, output or free diagnostic text is copied here, and physical handler
+/// settlement is never represented.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
 pub struct TaskOutboxEvent {
-    #[schemars(range(min = 1, max = 1))]
+    #[schemars(range(min = 1, max = 2))]
     pub version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<TaskTransitionProvenance>,
     /// Total records in this atomic commit. Acknowledgement is per event; consumers that need
     /// atomic destination batches may buffer the complete group across bounded read pages.
     #[schemars(range(min = 1, max = 256))]
@@ -132,9 +151,11 @@ impl TaskOutboxEvent {
         before: Option<&TaskRecord>,
         after: &TaskRecord,
         transaction_size: u32,
+        provenance: Option<TaskTransitionProvenance>,
     ) -> Self {
         Self {
-            version: 1,
+            version: 2,
+            provenance,
             transaction_size,
             id,
             task_id: after.id.clone(),

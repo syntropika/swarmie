@@ -64,6 +64,7 @@ async fn open(
                             .iter()
                             .cloned()
                             .map(|record| TaskWrite {
+                                provenance: None,
                                 expected_revision: None,
                                 record
                             })

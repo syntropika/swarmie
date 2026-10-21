@@ -28,6 +28,7 @@ fn task(id: &str) -> TaskRecord {
 
 fn create(record: TaskRecord) -> TaskWrite {
     TaskWrite {
+        provenance: None,
         expected_revision: None,
         record,
     }
@@ -37,6 +38,7 @@ fn replace(mut record: TaskRecord) -> TaskWrite {
     let revision = record.revision;
     record.revision += 1;
     TaskWrite {
+        provenance: None,
         expected_revision: Some(revision),
         record,
     }
@@ -167,6 +169,7 @@ pub async fn run(storage: &TaskStorageRef) -> Result<()> {
             .commit(TaskTransaction {
                 owner: OWNER.into(),
                 writes: vec![TaskWrite {
+                    provenance: None,
                     expected_revision: Some(1),
                     record: missing
                 }]
@@ -296,6 +299,7 @@ pub async fn run(storage: &TaskStorageRef) -> Result<()> {
             owner: OWNER.into(),
             writes: vec![
                 TaskWrite {
+                    provenance: None,
                     expected_revision: Some(1),
                     record: parent.clone(),
                 },

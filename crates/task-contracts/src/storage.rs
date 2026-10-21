@@ -3,7 +3,7 @@ use tembra::prelude::*;
 use crate::{
     TaskId, TaskOutboxAcknowledgement, TaskOutboxCompaction, TaskOutboxConsumer,
     TaskOutboxConsumerState, TaskOutboxPage, TaskOutboxQuery, TaskOutboxRetention,
-    TaskOutboxStatus, TaskRecord, TaskStatus,
+    TaskOutboxStatus, TaskRecord, TaskStatus, TaskTransitionProvenance,
 };
 
 /// Exact task identity, without implementation-specific lookup details.
@@ -66,6 +66,10 @@ pub struct TaskPage {
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
 pub struct TaskWrite {
+    /// Optional writer-reported operation metadata, copied atomically into version 2 outbox
+    /// events. Absence means unknown; it is never inferred from the replacement record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<TaskTransitionProvenance>,
     pub expected_revision: Option<u64>,
     pub record: TaskRecord,
 }

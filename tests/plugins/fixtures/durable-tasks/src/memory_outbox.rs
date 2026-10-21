@@ -119,6 +119,7 @@ impl MemoryOutbox {
                 records.get(&write.record.id),
                 &write.record,
                 batch.writes.len() as u32,
+                write.provenance,
             );
             let size = task_wire_bytes(&event)?;
             if size > 4096 {

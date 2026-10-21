@@ -437,10 +437,12 @@ fn completing_outcome_waits_for_recovered_owned_work_without_reinvoking_parent()
                     owner: "recovery-fixture".into(),
                     writes: vec![
                         TaskWrite {
+                            provenance: None,
                             expected_revision: None,
                             record: parent
                         },
                         TaskWrite {
+                            provenance: None,
                             expected_revision: None,
                             record: child
                         }

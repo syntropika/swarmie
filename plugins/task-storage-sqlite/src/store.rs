@@ -666,6 +666,7 @@ mod tests {
 
     fn pending(id: &str) -> TaskWrite {
         TaskWrite {
+            provenance: None,
             expected_revision: None,
             record: TaskRecord::new(
                 TaskSpec {

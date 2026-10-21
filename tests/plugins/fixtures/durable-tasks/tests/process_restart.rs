@@ -350,6 +350,15 @@ fn child_process() -> Result<()> {
                         )));
                     }
                 }
+                if phase == "complete" || phase == "retry" {
+                    let storage = host.get(TaskStorage, TaskStorageInput {}).await?;
+                    storage.register_outbox_consumer(TaskOutboxConsumer { id: "recovery-provenance".into() }).await?;
+                    let durable = storage.read_outbox(TaskOutboxQuery { consumer_id: "recovery-provenance".into(), after: None, limit: 256 }).await?;
+                    assert!(durable.events.iter().any(|event| event.task_id == "process-task" && event.previous_status == Some(TaskStatus::Running) && event.provenance == Some(TaskTransitionProvenance { origin: TaskLifecycleOrigin::Recovery, checkpoint_committed: false })), "real process restart records recovery provenance atomically");
+                    if phase == "retry" {
+                        assert!(durable.events.iter().any(|event| event.provenance == Some(TaskTransitionProvenance { origin: TaskLifecycleOrigin::Retry, checkpoint_committed: false })));
+                    }
+                }
                 if phase == "reopen-terminal" {
                     let storage = host.get(TaskStorage, TaskStorageInput {}).await?;
                     storage.register_outbox_consumer(TaskOutboxConsumer { id: "process-session-log".into() }).await?;

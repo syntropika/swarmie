@@ -258,6 +258,7 @@ fn sqlite_failure_after_a_write_rolls_back_the_entire_commit() -> Result<()> {
         let raw = rusqlite::Connection::open(&database).expect("failure injection connection");
         raw.execute_batch("CREATE TRIGGER reject_fixture BEFORE INSERT ON task_records WHEN NEW.id = 'z-rejected' BEGIN SELECT RAISE(FAIL, 'injected write failure'); END;").expect("failure injection trigger");
         let writes = ["a-first", "z-rejected"].into_iter().map(|id| TaskWrite {
+ provenance: None,
             expected_revision: None,
             record: TaskRecord::new(TaskSpec { id: id.into(), kind: "fixture.failure".into(), definition_version: 1, input: serde_json::json!(null), checkpoint: serde_json::json!({"phase":"prepare"}), phase: "prepare".into() }, None),
         }).collect();
@@ -303,6 +304,7 @@ fn canonical_numeric_records_remain_readable_and_portably_immutable() -> Result<
             .commit(TaskTransaction {
                 owner: "numeric-owner".into(),
                 writes: vec![TaskWrite {
+                    provenance: None,
                     expected_revision: None,
                     record: original.clone(),
                 }],
@@ -333,6 +335,7 @@ fn canonical_numeric_records_remain_readable_and_portably_immutable() -> Result<
             .commit(TaskTransaction {
                 owner: "numeric-owner".into(),
                 writes: vec![TaskWrite {
+                    provenance: None,
                     expected_revision: Some(1),
                     record: original,
                 }],
