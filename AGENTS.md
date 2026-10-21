@@ -63,10 +63,14 @@ Contracts in `crates/task-contracts` and an independently selected TaskStorage p
 Registries own handler contributions and Tembra owns their actual execution and cancellation.
 TaskStorage commits own durable task state; reactive State only publishes committed projections.
 
-Agent Loop, durable subagents, model providers, tools, semantic memory, compaction, coordination,
-workflows, a hosted marketplace and Desktop application development are outside this delivery.
-MemoryStore provides independent namespaced persistent JSON storage; do not expand it into task
-storage or introduce premature contracts for the remaining future features.
+Agent turns use the Agent Contract, native Tembra hooks, neutral Model Contracts and SessionStore.
+The default loop contributes ordinary Durable Tasks handlers; it must not replace their scheduler,
+implement model providers, own another event log or import concrete memory/compaction plugins.
+Tools use managed Registry operations with final-boundary authorization and explicit replay policy.
+SessionStore owns history; TaskStorage owns durable task transitions. Never assume cross-store
+atomicity or exactly-once external effects. Durable subagents, semantic memory, compaction,
+coordination, workflows, a hosted marketplace and Desktop application development remain separate
+work. MemoryStore remains independent namespaced persistent JSON storage.
 
 ## Repository boundaries and documentation
 
@@ -77,8 +81,10 @@ The independent private `swarmie-cloud` repository owns hosted identity, enrollm
 routing, allocation, collaboration authorization, synchronization, billing and entitlements.
 It is not a submodule or workspace member. Public code must not import private implementation.
 
-Detailed architecture specifications and task tracking live in the verified Swarmie Space.
-Do not add a documentation application or a root `docs/` tree. Keep the root `README.md` as
+Task tracking and private delivery specifications live in the verified Swarmie Space.
+Keep public client/runtime documentation in the root `docs/` folder, outside source packages.
+Source builds must not depend on documentation. Hosted-service documentation belongs to its
+independent repository and must not be copied here. Keep the root `README.md` as
 a presentation of the project's purpose and capabilities. Put contributor setup, commands,
 repository layout and code references in `DEVELOPMENT.md`, linked from the README. Do not put
 implementation details, delivery status, progress reports, test counts, branch or pull request
