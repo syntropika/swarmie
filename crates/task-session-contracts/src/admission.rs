@@ -86,7 +86,7 @@ pub struct ExcludedBinding {
 )]
 #[schemars(crate = "tembra::schemars", transform = tagged_union)]
 pub enum BindingDisposition {
-    Routed { binding: TaskSessionBinding },
+    Routed { binding: Box<TaskSessionBinding> },
     Excluded { exclusion: ExcludedBinding },
 }
 
