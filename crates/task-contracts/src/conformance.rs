@@ -523,6 +523,7 @@ pub async fn run(storage: &TaskStorageRef) -> Result<()> {
         })
         .await?;
     assert_eq!(terminal_page.records.len(), 3);
+    large_payloads(storage).await?;
     storage
         .release_owner(StorageOwner { id: OWNER.into() })
         .await?;
@@ -537,4 +538,125 @@ pub async fn run(storage: &TaskStorageRef) -> Result<()> {
             id: "successor-owner".into(),
         })
         .await
+}
+
+async fn large_payloads(storage: &TaskStorageRef) -> Result<()> {
+    let mut expected = std::collections::BTreeSet::new();
+    for id in ["large-a", "large-b"] {
+        let mut record = task(id);
+        record.checkpoint = serde_json::json!({"data":"x".repeat(600_000)});
+        let (_, records) = commit(storage, vec![create(record)]).await?;
+        assert!(read(storage, id).await? == records[0]);
+        expected.insert(id.to_owned());
+    }
+    let mut query = TaskQuery {
+        limit: 256,
+        ..Default::default()
+    };
+    let mut seen = std::collections::BTreeSet::new();
+    let mut pages = 0;
+    loop {
+        let page = storage.scan(query.clone()).await?;
+        assert!(crate::task_wire_bytes(&page)? <= crate::MAX_TASK_PAGE_BYTES);
+        pages += 1;
+        for record in page.records {
+            if record.id.starts_with("large-") {
+                assert!(seen.insert(record.id));
+            }
+        }
+        match page.next {
+            Some(cursor) => query.cursor = Some(cursor),
+            None => break,
+        }
+    }
+    assert_eq!(seen, expected);
+    assert!(
+        pages >= 2,
+        "large records require byte-bounded continuation pages"
+    );
+    let before = storage
+        .scan(TaskQuery {
+            limit: 1,
+            ..Default::default()
+        })
+        .await?
+        .sequence;
+    let original = read(storage, "large-a").await?;
+    let mut oversized = original.clone();
+    oversized.checkpoint = serde_json::json!({"data":"x".repeat(crate::MAX_TASK_RECORD_BYTES)});
+    let error = storage
+        .commit(TaskTransaction {
+            owner: OWNER.into(),
+            writes: vec![replace(oversized)],
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error.reason, "task_storage_too_large");
+    assert!(read(storage, "large-a").await? == original);
+    let writes = ["large-batch-a", "large-batch-b"]
+        .into_iter()
+        .map(|id| {
+            let mut record = task(id);
+            record.checkpoint = serde_json::json!({"data":"x".repeat(520_000)});
+            create(record)
+        })
+        .collect();
+    let batch = TaskTransaction {
+        owner: OWNER.into(),
+        writes,
+    };
+    assert!(crate::task_wire_bytes(&batch)? > crate::MAX_TASK_PAGE_BYTES);
+    assert!(crate::task_wire_bytes(&batch)? < 1_048_576);
+    assert_eq!(
+        storage.commit(batch).await.unwrap_err().reason,
+        "task_storage_too_large"
+    );
+    assert!(
+        storage
+            .get(TaskLookup {
+                id: "large-batch-a".into()
+            })
+            .await?
+            .is_none()
+    );
+    assert_eq!(
+        storage
+            .scan(TaskQuery {
+                limit: 1,
+                ..Default::default()
+            })
+            .await?
+            .sequence,
+        before
+    );
+    let mut record = task("control-reserve");
+    record.attempts = 9;
+    record.restarts = 9;
+    // Measure the exact allowed non-control boundary with worst-case mutable metadata.
+    let mut widest = tembra::contracts::to_portable_value(&record)
+        .map_err(|error| RuntimeError::invalid("conformance_encoding", error.to_string()))?;
+    let fields = widest.as_object_mut().expect("record object");
+    fields.remove("outcome");
+    fields.remove("blocking_reason");
+    fields.insert("revision".into(), crate::MAX_PORTABLE_INTEGER.into());
+    for field in ["attempts", "restarts", "definition_version"] {
+        fields.insert(field.into(), u32::MAX.into());
+    }
+    fields.insert("status".into(), "completing".into());
+    fields.insert("checkpoint".into(), serde_json::json!(""));
+    let available = crate::MAX_TASK_RECORD_BYTES
+        - crate::MAX_TASK_CONTROL_BYTES
+        - crate::task_wire_bytes(&widest)?;
+    record.checkpoint = serde_json::json!("x".repeat(available));
+    let (_, records) = commit(storage, vec![create(record)]).await?;
+    let mut record = records[0].clone();
+    record.attempts = 10;
+    record.restarts = 10;
+    record.status = TaskStatus::Terminal;
+    record.outcome = Some(TaskOutcome::Faulted {
+        error: "diagnostic".repeat(400),
+    });
+    commit(storage, vec![replace(record)]).await?;
+    assert!(read(storage, "control-reserve").await?.is_terminal());
+    Ok(())
 }

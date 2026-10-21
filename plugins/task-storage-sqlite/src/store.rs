@@ -8,8 +8,9 @@ use std::{
 
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 use swarmie_task_contracts::{
-    CommitResult, MAX_PORTABLE_INTEGER, StorageOwner, TaskCursor, TaskLookup, TaskPage, TaskQuery,
-    TaskRecord, TaskStatus, TaskTransaction, validate_identity,
+    CommitResult, MAX_PORTABLE_INTEGER, MAX_TASK_PAGE_BYTES, StorageOwner, TaskCursor, TaskLookup,
+    TaskPage, TaskQuery, TaskRecord, TaskStatus, TaskTransaction, task_wire_bytes,
+    validate_identity, validate_task_payload_size, validate_task_record_size,
 };
 use tembra::{RuntimeError, core::ErrorCode};
 
@@ -33,6 +34,8 @@ pub(crate) enum Error {
     Corrupt(String),
     #[error("task storage validation failed: {0}")]
     Invalid(String),
+    #[error("task storage size limit exceeded: {0}")]
+    TooLarge(String),
     #[error("task database is already owned")]
     Owned,
     #[error("the caller does not own task scheduling for this provider")]
@@ -51,6 +54,7 @@ impl Error {
             Self::Database(_) | Self::Io(_) => "task_storage_io",
             Self::Corrupt(_) => "task_storage_corrupt",
             Self::Invalid(_) => "task_storage_invalid",
+            Self::TooLarge(_) => "task_storage_too_large",
             Self::Owned => "task_storage_owned",
             Self::OwnerMismatch => "task_storage_owner_mismatch",
             Self::Closed => "task_storage_closed",
@@ -58,7 +62,9 @@ impl Error {
             Self::Cursor => "task_storage_cursor",
         };
         let code = match &self {
-            Self::Invalid(_) | Self::Cursor | Self::OwnerMismatch => ErrorCode::Invalid,
+            Self::Invalid(_) | Self::TooLarge(_) | Self::Cursor | Self::OwnerMismatch => {
+                ErrorCode::Invalid
+            }
             Self::Unsupported(_) => ErrorCode::UpgradeRequired,
             Self::Closed => ErrorCode::Released,
             _ => ErrorCode::Unavailable,
@@ -152,7 +158,11 @@ impl Store {
 
     pub(crate) fn get(&self, request: TaskLookup) -> Result<Option<TaskRecord>> {
         identity(&request.id)?;
-        self.with(|connection| read_record(connection, &request.id))
+        self.with(|connection| {
+            let record = read_record(connection, &request.id)?;
+            validate_task_payload_size(&record).map_err(size_error)?;
+            Ok(record)
+        })
     }
 
     pub(crate) fn scan(&self, query: TaskQuery) -> Result<TaskPage> {
@@ -184,59 +194,60 @@ impl Store {
                 .cursor
                 .as_ref()
                 .map_or("", |cursor| cursor.after.as_str());
-            let mut sql = String::from(
-                "SELECT id FROM task_records WHERE id > ?1 AND (?2 IS NULL OR parent = ?2)",
-            );
-            let mut values = vec![
-                rusqlite::types::Value::Text(after.into()),
-                query
-                    .parent
-                    .clone()
-                    .map_or(rusqlite::types::Value::Null, rusqlite::types::Value::Text),
-            ];
-            if !query.statuses.is_empty() {
-                sql.push_str(" AND status IN (");
-                for (index, status) in query.statuses.iter().enumerate() {
-                    if index > 0 {
-                        sql.push(',');
-                    }
-                    sql.push('?');
-                    values.push(rusqlite::types::Value::Text(status_name(*status).into()));
-                }
-                sql.push(')');
-            }
-            sql.push_str(" ORDER BY id COLLATE BINARY LIMIT ?");
-            values.push(rusqlite::types::Value::Integer(i64::from(query.limit) + 1));
+            let (sql, values) = scan_sql(&query, after);
             let mut statement = connection.prepare(&sql)?;
             let ids = statement
                 .query_map(rusqlite::params_from_iter(values), |row| {
                     row.get::<_, String>(0)
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
-            let mut records = Vec::with_capacity(ids.len());
-            for id in ids {
-                records.push(
-                    read_record(connection, &id)?
-                        .ok_or_else(|| Error::Corrupt("task disappeared during scan".into()))?,
-                );
-            }
-            let next = if records.len() > query.limit as usize {
-                records.pop();
-                records.last().map(|record| TaskCursor {
+            let mut page = TaskPage {
+                sequence,
+                records: vec![],
+                next: None,
+            };
+            let mut records_bytes = 0;
+            for (index, id) in ids.iter().enumerate() {
+                if page.records.len() == query.limit as usize {
+                    break;
+                }
+                let record = read_record(connection, id)?
+                    .ok_or_else(|| Error::Corrupt("task disappeared during scan".into()))?;
+                let record_bytes = task_wire_bytes(&record).map_err(size_error)?;
+                let next = (index + 1 < ids.len()).then(|| TaskCursor {
                     store_id: store_id.clone(),
                     sequence,
-                    after: record.id.clone(),
+                    after: id.clone(),
                     statuses: query.statuses.clone(),
                     parent: query.parent.clone(),
+                });
+                // An empty records array already contributes its brackets. Add each
+                // canonical record and exactly one comma per prior element. Only the
+                // small envelope/cursor is serialized per candidate, never the prefix.
+                let envelope_bytes = task_wire_bytes(&TaskPage {
+                    sequence,
+                    records: vec![],
+                    next: next.clone(),
                 })
-            } else {
-                None
-            };
-            Ok(TaskPage {
-                sequence,
-                records,
-                next,
-            })
+                .map_err(size_error)?;
+                let candidate_bytes = envelope_bytes
+                    + records_bytes
+                    + record_bytes
+                    + usize::from(!page.records.is_empty());
+                if candidate_bytes > MAX_TASK_PAGE_BYTES {
+                    if page.records.is_empty() {
+                        return Err(Error::TooLarge("one record exceeds the page budget".into()));
+                    }
+                    // The prior candidate's cursor already names the last included row.
+                    // This additional row proves that continuation remains necessary.
+                    break;
+                }
+                records_bytes += record_bytes + usize::from(!page.records.is_empty());
+                page.records.push(record);
+                page.next = next;
+            }
+            validate_task_payload_size(&page).map_err(size_error)?;
+            Ok(page)
         })
     }
 
@@ -247,6 +258,13 @@ impl Store {
         if batch.writes.is_empty() || batch.writes.len() > 256 {
             return Err(invalid("transactions require 1..=256 task writes"));
         }
+        validate_task_payload_size(&batch).map_err(size_error)?;
+        // Use the same mathematical JSON number representation for immutable comparisons,
+        // persisted bytes and returned receipts, including native typed fast paths.
+        let portable = tembra::contracts::to_portable_value(&batch)
+            .map_err(|error| invalid(error.to_string()))?;
+        let batch: TaskTransaction = tembra::contracts::from_portable_value(&portable)
+            .map_err(|error| invalid(error.to_string()))?;
         let mut connection = self.connection.borrow_mut();
         let connection = connection.as_mut().ok_or(Error::Closed)?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -306,11 +324,20 @@ impl Store {
             previous.insert(record.id.clone(), existing);
         }
         validate_relationships(&transaction, &candidates, &previous)?;
+        let committed = CommitResult::Committed {
+            sequence: sequence + 1,
+            records: batch
+                .writes
+                .iter()
+                .map(|write| write.record.clone())
+                .collect(),
+        };
+        validate_task_payload_size(&committed).map_err(size_error)?;
         for record in candidates.values() {
             let portable = tembra::contracts::to_portable_value(record)
                 .map_err(|error| invalid(error.to_string()))?;
-            let encoded =
-                serde_json::to_string(&portable).map_err(|error| invalid(error.to_string()))?;
+            let encoded = tembra::contracts::canonical_json(&portable)
+                .map_err(|error| invalid(error.to_string()))?;
             transaction.execute(
                 "INSERT INTO task_records(id, revision, status, parent, record) VALUES(?1, ?2, ?3, ?4, ?5)
                  ON CONFLICT(id) DO UPDATE SET revision = excluded.revision, status = excluded.status, parent = excluded.parent, record = excluded.record",
@@ -323,10 +350,7 @@ impl Store {
             [sequence],
         )?;
         transaction.commit()?;
-        Ok(CommitResult::Committed {
-            sequence,
-            records: batch.writes.into_iter().map(|write| write.record).collect(),
-        })
+        Ok(committed)
     }
 
     pub(crate) fn close(&self) -> Result<()> {
@@ -344,8 +368,48 @@ impl Store {
     }
 }
 
+fn scan_sql(query: &TaskQuery, after: &str) -> (String, Vec<rusqlite::types::Value>) {
+    // Explicit index selection keeps retained terminal history outside active scans even
+    // when seven status ranges plus ORDER BY would make SQLite prefer the primary key.
+    let index = if query.parent.is_some() {
+        " INDEXED BY task_records_parent"
+    } else if !query.statuses.is_empty() {
+        " INDEXED BY task_records_status"
+    } else {
+        ""
+    };
+    let mut sql = format!("SELECT id FROM task_records{index} WHERE id > ?");
+    let mut values = vec![rusqlite::types::Value::Text(after.into())];
+    if let Some(parent) = &query.parent {
+        sql.push_str(" AND parent = ?");
+        values.push(rusqlite::types::Value::Text(parent.clone()));
+    }
+    if !query.statuses.is_empty() {
+        sql.push_str(" AND status IN (");
+        for (index, status) in query.statuses.iter().enumerate() {
+            if index > 0 {
+                sql.push(',');
+            }
+            sql.push('?');
+            values.push(rusqlite::types::Value::Text(status_name(*status).into()));
+        }
+        sql.push(')');
+    }
+    sql.push_str(" ORDER BY id COLLATE BINARY LIMIT ?");
+    values.push(rusqlite::types::Value::Integer(i64::from(query.limit) + 1));
+    (sql, values)
+}
+
 fn invalid(message: impl Into<String>) -> Error {
     Error::Invalid(message.into())
+}
+
+fn size_error(error: RuntimeError) -> Error {
+    if error.reason == "task_storage_too_large" {
+        Error::TooLarge(error.message)
+    } else {
+        Error::Invalid(error.to_string())
+    }
 }
 
 fn identity(value: &str) -> Result<()> {
@@ -363,12 +427,21 @@ fn metadata(connection: &Connection) -> Result<Metadata> {
 }
 
 fn decode(encoded: &str) -> Result<TaskRecord> {
-    // Validate duplicate keys, safe numbers and depth without changing Serde's numeric
-    // representation: the portable parser canonicalizes integral float tokens.
-    tembra::contracts::parse_json(encoded).map_err(|error| Error::Corrupt(error.to_string()))?;
+    // The strict parser validates duplicate keys, safe numbers and depth, and
+    // normalizes mathematical integers exactly as the portable Contract boundary does.
+    let value = tembra::contracts::parse_json(encoded).map_err(|error| {
+        if error.reason == "json_size" {
+            Error::TooLarge(error.to_string())
+        } else {
+            Error::Corrupt(error.to_string())
+        }
+    })?;
     let record: TaskRecord =
-        serde_json::from_str(encoded).map_err(|error| Error::Corrupt(error.to_string()))?;
-    validate_record(&record).map_err(|error| Error::Corrupt(error.to_string()))?;
+        serde_json::from_value(value).map_err(|error| Error::Corrupt(error.to_string()))?;
+    validate_record(&record).map_err(|error| match error {
+        Error::TooLarge(_) => error,
+        other => Error::Corrupt(other.to_string()),
+    })?;
     Ok(record)
 }
 
@@ -397,7 +470,7 @@ fn read_record(connection: &Connection, id: &str) -> Result<Option<TaskRecord>> 
 }
 
 fn validate_record(record: &TaskRecord) -> Result<()> {
-    tembra::contracts::to_portable_value(record).map_err(|error| invalid(error.to_string()))?;
+    validate_task_record_size(record).map_err(size_error)?;
     identity(&record.id)?;
     identity(&record.kind)?;
     identity(&record.phase)?;
@@ -581,6 +654,94 @@ mod tests {
                 None,
             ),
         }
+    }
+
+    #[test]
+    fn filtered_scans_use_relationship_and_active_status_indices() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let store = Store::open(&directory.path().join("tasks.sqlite"))?;
+        let active = vec![
+            TaskStatus::Pending,
+            TaskStatus::Running,
+            TaskStatus::Waiting,
+            TaskStatus::Sleeping,
+            TaskStatus::Completing,
+            TaskStatus::Blocked,
+            TaskStatus::Parked,
+        ];
+        for (query, index) in [
+            (
+                TaskQuery {
+                    statuses: active.clone(),
+                    ..Default::default()
+                },
+                "task_records_status",
+            ),
+            (
+                TaskQuery {
+                    parent: Some("parent".into()),
+                    ..Default::default()
+                },
+                "task_records_parent",
+            ),
+            (
+                TaskQuery {
+                    parent: Some("parent".into()),
+                    statuses: active,
+                    ..Default::default()
+                },
+                "task_records_parent",
+            ),
+        ] {
+            let (sql, values) = scan_sql(&query, "cursor-id");
+            let plan = store.with(|connection| {
+                let mut statement = connection.prepare(&format!("EXPLAIN QUERY PLAN {sql}"))?;
+                let rows = statement.query_map(rusqlite::params_from_iter(values), |row| {
+                    row.get::<_, String>(3)
+                })?;
+                Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+            })?;
+            assert!(plan.iter().any(|line| line.contains(index)), "{plan:?}");
+            assert!(
+                !plan.iter().any(|line| line.contains("PRIMARY KEY")),
+                "{plan:?}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_oversized_record_is_explicitly_refused_without_deletion() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let store = Store::open(&directory.path().join("tasks.sqlite"))?;
+        let mut record = pending("legacy").record;
+        record.checkpoint = serde_json::json!("x".repeat(800_000));
+        let encoded = serde_json::to_string(&record).expect("fixture encoding");
+        store.with(|connection| {
+            connection.execute("INSERT INTO task_records(id, revision, status, parent, record) VALUES('legacy', 1, 'pending', NULL, ?1)", [&encoded])?;
+            Ok(())
+        })?;
+        assert!(matches!(
+            store.get(TaskLookup {
+                id: "legacy".into()
+            }),
+            Err(Error::TooLarge(_))
+        ));
+        assert!(matches!(
+            store.scan(TaskQuery::default()),
+            Err(Error::TooLarge(_))
+        ));
+        store.with(|connection| {
+            assert_eq!(
+                connection.query_row(
+                    "SELECT record FROM task_records WHERE id='legacy'",
+                    [],
+                    |row| row.get::<_, String>(0)
+                )?,
+                encoded
+            );
+            Ok(())
+        })
     }
 
     #[test]

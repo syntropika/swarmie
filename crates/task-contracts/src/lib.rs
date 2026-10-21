@@ -11,7 +11,9 @@ mod model;
 mod schema;
 mod storage;
 mod tasks;
+mod transport;
 
 pub use model::*;
 pub use storage::*;
 pub use tasks::*;
+pub use transport::*;

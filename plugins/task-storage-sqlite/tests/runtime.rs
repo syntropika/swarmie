@@ -51,6 +51,23 @@ fn public_contract_backend_conformance_and_restart_persistence() -> Result<()> {
                 .await?,
             Some(before)
         );
+        let large = reopened
+            .get(TaskLookup {
+                id: "large-a".into(),
+            })
+            .await?
+            .expect("large checkpoint survives restart");
+        assert_eq!(large.checkpoint["data"].as_str().unwrap().len(), 600_000);
+        let terminal = reopened
+            .get(TaskLookup {
+                id: "control-reserve".into(),
+            })
+            .await?
+            .expect("retained terminal checkpoint survives restart");
+        assert!(terminal.is_terminal());
+        assert_eq!(terminal.attempts, 10);
+        assert_eq!(terminal.restarts, 10);
+        assert!(terminal.outcome.is_some());
         reopened
             .claim_owner(StorageOwner {
                 id: "new-process-owner".into(),
@@ -244,5 +261,116 @@ fn sqlite_failure_after_a_write_rolls_back_the_entire_commit() -> Result<()> {
         assert_eq!(storage.commit(TaskTransaction { owner: "failure-owner".into(), writes }).await.unwrap_err().reason, "task_storage_io");
         assert_eq!(storage.scan(TaskQuery::default()).await?, before);
         host.close().await
+    })
+}
+
+#[test]
+fn canonical_numeric_records_remain_readable_and_portably_immutable() -> Result<()> {
+    use swarmie_task_contracts::{
+        CommitResult, TaskQuery, TaskRecord, TaskSpec, TaskTransaction, TaskWrite,
+    };
+    let directory = tempfile::tempdir().expect("temporary database directory");
+    let database = directory.path().join("numeric.sqlite");
+    let driver = core::ManualDriver::new();
+    let host = Host::with_driver("storage-numeric", "application", driver.clone())?;
+    driver.run_until(async {
+        let storage = open(&host, &database).await?;
+        storage
+            .claim_owner(StorageOwner {
+                id: "numeric-owner".into(),
+            })
+            .await?;
+        let mut original = TaskRecord::new(
+            TaskSpec {
+                id: "numeric".into(),
+                kind: "fixture.numeric".into(),
+                definition_version: 1,
+                input: serde_json::json!({"values": vec![1.0; 350_000], "nested":{"number":2.0}}),
+                checkpoint: serde_json::Value::Null,
+                phase: "ready".into(),
+            },
+            None,
+        );
+        assert!(serde_json::to_vec(&original).unwrap().len() > 1_048_576);
+        assert!(
+            swarmie_task_contracts::task_wire_bytes(&original)?
+                < swarmie_task_contracts::MAX_TASK_RECORD_BYTES
+        );
+        let receipt = storage
+            .commit(TaskTransaction {
+                owner: "numeric-owner".into(),
+                writes: vec![TaskWrite {
+                    expected_revision: None,
+                    record: original.clone(),
+                }],
+            })
+            .await?;
+        let CommitResult::Committed { records, .. } = receipt else {
+            panic!("expected creation");
+        };
+        let committed = records[0].clone();
+        assert_eq!(committed.input["nested"]["number"], serde_json::json!(2));
+        assert_eq!(
+            storage
+                .get(TaskLookup {
+                    id: "numeric".into()
+                })
+                .await?,
+            Some(committed.clone())
+        );
+        assert_eq!(
+            storage.scan(TaskQuery::default()).await?.records,
+            vec![committed]
+        );
+        // Reuse the original float representation, not the normalized receipt. It denotes
+        // the same immutable portable input and must be accepted by the next CAS.
+        original.revision = 2;
+        original.checkpoint = serde_json::json!({"number":3.0});
+        let receipt = storage
+            .commit(TaskTransaction {
+                owner: "numeric-owner".into(),
+                writes: vec![TaskWrite {
+                    expected_revision: Some(1),
+                    record: original,
+                }],
+            })
+            .await?;
+        let CommitResult::Committed { records, .. } = receipt else {
+            panic!("expected replacement");
+        };
+        let updated = records[0].clone();
+        assert_eq!(updated.checkpoint["number"], serde_json::json!(3));
+        assert_eq!(
+            storage
+                .get(TaskLookup {
+                    id: "numeric".into()
+                })
+                .await?,
+            Some(updated.clone())
+        );
+        let raw = rusqlite::Connection::open(&database).unwrap();
+        let encoded: String = raw
+            .query_row(
+                "SELECT record FROM task_records WHERE id='numeric'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            encoded.len(),
+            swarmie_task_contracts::task_wire_bytes(&updated)?
+        );
+        host.close().await?;
+        let next = Host::with_driver("storage-numeric-reopen", "application", driver.clone())?;
+        let reopened = open(&next, &database).await?;
+        assert_eq!(
+            reopened
+                .get(TaskLookup {
+                    id: "numeric".into()
+                })
+                .await?,
+            Some(updated)
+        );
+        next.close().await
     })
 }

@@ -23,6 +23,8 @@ pub struct TaskCursor {
 }
 
 /// Bounded UTF-8 byte ordered scan. A missing parent filter includes roots and children.
+/// A provider may return fewer than `limit` records to keep the complete page within
+/// [`crate::MAX_TASK_PAGE_BYTES`]; a continuation preserves every remaining record.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
@@ -66,6 +68,9 @@ pub struct TaskWrite {
 
 /// Atomic batch, limited to 256 distinct tasks. Relationships are validated against its final
 /// state. Parent identity, kind and input are immutable; terminal records cannot be rewritten.
+/// JSON equality follows canonical portable numbers: nested `1.0` and `1` denote the same input.
+/// Complete requests and committed receipts must fit [`crate::MAX_TASK_PAGE_BYTES`], and each
+/// record must satisfy [`crate::validate_task_record_size`]. Size refusals commit nothing.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
@@ -109,6 +114,12 @@ pub struct StorageOwner {
 /// policy. Implementations retain committed data on retirement and enforce one active owner
 /// boundary per database. Successful writes are durable; an I/O error can have unknown outcome,
 /// so callers must read records before deciding whether to retry an uncertain commit.
+///
+/// Terminal records are retained indefinitely for results and ownership inspection; storage
+/// growth is explicit and no cleanup or provider retirement deletes them automatically.
+/// Admitted oversized records or payloads fail with `task_storage_too_large` before mutation.
+/// Values rejected earlier by Tembra's portable ingestion ceiling retain its conversion error.
+/// Shared canonical byte validators enforce the same limits for independent providers.
 #[tembra::contract(local, name = "swarmie.task-storage", version = 1)]
 pub trait TaskStorage {
     #[portable]
