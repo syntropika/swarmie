@@ -1,6 +1,10 @@
 //! Actual Tembra observers cannot hold confirmed operation processing hostage.
 
-use std::{cell::Cell, rc::Rc, time::Duration};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+    time::Duration,
+};
 
 use futures::FutureExt;
 use swarmie_agent_contracts::*;
@@ -124,6 +128,10 @@ fn slow_observer_does_not_block_turn_or_following_notifications_after_settlement
         .await?;
         let entered = Rc::new(Cell::new(false));
         let settled = Rc::new(Cell::new(false));
+        let cancellation_received = Rc::new(Cell::new(false));
+        let (release_settlement, settlement) = futures::channel::oneshot::channel::<()>();
+        let settlement = Rc::new(RefCell::new(Some(settlement)));
+        let received = cancellation_received.clone();
         let (began, ended) = (entered.clone(), settled.clone());
         fixture
             .host
@@ -135,8 +143,15 @@ fn slow_observer_does_not_block_turn_or_following_notifications_after_settlement
                     move |_: HookArgs<TurnContext, ()>, context| {
                         began.set(true);
                         let ended = ended.clone();
+                        let received = received.clone();
+                        let settlement = settlement
+                            .borrow_mut()
+                            .take()
+                            .expect("one start observation");
                         async move {
                             let error = context.cancellation().cancelled().await;
+                            received.set(true);
+                            let _ = settlement.await;
                             ended.set(true);
                             Err(error)
                         }
@@ -170,11 +185,21 @@ fn slow_observer_does_not_block_turn_or_following_notifications_after_settlement
             Some(TaskOutcome::Completed { .. })
         ));
         assert!(entered.get());
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while !cancellation_received.get() {
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+        })
+        .await
+        .expect("observer deadline signals cancellation before physical settlement");
         assert!(
             !settled.get(),
             "turn must finish independently of its telemetry handler"
         );
         assert!(!last.get(), "one dispatcher preserves admission order");
+        release_settlement
+            .send(())
+            .expect("release the still-owned physical observer");
         tokio::time::timeout(Duration::from_secs(3), async {
             while !last.get() {
                 tokio::time::sleep(Duration::from_millis(2)).await;

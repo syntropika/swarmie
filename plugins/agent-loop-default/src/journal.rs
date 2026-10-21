@@ -2,9 +2,16 @@ use swarmie_agent_contracts::TurnContext;
 use swarmie_session_contracts::{
     AppendEvents, Correlation, EventQuery, NewEvent, SessionEvent, SessionStoreRef,
 };
+use swarmie_task_contracts::{TaskStorage, TaskStorageInput};
+use swarmie_task_session_contracts::{
+    TaskSessionBinding, TaskSessionBindings, TaskSessionBindingsInput,
+};
 use tembra::{Context, Result, RuntimeError};
 
-use crate::state::{TurnIdentity, stable};
+use crate::{
+    admission::Admission,
+    state::{TurnIdentity, stable, task_id},
+};
 
 /// Reads one immutable prefix with bounded total admission. The Session provider owns paging.
 /// Only current-turn receipts are materialized here; conversation context uses selection first.
@@ -13,6 +20,18 @@ pub(crate) async fn history(
     turn: &impl TurnIdentity,
     context: &Context,
 ) -> Result<Vec<SessionEvent>> {
+    let binding = guard(
+        store,
+        &TurnContext {
+            session_id: turn.session_id().into(),
+            conversation_id: turn.conversation_id().into(),
+            turn_id: turn.turn_id().into(),
+            task_id: task_id(turn),
+            step: 0,
+        },
+        context,
+    )
+    .await?;
     let mut query = EventQuery::new(turn.session_id());
     query.conversation_id = Some(turn.conversation_id().into());
     query.turn_id = Some(turn.turn_id().into());
@@ -20,6 +39,11 @@ pub(crate) async fn history(
     let mut bytes = 0;
     loop {
         let page = store.with_context(context).events(query.clone()).await?;
+        if page.store_id != binding.destination.session_store_id {
+            return Err(crate::state::invalid(
+                "session history belongs to a different routed destination",
+            ));
+        }
         for event in page.events {
             if event.session_id != turn.session_id()
                 || event.event.correlation.conversation_id.as_deref()
@@ -54,6 +78,7 @@ pub(crate) async fn input(
     store: &SessionStoreRef,
     turn: &impl TurnIdentity,
     event_id: &str,
+    expected_store_id: &str,
     context: &Context,
 ) -> Result<Option<SessionEvent>> {
     let mut query = EventQuery::new(turn.session_id());
@@ -61,6 +86,11 @@ pub(crate) async fn input(
     loop {
         context.check(context.host_id())?;
         let page = store.with_context(context).events(query.clone()).await?;
+        if page.store_id != expected_store_id {
+            return Err(crate::state::invalid(
+                "admission input belongs to a different session store",
+            ));
+        }
         for event in page.events {
             if event.session_id != turn.session_id()
                 || event.event.correlation.conversation_id.as_deref()
@@ -117,7 +147,8 @@ pub(crate) async fn append(
         occurred_at_ms: None,
         payload,
     };
-    store
+    let binding = guard(store, turn, context).await?;
+    let receipt = store
         .with_context(context)
         .append(AppendEvents {
             session_id: turn.session_id.clone(),
@@ -126,7 +157,32 @@ pub(crate) async fn append(
             events: vec![event],
         })
         .await?;
+    if receipt.store_id != binding.destination.session_store_id
+        || receipt.session_id != turn.session_id
+        || receipt.batch_id != event_id
+    {
+        return Err(crate::state::invalid(
+            "session append receipt differs from the routed batch identity",
+        ));
+    }
     Ok(event_id)
+}
+
+/// Rechecks real selected References immediately before history I/O, including cleanup roots.
+/// Store replacement during a call is not atomic with this check; returned source identities
+/// are checked separately and never establish a checkpoint for a foreign destination.
+async fn guard(
+    sessions: &SessionStoreRef,
+    turn: &TurnContext,
+    context: &Context,
+) -> Result<TaskSessionBinding> {
+    let bindings = context
+        .get(TaskSessionBindings, TaskSessionBindingsInput {})
+        .await?;
+    let storage = context.get(TaskStorage, TaskStorageInput {}).await?;
+    Admission::new(bindings, storage, sessions.clone())
+        .require(turn, context)
+        .await
 }
 
 pub(crate) fn own_event<'a>(

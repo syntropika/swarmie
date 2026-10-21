@@ -126,3 +126,25 @@ tembra-browser-tools:
 # Real Browser Host ESM, React, managed contribution and server RPC acceptance.
 plugin-browser-check: tembra-plugins tembra-browser
     bun tests/plugins/browser/check.ts
+
+# Session authority, replay and actual Tembra/SQLite durability acceptance.
+session-test:
+    just rust-test -p swarmie-session-contracts -p swarmie-session-store-sqlite
+
+session-benchmark:
+    cargo +{{rust_version}} test --locked --release -p swarmie-session-store-sqlite --test runtime session_volume_benchmark -- --ignored --nocapture
+
+# Explicit scale qualification of the atomic conversation-index migration.
+session-migration-benchmark:
+    cargo +{{rust_version}} test --locked --release -p swarmie-session-store-sqlite --test migration million_event_migration_benchmark -- --ignored --nocapture
+
+# Qualify model Contracts, the provider adapter and real Tembra Host behavior.
+models-check:
+    just rust-fmt-check
+    cargo +{{rust_version}} clippy --locked -p swarmie-model-contracts -p swarmie-model-provider-genai --all-targets -- -D warnings
+    just rust-test -p swarmie-model-contracts -p swarmie-model-provider-genai
+    RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo +{{rust_version}} doc --locked -p swarmie-model-contracts -p swarmie-model-provider-genai --no-deps
+
+# Measures State publication batching with deterministic local HTTP SSE.
+models-benchmark:
+    just rust-test -p swarmie-model-provider-genai benchmark_batched_state_publications -- --ignored --nocapture

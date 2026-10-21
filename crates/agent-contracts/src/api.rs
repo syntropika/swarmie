@@ -128,8 +128,13 @@ pub trait AgentLoop {
     #[portable]
     async fn inspect(&self, request: TurnLookup) -> Result<Option<TurnRecord>>;
 
-    /// Records logical cancellation through Durable Tasks. A returned record does not prove
-    /// physical settlement of already admitted external work.
+    /// Records logical cancellation through Durable Tasks after verifying the persisted source
+    /// and historical binding. Destination unavailability cannot prevent this transition.
+    /// This operation does not await Session publication; the integration publisher owns delivery
+    /// of retained source transition facts. Durable Tasks' emergency unconfirmed cancellation
+    /// semantics remain in force when outbox admission is refused. A returned record does not prove physical settlement of
+    /// already admitted external work. An error may follow an uncertain committed source write;
+    /// read the authoritative task through DurableTasks before retrying.
     #[portable]
     async fn cancel(&self, request: TurnLookup) -> Result<TurnRecord>;
 

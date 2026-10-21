@@ -6,6 +6,7 @@
 #[cfg(feature = "javascript")]
 mod javascript;
 
+mod admission;
 mod context;
 mod journal;
 mod model;

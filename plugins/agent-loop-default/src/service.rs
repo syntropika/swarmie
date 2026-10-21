@@ -5,14 +5,23 @@ use swarmie_agent_contracts::{
     AgentLoop, AgentLoopProvider, AgentObservations, ContinueTurn, StartTurn, TurnEnd, TurnLookup,
     TurnRecord,
 };
-use swarmie_session_contracts::{MESSAGE, SessionStore, SessionStoreInput, SessionStoreRef};
+use swarmie_session_contracts::{
+    MESSAGE, SessionLookup, SessionStore, SessionStoreInput, SessionStoreRef,
+};
 use swarmie_task_contracts::{
     DurableTasks, DurableTasksInput, DurableTasksRef, TaskLookup, TaskSpec, TaskStatus,
+    TaskStorage, TaskStorageInput,
+};
+use swarmie_task_session_contracts::{
+    BindingDisposition, BindingKey, PrepareBinding, SessionDestination, TaskSessionBinding,
+    TaskSessionBindings, TaskSessionBindingsInput,
 };
 use tembra::{core, prelude::*};
 
 use crate::{
-    TURN_KIND, journal,
+    TURN_KIND,
+    admission::Admission,
+    journal,
     observers::{Monitor, Observation, ObserverDispatcher},
     state::{Checkpoint, TurnIdentity, decode, encode, invalid, now_ms, task_id},
 };
@@ -44,6 +53,7 @@ pub fn facet(driver: Rc<dyn core::Driver>) -> Result<NativeFacet> {
         setup.serve_with_options(
             AgentLoop,
             move |_, _, declaration| {
+                let sessions = declaration.get(SessionStore, SessionStoreInput {})?;
                 Ok(Service {
                     observers: service_observers.clone(),
                     // Keep the diagnostics service's managed observation activity live.
@@ -52,7 +62,12 @@ pub fn facet(driver: Rc<dyn core::Driver>) -> Result<NativeFacet> {
                         swarmie_agent_contracts::AgentObservationsInput {},
                     )?,
                     tasks: declaration.get(DurableTasks, DurableTasksInput {})?,
-                    sessions: declaration.get(SessionStore, SessionStoreInput {})?,
+                    admission: Admission::new(
+                        declaration.get(TaskSessionBindings, TaskSessionBindingsInput {})?,
+                        declaration.get(TaskStorage, TaskStorageInput {})?,
+                        sessions.clone(),
+                    ),
+                    sessions,
                 })
             },
             core::ServeOptions {
@@ -67,12 +82,67 @@ pub fn facet(driver: Rc<dyn core::Driver>) -> Result<NativeFacet> {
 struct Service {
     tasks: DurableTasksRef,
     sessions: SessionStoreRef,
+    admission: Admission,
     observers: Rc<ObserverDispatcher>,
     _monitor: swarmie_agent_contracts::AgentObservationsRef,
 }
 
+fn routed(disposition: BindingDisposition) -> Result<TaskSessionBinding> {
+    match disposition {
+        BindingDisposition::Routed { binding } => Ok(*binding),
+        BindingDisposition::Excluded { .. } => Err(RuntimeError::new(
+            core::ErrorCode::Forbidden,
+            "agent_binding_excluded",
+            "an excluded task cannot admit an agent turn",
+        )),
+    }
+}
+
+/// Lookup reads historical intent, so its destination and immutable submission must be
+/// checked before admit can use it. No retry replaces a retained deadline or initial state.
+fn validate_submission(
+    binding: &TaskSessionBinding,
+    key: &BindingKey,
+    destination: &SessionDestination,
+    request: &StartTurn,
+    input_sequence: u64,
+) -> Result<()> {
+    let initial: Checkpoint = decode(binding.task.checkpoint.clone())?;
+    initial.validate_identity(request)?;
+    if &binding.key != key
+        || &binding.destination != destination
+        || binding.routing_version != 1
+        || binding.root_task_id != key.task_id
+        || binding.parent_task_id.is_some()
+        || binding.task.id != key.task_id
+        || binding.task.kind != TURN_KIND
+        || binding.task.definition_version != 2
+        || binding.task.input != encode(request)?
+        || binding.task.phase != "start"
+        || initial.input_sequence != input_sequence
+        || initial.started_at_ms == 0
+        || initial.step != 0
+        || initial.tool_index != 0
+        || initial.tool_calls != 0
+        || initial.output_tokens != 0
+        || initial.request_event.is_some()
+        || initial.response_event.is_some()
+        || initial.tool_event.is_some()
+        || initial.ending.is_some()
+    {
+        return Err(invalid(
+            "binding intent differs from the admitted turn submission",
+        ));
+    }
+    Ok(())
+}
+
 impl Service {
-    async fn require(&self, identity: &impl TurnIdentity, context: &Context) -> Result<TurnRecord> {
+    async fn require_task(
+        &self,
+        identity: &impl TurnIdentity,
+        context: &Context,
+    ) -> Result<TurnRecord> {
         let task = self
             .tasks
             .with_context(context)
@@ -99,6 +169,16 @@ impl Service {
             session_id: request.session_id,
             task,
         })
+    }
+
+    async fn require(&self, identity: &impl TurnIdentity, context: &Context) -> Result<TurnRecord> {
+        let record = self.require_task(identity, context).await?;
+        let request: StartTurn = decode(record.task.input.clone())?;
+        let checkpoint: Checkpoint = decode(record.task.checkpoint.clone())?;
+        self.admission
+            .require(&checkpoint.turn(&request), context)
+            .await?;
+        Ok(record)
     }
 
     async fn reconcile_terminal(&self, record: &TurnRecord, context: &Context) -> Result<()> {
@@ -161,16 +241,37 @@ impl AgentLoopProvider for Service {
             }
             return self.require(&request, &context).await;
         }
-        let input = journal::input(&self.sessions, &request, &request.input_event_id, &context)
+        let session = self
+            .sessions
+            .with_context(&context)
+            .open(SessionLookup {
+                session_id: request.session_id.clone(),
+            })
             .await?
-            .filter(|event| event.event.kind == MESSAGE && event.event.version == 1)
-            .ok_or_else(|| {
-                invalid("input must reference a committed message in this session and conversation")
-            })?;
+            .ok_or_else(|| invalid("admission session is absent"))?;
+        let input = journal::input(
+            &self.sessions,
+            &request,
+            &request.input_event_id,
+            &session.store_id,
+            &context,
+        )
+        .await?
+        .filter(|event| event.event.kind == MESSAGE && event.event.version == 1)
+        .ok_or_else(|| {
+            invalid("input must reference a committed message in this session and conversation")
+        })?;
         let message: swarmie_session_contracts::Message = decode(input.event.payload.clone())?;
         if message.role != "user" {
             return Err(invalid("turn input must be a user message"));
         }
+        let key = self.admission.key(&lookup.id, &context).await?;
+        let destination = SessionDestination {
+            session_store_id: session.store_id,
+            session_id: request.session_id.clone(),
+            conversation_id: request.conversation_id.clone(),
+            turn_id: request.turn_id.clone(),
+        };
         let checkpoint = Checkpoint {
             version: 2,
             session_id: request.session_id.clone(),
@@ -180,34 +281,73 @@ impl AgentLoopProvider for Service {
             input_sequence: input.sequence,
             ..Default::default()
         };
-        let created = self
-            .tasks
+        let specification = TaskSpec {
+            id: lookup.id.clone(),
+            kind: TURN_KIND.into(),
+            definition_version: 2,
+            input: encode(&request)?,
+            checkpoint: encode(&checkpoint)?,
+            phase: "start".into(),
+        };
+        let pending = match self
+            .admission
+            .bindings
             .with_context(&context)
-            .create(TaskSpec {
-                id: lookup.id,
-                kind: TURN_KIND.into(),
-                definition_version: 2,
-                input: encode(&request)?,
-                checkpoint: encode(&checkpoint)?,
-                phase: "start".into(),
-            })
-            .await;
-        if let Err(error) = created {
-            // A concurrent exact submission or lost create acknowledgement is reconciled by ID.
-            let Some(task) = self
+            .lookup(key.clone())
+            .await?
+        {
+            Some(disposition) => routed(disposition)?,
+            None => {
+                let prepared = self
+                    .admission
+                    .bindings
+                    .with_context(&context)
+                    .prepare(PrepareBinding {
+                        task_store_id: key.task_store_id.clone(),
+                        task: specification,
+                        destination: destination.clone(),
+                        routing_version: 1,
+                    })
+                    .await;
+                match prepared {
+                    Ok(binding) => binding,
+                    Err(error) => {
+                        // Concurrent exact StartTurn calls can propose different wall-clock
+                        // origins. Reuse the winning immutable intent and its deadline.
+                        let Some(disposition) = self
+                            .admission
+                            .bindings
+                            .with_context(&context)
+                            .lookup(key.clone())
+                            .await?
+                        else {
+                            return Err(error);
+                        };
+                        routed(disposition)?
+                    }
+                }
+            }
+        };
+        validate_submission(&pending, &key, &destination, &request, input.sequence)?;
+        // The integration capability owns creation and uncertain-create reconciliation.
+        // No runnable task is submitted before its complete durable intent exists.
+        if let Err(error) = self
+            .admission
+            .bindings
+            .with_context(&context)
+            .admit(key)
+            .await
+            && self
                 .tasks
                 .with_context(&context)
-                .get(TaskLookup {
-                    id: task_id(&request),
-                })
+                .get(lookup)
                 .await?
-            else {
-                return Err(error);
-            };
-            if task.kind != TURN_KIND || task.input != encode(&request)? {
-                return Err(error);
-            }
+                .is_none()
+        {
+            return Err(error);
         }
+        // A committed task may already be advancing. require() confirms its binding
+        // and compares immutable input; mutable phase/checkpoint are not guessed.
         self.require(&request, &context).await
     }
 
@@ -229,25 +369,21 @@ impl AgentLoopProvider for Service {
     }
 
     async fn cancel(&self, request: TurnLookup, context: Context) -> Result<TurnRecord> {
-        let before = self.require(&request, &context).await?;
+        let before = self.require_task(&request, &context).await?;
         let start: StartTurn = decode(before.task.input.clone())?;
-        let mut checkpoint: Checkpoint = decode(before.task.checkpoint.clone())?;
-        checkpoint.step = 0; // Cancellation batch identity cannot depend on task progress.
-        journal::append(
-            &self.sessions,
-            &checkpoint.turn(&start),
-            "cancel-requested",
-            "swarmie.agent.cancellation-requested",
-            serde_json::json!({}),
-            &context,
-        )
-        .await?;
+        let checkpoint: Checkpoint = decode(before.task.checkpoint.clone())?;
+        self.admission
+            .require_source(&checkpoint.turn(&start), &before.task, &context)
+            .await?;
+        // Logical source cancellation must not wait for an unavailable destination.
+        // Durable Tasks owns the transition, emergency cancellation and its outbox evidence.
         self.tasks
             .with_context(&context)
             .cancel(TaskLookup { id: before.task.id })
             .await?;
-        let record = self.require(&request, &context).await?;
-        self.reconcile_terminal(&record, &context).await?;
+        let record = self.require_task(&request, &context).await?;
+        // Do not await destination publication here, including unresponsive providers.
+        // The integration publisher owns delivery of the authoritative source fact.
         Ok(record)
     }
 

@@ -6,6 +6,8 @@ use serde_json::json;
 use swarmie_composition::{FacetTarget, PluginKind, Selection, SelectionState};
 use swarmie_plugin_contracts::ObservedState;
 use swarmie_runtime::{Application, Configuration, compiled_plugins, resolve_application};
+use swarmie_session_contracts::{SessionStore, SessionStoreInput};
+use swarmie_task_contracts::{TaskStorage, TaskStorageInput};
 use tembra::core;
 use tembra_native::TokioDriver;
 
@@ -63,6 +65,10 @@ fn compiled_agent_catalog_is_available_without_selecting_it_by_default() {
             swarmie_session_store_sqlite::PLUGIN_ID,
             swarmie_session_store_sqlite::FACET_ID,
         ),
+        (
+            swarmie_task_session_integration::PLUGIN_ID,
+            swarmie_task_session_integration::FACET_ID,
+        ),
     ] {
         let release = &catalog
             .iter()
@@ -78,6 +84,7 @@ fn compiled_agent_catalog_is_available_without_selecting_it_by_default() {
     for plugin in [
         swarmie_agent_loop_default::PLUGIN_ID,
         swarmie_session_store_sqlite::PLUGIN_ID,
+        swarmie_task_session_integration::PLUGIN_ID,
     ] {
         assert!(
             !effective
@@ -91,11 +98,22 @@ fn compiled_agent_catalog_is_available_without_selecting_it_by_default() {
 #[test]
 fn explicit_agent_selection_validates_configuration_without_opening_databases() {
     let root = tempfile::tempdir().unwrap();
-    let application = agent_application(root.path());
+    let mut application = agent_application(root.path());
+    select(
+        &mut application,
+        swarmie_task_session_integration::PLUGIN_ID,
+        json!({
+            "database": root.path().join("bindings.sqlite"),
+            "task_store_id": "explicit-task-store",
+            "session_store_id": "explicit-session-store",
+            "consumer_id": "agent-history",
+        }),
+    );
     let effective = resolve_application(&application).unwrap();
     for plugin in [
         swarmie_agent_loop_default::PLUGIN_ID,
         swarmie_session_store_sqlite::PLUGIN_ID,
+        swarmie_task_session_integration::PLUGIN_ID,
     ] {
         assert_eq!(effective.instances[plugin].state, SelectionState::Enabled);
     }
@@ -111,7 +129,7 @@ fn explicit_agent_selection_validates_configuration_without_opening_databases() 
         .unwrap()
         .config = json!({"unknown":true});
     assert!(resolve_application(&invalid).is_err());
-    invalid = application;
+    invalid = application.clone();
     invalid
         .composition
         .profile
@@ -120,6 +138,16 @@ fn explicit_agent_selection_validates_configuration_without_opening_databases() 
         .find(|selection| selection.plugin == swarmie_session_store_sqlite::PLUGIN_ID)
         .unwrap()
         .config = json!({"database":":memory:"});
+    assert!(resolve_application(&invalid).is_err());
+    invalid = application;
+    invalid
+        .composition
+        .profile
+        .plugins
+        .iter_mut()
+        .find(|selection| selection.plugin == swarmie_task_session_integration::PLUGIN_ID)
+        .unwrap()
+        .config = json!({});
     assert!(resolve_application(&invalid).is_err());
     assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
 }
@@ -134,6 +162,64 @@ fn explicit_agent_profile_starts_without_an_implicit_model_provider() {
         .build()
         .unwrap()
         .block_on(scheduler.run_until(async {
+            let mut application = agent_application(root.path());
+            application
+                .composition
+                .profile
+                .plugins
+                .retain(|selection| selection.plugin != swarmie_agent_loop_default::PLUGIN_ID);
+            let stores = swarmie_runtime::start(
+                scheduler.clone(),
+                Configuration {
+                    database: root.path().join("manager.sqlite"),
+                    source: root.path().join("source"),
+                    application: Some(application.clone()),
+                },
+            )
+            .await
+            .unwrap();
+            assert!(
+                stores.deployment_errors.is_empty(),
+                "{:?}",
+                stores.deployment_errors
+            );
+            assert!(stores.recovery_error.is_none());
+            let task_store_id = stores
+                .host
+                .get(TaskStorage, TaskStorageInput {})
+                .await
+                .unwrap()
+                .outbox_status()
+                .await
+                .unwrap()
+                .store_id;
+            let session_store_id = stores
+                .host
+                .get(SessionStore, SessionStoreInput {})
+                .await
+                .unwrap()
+                .publication_status()
+                .await
+                .unwrap()
+                .durable
+                .store_id;
+            stores.host.close().await.unwrap();
+            drop(stores);
+            select(
+                &mut application,
+                swarmie_task_session_integration::PLUGIN_ID,
+                json!({
+                    "database": root.path().join("bindings.sqlite"),
+                    "task_store_id": task_store_id,
+                    "session_store_id": session_store_id,
+                    "consumer_id": "agent-history",
+                }),
+            );
+            select(
+                &mut application,
+                swarmie_agent_loop_default::PLUGIN_ID,
+                json!({}),
+            );
             let runtime = tokio::time::timeout(
                 Duration::from_secs(10),
                 swarmie_runtime::start(
@@ -141,7 +227,7 @@ fn explicit_agent_profile_starts_without_an_implicit_model_provider() {
                     Configuration {
                         database: root.path().join("manager.sqlite"),
                         source: root.path().join("source"),
-                        application: Some(agent_application(root.path())),
+                        application: Some(application),
                     },
                 ),
             )

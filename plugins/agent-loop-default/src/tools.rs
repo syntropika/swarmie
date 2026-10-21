@@ -171,6 +171,7 @@ impl Engine {
             context,
         )
         .await?;
+        self.admission.require(&call.turn, context).await?;
         self.admit_tool(call, index, context).await?;
         context.check(context.host_id())?;
         // This managed operation is the effect boundary. Its provider independently checks
@@ -197,6 +198,9 @@ impl Engine {
         Ok(result)
     }
     async fn admit_tool(&self, call: &ToolCall, index: u32, context: &Context) -> Result<()> {
+        // Read immutable intent before the task admission snapshot so no Session await
+        // can conceal a cancellation or phase change after the final durable task read.
+        let events = journal::history(&self.sessions, &call.turn, context).await?;
         let tasks = context.get(DurableTasks, DurableTasksInput {}).await?;
         let task = tasks
             .with_context(context)
@@ -228,7 +232,6 @@ impl Engine {
                 "tool operation is no longer admitted by the durable turn",
             ));
         }
-        let events = journal::history(&self.sessions, &start, context).await?;
         let intent_event = journal::own_event(
             &events,
             cp.tool_event

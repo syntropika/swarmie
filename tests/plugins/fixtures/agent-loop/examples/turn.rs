@@ -13,7 +13,9 @@ use swarmie_model_contracts::ModelIdentity;
 use swarmie_session_contracts::{
     AppendEvents, Correlation, CreateSession, MESSAGE, NewEvent, SessionStore, SessionStoreInput,
 };
-use swarmie_task_contracts::{DurableTasks, DurableTasksInput, TaskLookup};
+use swarmie_task_contracts::{
+    DurableTasks, DurableTasksInput, TaskLookup, TaskStorage, TaskStorageInput,
+};
 use tembra::{core, prelude::*};
 use tembra_native::TokioDriver;
 
@@ -35,9 +37,18 @@ fn main() -> Result<()> {
                     tool::facet(Default::default(),ToolProbe::default())?,
                     policy::facet(true,PolicyProbe::default())?,
                     swarmie_durable_tasks::facet(&swarmie_durable_tasks::Configuration {poll_interval_ms:2,..Default::default()},driver.clone())?,
-                    swarmie_agent_loop_default::facet(driver.clone())?,
+
                 ] {host.install(facet,core::LoadOptions::default())?.await?;}
                 let sessions=host.get(SessionStore,SessionStoreInput {}).await?;
+                let storage=host.get(TaskStorage,TaskStorageInput {}).await?;
+                host.install(swarmie_task_session_integration::facet(&swarmie_task_session_integration::Configuration {
+                    database:directory.path().join("bindings.sqlite"),
+                    task_store_id:storage.outbox_status().await?.store_id,
+                    session_store_id:sessions.publication_status().await?.durable.store_id,
+                    consumer_id:"agent-example-session-history".into(),
+                    auto_publish:true,poll_interval_ms:2,
+                },driver.clone())?,core::LoadOptions::default())?.await?;
+                host.install(swarmie_agent_loop_default::facet(driver.clone())?,core::LoadOptions::default())?.await?;
                 sessions.create(CreateSession {session_id:"demo".into(),metadata:json!({})}).await?;
                 sessions.append(AppendEvents {session_id:"demo".into(),batch_id:"input".into(),expected_head:None,events:vec![NewEvent {
                     event_id:"input".into(),kind:MESSAGE.into(),version:1,correlation:Correlation {conversation_id:Some("conversation".into()),..Default::default()},occurred_at_ms:None,

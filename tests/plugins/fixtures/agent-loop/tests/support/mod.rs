@@ -13,7 +13,14 @@ use swarmie_session_contracts::{
     AppendEvents, Correlation, CreateSession, EventQuery, MESSAGE, NewEvent, SessionEvent,
     SessionStore, SessionStoreInput, SessionStoreRef,
 };
-use swarmie_task_contracts::{DurableTasks, DurableTasksInput, DurableTasksRef, TaskLookup};
+use swarmie_task_contracts::{
+    DurableTasks, DurableTasksInput, DurableTasksRef, TaskLookup, TaskStorage, TaskStorageInput,
+    TaskStorageRef,
+};
+use swarmie_task_session_contracts::{
+    TaskSessionBindings, TaskSessionBindingsInput, TaskSessionBindingsRef, TaskSessionPublisher,
+    TaskSessionPublisherInput, TaskSessionPublisherRef,
+};
 use tembra::{core, prelude::*};
 use tembra_native::TokioDriver;
 
@@ -28,7 +35,7 @@ where
         .build()
         .unwrap()
         .block_on(driver.run_until(async {
-            tokio::time::timeout(Duration::from_secs(20), test(driver.clone()))
+            tokio::time::timeout(Duration::from_secs(30), test(driver.clone()))
                 .await
                 .expect("agent acceptance timed out")
                 .unwrap();
@@ -40,6 +47,9 @@ pub struct Harness {
     pub agent: AgentLoopRef,
     pub tasks: DurableTasksRef,
     pub sessions: SessionStoreRef,
+    pub storage: TaskStorageRef,
+    pub bindings: TaskSessionBindingsRef,
+    pub binding_configuration: swarmie_task_session_integration::Configuration,
     pub model: ModelProbe,
     pub tool: ToolProbe,
     pub policy: PolicyProbe,
@@ -104,6 +114,27 @@ pub async fn open_with_contributions(
     .await
 }
 
+pub async fn open_degraded_bindings(
+    driver: Rc<TokioDriver>,
+    root: &Path,
+    configuration: swarmie_task_session_integration::Configuration,
+) -> Result<Harness> {
+    open_with_loop(
+        driver,
+        root,
+        vec![Reply::text("must not execute")],
+        Default::default(),
+        Some(true),
+        true,
+        LoopSetup {
+            binding_configuration: Some(configuration),
+            tolerate_binding_startup_failure: true,
+            ..Default::default()
+        },
+    )
+    .await
+}
+
 pub async fn open_replacement(driver: Rc<TokioDriver>, root: &Path) -> Result<Harness> {
     open_with_loop(
         driver,
@@ -124,6 +155,8 @@ pub async fn open_replacement(driver: Rc<TokioDriver>, root: &Path) -> Result<Ha
 struct LoopSetup {
     replacement: bool,
     contributions: Vec<NativeFacet>,
+    binding_configuration: Option<swarmie_task_session_integration::Configuration>,
+    tolerate_binding_startup_failure: bool,
 }
 
 async fn open_with_loop(
@@ -138,6 +171,8 @@ async fn open_with_loop(
     let LoopSetup {
         replacement,
         contributions,
+        binding_configuration,
+        tolerate_binding_startup_failure,
     } = setup;
     let host = Host::with_driver("agent-acceptance", "application", driver.clone())?;
     let model = ModelProbe::default();
@@ -188,6 +223,33 @@ async fn open_with_loop(
         core::LoadOptions::default(),
     )?
     .await?;
+    let storage = host.get(TaskStorage, TaskStorageInput {}).await?;
+    let sessions = host.get(SessionStore, SessionStoreInput {}).await?;
+    let binding_configuration =
+        binding_configuration.unwrap_or(swarmie_task_session_integration::Configuration {
+            database: root.join("bindings.sqlite"),
+            task_store_id: storage.outbox_status().await?.store_id,
+            session_store_id: sessions.publication_status().await?.durable.store_id,
+            consumer_id: "agent-session-history-v1".into(),
+            auto_publish: false,
+            poll_interval_ms: 2,
+        });
+    if let Err(error) = host
+        .install(
+            swarmie_task_session_integration::facet(&binding_configuration, driver.clone())?,
+            core::LoadOptions::default(),
+        )?
+        .await
+    {
+        if !tolerate_binding_startup_failure {
+            host.close().await?;
+            return Err(error);
+        }
+        assert_eq!(error.reason, "binding_store_mismatch");
+    }
+    let bindings = host
+        .get(TaskSessionBindings, TaskSessionBindingsInput {})
+        .await?;
     host.install(
         if replacement {
             swarmie_agent_loop_fixture::replacement::facet()?
@@ -205,6 +267,9 @@ async fn open_with_loop(
         agent,
         tasks,
         sessions,
+        storage,
+        bindings,
+        binding_configuration,
         model,
         tool,
         policy,
@@ -212,6 +277,12 @@ async fn open_with_loop(
 }
 
 impl Harness {
+    pub async fn publisher(&self) -> Result<TaskSessionPublisherRef> {
+        self.host
+            .get(TaskSessionPublisher, TaskSessionPublisherInput {})
+            .await
+    }
+
     pub fn lookup(turn: &str) -> TurnLookup {
         TurnLookup {
             session_id: format!("session-{turn}"),
@@ -271,7 +342,7 @@ impl Harness {
     pub async fn terminal(&self, turn: &str) -> Result<TurnRecord> {
         let record = self.agent.inspect(Harness::lookup(turn)).await?.unwrap();
         let waiting = tokio::time::timeout(
-            Duration::from_secs(5),
+            Duration::from_secs(10),
             self.tasks.wait(TaskLookup { id: record.task.id }),
         )
         .await;

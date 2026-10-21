@@ -13,6 +13,7 @@ swarmie-agent-contracts = { path = "../../crates/agent-contracts" }
 swarmie-task-contracts = { path = "../../crates/task-contracts" }
 swarmie-model-contracts = { path = "../../crates/model-contracts" }
 swarmie-session-contracts = { path = "../../crates/session-contracts" }
+swarmie-task-session-contracts = { path = "../../crates/task-session-contracts" }
 tembra.workspace = true
 tembra-hooks.workspace = true
 tembra-executor-js = { workspace = true, optional = true }

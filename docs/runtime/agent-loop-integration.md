@@ -30,7 +30,6 @@ projections remain policy-free; context transformation belongs to the loop and c
 | `swarmie.agent.tool-confirmed` | Confirmed execution outcome, denial or explicit reconciliation |
 | `swarmie.agent.step-ended` | Fully processed model/tool step and accumulated admitted usage |
 | `swarmie.agent.phase-error` | Sanitized phase/reason diagnostic; it does not assert effect rollback |
-| `swarmie.agent.cancellation-requested` | Cancellation requested through the agent control surface |
 | `swarmie.agent.turn-ended` | Loop decision, which can precede the task's actual terminal commit |
 | `swarmie.agent.task-settled` | Reconciled authoritative terminal TaskStorage outcome |
 | `swarmie.agent.operation-resolution` | Validated reference to evidence resolving an uncertain operation |
@@ -134,20 +133,45 @@ outcome; it cannot manufacture missing intermediate task transitions.
 
 ## Integration-owned task/session association
 
-The loop durably writes session/conversation/turn identity in the task input and checkpoint during
-`create`, before the scheduler can execute it. All effect admission uses that persisted identity.
-This is necessary context, but is not a complete store-to-store routing agreement for an outbox
-publisher. The current Durable Tasks Contract has no atomic task/session binding admission API.
-An ephemeral `onTaskCreated` handler and a second post-create binding write cannot close that race.
+The loop consumes `TaskSessionBindings` from the independently owned task/session integration
+capability. It does not implement a binding database or an outbox publisher. Binding identity
+includes the actual source TaskStorage ID and task ID, destination SessionStore ID and session,
+conversation and turn, root and optional parent, and routing version.
 
-The integration owner must settle one immutable binding containing source TaskStorage identity,
-task ID, root and optional parent ID; destination SessionStore identity and session ID; conversation
-and turn IDs; and mapping version. Admission must commit it atomically with task creation, or a
-mandatory durable gate must confirm it before any model/tool effect. Child tasks inherit the same
-authoritative routing according to that contract. The loop will consume that interface when it is
-stabilized; it does not create a private table, alternate public binding Contract or second bridge.
-Production publisher routing and combined child/restart/crash acceptance remain an explicit
-integration dependency. This branch does not claim that selecting the plugins enables that bridge.
+For a new root, `lookup` first retrieves any retained immutable admission intent. If absent,
+`prepare` persists the complete initial TaskSpec and destination before `admit` may create the
+Durable Task. Only the integration capability calls `DurableTasks.create`. Retries and concurrent
+identical submissions reuse the winning initial checkpoint and duration origin. A conflicting
+submission, explicit exclusion, or existing unbound task fails closed; a caller cannot invent
+routing from its current conversation to repair missing evidence.
+
+Every admitted or recovered phase requires `require_confirmed_binding` before phase execution.
+That authority can confirm matching Pending intent even when the scheduler enters the handler
+before the original admission call returns. Revision-one checks include initial checkpoint and
+phase; later phases preserve immutable task input, identity, lineage and supported definition
+version while allowing checkpoint progress. The consumer additionally compares the retained
+Agent scope with the selected stores' authoritative IDs. Historical `lookup` alone is not an
+execution grant.
+
+Model and tool terminals repeat confirmation after asynchronous preparation at their effective
+execution boundaries, alongside current task, cancellation, argument and permission checks.
+Optional hooks cannot bypass this requirement. Session receipt reads and Agent event appends, including post-effect recovery and cleanup,
+require confirmed routing. Control-surface Session reconciliation has the same requirement, so
+a replacement store containing the same session name cannot receive a terminal event for another
+store. Confirmation is not a transaction spanning stores
+or a promise of exactly-once external effects. Logical cancellation validates the actual source
+and retained historical binding without depending on destination availability. It commits through
+Durable Tasks first and performs no destination I/O on that control path. The integration publisher
+owns delivery of retained source cancellation facts, without redirecting routing. Durable Tasks'
+emergency `cancellation_unconfirmed` path retains its own semantics when outbox admission is
+refused; this loop does not manufacture a missing transition fact. Continuing a turn or using
+Session result evidence still requires full destination confirmation. Cancellation and physically
+settled local work remain distinct from a durable confirmed result.
+
+Child admission belongs to `prepare_child` and the existing scheduler's Wait transition. The
+integration capability fixes inherited root, parent and destination before child creation;
+optional conversation forks require explicit pre-creation intent. The default Agent Loop does
+not introduce a child scheduler or an independent inheritance policy.
 
 The agreed destination protocol uses identical complete immutable append batches with
 `expected_head=None`, a stable mapping of source store/sequence/ordinal/version, and confirmation
@@ -157,8 +181,9 @@ full outbox capacity and mapping compatibility belong to the integration-owned p
 
 ## Executable examples
 
-Both examples use a real Host, the existing scheduler and two independently persisted SQLite
-stores. Their scripted model and functional numeric tool are test fixtures. Temporary example
+Both examples use a real Host, the existing scheduler, SQLite task and session stores, and the
+integration capability's durable binding database. They obtain actual store IDs before installing
+the bridge. Their scripted model and functional numeric tool are test fixtures. Temporary example
 storage belongs to the example process.
 
 ```sh

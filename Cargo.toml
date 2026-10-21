@@ -1,5 +1,6 @@
 [workspace]
 members = ["crates/*", "plugins/*", "tests/plugins/fixtures/counter", "tests/plugins/fixtures/durable-tasks", "tests/plugins/fixtures/agent-loop"]
+exclude = ["vendor/genai-0.7.0"]
 resolver = "2"
 
 [workspace.package]
@@ -10,11 +11,11 @@ rust-version = "1.99"
 
 [workspace.dependencies]
 tembra = { git = "https://github.com/syntropika/tembra.git", rev = "5d57976f92459cf5497ae6e3941b30f903bea742", features = ["native"] }
-tembra-hooks = { git = "https://github.com/syntropika/tembra.git", rev = "5d57976f92459cf5497ae6e3941b30f903bea742" }
 tembra-core = { git = "https://github.com/syntropika/tembra.git", rev = "5d57976f92459cf5497ae6e3941b30f903bea742" }
 tembra-contracts = { git = "https://github.com/syntropika/tembra.git", rev = "5d57976f92459cf5497ae6e3941b30f903bea742" }
 tembra-native = { git = "https://github.com/syntropika/tembra.git", rev = "5d57976f92459cf5497ae6e3941b30f903bea742" }
 tembra-executor-js = { git = "https://github.com/syntropika/tembra.git", rev = "5d57976f92459cf5497ae6e3941b30f903bea742" }
+tembra-hooks = { git = "https://github.com/syntropika/tembra.git", rev = "5d57976f92459cf5497ae6e3941b30f903bea742" }
 futures = "0.3"
 tokio = { version = "1.53.3", features = ["rt", "time", "net", "macros", "signal"] }
 tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["handshake", "connect"] }
@@ -37,3 +38,6 @@ all = { level = "warn", priority = -1 }
 dbg_macro = "deny"
 todo = "deny"
 unimplemented = "deny"
+
+[patch.crates-io]
+genai = { path = "vendor/genai-0.7.0" }

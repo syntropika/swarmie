@@ -148,7 +148,10 @@ that result and resumes processing. Checkpoints cannot reconstruct a missing ext
 
 `turn-ended` records the loop decision before the scheduler commits it. Cancellation can win
 that race. `task-settled`, reconciled when the control surface inspects a terminal task, records
-the authoritative task outcome separately. Cancellation request, loop decision and physical or
+the authoritative task outcome separately. The Agent cancellation control verifies the source
+and historical binding, then cancels through Durable Tasks without destination I/O. Its source
+retained transition facts are delivered by the integration publisher, subject to Durable Tasks'
+explicit emergency cancellation semantics when outbox admission is refused. Cancellation, loop decision and physical or
 durable settlement are distinct facts. If cancellation bypasses the normal finalization phase,
 terminal inspection reconciles its Session event and admits an end observation. Hook notifications
 are not the source of execution truth. Durable Tasks has its own transactional outbox; the loop

@@ -4,13 +4,17 @@ use swarmie_agent_contracts::*;
 use swarmie_model_contracts::{FinishReason, GenerateResult};
 use swarmie_session_contracts::{SessionStore, SessionStoreInput, SessionStoreRef};
 use swarmie_task_contracts::{
-    TaskDefinition, TaskInvocation, TaskOutcome, TaskRecord, TaskTransition, task_definitions,
+    TaskDefinition, TaskInvocation, TaskOutcome, TaskRecord, TaskStorage, TaskStorageInput,
+    TaskTransition, task_definitions,
 };
+use swarmie_task_session_contracts::{TaskSessionBindings, TaskSessionBindingsInput};
 use tembra::{core, prelude::*};
 use tembra_hooks::{HookManager, HookManagerOptions};
 
 use crate::{
-    TURN_KIND, journal,
+    TURN_KIND,
+    admission::Admission,
+    journal,
     observers::{Observation, ObserverDispatcher},
     state::{Checkpoint, decode, encode, invalid, now_ms},
 };
@@ -44,8 +48,15 @@ pub(crate) fn declare(
                 })?,
                 "step",
             )?;
+            let sessions = declaration.get(SessionStore, SessionStoreInput {})?;
+            let admission = Admission::new(
+                declaration.get(TaskSessionBindings, TaskSessionBindingsInput {})?,
+                declaration.get(TaskStorage, TaskStorageInput {})?,
+                sessions.clone(),
+            );
             Ok(Engine {
-                sessions: declaration.get(SessionStore, SessionStoreInput {})?,
+                sessions,
+                admission,
                 hooks: hooks.clone(),
                 observers: observers.clone(),
                 _monitor: declaration.get(AgentObservations, AgentObservationsInput {})?,
@@ -65,6 +76,7 @@ pub(crate) fn declare(
 
 pub(crate) struct Engine {
     pub(crate) sessions: SessionStoreRef,
+    pub(crate) admission: Admission,
     pub(crate) hooks: HookManager,
     pub(crate) observers: Rc<ObserverDispatcher>,
     _monitor: AgentObservationsRef,
@@ -93,6 +105,12 @@ impl TurnHandlerProvider for Engine {
                 target_version,
             } => {
                 return if target_version == 2 && task.definition_version == 2 {
+                    let request: StartTurn = decode(task.input.clone())?;
+                    let checkpoint: Checkpoint = decode(task.checkpoint.clone())?;
+                    checkpoint.validate_identity(&request)?;
+                    self.admission
+                        .require(&checkpoint.turn(&request), &context)
+                        .await?;
                     Ok(TaskTransition::Migrate {
                         checkpoint: task.checkpoint,
                         phase: task.phase,
@@ -145,6 +163,20 @@ impl TurnHandlerProvider for Engine {
         }
         let checkpoint: Checkpoint = decode(task.checkpoint.clone())?;
         checkpoint.validate_identity(&request)?;
+        self.admission
+            .require(&checkpoint.turn(&request), &context)
+            .await?;
+        let latest = tasks
+            .with_context(&context)
+            .get(swarmie_task_contracts::TaskLookup {
+                id: task.id.clone(),
+            })
+            .await?
+            .ok_or_else(|| invalid("turn task disappeared during binding admission"))?;
+        if latest != task {
+            return Err(invalid("turn changed during binding admission"));
+        }
+        context.check(context.host_id())?;
         let remaining = checkpoint
             .started_at_ms
             .saturating_add(request.limits.max_duration_ms)

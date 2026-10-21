@@ -34,16 +34,57 @@ fn cancellation_while_model_is_running_records_aborted_task() {
             "{record:?}"
         );
         assert!(fixture.tool.calls.borrow().is_empty());
+        loop {
+            let receipt = fixture
+                .publisher()
+                .await?
+                .publish(swarmie_task_session_contracts::PublishRequest { limit: 256 })
+                .await?;
+            if receipt.published + receipt.excluded == 0 {
+                break;
+            }
+        }
         let events = fixture.events("cancelled").await?;
+        assert!(
+            !events
+                .iter()
+                .any(|entry| entry.event.kind == "swarmie.agent.cancellation-requested")
+        );
         let request = events
             .iter()
-            .find(|entry| entry.event.kind == "swarmie.agent.cancellation-requested")
-            .expect("logical cancellation request");
+            .find(|entry| {
+                entry.event.kind == "swarmie.task-transition"
+                    && entry.event.payload["source"]["cancellation_requested"] == true
+            })
+            .expect("authoritative cancellation fact published by its managed owner");
+        assert_eq!(request.session_id, "session-cancelled");
+        assert_eq!(
+            request.event.correlation.conversation_id.as_deref(),
+            Some("conversation")
+        );
+        assert_eq!(
+            request.event.correlation.turn_id.as_deref(),
+            Some("cancelled")
+        );
+        let terminal = events
+            .iter()
+            .find(|entry| {
+                entry.event.kind == "swarmie.task-transition"
+                    && entry.event.payload["source"]["outcome"] == "aborted"
+            })
+            .expect("published terminal source fact");
+        assert!(
+            request.event.payload["source"]["id"]["sequence"]
+                .as_u64()
+                .unwrap()
+                <= terminal.event.payload["source"]["id"]["sequence"]
+                    .as_u64()
+                    .unwrap()
+        );
         let settled = events
             .iter()
             .find(|entry| entry.event.kind == "swarmie.agent.task-settled")
             .expect("authoritative terminal outcome reconciliation");
-        assert!(request.sequence < settled.sequence);
         let outcome: TaskOutcome = serde_json::from_value(settled.event.payload.clone()).unwrap();
         assert!(matches!(outcome, TaskOutcome::Aborted { .. }));
         fixture.host.close().await

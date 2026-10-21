@@ -1,6 +1,24 @@
 import { defineConfig } from "@tembra/sdk/tooling";
 
 const contracts = [
+  [
+    "task-session-bindings",
+    "TaskSessionBindings",
+    "swarmie-task-session-contracts",
+    "task-session-contract",
+  ],
+  [
+    "task-session-publisher",
+    "TaskSessionPublisher",
+    "swarmie-task-session-contracts",
+    "task-session-contract",
+  ],
+  ["agent-loop", "AgentLoop", "swarmie-agent-contracts", "agent-contract"],
+  ["agent-observations", "AgentObservations", "swarmie-agent-contracts", "agent-contract"],
+  ["agent-tool", "ToolHandler", "swarmie-agent-contracts", "agent-contract"],
+  ["agent-tool-policy", "ToolPolicy", "swarmie-agent-contracts", "agent-contract"],
+  ["model-provider", "ModelProviderSchema", "swarmie-model-contracts", "model-contract"],
+  ["model-generation", "ModelGenerationSchema", "swarmie-model-contracts", "model-contract"],
   ["session-store", "SessionStore", "swarmie-session-contracts", "session-contract"],
   ["counter", "Counter", "swarmie-counter", "fixture-contract"],
   ["remote-counter", "RemoteCounter", "swarmie-counter", "fixture-contract"],
@@ -41,10 +59,6 @@ const contracts = [
   ],
   ["task-terminal-observer", "TaskTerminalObserver", "swarmie-task-contracts", "task-contract"],
   ["task-lifecycle", "TaskLifecycle", "swarmie-task-contracts", "task-contract"],
-  ["agent-loop", "AgentLoop", "swarmie-agent-contracts", "agent-contract"],
-  ["agent-observations", "AgentObservations", "swarmie-agent-contracts", "agent-contract"],
-  ["agent-tool", "ToolHandler", "swarmie-agent-contracts", "agent-contract"],
-  ["agent-tool-policy", "ToolPolicy", "swarmie-agent-contracts", "agent-contract"],
   [
     "durable-workflow",
     "DurableWorkflow",
@@ -53,6 +67,10 @@ const contracts = [
   ],
   ["durable-gate", "TaskGate", "swarmie-durable-tasks-fixture", "durable-fixture-contract"],
 ] as const;
+const selectors = new Map([
+  ["model-provider", "provider"],
+  ["model-generation", "generation"],
+]);
 const watch = [
   "Cargo.toml",
   "Cargo.lock",
@@ -60,8 +78,9 @@ const watch = [
     "crates/plugin-contracts",
     "crates/task-contracts",
     "crates/session-contracts",
-    "crates/agent-contracts",
     "crates/model-contracts",
+    "crates/agent-contracts",
+    "crates/task-session-contracts",
     "tests/plugins/fixtures/counter",
     "tests/plugins/fixtures/durable-tasks",
     "plugins/memory-store",
@@ -84,7 +103,9 @@ export default defineConfig({
         owner,
         "--bin",
         binary,
-        ...(["memory-store", "durable-workflow"].includes(source) ? [] : ["--", source]),
+        ...(["memory-store", "durable-workflow"].includes(source)
+          ? []
+          : ["--", selectors.get(source) ?? source]),
       ],
       watch,
     },
@@ -92,6 +113,14 @@ export default defineConfig({
     name,
   })),
   builds: {
+    "agent-context-v1": {
+      entry: "tests/plugins/fixtures/agent-context/v1.ts",
+      platform: "server",
+    },
+    "agent-context-v2": {
+      entry: "tests/plugins/fixtures/agent-context/v2.ts",
+      platform: "server",
+    },
     "durable-observer-v1": {
       entry: "tests/plugins/fixtures/durable-tasks/observer-v1.ts",
       platform: "server",
@@ -102,14 +131,6 @@ export default defineConfig({
     },
     "session-client": {
       entry: "tests/plugins/fixtures/session-client/index.ts",
-      platform: "server",
-    },
-    "agent-context-v1": {
-      entry: "tests/plugins/fixtures/agent-context/v1.ts",
-      platform: "server",
-    },
-    "agent-context-v2": {
-      entry: "tests/plugins/fixtures/agent-context/v2.ts",
       platform: "server",
     },
     "durable-workflow-v1": {

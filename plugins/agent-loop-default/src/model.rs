@@ -18,11 +18,16 @@ use swarmie_model_contracts::{
     ProviderRegistration, ResponseFormat, Role, Support, model_providers,
 };
 use swarmie_session_contracts::{SessionStore, SessionStoreInput, SessionStoreRef};
-use swarmie_task_contracts::{DurableTasks, DurableTasksInput, TaskLookup, TaskStatus};
+use swarmie_task_contracts::{
+    DurableTasks, DurableTasksInput, TaskLookup, TaskStatus, TaskStorage, TaskStorageInput,
+};
+use swarmie_task_session_contracts::{TaskSessionBindings, TaskSessionBindingsInput};
 use tembra::{core, prelude::*};
 
 use crate::{
-    TURN_KIND, journal,
+    TURN_KIND,
+    admission::Admission,
+    journal,
     observers::{Observation, ObserverDispatcher},
     state::{Checkpoint, decode, encode, invalid, now_ms, stable, task_id},
 };
@@ -54,8 +59,15 @@ pub(crate) fn declare(
                 serde_json::json!({"version":1}),
                 "invoke",
             )?;
+            let sessions = declaration.get(SessionStore, SessionStoreInput {})?;
+            let admission = Admission::new(
+                declaration.get(TaskSessionBindings, TaskSessionBindingsInput {})?,
+                declaration.get(TaskStorage, TaskStorageInput {})?,
+                sessions.clone(),
+            );
             Ok(ModelExecutor {
-                sessions: declaration.get(SessionStore, SessionStoreInput {})?,
+                sessions,
+                admission,
                 providers: scope.registry(&model_providers()?)?,
                 observers: observers.clone(),
                 driver: driver.clone(),
@@ -72,6 +84,7 @@ pub(crate) fn declare(
 
 pub(crate) struct ModelExecutor {
     sessions: SessionStoreRef,
+    admission: Admission,
     providers: core::RegistryView,
     driver: Rc<dyn core::Driver>,
     observers: Rc<ObserverDispatcher>,
@@ -199,6 +212,7 @@ impl ModelExecutor {
                 "model terminal turn is no longer admitted for this step",
             ));
         }
+        self.admission.require(&call.turn, &context).await?;
         let deadline = checkpoint
             .started_at_ms
             .checked_add(start.limits.max_duration_ms)
@@ -433,6 +447,50 @@ impl ModelExecutor {
         })
     }
 
+    async fn require_generation(&self, call: &ModelCall, context: &Context) -> Result<()> {
+        self.admission.require(&call.turn, context).await?;
+        let tasks = context.get(DurableTasks, DurableTasksInput {}).await?;
+        let task = tasks
+            .with_context(context)
+            .get(TaskLookup {
+                id: call.turn.task_id.clone(),
+            })
+            .await?
+            .ok_or_else(|| invalid("model turn task is absent at execution admission"))?;
+        let request: StartTurn = decode(task.input.clone())?;
+        let checkpoint: Checkpoint = decode(task.checkpoint.clone())?;
+        checkpoint.validate_identity(&request)?;
+        let remaining = request
+            .limits
+            .max_output_tokens
+            .saturating_sub(checkpoint.output_tokens);
+        if task.kind != TURN_KIND
+            || task.definition_version != 2
+            || task.status != TaskStatus::Running
+            || task.cancellation_requested
+            || task.phase != "model"
+            || checkpoint.turn(&request) != call.turn
+            || task.id != task_id(&request)
+            || call.request.model != request.model
+            || call.request.request_id != stable(&request, &format!("model:{}", checkpoint.step))
+            || call
+                .request
+                .options
+                .max_output_tokens
+                .is_none_or(|cap| cap == 0 || u64::from(cap) > remaining)
+            || now_ms()?
+                >= checkpoint
+                    .started_at_ms
+                    .saturating_add(request.limits.max_duration_ms)
+        {
+            return Err(invalid(
+                "model turn changed before effective generation start",
+            ));
+        }
+        context.check(context.host_id())?;
+        Ok(())
+    }
+
     async fn consume(
         &self,
         generation: &GenerationReference,
@@ -440,6 +498,7 @@ impl ModelExecutor {
         deadline: u64,
         context: &Context,
     ) -> Result<GenerateResult> {
+        self.require_generation(call, context).await?;
         // start is attempted exactly once. A failed reactive publication can follow
         // physical completion; recovery reads this same live object and never submits I/O.
         if let Err(error) = generation.with_context(context).start().await {

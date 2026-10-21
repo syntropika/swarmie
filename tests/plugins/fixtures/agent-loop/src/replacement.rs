@@ -5,8 +5,11 @@
 
 use swarmie_agent_contracts::*;
 use swarmie_model_contracts::{ContentPart, FinishReason, GenerateResult, Role};
-use swarmie_session_contracts::{EventQuery, SessionStore, SessionStoreInput, SessionStoreRef};
+use swarmie_session_contracts::{
+    EventQuery, SessionLookup, SessionStore, SessionStoreInput, SessionStoreRef,
+};
 use swarmie_task_contracts::*;
+use swarmie_task_session_contracts::*;
 use tembra::{core, prelude::*};
 
 const KIND: &str = "swarmie.agent-turn";
@@ -28,6 +31,12 @@ pub fn facet() -> Result<NativeFacet> {
             |_, _, declaration| {
                 Ok(Control {
                     tasks: declaration.get(DurableTasks, DurableTasksInput {})?,
+                    route: Route {
+                        storage: declaration.get(TaskStorage, TaskStorageInput {})?,
+                        bindings: declaration
+                            .get(TaskSessionBindings, TaskSessionBindingsInput {})?,
+                        sessions: declaration.get(SessionStore, SessionStoreInput {})?,
+                    },
                 })
             },
             core::ServeOptions {
@@ -46,6 +55,12 @@ pub fn facet() -> Result<NativeFacet> {
                 )?;
                 Ok(Finalizer {
                     tasks: declaration.get(DurableTasks, DurableTasksInput {})?,
+                    route: Route {
+                        storage: declaration.get(TaskStorage, TaskStorageInput {})?,
+                        bindings: declaration
+                            .get(TaskSessionBindings, TaskSessionBindingsInput {})?,
+                        sessions: declaration.get(SessionStore, SessionStoreInput {})?,
+                    },
                     sessions: declaration.get(SessionStore, SessionStoreInput {})?,
                 })
             },
@@ -57,8 +72,92 @@ pub fn facet() -> Result<NativeFacet> {
     })
 }
 
+struct Route {
+    storage: TaskStorageRef,
+    bindings: TaskSessionBindingsRef,
+    sessions: SessionStoreRef,
+}
+
+impl Route {
+    async fn historical(&self, task: &TaskRecord, context: &Context) -> Result<TaskSessionBinding> {
+        let key = BindingKey {
+            task_store_id: self
+                .storage
+                .with_context(context)
+                .outbox_status()
+                .await?
+                .store_id,
+            task_id: task.id.clone(),
+        };
+        let Some(BindingDisposition::Routed { binding }) = self
+            .bindings
+            .with_context(context)
+            .lookup(key.clone())
+            .await?
+        else {
+            return Err(RuntimeError::invalid(
+                "fixture_replacement_binding",
+                "task has no routed association",
+            ));
+        };
+        if binding.key != key
+            || binding.task.input != task.input
+            || binding.task.kind != task.kind
+            || binding.task.definition_version != task.definition_version
+            || binding.parent_task_id != task.parent
+            || binding.destination.session_id != task.input["session_id"]
+            || binding.destination.conversation_id != task.input["conversation_id"]
+            || binding.destination.turn_id != task.input["turn_id"]
+        {
+            return Err(RuntimeError::invalid(
+                "fixture_replacement_binding",
+                "association differs from saved task",
+            ));
+        }
+        Ok(*binding)
+    }
+
+    async fn require(&self, task: &TaskRecord, context: &Context) -> Result<()> {
+        let historical = self.historical(task, context).await?;
+        let binding = self
+            .bindings
+            .with_context(context)
+            .require_confirmed_binding(historical.key.clone())
+            .await?;
+        let session = self
+            .sessions
+            .with_context(context)
+            .open(SessionLookup {
+                session_id: binding.destination.session_id.clone(),
+            })
+            .await?
+            .ok_or_else(|| {
+                RuntimeError::invalid("fixture_replacement_binding", "bound session is absent")
+            })?;
+        if binding.admission != BindingAdmission::Active
+            || binding.destination != historical.destination
+            || session.store_id != binding.destination.session_store_id
+            || self
+                .storage
+                .with_context(context)
+                .outbox_status()
+                .await?
+                .store_id
+                != binding.key.task_store_id
+        {
+            return Err(RuntimeError::invalid(
+                "fixture_replacement_binding",
+                "selected stores differ from association",
+            ));
+        }
+        context.check(context.host_id())?;
+        Ok(())
+    }
+}
+
 struct Control {
     tasks: DurableTasksRef,
+    route: Route,
 }
 
 impl Control {
@@ -80,6 +179,7 @@ impl Control {
                         serde_json::from_value(task.input.clone()).map_err(|error| {
                             RuntimeError::invalid("fixture_replacement_input", error.to_string())
                         })?;
+                    self.route.historical(&task, context).await?;
                     return Ok(Some(TurnRecord {
                         turn_id: lookup.turn_id.clone(),
                         session_id: request.session_id,
@@ -125,19 +225,16 @@ impl AgentLoopProvider for Control {
                 "submission differs from the saved turn",
             ));
         }
+        self.route.require(&record.task, &context).await?;
         Ok(record)
     }
 
     async fn inspect(&self, request: TurnLookup, context: Context) -> Result<Option<TurnRecord>> {
-        self.find(
-            &TurnLookup {
-                session_id: request.session_id.clone(),
-                conversation_id: request.conversation_id.clone(),
-                turn_id: request.turn_id.clone(),
-            },
-            &context,
-        )
-        .await
+        let record = self.find(&request, &context).await?;
+        if let Some(record) = &record {
+            self.route.require(&record.task, &context).await?;
+        }
+        Ok(record)
     }
 
     async fn cancel(&self, request: TurnLookup, context: Context) -> Result<TurnRecord> {
@@ -177,6 +274,20 @@ impl AgentLoopProvider for Control {
                 "this finalizer does not reconcile external effects",
             ));
         }
+        let record = self
+            .find(
+                &TurnLookup {
+                    session_id: request.session_id.clone(),
+                    conversation_id: request.conversation_id.clone(),
+                    turn_id: request.turn_id.clone(),
+                },
+                &context,
+            )
+            .await?
+            .ok_or_else(|| {
+                RuntimeError::invalid("fixture_replacement_missing", "turn is absent")
+            })?;
+        self.route.require(&record.task, &context).await?;
         self.tasks.with_context(&context).resume().await?;
         self.find(
             &TurnLookup {
@@ -193,6 +304,7 @@ impl AgentLoopProvider for Control {
 
 struct Finalizer {
     tasks: DurableTasksRef,
+    route: Route,
     sessions: SessionStoreRef,
 }
 
@@ -235,6 +347,7 @@ impl ReplacementHandlerProvider for Finalizer {
                 "invocation differs from its admitted task",
             ));
         }
+        self.route.require(&task, &context).await?;
         if !matches!(
             task.phase.as_str(),
             "model" | "model-result" | "step-end" | "finish"
@@ -372,6 +485,7 @@ impl ReplacementHandlerProvider for Finalizer {
                         "replacement requires a correlated final answer without tools or private reasoning",
                     ));
                 }
+                self.route.require(&task, &context).await?;
                 return Ok(TaskTransition::Complete {
                     value: serde_json::json!({"session_id":request.session_id,"conversation_id":request.conversation_id,"turn_id":request.turn_id,"response_event_id":entry.event.event_id,"implementation":"fixture.replacement-agent-loop"}),
                 });

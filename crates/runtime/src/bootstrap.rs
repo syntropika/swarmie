@@ -37,8 +37,8 @@ pub(crate) async fn start(
             .unwrap_or_else(|| configuration.source.clone());
         let compiled = compiled.unwrap_or_else(|| application::compiled(source, driver.clone()));
         let mut prepared = crate::preparation::prepare(&application, &compiled)?;
-        // Core capabilities own language adapters; register them before dynamic activation or
-        // recovery. Administration startup above evaluates no application plugin code.
+        // Register capability-owned language definitions before any source/application
+        // installation or cached Dynamic activation. Administration startup evaluates no code.
         for plugin in &compiled {
             plugin.register_language_adapter(&executor)?;
         }

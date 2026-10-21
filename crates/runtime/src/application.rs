@@ -142,9 +142,27 @@ pub(crate) fn compiled(
     source: PathBuf,
     driver: Rc<dyn tembra::core::Driver>,
 ) -> Vec<CompiledPlugin> {
-    let task_driver = driver.clone();
     let session_driver = driver.clone();
     vec![
+        CompiledPlugin::new(
+            release(
+                swarmie_session_store_sqlite::PLUGIN_ID,
+                swarmie_session_store_sqlite::FACET_ID,
+            ),
+            move |value| {
+                let configuration: swarmie_session_store_sqlite::Configuration =
+                    serde_json::from_value(value.clone()).map_err(|error| {
+                        tembra::RuntimeError::invalid(
+                            "session_store_configuration",
+                            error.to_string(),
+                        )
+                    })?;
+                Ok(vec![swarmie_session_store_sqlite::facet(
+                    &configuration,
+                    session_driver.clone(),
+                )?])
+            },
+        ),
         CompiledPlugin::new(
             release(
                 swarmie_memory_store::PLUGIN_ID,
@@ -182,38 +200,66 @@ pub(crate) fn compiled(
                 swarmie_durable_tasks::PLUGIN_ID,
                 swarmie_durable_tasks::FACET_ID,
             ),
-            move |value| {
-                let configuration: swarmie_durable_tasks::Configuration =
-                    serde_json::from_value(value.clone()).map_err(|error| {
-                        tembra::RuntimeError::invalid(
-                            "durable_tasks_configuration",
-                            error.to_string(),
-                        )
-                    })?;
-                Ok(vec![swarmie_durable_tasks::facet(
-                    &configuration,
-                    task_driver.clone(),
-                )?])
+            {
+                let task_driver = driver.clone();
+                move |value| {
+                    let configuration: swarmie_durable_tasks::Configuration =
+                        serde_json::from_value(value.clone()).map_err(|error| {
+                            tembra::RuntimeError::invalid(
+                                "durable_tasks_configuration",
+                                error.to_string(),
+                            )
+                        })?;
+                    Ok(vec![swarmie_durable_tasks::facet(
+                        &configuration,
+                        task_driver.clone(),
+                    )?])
+                }
             },
         )
         .with_language_adapter(swarmie_durable_tasks::register_language_hooks),
         CompiledPlugin::new(
             release(
-                swarmie_session_store_sqlite::PLUGIN_ID,
-                swarmie_session_store_sqlite::FACET_ID,
+                swarmie_model_provider_genai::PLUGIN_ID,
+                swarmie_model_provider_genai::FACET_ID,
             ),
-            move |value| {
-                let configuration: swarmie_session_store_sqlite::Configuration =
-                    serde_json::from_value(value.clone()).map_err(|error| {
-                        tembra::RuntimeError::invalid(
-                            "session_store_configuration",
-                            error.to_string(),
-                        )
-                    })?;
-                Ok(vec![swarmie_session_store_sqlite::facet(
-                    &configuration,
-                    session_driver.clone(),
-                )?])
+            {
+                let model_driver = driver.clone();
+                move |value| {
+                    let configuration: swarmie_model_provider_genai::Configuration =
+                        serde_json::from_value(value.clone()).map_err(|_| {
+                            tembra::RuntimeError::invalid(
+                                "model_configuration",
+                                "invalid model provider configuration",
+                            )
+                        })?;
+                    Ok(vec![swarmie_model_provider_genai::facet(
+                        &configuration,
+                        model_driver.clone(),
+                    )?])
+                }
+            },
+        ),
+        CompiledPlugin::new(
+            release(
+                swarmie_task_session_integration::PLUGIN_ID,
+                swarmie_task_session_integration::FACET_ID,
+            ),
+            {
+                let binding_driver = driver.clone();
+                move |value| {
+                    let configuration: swarmie_task_session_integration::Configuration =
+                        serde_json::from_value(value.clone()).map_err(|error| {
+                            tembra::RuntimeError::invalid(
+                                "task_session_configuration",
+                                error.to_string(),
+                            )
+                        })?;
+                    Ok(vec![swarmie_task_session_integration::facet(
+                        &configuration,
+                        binding_driver.clone(),
+                    )?])
+                }
             },
         ),
         CompiledPlugin::new(
@@ -221,14 +267,19 @@ pub(crate) fn compiled(
                 swarmie_agent_loop_default::PLUGIN_ID,
                 swarmie_agent_loop_default::FACET_ID,
             ),
-            move |value| {
-                if value != &json!({}) {
-                    return Err(tembra::RuntimeError::invalid(
-                        "agent_loop_configuration",
-                        "agent loop configuration must be an empty object",
-                    ));
+            {
+                let agent_driver = driver.clone();
+                move |value| {
+                    if value != &json!({}) {
+                        return Err(tembra::RuntimeError::invalid(
+                            "agent_loop_configuration",
+                            "agent loop configuration must be an empty object",
+                        ));
+                    }
+                    Ok(vec![swarmie_agent_loop_default::facet(
+                        agent_driver.clone(),
+                    )?])
                 }
-                Ok(vec![swarmie_agent_loop_default::facet(driver.clone())?])
             },
         )
         .with_language_adapter(swarmie_agent_loop_default::register_agent_hooks),

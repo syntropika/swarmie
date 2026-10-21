@@ -1,0 +1,615 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -50,335 +50,6 @@
+ [lib]
+ name = "genai"
+ path = "src/lib.rs"
+-
+-[[example]]
+-name = "c00-readme"
+-path = "examples/c00-readme.rs"
+-
+-[[example]]
+-name = "c01-conv"
+-path = "examples/c01-conv.rs"
+-
+-[[example]]
+-name = "c02-auth"
+-path = "examples/c02-auth.rs"
+-
+-[[example]]
+-name = "c03-mapper"
+-path = "examples/c03-mapper.rs"
+-
+-[[example]]
+-name = "c04-chat-options"
+-path = "examples/c04-chat-options.rs"
+-
+-[[example]]
+-name = "c05-model-names"
+-path = "examples/c05-model-names.rs"
+-
+-[[example]]
+-name = "c06-model-spec"
+-path = "examples/c06-model-spec.rs"
+-
+-[[example]]
+-name = "c06-target-resolver"
+-path = "examples/c06-target-resolver.rs"
+-
+-[[example]]
+-name = "c07-image"
+-path = "examples/c07-image.rs"
+-
+-[[example]]
+-name = "c08-image-gen"
+-path = "examples/c08-image-gen.rs"
+-
+-[[example]]
+-name = "c09-cache-ttl"
+-path = "examples/c09-cache-ttl.rs"
+-
+-[[example]]
+-name = "c10-aihubmix"
+-path = "examples/c10-aihubmix.rs"
+-
+-[[example]]
+-name = "c11-openai-resp-reasoning-roundtrip"
+-path = "examples/c11-openai-resp-reasoning-roundtrip.rs"
+-
+-[[example]]
+-name = "c12-otel"
+-path = "examples/c12-otel.rs"
+-required-features = ["otel"]
+-
+-[[example]]
+-name = "c13-gemini-interactions"
+-path = "examples/c13-gemini-interactions.rs"
+-
+-[[example]]
+-name = "c20-tooluse"
+-path = "examples/c20-tooluse.rs"
+-
+-[[example]]
+-name = "c21-tooluse-streaming"
+-path = "examples/c21-tooluse-streaming.rs"
+-
+-[[example]]
+-name = "c22-tooluse-deterministic"
+-path = "examples/c22-tooluse-deterministic.rs"
+-
+-[[example]]
+-name = "c23-tool-web-search"
+-path = "examples/c23-tool-web-search.rs"
+-
+-[[example]]
+-name = "c24-tool-custom-grammar"
+-path = "examples/c24-tool-custom-grammar.rs"
+-
+-[[example]]
+-name = "c25-frame-sink"
+-path = "examples/c25-frame-sink.rs"
+-
+-[[example]]
+-name = "c99-baidu"
+-path = "examples/c99-baidu.rs"
+-
+-[[example]]
+-name = "c99-bedrock-api"
+-path = "examples/c99-bedrock-api.rs"
+-
+-[[example]]
+-name = "c99-bedrock-sigv4"
+-path = "examples/c99-bedrock-sigv4.rs"
+-
+-[[example]]
+-name = "c99-gemini-search-citations"
+-path = "examples/c99-gemini-search-citations.rs"
+-
+-[[example]]
+-name = "c99-gemini-transcribe"
+-path = "examples/c99-gemini-transcribe.rs"
+-
+-[[example]]
+-name = "c99-github-copilot"
+-path = "examples/c99-github-copilot.rs"
+-
+-[[example]]
+-name = "c99-google-gcp"
+-path = "examples/c99-google-gcp.rs"
+-
+-[[example]]
+-name = "c99-ollama-cloud"
+-path = "examples/c99-ollama-cloud.rs"
+-
+-[[example]]
+-name = "c99-zai"
+-path = "examples/c99-zai.rs"
+-
+-[[example]]
+-name = "e01-embed-basic"
+-path = "examples/e01-embed-basic.rs"
+-
+-[[example]]
+-name = "x99-cache-experiment"
+-path = "examples/x99-cache-experiment.rs"
+-
+-[[test]]
+-name = "anthropic_max_tokens_tool_calls"
+-path = "tests/anthropic_max_tokens_tool_calls.rs"
+-
+-[[test]]
+-name = "openai_resp_done_arguments"
+-path = "tests/openai_resp_done_arguments.rs"
+-
+-[[test]]
+-name = "openai_resp_incomplete_tool_calls"
+-path = "tests/openai_resp_incomplete_tool_calls.rs"
+-
+-[[test]]
+-name = "tests_p_aihubmix"
+-path = "tests/tests_p_aihubmix.rs"
+-
+-[[test]]
+-name = "tests_p_anthropic"
+-path = "tests/tests_p_anthropic.rs"
+-
+-[[test]]
+-name = "tests_p_bedrock_api"
+-path = "tests/tests_p_bedrock_api.rs"
+-
+-[[test]]
+-name = "tests_p_bedrock_sigv4"
+-path = "tests/tests_p_bedrock_sigv4.rs"
+-
+-[[test]]
+-name = "tests_p_cohere"
+-path = "tests/tests_p_cohere.rs"
+-
+-[[test]]
+-name = "tests_p_cohere_embeddings"
+-path = "tests/tests_p_cohere_embeddings.rs"
+-
+-[[test]]
+-name = "tests_p_custom"
+-path = "tests/tests_p_custom.rs"
+-
+-[[test]]
+-name = "tests_p_deepseek"
+-path = "tests/tests_p_deepseek.rs"
+-
+-[[test]]
+-name = "tests_p_deepseek_reasoning"
+-path = "tests/tests_p_deepseek_reasoning.rs"
+-
+-[[test]]
+-name = "tests_p_fireworks"
+-path = "tests/tests_p_fireworks.rs"
+-
+-[[test]]
+-name = "tests_p_gemini"
+-path = "tests/tests_p_gemini.rs"
+-
+-[[test]]
+-name = "tests_p_gemini_embeddings"
+-path = "tests/tests_p_gemini_embeddings.rs"
+-
+-[[test]]
+-name = "tests_p_gemini_image"
+-path = "tests/tests_p_gemini_image.rs"
+-
+-[[test]]
+-name = "tests_p_gemini_ix"
+-path = "tests/tests_p_gemini_ix.rs"
+-
+-[[test]]
+-name = "tests_p_gemini_reasoning"
+-path = "tests/tests_p_gemini_reasoning.rs"
+-
+-[[test]]
+-name = "tests_p_github_copilot"
+-path = "tests/tests_p_github_copilot.rs"
+-
+-[[test]]
+-name = "tests_p_groq"
+-path = "tests/tests_p_groq.rs"
+-
+-[[test]]
+-name = "tests_p_groq_reasoning"
+-path = "tests/tests_p_groq_reasoning.rs"
+-
+-[[test]]
+-name = "tests_p_kimi"
+-path = "tests/tests_p_kimi.rs"
+-
+-[[test]]
+-name = "tests_p_minimax"
+-path = "tests/tests_p_minimax.rs"
+-
+-[[test]]
+-name = "tests_p_mistral"
+-path = "tests/tests_p_mistral.rs"
+-
+-[[test]]
+-name = "tests_p_ollama"
+-path = "tests/tests_p_ollama.rs"
+-
+-[[test]]
+-name = "tests_p_ollama_cloud"
+-path = "tests/tests_p_ollama_cloud.rs"
+-
+-[[test]]
+-name = "tests_p_ollama_reasoning"
+-path = "tests/tests_p_ollama_reasoning.rs"
+-
+-[[test]]
+-name = "tests_p_omlx"
+-path = "tests/tests_p_omlx.rs"
+-
+-[[test]]
+-name = "tests_p_openai"
+-path = "tests/tests_p_openai.rs"
+-
+-[[test]]
+-name = "tests_p_openai_embeddings"
+-path = "tests/tests_p_openai_embeddings.rs"
+-
+-[[test]]
+-name = "tests_p_openai_reasoning"
+-path = "tests/tests_p_openai_reasoning.rs"
+-
+-[[test]]
+-name = "tests_p_openai_resp"
+-path = "tests/tests_p_openai_resp.rs"
+-
+-[[test]]
+-name = "tests_p_together"
+-path = "tests/tests_p_together.rs"
+-
+-[[test]]
+-name = "tests_p_vertex"
+-path = "tests/tests_p_vertex.rs"
+-
+-[[test]]
+-name = "tests_p_xai"
+-path = "tests/tests_p_xai.rs"
+-
+-[[test]]
+-name = "tests_p_zai"
+-path = "tests/tests_p_zai.rs"
+-
+-[[test]]
+-name = "tests_p_zai_reasoning"
+-path = "tests/tests_p_zai_reasoning.rs"
+-
+-[[test]]
+-name = "tests_stream_timeouts"
+-path = "tests/tests_stream_timeouts.rs"
+-
+-[[test]]
+-name = "tests_yakbak_aihubmix"
+-path = "tests/tests_yakbak_aihubmix.rs"
+-
+-[[test]]
+-name = "tests_yakbak_anthropic"
+-path = "tests/tests_yakbak_anthropic.rs"
+-
+-[[test]]
+-name = "tests_yakbak_bedrock"
+-path = "tests/tests_yakbak_bedrock.rs"
+-
+-[[test]]
+-name = "tests_yakbak_gemini"
+-path = "tests/tests_yakbak_gemini.rs"
+-
+-[[test]]
+-name = "tests_yakbak_gemini_ix"
+-path = "tests/tests_yakbak_gemini_ix.rs"
+-
+-[[test]]
+-name = "tests_yakbak_github_copilot"
+-path = "tests/tests_yakbak_github_copilot.rs"
+-
+-[[test]]
+-name = "tests_yakbak_ollama"
+-path = "tests/tests_yakbak_ollama.rs"
+-
+-[[test]]
+-name = "tests_yakbak_ollama_cloud"
+-path = "tests/tests_yakbak_ollama_cloud.rs"
+-
+-[[test]]
+-name = "tests_yakbak_openai"
+-path = "tests/tests_yakbak_openai.rs"
+-
+-[[test]]
+-name = "tests_yakbak_openai_resp"
+-path = "tests/tests_yakbak_openai_resp.rs"
+-
+-[[test]]
+-name = "tests_yakbak_opencode_go"
+-path = "tests/tests_yakbak_opencode_go.rs"
+-
+-[[test]]
+-name = "tests_yakbak_record"
+-path = "tests/tests_yakbak_record.rs"
+ 
+ [dependencies.aws-config]
+ version = "1"
+--- a/src/adapter/adapters/anthropic/adapter_shared.rs
++++ b/src/adapter/adapters/anthropic/adapter_shared.rs
+@@ -171,6 +171,12 @@
+ 			}
+ 
+ 			match msg.role {
++				ChatRole::Developer => {
++					return Err(crate::Error::AdapterNotSupported {
++						adapter_kind: AdapterKind::Anthropic,
++						feature: "developer role".to_string(),
++					});
++				}
+ 				// Collect only text for system; other content parts are ignored by Anthropic here.
+ 				ChatRole::System => {
+ 					if let Some(system_text) = msg.content.joined_texts() {
+--- a/src/adapter/adapters/bedrock/converse.rs
++++ b/src/adapter/adapters/bedrock/converse.rs
+@@ -339,6 +339,12 @@
+ 
+ 	for msg in chat_req.messages {
+ 		match msg.role {
++			ChatRole::Developer => {
++				return Err(Error::AdapterNotSupported {
++					adapter_kind: crate::adapter::AdapterKind::BedrockApi,
++					feature: "developer role".to_string(),
++				});
++			}
+ 			ChatRole::System => {
+ 				if let Some(text) = msg.content.joined_texts() {
+ 					systems.push(text);
+--- a/src/adapter/adapters/cohere/adapter_impl.rs
++++ b/src/adapter/adapters/cohere/adapter_impl.rs
+@@ -286,6 +286,12 @@
+ 			};
+ 
+ 			match msg.role {
++				ChatRole::Developer => {
++					return Err(Error::MessageRoleNotSupported {
++						model_iden: model_iden.clone(),
++						role: ChatRole::Developer,
++					});
++				}
+ 				// For now, system and tool messages go to the system
+ 				ChatRole::System => systems.push(content),
+ 				ChatRole::User => chat_history.push(json! ({"role": "USER", "content": content})),
+--- a/src/adapter/adapters/gemini/adapter_impl.rs
++++ b/src/adapter/adapters/gemini/adapter_impl.rs
+@@ -624,6 +624,12 @@
+ 				call_names.insert(call.call_id.clone(), call.fn_name.clone());
+ 			}
+ 			match msg.role {
++				ChatRole::Developer => {
++					return Err(Error::MessageRoleNotSupported {
++						model_iden: model_iden.clone(),
++						role: ChatRole::Developer,
++					});
++				}
+ 				// For now, system goes as "user" (later, we might have adapter_config.system_to_user_impl)
+ 				ChatRole::System => {
+ 					if let Some(content) = msg.content.into_joined_texts() {
+@@ -676,7 +682,7 @@
+ 				}
+ 				ChatRole::Assistant => {
+ 					let is_gemini_3 = model_iden.model_name.contains("gemini-3");
+-					let parts = GeminiModelPart::from_assistant_content(msg.content, is_gemini_3);
++					let parts = GeminiModelPart::from_assistant_content(msg.content, is_gemini_3, model_iden)?;
+ 					if !parts.is_empty() {
+ 						contents.push(json!({"role": "model", "parts": serde_json::to_value(parts)?}));
+ 					}
+@@ -860,6 +866,8 @@
+ 	data: GeminiModelPartData,
+ 	#[serde(skip_serializing_if = "Option::is_none")]
+ 	thought_signature: Option<String>,
++	#[serde(skip_serializing_if = "Option::is_none")]
++	thought: Option<bool>,
+ }
+ 
+ #[derive(Serialize)]
+@@ -875,7 +883,7 @@
+ }
+ 
+ impl GeminiModelPart {
+-	fn from_assistant_content(content: MessageContent, is_gemini_3: bool) -> Vec<Self> {
++	fn from_assistant_content(content: MessageContent, is_gemini_3: bool, model_iden: &ModelIden) -> Result<Vec<Self>> {
+ 		let call_signatures: HashSet<String> = content
+ 			.tool_calls()
+ 			.into_iter()
+@@ -894,6 +902,7 @@
+ 				ContentPart::Text(text) => parts.push(Self {
+ 					data: GeminiModelPartData::Text(text),
+ 					thought_signature: pending_signature.take(),
++					thought: None,
+ 				}),
+ 				ContentPart::ToolCall(call) => {
+ 					// For Gemini 3 models, the first call of a turn must carry a signature; when there
+@@ -913,18 +922,38 @@
+ 							args: call.fn_arguments,
+ 						},
+ 						thought_signature,
++						thought: None,
+ 					});
+ 					is_first_call = false;
++				}
++				ContentPart::Custom(custom) => {
++					// Replay only native thought-text blocks, without exposing the opaque signature as text.
++					let data = custom.data;
++					let valid = data.as_object().is_some_and(|object| {
++						object.keys().all(|key| matches!(key.as_str(), "thought" | "text" | "thoughtSignature"))
++					}) && data.get("thought").and_then(Value::as_bool) == Some(true)
++						&& data.get("text").and_then(Value::as_str).is_some()
++						&& data.get("thoughtSignature").is_none_or(Value::is_string);
++					if !valid {
++						return Err(Error::MessageContentTypeNotSupported {
++							model_iden: model_iden.clone(),
++							cause: "only native thought-text custom content is supported",
++						});
++					}
++					parts.push(Self {
++						data: GeminiModelPartData::Text(data["text"].as_str().unwrap().to_string()),
++						thought_signature: data.get("thoughtSignature").and_then(Value::as_str).map(str::to_string),
++						thought: Some(true),
++					});
+ 				}
+ 				// Not replayed in a model turn.
+ 				ContentPart::Binary(_)
+ 				| ContentPart::ToolResponse(_)
+-				| ContentPart::ReasoningContent(_)
+-				| ContentPart::Custom(_) => {}
+-			}
+-		}
+-
+-		parts
++				| ContentPart::ReasoningContent(_) => {}
++			}
++		}
++
++		Ok(parts)
+ 	}
+ }
+ 
+--- a/src/adapter/adapters/gemini_ix/adapter_impl.rs
++++ b/src/adapter/adapters/gemini_ix/adapter_impl.rs
+@@ -387,6 +387,12 @@
+ 
+ 		for msg in messages {
+ 			match msg.role {
++				ChatRole::Developer => {
++					return Err(Error::MessageRoleNotSupported {
++						model_iden: model_iden.clone(),
++						role: ChatRole::Developer,
++					});
++				}
+ 				ChatRole::System => {
+ 					if let Some(content) = msg.content.into_joined_texts() {
+ 						systems.push(content);
+--- a/src/adapter/adapters/ollama/adapter_shared.rs
++++ b/src/adapter/adapters/ollama/adapter_shared.rs
+@@ -82,6 +82,12 @@
+ 
+ 		// -- Messages
+ 		for msg in chat_req.messages {
++			if msg.role == crate::chat::ChatRole::Developer {
++				return Err(crate::Error::AdapterNotSupported {
++					adapter_kind: crate::adapter::AdapterKind::Ollama,
++					feature: "developer role".to_string(),
++				});
++			}
+ 			let mut ollama_msg = json!({
+ 				"role": msg.role.to_string().to_lowercase(),
+ 			});
+--- a/src/adapter/adapters/openai/adapter_shared.rs
++++ b/src/adapter/adapters/openai/adapter_shared.rs
+@@ -326,14 +326,21 @@
+ 			// Note: Will handle more types later
+ 			match msg.role {
+ 				// For now, system and tool messages go to the system
+-				ChatRole::System => {
++				ChatRole::System | ChatRole::Developer => {
++					let role = if msg.role == ChatRole::Developer { "developer" } else { "system" };
++					if !msg.content.is_text_only() {
++						return Err(Error::MessageContentTypeNotSupported {
++							model_iden: model_iden.clone(),
++							cause: "system and developer messages require text content",
++						});
++					}
+ 					if let Some(content) = msg.content.into_joined_texts() {
+ 						if cache_controlled {
+ 							let mut values = vec![json!({"type": "text", "text": content})];
+ 							apply_chat_cache_breakpoint(model_iden, &mut values, "message")?;
+-							messages.push(json!({"role": "system", "content": values}));
++							messages.push(json!({"role": role, "content": values}));
+ 						} else {
+-							messages.push(json!({"role": "system", "content": content}))
++							messages.push(json!({"role": role, "content": content}))
+ 						}
+ 					}
+ 					// TODO: Probably need to warn if it is a ToolCalls type of content
+--- a/src/adapter/adapters/openai_resp/adapter_impl.rs
++++ b/src/adapter/adapters/openai_resp/adapter_impl.rs
+@@ -443,14 +443,21 @@
+ 			// Note: Will handle more types later
+ 			match msg.role {
+ 				// For now, system and tool messages go to the system
+-				ChatRole::System => {
++				ChatRole::System | ChatRole::Developer => {
++					let role = if msg.role == ChatRole::Developer { "developer" } else { "system" };
++					if !msg.content.is_text_only() {
++						return Err(Error::MessageContentTypeNotSupported {
++							model_iden: model_iden.clone(),
++							cause: "system and developer messages require text content",
++						});
++					}
+ 					if let Some(content) = msg.content.into_joined_texts() {
+ 						if cache_controlled {
+ 							let mut values = vec![json!({"type": "input_text", "text": content})];
+ 							apply_resp_cache_breakpoint(model_iden, &mut values, "message")?;
+-							input_items.push(json!({"role": "system", "content": values}));
++							input_items.push(json!({"role": role, "content": values}));
+ 						} else {
+-							input_items.push(json!({"role": "system", "content": content}))
++							input_items.push(json!({"role": role, "content": content}))
+ 						}
+ 					}
+ 					// TODO: Probably need to warn if it is a ToolCalls type of content
+@@ -620,8 +627,17 @@
+ 							// top-level `type:reasoning` items in the pre-pass above.
+ 							ContentPart::ThoughtSignature(_) => {}
+ 							ContentPart::ReasoningContent(_) => {}
+-							// Custom are ignored for this logic
+-							ContentPart::Custom(_) => {}
++							// Preserve a complete provider-native reasoning item at its original position.
++                            ContentPart::Custom(custom) => {
++                                if custom.data["type"] != "reasoning" {
++                                    return Err(Error::MessageContentTypeNotSupported { model_iden: model_iden.clone(), cause: "assistant custom content must be a reasoning item" });
++                                }
++                                if !item_message_content.is_empty() {
++                                    input_items.push(json!({"type":"message","role":"assistant","content":item_message_content}));
++                                    item_message_content = Vec::new();
++                                }
++                                input_items.push(custom.data);
++                            }
+ 						}
+ 					}
+ 
+--- a/src/chat/chat_message.rs
++++ b/src/chat/chat_message.rs
+@@ -35,6 +35,11 @@
+ 			content: content.into(),
+ 			options: None,
+ 		}
++	}
++
++	/// Constructs a developer instruction message. Unsupported adapters return an error.
++	pub fn developer(content: impl Into<MessageContent>) -> Self {
++		Self::new(ChatRole::Developer, content)
+ 	}
+ 
+ 	/// Constructs an assistant message.
+@@ -165,6 +170,8 @@
+ #[allow(missing_docs)]
+ pub enum ChatRole {
+ 	System,
++	/// Developer instructions, supported natively by OpenAI Chat and Responses.
++	Developer,
+ 	User,
+ 	Assistant,
+ 	Tool,
+--- a/src/otel/attrs.rs
++++ b/src/otel/attrs.rs
+@@ -98,6 +98,7 @@
+ fn role_str(role: &ChatRole) -> &'static str {
+ 	match role {
+ 		ChatRole::System => "system",
++		ChatRole::Developer => "developer",
+ 		ChatRole::User => "user",
+ 		ChatRole::Assistant => "assistant",
+ 		ChatRole::Tool => "tool",

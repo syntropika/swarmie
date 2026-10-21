@@ -6,12 +6,14 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+swarmie-task-session-integration = { path = "../../plugins/task-session-integration" }
+swarmie-agent-loop-default = { path = "../../plugins/agent-loop-default", features = ["javascript"] }
 swarmie-composition = { path = "../composition" }
 swarmie-memory-store = { path = "../../plugins/memory-store" }
-swarmie-agent-loop-default = { path = "../../plugins/agent-loop-default", features = ["javascript"] }
 swarmie-session-store-sqlite = { path = "../../plugins/session-store-sqlite" }
 swarmie-task-storage-sqlite = { path = "../../plugins/task-storage-sqlite" }
 swarmie-durable-tasks = { path = "../../plugins/durable-tasks", features = ["javascript"] }
+swarmie-model-provider-genai = { path = "../../plugins/model-provider-genai" }
 swarmie-plugin-contracts = { path = "../plugin-contracts" }
 swarmie-plugin-manager = { path = "../plugin-manager" }
 tembra.workspace = true
@@ -26,11 +28,13 @@ thiserror.workspace = true
 
 [dev-dependencies]
 swarmie-agent-contracts = { path = "../agent-contracts" }
+swarmie-session-contracts = { path = "../session-contracts" }
+swarmie-model-contracts = { path = "../model-contracts" }
+swarmie-counter = { path = "../../tests/plugins/fixtures/counter" }
 swarmie-task-contracts = { path = "../task-contracts" }
 tembra-hooks.workspace = true
 sha2.workspace = true
 hex.workspace = true
-swarmie-counter = { path = "../../tests/plugins/fixtures/counter" }
 tempfile.workspace = true
 
 [lints]
