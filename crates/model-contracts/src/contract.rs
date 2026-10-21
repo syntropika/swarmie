@@ -11,13 +11,24 @@ pub struct GenerationInput {
 /// Canonical schema implemented at independently named provider endpoints.
 #[tembra::contract(local, name = "swarmie.model-provider-schema", version = 1)]
 pub trait ModelProviderSchema {
+    /// Describes implemented paths; model-dependent support is not a remote capability probe.
+    /// # Errors
+    /// Returns a Tembra error for an unknown configured identity or unavailable endpoint.
     #[portable]
     async fn capabilities(&self, model: ModelIdentity) -> Result<Capabilities>;
 
+    /// Discovers candidates without changing the configured model admission policy.
+    /// # Errors
+    /// Provider failures are returned in ModelList; Tembra lifecycle/dispatch can fail separately.
     #[portable]
     async fn models(&self, connection: String) -> Result<ModelList>;
 
-    /// Cancellation of this invocation aborts local I/O, without asserting remote rollback.
+    /// Executes one inference. Cancellation aborts local I/O without asserting remote rollback.
+    /// # Guarantees
+    /// NotSent errors identify local refusal; other outcomes never promise remote nonprocessing.
+    /// # Errors
+    /// Provider failures are typed results. Tembra scope/dispatch failures can prevent delivery
+    /// of that result after remote effects, so callers must retain their own attempt identity.
     #[portable]
     async fn generate(&self, request: ModelRequest) -> Result<GenerateResult>;
 }
@@ -30,14 +41,21 @@ pub trait ModelGenerationSchema {
     fn progress(&self) -> GenerationState;
 
     /// Idempotent within this live object. An acknowledged start does not prove remote admission.
+    /// # Errors
+    /// Returns Tembra lifecycle/publication errors; State observations remain authoritative.
     #[portable]
     async fn start(&self) -> Result<()>;
 
     /// Single-consumer acknowledgement, batched by State publication rather than per token.
+    /// # Errors
+    /// Refuses future cursors without mutation, or reports a Tembra lifecycle/publication error.
     #[portable]
     async fn acknowledge(&self, through: u64) -> Result<()>;
 
     /// Requests cancellation. Observe physically_settled before treating local work as stopped.
+    /// # Errors
+    /// Returns Tembra admission errors when the Reference is no longer callable. Cancellation
+    /// cannot undo a remote submission or guarantee that the caller receives a terminal State.
     #[portable]
     async fn cancel(&self) -> Result<()>;
 }
