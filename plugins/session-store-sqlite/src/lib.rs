@@ -3,7 +3,9 @@
 
 mod configuration;
 mod database;
+mod publication;
 mod reads;
+mod schema;
 mod service;
 mod writes;
 

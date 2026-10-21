@@ -1,6 +1,10 @@
 use tembra::prelude::*;
 
-use crate::{TaskId, TaskRecord, TaskStatus};
+use crate::{
+    TaskId, TaskOutboxAcknowledgement, TaskOutboxCompaction, TaskOutboxConsumer,
+    TaskOutboxConsumerState, TaskOutboxPage, TaskOutboxQuery, TaskOutboxRetention,
+    TaskOutboxStatus, TaskRecord, TaskStatus, TaskTransitionProvenance,
+};
 
 /// Exact task identity, without implementation-specific lookup details.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -62,6 +66,10 @@ pub struct TaskPage {
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
 pub struct TaskWrite {
+    /// Optional writer-reported operation metadata, copied atomically into version 2 outbox
+    /// events. Absence means unknown; it is never inferred from the replacement record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<TaskTransitionProvenance>,
     pub expected_revision: Option<u64>,
     pub record: TaskRecord,
 }
@@ -120,6 +128,20 @@ pub struct StorageOwner {
 /// Admitted oversized records or payloads fail with `task_storage_too_large` before mutation.
 /// Values rejected earlier by Tembra's portable ingestion ceiling retain its conversion error.
 /// Shared canonical byte validators enforce the same limits for independent providers.
+///
+/// Every successful task write atomically appends one bounded structural outbox event in input
+/// order, regardless of registered consumers. Conflicts and rejected transactions append nothing.
+/// Providers expose durable consumer positions and append-stable pages; pending events never
+/// expire automatically. A full configured retained capacity rejects the complete transaction
+/// with `task_storage_outbox_full`. Explicit compaction removes only prefixes acknowledged by all
+/// current consumers; with no consumers it removes nothing. No physical settlement fact belongs
+/// to this atomic record-transition log. Publication is at least once when a consumer retries
+/// pending events; consumers must deduplicate by the complete stable event identity.
+/// Consumer mutation/read authority comes only from Tembra's bounded immediate caller Facet,
+/// using [`crate::task_outbox_consumer_owner`]. Registration durably binds that stable name;
+/// foreign owners and unattributed roots are refused without mutation. Legacy unowned rows
+/// protect retention and fail closed until an explicit operator migration adopts them. Status
+/// inspection reveals positions and owner names without granting consumption authority.
 #[tembra::contract(local, name = "swarmie.task-storage", version = 1)]
 pub trait TaskStorage {
     #[portable]
@@ -136,4 +158,30 @@ pub trait TaskStorage {
 
     #[portable]
     async fn commit(&self, transaction: TaskTransaction) -> Result<CommitResult>;
+
+    /// Inspects capacity, retained usage, durable consumer progress, and pending history without
+    /// changing them. Available while the outbox is full and without claiming scheduler ownership.
+    #[portable]
+    async fn outbox_status(&self) -> Result<TaskOutboxStatus>;
+
+    /// Registers or resumes a durable consumer; future commits atomically append one event per
+    /// task write in input order. Existing stores gain events only for subsequent commits.
+    #[portable]
+    async fn register_outbox_consumer(
+        &self,
+        consumer: TaskOutboxConsumer,
+    ) -> Result<TaskOutboxConsumerState>;
+
+    #[portable]
+    async fn read_outbox(&self, query: TaskOutboxQuery) -> Result<TaskOutboxPage>;
+
+    #[portable]
+    async fn acknowledge_outbox(&self, acknowledgement: TaskOutboxAcknowledgement) -> Result<()>;
+
+    /// Its registered managed Facet owner explicitly abandons this consumer's retention protection.
+    #[portable]
+    async fn remove_outbox_consumer(&self, consumer: TaskOutboxConsumer) -> Result<()>;
+
+    #[portable]
+    async fn compact_outbox(&self, request: TaskOutboxCompaction) -> Result<TaskOutboxRetention>;
 }

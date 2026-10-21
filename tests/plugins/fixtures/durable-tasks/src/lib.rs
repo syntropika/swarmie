@@ -10,6 +10,9 @@ use tembra::{core, prelude::*};
 pub mod adversarial;
 pub mod concurrency;
 pub mod gate;
+pub mod hooks;
+mod memory_outbox;
+pub mod outbox_consumer;
 pub mod volatile_storage;
 
 /// A fixture-owned Contract with the canonical task handler method schema.
@@ -124,9 +127,11 @@ impl DurableWorkflowProvider for Workflow {
                         let mut child = crate::task(&format!("{}:{suffix}", task.id));
                         if task.input["children_sleep"] == true {
                             child.phase = "sleep".into();
+                            child.input = serde_json::json!({"wake_at_ms":swarmie_task_contracts::MAX_PORTABLE_INTEGER});
                         }
                         if task.input["fail_fast"] == true {
                             child.phase = if suffix == "first" { "fail" } else { "sleep" }.into();
+                            child.input = serde_json::json!({"wake_at_ms":swarmie_task_contracts::MAX_PORTABLE_INTEGER});
                         }
                         child
                     })

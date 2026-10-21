@@ -11,21 +11,19 @@
 use std::{cell::RefCell, collections::BTreeSet, rc::Rc, time::Duration};
 
 use futures::FutureExt;
-use swarmie_agent_contracts::{
-    KnownResult, ModelCall, ModelStreamObservation, StartTurn, on_model_event,
-};
+use swarmie_agent_contracts::{KnownResult, ModelCall, ModelStreamObservation, StartTurn};
 use swarmie_model_contracts::{
-    ContentPart, GenerateResult, GenerationEndpoint, GenerationInput, GenerationReference,
-    ModelEndpoint, ModelEvent, ModelProviderSchemaInput, ProviderRegistration, ResponseFormat,
-    Role, Support, model_providers,
+    ContentPart, GenerateResult, GenerationEndpoint, GenerationInput, GenerationPhase,
+    GenerationReference, GenerationState, ModelEndpoint, ModelEvent, ModelProviderSchemaInput,
+    ProviderRegistration, ResponseFormat, Role, Support, model_providers,
 };
 use swarmie_session_contracts::{SessionStore, SessionStoreInput, SessionStoreRef};
 use swarmie_task_contracts::{DurableTasks, DurableTasksInput, TaskLookup, TaskStatus};
 use tembra::{core, prelude::*};
-use tembra_hooks::{HookManager, HookManagerOptions};
 
 use crate::{
     TURN_KIND, journal,
+    observers::{Observation, ObserverDispatcher},
     state::{Checkpoint, decode, encode, invalid, now_ms, stable, task_id},
 };
 
@@ -43,6 +41,7 @@ pub(crate) fn declare(
     scope: &core::FacetScope,
     setup: &mut tembra::FacetDeclaration<'_, '_>,
     driver: Rc<dyn core::Driver>,
+    observers: Rc<ObserverDispatcher>,
 ) -> Result<()> {
     let scope = scope.clone();
     let registry = terminals()?;
@@ -58,11 +57,7 @@ pub(crate) fn declare(
             Ok(ModelExecutor {
                 sessions: declaration.get(SessionStore, SessionStoreInput {})?,
                 providers: scope.registry(&model_providers()?)?,
-                hooks: HookManager::new(
-                    scope.clone(),
-                    driver.clone(),
-                    HookManagerOptions::default(),
-                )?,
+                observers: observers.clone(),
                 driver: driver.clone(),
                 scope: scope.clone(),
                 active: Rc::new(RefCell::new(BTreeSet::new())),
@@ -79,7 +74,7 @@ pub(crate) struct ModelExecutor {
     sessions: SessionStoreRef,
     providers: core::RegistryView,
     driver: Rc<dyn core::Driver>,
-    hooks: HookManager,
+    observers: Rc<ObserverDispatcher>,
     scope: core::FacetScope,
     active: Rc<RefCell<BTreeSet<String>>>,
 }
@@ -124,11 +119,11 @@ impl ModelExecutor {
             requests: self.active.clone(),
             id: incoming.request.request_id.clone(),
         };
-        let events = journal::history(&self.sessions, &incoming.turn.session_id, &context).await?;
+        let events = journal::history(&self.sessions, &incoming.turn, &context).await?;
         let start: StartTurn = decode(
             journal::own_event(
                 &events,
-                &stable(&incoming.turn.turn_id, "turn-started"),
+                &stable(&incoming.turn, "turn-started"),
                 &incoming.turn,
                 "swarmie.agent.turn-started",
             )?
@@ -137,10 +132,11 @@ impl ModelExecutor {
         )?;
         if incoming.turn.turn_id != start.turn_id
             || incoming.turn.session_id != start.session_id
-            || incoming.turn.task_id != task_id(&start.turn_id)
+            || incoming.turn.conversation_id != start.conversation_id
+            || incoming.turn.task_id != task_id(&start)
             || incoming.turn.step >= start.limits.max_steps
             || incoming.request.request_id
-                != stable(&start.turn_id, &format!("model:{}", incoming.turn.step))
+                != stable(&start, &format!("model:{}", incoming.turn.step))
         {
             return Err(invalid(
                 "model terminal causal identity differs from the admitted turn",
@@ -149,7 +145,7 @@ impl ModelExecutor {
         let suffix = format!("model:{}", incoming.turn.step);
         if let Some(event) = journal::find(
             &events,
-            &stable(&start.turn_id, &format!("{suffix}:provider-confirmed")),
+            &stable(&start, &format!("{suffix}:provider-confirmed")),
         ) {
             journal::own_event(
                 &events,
@@ -164,10 +160,7 @@ impl ModelExecutor {
             validate_result(&incoming, &result)?;
             return Ok(result);
         }
-        let call = match journal::find(
-            &events,
-            &stable(&start.turn_id, &format!("{suffix}:actual")),
-        ) {
+        let call = match journal::find(&events, &stable(&start, &format!("{suffix}:actual"))) {
             Some(event) => {
                 journal::own_event(
                     &events,
@@ -194,6 +187,7 @@ impl ModelExecutor {
             .await?
             .ok_or_else(|| invalid("model terminal turn task is absent"))?;
         let checkpoint: Checkpoint = decode(task.checkpoint.clone())?;
+        checkpoint.validate_identity(&start)?;
         if checkpoint.turn(&start) != call.turn
             || task.input != encode(&start)?
             || task.cancellation_requested
@@ -243,10 +237,7 @@ impl ModelExecutor {
         }
         if let Some(resolution) = journal::find(
             &events,
-            &stable(
-                &start.turn_id,
-                &format!("resolution:{}", call.request.request_id),
-            ),
+            &stable(&start, &format!("resolution:{}", call.request.request_id)),
         ) {
             journal::own_event(
                 &events,
@@ -337,12 +328,7 @@ impl ModelExecutor {
             &context,
         )
         .await?;
-        if journal::find(
-            &events,
-            &stable(&start.turn_id, &format!("{suffix}:started")),
-        )
-        .is_some()
-        {
+        if journal::find(&events, &stable(&start, &format!("{suffix}:started"))).is_some() {
             return Err(RuntimeError::unavailable(
                 "agent_model_uncertain",
                 "interrupted model request requires confirmed result reconciliation",
@@ -402,27 +388,23 @@ impl ModelExecutor {
                 Err(error)
             }
         };
-        let mut result = match consumed {
+        let result = match consumed {
             Ok(result) => result,
             Err(error) => {
-                self.cancel_and_settle(generation).await?;
+                self.cancel_and_settle(generation, call.clone()).await?;
                 return Err(error);
             }
         };
-        validate_result(&call, &result)?;
-        // Provider-owned opaque continuation is preserved verbatim; hidden prose is never
-        // written into a generic conversation log or delivered through the stream hook.
-        redact_reasoning(&mut result);
-        journal::append(
-            &self.sessions,
-            &call.turn,
-            &format!("{suffix}:provider-confirmed"),
-            "swarmie.agent.model-provider-confirmed",
-            serde_json::json!({"operation_id":call.request.request_id,"result":result}),
-            &context,
-        )
-        .await?;
-        Ok(result)
+        match persist_provider_result(&self.sessions, &call, result, &context).await {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                // The caller may have expired between stream completion and publication.
+                // Retain this live completion and retry the same durable receipt through
+                // cleanup authority instead of losing it or submitting another request.
+                self.cancel_and_settle(generation, call).await?;
+                Err(error)
+            }
+        }
     }
 
     fn resolve(&self, call: &ModelCall, context: &Context) -> Result<ProviderRegistration> {
@@ -458,7 +440,15 @@ impl ModelExecutor {
         deadline: u64,
         context: &Context,
     ) -> Result<GenerateResult> {
-        generation.with_context(context).start().await?;
+        // start is attempted exactly once. A failed reactive publication can follow
+        // physical completion; recovery reads this same live object and never submits I/O.
+        if let Err(error) = generation.with_context(context).start().await {
+            let recovered = generation.with_context(context).recover().await?;
+            if recovered.physically_settled {
+                return terminal_result(call, recovered);
+            }
+            return Err(error);
+        }
         let mut through = 0;
         loop {
             context.check(context.host_id())?;
@@ -468,7 +458,12 @@ impl ModelExecutor {
                     "turn duration exhausted during generation",
                 ));
             }
-            let state = generation.progress().value()?;
+            // A valid Running projection can remain stale forever after a rejected terminal
+            // candidate. Consult the retained completion channel even when State itself reads.
+            let state = match generation.progress().value() {
+                Ok(state) if state.physically_settled => state,
+                _ => generation.with_context(context).recover().await?,
+            };
             if state.request_id != call.request.request_id
                 || state.acknowledged > through
                 || state.acknowledged > state.last_sequence
@@ -479,33 +474,32 @@ impl ModelExecutor {
             }
             for event in state
                 .events
-                .into_iter()
+                .iter()
                 .filter(|event| event.sequence > through)
+                .cloned()
                 .collect::<Vec<_>>()
             {
                 if through.checked_add(1) != Some(event.sequence) {
                     return Err(invalid("generation stream lost an unacknowledged event"));
                 }
                 if !matches!(&event.event, ModelEvent::ReasoningDelta { .. }) {
-                    self.hooks
-                        .run_series(
-                            &on_model_event()?,
-                            ModelStreamObservation {
-                                turn: call.turn.clone(),
-                                request_id: call.request.request_id.clone(),
-                                event: event.clone(),
-                            },
-                            context.core(),
-                        )
-                        .await?;
+                    self.observers
+                        .enqueue(Observation::Stream(ModelStreamObservation {
+                            turn: call.turn.clone(),
+                            request_id: call.request.request_id.clone(),
+                            event: event.clone(),
+                        }));
                 }
                 through = event.sequence;
             }
-            if through > state.acknowledged {
-                generation
-                    .with_context(context)
-                    .acknowledge(through)
-                    .await?;
+            if through > state.acknowledged
+                && let Err(error) = generation.with_context(context).acknowledge(through).await
+            {
+                let recovered = generation.with_context(context).recover().await?;
+                if recovered.physically_settled {
+                    return terminal_result(call, recovered);
+                }
+                return Err(error);
             }
             if state.physically_settled {
                 if through != state.last_sequence {
@@ -513,33 +507,78 @@ impl ModelExecutor {
                         "settled generation has an incomplete stream window",
                     ));
                 }
-                return match (state.response, state.error) {
-                    (Some(response), None) => Ok(GenerateResult::Response {
-                        response: Box::new(response),
-                    }),
-                    (None, Some(error)) => Ok(GenerateResult::Error { error }),
-                    _ => Err(invalid("settled generation has no unique terminal result")),
-                };
+                return terminal_result(call, state);
             }
             self.driver.sleep(Duration::from_millis(2)).await;
         }
     }
 
-    async fn cancel_and_settle(&self, generation: GenerationReference) -> Result<()> {
+    async fn cancel_and_settle(
+        &self,
+        generation: GenerationReference,
+        call: ModelCall,
+    ) -> Result<()> {
         let driver = self.driver.clone();
-        // The canceled caller cannot authorize cleanup calls. This retained FacetScope
-        // admits a fresh managed root, keeping the original generation claim until joined.
+        let sessions = self.sessions.clone();
+        // Cancellation expires the caller's authority. The owning Facet admits a fresh
+        // cleanup root, retaining the generation claim through local physical settlement
+        // and its durable provider receipt. Failed State publication cannot prevent cleanup.
         self.scope
             .root(move |cleanup| {
                 async move {
                     let cleanup = Context::from_core(cleanup);
-                    let cancelled = generation.with_context(&cleanup).cancel().await;
-                    loop {
-                        if generation.progress().value()?.physically_settled {
-                            return cancelled;
-                        }
-                        driver.sleep(Duration::from_millis(2)).await;
+                    if generation.core().status() == core::RefStatus::Gone {
+                        // Host or Facet retirement invalidates callable claims before joining
+                        // provider Resources. That owner now closes physical work; a dead live
+                        // object is not recoverable evidence and must never fabricate a receipt.
+                        return Err(generation.core().error().unwrap_or_else(|| {
+                            RuntimeError::unavailable(
+                                "agent_generation_gone",
+                                "generation lifetime has ended",
+                            )
+                        }));
                     }
+                    // An already completed result wins over cancellation. recover() is also
+                    // necessary when cancel's own terminal State mutation is rejected.
+                    let initial = generation.with_context(&cleanup).recover().await;
+                    let result = match initial {
+                        Ok(recovered) if recovered.physically_settled => {
+                            terminal_result(&call, recovered)?
+                        }
+                        _ => {
+                            let _ = generation.with_context(&cleanup).cancel().await;
+                            loop {
+                                if generation.core().status() == core::RefStatus::Gone {
+                                    return Err(generation.core().error().unwrap_or_else(|| {
+                                        RuntimeError::unavailable(
+                                            "agent_generation_gone",
+                                            "generation lifetime has ended",
+                                        )
+                                    }));
+                                }
+                                // The recovery method is independent of terminal State adoption.
+                                // A transient delivery failure is not proof of physical shutdown,
+                                // so keep the claim and retry observation rather than inference.
+                                let recovered =
+                                    match generation.with_context(&cleanup).recover().await {
+                                        Ok(state) => Some(state),
+                                        Err(_) => generation.progress().value().ok(),
+                                    };
+                                if let Some(recovered) = recovered
+                                    && recovered.physically_settled
+                                {
+                                    break terminal_result(&call, recovered)?;
+                                }
+                                driver.sleep(Duration::from_millis(2)).await;
+                            }
+                        }
+                    };
+                    persist_provider_result(&sessions, &call, result, &cleanup).await?;
+                    // Local settlement is confirmed before releasing this claim. A refused
+                    // receipt append returns an error and cannot advance the task checkpoint;
+                    // the existing started receipt keeps later retries from resubmitting I/O.
+                    // No local result says anything about remote rollback or billing.
+                    Ok(())
                 }
                 .boxed_local()
             })
@@ -560,11 +599,49 @@ fn validate_result(call: &ModelCall, result: &GenerateResult) -> Result<()> {
     Ok(())
 }
 
-fn redact_reasoning(result: &mut GenerateResult) {
+pub(crate) fn redact_reasoning(result: &mut GenerateResult) {
     if let GenerateResult::Response { response } = result {
         response
             .message
             .content
             .retain(|part| !matches!(part, ContentPart::Reasoning { .. }));
     }
+}
+
+fn terminal_result(call: &ModelCall, state: GenerationState) -> Result<GenerateResult> {
+    if state.request_id != call.request.request_id
+        || !state.physically_settled
+        || state.phase != GenerationPhase::Settled
+    {
+        return Err(invalid(
+            "recovered generation identity or physical settlement differs",
+        ));
+    }
+    match (state.response, state.error) {
+        (Some(response), None) => Ok(GenerateResult::Response {
+            response: Box::new(response),
+        }),
+        (None, Some(error)) => Ok(GenerateResult::Error { error }),
+        _ => Err(invalid("settled generation has no unique terminal result")),
+    }
+}
+
+async fn persist_provider_result(
+    sessions: &SessionStoreRef,
+    call: &ModelCall,
+    mut result: GenerateResult,
+    context: &Context,
+) -> Result<GenerateResult> {
+    validate_result(call, &result)?;
+    redact_reasoning(&mut result);
+    journal::append(
+        sessions,
+        &call.turn,
+        &format!("model:{}:provider-confirmed", call.turn.step),
+        "swarmie.agent.model-provider-confirmed",
+        serde_json::json!({"operation_id":call.request.request_id,"result":result}),
+        context,
+    )
+    .await?;
+    Ok(result)
 }

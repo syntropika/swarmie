@@ -2,6 +2,8 @@
 //! transform values; waterfalls can transform data but cannot replace causal identity.
 //! Bail contributors may veto a tool call, while required authorization remains independent.
 //! Handler failure stops a pipeline; priority ordering and physical settlement belong to Tembra.
+//! Control failures propagate to the phase. Observations are admitted best-effort and bounded
+//! independently; a failed observer cannot invalidate a confirmed model or tool result.
 
 use swarmie_model_contracts::{
     FinishReason, GenerateResult, Message, ModelRequest, SequencedEvent,
@@ -11,6 +13,56 @@ use tembra::prelude::*;
 use tembra_hooks::{HookDescriptor, HookType, RustHookDefinition, Strategy, TerminalProfile};
 
 use crate::{ToolCall, ToolDenial, ToolResult, TurnContext};
+
+/// Hard materialization ceilings. A selection contribution may reduce these budgets only.
+pub const MAX_CONTEXT_EVENTS: u32 = 4096;
+pub const MAX_CONTEXT_BYTES: u32 = 4 * 1024 * 1024;
+pub const MAX_CONTEXT_RANGES: usize = 16;
+
+/// Shared total bounds across every selected source range, including filtered technical rows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct ContextBudget {
+    pub max_events: u32,
+    pub max_bytes: u32,
+}
+
+impl Default for ContextBudget {
+    fn default() -> Self {
+        Self {
+            max_events: MAX_CONTEXT_EVENTS,
+            max_bytes: MAX_CONTEXT_BYTES,
+        }
+    }
+}
+
+/// Explicit immutable source interval `(after_sequence, through_sequence]`. The conversation
+/// filter is mandatory and cannot be overridden. A turn-only range additionally selects
+/// the admitted turn. Prefixes, suffixes and summary references use concrete source sequences.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct ContextRange {
+    pub after_sequence: u64,
+    pub through_sequence: u64,
+    pub current_turn_only: bool,
+}
+
+/// Selection runs before source rows are materialized. Identity, input sequence and frozen
+/// head are immutable; contributions may replace ordered nonoverlapping ranges and reduce
+/// budgets. At least one conversation range must retain the admitted input. Excess rows or
+/// bytes are explicit errors; the loop never truncates selected history silently.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct ContextSelection {
+    pub turn: TurnContext,
+    pub input_sequence: u64,
+    pub through_sequence: u64,
+    pub ranges: Vec<ContextRange>,
+    pub budget: ContextBudget,
+}
 
 /// Ephemeral context projection. A contribution can inject memory or compact messages without
 /// rewriting the Session log. Only the actual model request is persisted as an explicit event.
@@ -92,7 +144,7 @@ fn series<A: Serialize + JsonSchema + 'static>(name: &str) -> Result<RustHookDef
     let input = portable::<A>()?;
     let descriptor = HookDescriptor::new(
         name,
-        1,
+        2,
         Strategy::Series,
         input.profile().clone(),
         None,
@@ -105,7 +157,7 @@ fn waterfall<A: Serialize + JsonSchema + 'static>(name: &str) -> Result<RustHook
     let input = portable::<A>()?;
     let descriptor = HookDescriptor::new(
         name,
-        1,
+        2,
         Strategy::Waterfall,
         input.profile().clone(),
         input.profile().clone(),
@@ -120,6 +172,14 @@ fn waterfall<A: Serialize + JsonSchema + 'static>(name: &str) -> Result<RustHook
 /// Returns Tembra schema or descriptor validation errors.
 pub fn on_turn_start() -> Result<RustHookDefinition<TurnContext, ()>> {
     series("swarmie.agent.on-turn-start")
+}
+
+/// Ordered source selection before materialization, with a fixed conversation and source head.
+///
+/// # Errors
+/// Returns Tembra schema or descriptor validation errors.
+pub fn select_context() -> Result<RustHookDefinition<ContextSelection, ContextSelection>> {
+    waterfall("swarmie.agent.select-context")
 }
 
 /// Ordered context transformations; an empty pipeline returns its original input.
@@ -146,8 +206,9 @@ pub fn after_model_call() -> Result<RustHookDefinition<ModelObservation, ()>> {
     series("swarmie.agent.after-model-call")
 }
 
-/// Ordered ephemeral stream observers. A failure stops consumption and cancels generation;
-/// no durable task or Session event is created for every token. Sensitive reasoning deltas
+/// Ordered ephemeral stream observers. Observation failure does not stop model consumption;
+/// bounded admission can skip delivery. No durable task or Session event is created for each token.
+/// Sensitive reasoning deltas
 /// must not be published into Session history by a generic observer.
 ///
 /// # Errors
@@ -175,7 +236,7 @@ pub fn authorize_tool_call() -> Result<RustHookDefinition<ToolCall, ToolDenial>>
     let result = portable::<ToolDenial>()?;
     let descriptor = HookDescriptor::new(
         "swarmie.agent.authorize-tool-call",
-        1,
+        2,
         Strategy::Bail,
         input.profile().clone(),
         result.profile().clone(),
@@ -219,7 +280,7 @@ pub fn wrap_model_call() -> Result<RustHookDefinition<ModelCall, GenerateResult>
     let result = portable::<GenerateResult>()?;
     let descriptor = HookDescriptor::new(
         "swarmie.agent.wrap-model-call",
-        1,
+        2,
         Strategy::Middleware,
         input.profile().clone(),
         result.profile().clone(),
@@ -240,6 +301,7 @@ mod tests {
     fn every_descriptor_has_a_portable_versioned_profile() -> Result<()> {
         let definitions = [
             on_turn_start()?.descriptor().clone(),
+            select_context()?.descriptor().clone(),
             prepare_context()?.descriptor().clone(),
             before_model_call()?.descriptor().clone(),
             after_model_call()?.descriptor().clone(),
@@ -255,7 +317,7 @@ mod tests {
             let encoded =
                 serde_json::to_string(definition.descriptor()).expect("serializable descriptor");
             let decoded = HookDescriptor::from_json(&encoded)?;
-            assert_eq!(decoded.descriptor().version, 1);
+            assert_eq!(decoded.descriptor().version, 2);
             assert_eq!(decoded.fingerprint(), definition.fingerprint());
             assert!(matches!(
                 decoded.input(),

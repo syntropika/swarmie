@@ -44,7 +44,9 @@ async fn open(
     backend
         .install(
             swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
+                outbox_legacy_owners: Default::default(),
                 database: directory.path().join("tasks.sqlite"),
+                outbox: Default::default(),
             })?,
             core::LoadOptions::default(),
         )?
@@ -63,6 +65,7 @@ async fn open(
                             .iter()
                             .cloned()
                             .map(|record| TaskWrite {
+                                provenance: None,
                                 expected_revision: None,
                                 record
                             })

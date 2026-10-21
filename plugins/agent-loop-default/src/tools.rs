@@ -76,8 +76,8 @@ impl Engine {
     ) -> Result<ToolResult> {
         let call = &intent.call;
         let suffix = format!("tool:{}:{}", call.turn.step, index);
-        let events = journal::history(&self.sessions, &call.turn.session_id, context).await?;
-        let confirmed_id = stable(&call.turn.turn_id, &format!("{suffix}:confirmed"));
+        let events = journal::history(&self.sessions, &call.turn, context).await?;
+        let confirmed_id = stable(&call.turn, &format!("{suffix}:confirmed"));
         if let Some(event) = journal::find(&events, &confirmed_id) {
             let event = journal::own_event(
                 &events,
@@ -87,10 +87,7 @@ impl Engine {
             )?;
             return confirmed_tool(event.payload.clone(), call);
         }
-        let resolution_id = stable(
-            &call.turn.turn_id,
-            &format!("resolution:{}", call.operation_id),
-        );
+        let resolution_id = stable(&call.turn, &format!("resolution:{}", call.operation_id));
         if let Some(event) = journal::find(&events, &resolution_id) {
             let resolution: swarmie_agent_contracts::KnownResult = decode(event.payload.clone())?;
             let confirmed = journal::own_event(
@@ -132,7 +129,7 @@ impl Engine {
         self.admit_tool(call, index, context).await?;
         let definition = definition(&self.tools, &call.tool, context)?;
         validate_arguments(&definition.metadata, call)?;
-        let started_id = stable(&call.turn.turn_id, &format!("{suffix}:started"));
+        let started_id = stable(&call.turn, &format!("{suffix}:started"));
         if journal::find(&events, &started_id).is_some()
             && (intent.replay != ReplayPolicy::Safe
                 || definition.metadata.replay != ReplayPolicy::Safe)
@@ -210,17 +207,18 @@ impl Engine {
             .ok_or_else(|| invalid("tool turn task is absent"))?;
         let start: StartTurn = decode(task.input.clone())?;
         let cp: crate::state::Checkpoint = decode(task.checkpoint.clone())?;
+        cp.validate_identity(&start)?;
         if task.kind != crate::TURN_KIND
-            || task.definition_version != 1
+            || task.definition_version != 2
             || task.status != TaskStatus::Running
             || task.phase != "tool"
             || task.cancellation_requested
             || call.turn != cp.turn(&start)
-            || call.turn.task_id != crate::state::task_id(&start.turn_id)
+            || call.turn.task_id != crate::state::task_id(&start)
             || index != cp.tool_index
             || cp.tool_calls > start.limits.max_tool_calls
             || cp.step >= start.limits.max_steps
-            || call.operation_id != stable(&start.turn_id, &format!("tool:{}:{index}", cp.step))
+            || call.operation_id != stable(&start, &format!("tool:{}:{index}", cp.step))
             || crate::state::now_ms()?
                 >= cp
                     .started_at_ms
@@ -230,7 +228,7 @@ impl Engine {
                 "tool operation is no longer admitted by the durable turn",
             ));
         }
-        let events = journal::history(&self.sessions, &start.session_id, context).await?;
+        let events = journal::history(&self.sessions, &start, context).await?;
         let intent_event = journal::own_event(
             &events,
             cp.tool_event

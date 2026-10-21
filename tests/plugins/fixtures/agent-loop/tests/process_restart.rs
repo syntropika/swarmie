@@ -3,6 +3,7 @@ use futures::FutureExt;
 use std::{path::Path, time::Duration};
 use swarmie_agent_contracts::*;
 use swarmie_agent_loop_fixture::{hooks, model::Reply, tool::ToolConfiguration};
+use swarmie_model_contracts::{GenerateResult, Message, Role};
 use swarmie_task_contracts::{
     TaskOutcome, TaskQuery, TaskRecord, TaskStatus, TaskStorage, TaskStorageInput,
 };
@@ -56,6 +57,46 @@ fn complete_process(root: &Path, mode: &str) {
     );
 }
 
+/// Control middleware pauses only after the real terminal has physically settled and
+/// committed its provider receipt. Observation delivery cannot be used as an execution gate.
+fn model_barrier(
+    log: Option<std::path::PathBuf>,
+    transform: bool,
+) -> tembra::Result<tembra::NativeFacet> {
+    hooks::contribution(
+        wrap_model_call()?,
+        "response-control-barrier",
+        0,
+        move |args: HookArgs<ModelCall, GenerateResult>, _| {
+            let log = log.clone();
+            async move {
+                let (call, next) = args.into_parts();
+                let mut result = next
+                    .expect("model middleware owns its continuation")
+                    .call(call)
+                    .await?;
+                if transform && let GenerateResult::Response { response } = &mut result {
+                    response.message =
+                        Message::text(Role::Assistant, "middleware recovered answer");
+                }
+                if let Some(log) = log {
+                    use std::io::Write;
+                    let mut file = std::fs::File::create(log).unwrap();
+                    writeln!(
+                        file,
+                        "provider receipt confirmed before effective middleware result"
+                    )
+                    .unwrap();
+                    file.sync_all().unwrap();
+                    futures::future::pending::<()>().await;
+                }
+                Ok(result)
+            }
+            .boxed_local()
+        },
+    )
+}
+
 #[test]
 fn real_process_restart_replays_safe_tool_with_original_operation_identity() {
     let directory = tempfile::tempdir().unwrap();
@@ -88,6 +129,8 @@ fn agent_child_process() {
             host.install(
                 swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
                     database: root.join("tasks.sqlite"),
+                    outbox: Default::default(),
+                    outbox_legacy_owners: Default::default(),
                 })?,
                 core::LoadOptions::default(),
             )?
@@ -97,8 +140,11 @@ fn agent_child_process() {
             assert_eq!(page.records.len(), 1);
             let record = &page.records[0];
             assert_eq!(record.status, TaskStatus::Running);
-            assert_eq!(record.phase, "model-result");
-            assert!(record.checkpoint["response_event"].is_string());
+            assert_eq!(record.phase, "model");
+            assert_eq!(record.checkpoint["version"], 2);
+            assert_eq!(record.checkpoint["conversation_id"], "conversation");
+            assert!(record.checkpoint["request_event"].is_string());
+            assert!(record.checkpoint["response_event"].is_null());
             std::fs::write(
                 root.join("saved-checkpoint.json"),
                 serde_json::to_vec(record).unwrap(),
@@ -124,34 +170,49 @@ fn agent_child_process() {
                 matches!(&completed.task.outcome, Some(TaskOutcome::Completed { value }) if value["implementation"] == "fixture.replacement-agent-loop")
             );
             assert!(fixture.model.requests.borrow().is_empty());
-            assert_eq!(completed.task.phase, "model-result");
+            assert_eq!(completed.task.phase, "model");
             return fixture.host.close().await;
         }
-        let fixture = open(
-            driver,
-            &root,
-            if mode == "model-unknown-crash" {
-                vec![Reply::Hang]
-            } else if mode.starts_with("model") {
-                vec![Reply::text("confirmed before process interruption")]
-            } else if crashing {
-                vec![Reply::double(21), Reply::text("done")]
-            } else {
-                vec![Reply::text("recovered")]
-            },
-            ToolConfiguration {
-                replay: if unsafe_replay {
-                    ReplayPolicy::Unsafe
+        let contributions = if mode == "model-transform-resume" {
+            vec![model_barrier(None, true)?]
+        } else {
+            vec![]
+        };
+        let fixture = if mode == "model-transform-resume" {
+            open_with_contributions(
+                driver,
+                &root,
+                vec![Reply::text("must not regenerate")],
+                contributions,
+            )
+            .await?
+        } else {
+            open(
+                driver,
+                &root,
+                if mode == "model-unknown-crash" {
+                    vec![Reply::Hang]
+                } else if mode.starts_with("model") {
+                    vec![Reply::text("confirmed before process interruption")]
+                } else if crashing {
+                    vec![Reply::double(21), Reply::text("done")]
                 } else {
-                    ReplayPolicy::Safe
+                    vec![Reply::text("recovered")]
                 },
-                effect_log: Some(root.join("effects.log")),
-                hang_after_effect: crashing,
-                ..Default::default()
-            },
-            true,
-        )
-        .await?;
+                ToolConfiguration {
+                    replay: if unsafe_replay {
+                        ReplayPolicy::Unsafe
+                    } else {
+                        ReplayPolicy::Safe
+                    },
+                    effect_log: Some(root.join("effects.log")),
+                    hang_after_effect: crashing,
+                    ..Default::default()
+                },
+                true,
+            )
+            .await?
+        };
         if mode == "model-unknown-crash" {
             *fixture.model.admission_log.borrow_mut() = Some(root.join("effects.log"));
             fixture.start("process-turn", Default::default()).await?;
@@ -161,9 +222,7 @@ fn agent_child_process() {
             loop {
                 let record = fixture
                     .agent
-                    .inspect(TurnLookup {
-                        turn_id: "process-turn".into(),
-                    })
+                    .inspect(Harness::lookup("process-turn"))
                     .await?
                     .unwrap();
                 if record.task.status == TaskStatus::Parked {
@@ -176,34 +235,21 @@ fn agent_child_process() {
                 tokio::time::sleep(Duration::from_millis(2)).await;
             }
             assert!(fixture.model.requests.borrow().is_empty());
-        } else if mode == "model-crash" {
-            let log = root.join("effects.log");
+        } else if mode == "model-crash" || mode == "model-transform-crash" {
             fixture
                 .host
                 .install(
-                    hooks::contribution(
-                        after_model_call()?,
-                        "response-barrier",
-                        0,
-                        move |_: HookArgs<ModelObservation, ()>, _| {
-                            let log = log.clone();
-                            async move {
-                                use std::io::Write;
-                                let mut file = std::fs::File::create(log).unwrap();
-                                writeln!(file, "confirmed response reached observer").unwrap();
-                                file.sync_all().unwrap();
-                                futures::future::pending().await
-                            }
-                            .boxed_local()
-                        },
+                    model_barrier(
+                        Some(root.join("effects.log")),
+                        mode == "model-transform-crash",
                     )?,
                     core::LoadOptions::default(),
                 )?
                 .await?;
             fixture.start("process-turn", Default::default()).await?;
             fixture.terminal("process-turn").await?;
-            panic!("the parent should kill the process inside the observer");
-        } else if mode == "model-resume" {
+            panic!("the parent should kill the process inside model control middleware");
+        } else if mode == "model-resume" || mode == "model-transform-resume" {
             let record = fixture.terminal("process-turn").await?;
             assert!(
                 matches!(record.task.outcome, Some(TaskOutcome::Completed { .. })),
@@ -218,11 +264,37 @@ fn agent_child_process() {
                     .unwrap();
             assert_eq!(record.task.id, saved.id);
             assert_eq!(
-                record.task.checkpoint["response_event"],
-                saved.checkpoint["response_event"]
+                record.task.checkpoint["request_event"],
+                saved.checkpoint["request_event"]
             );
             assert!(record.task.attempts > saved.attempts);
             assert!(fixture.tool.calls.borrow().is_empty());
+            assert!(record.task.checkpoint["response_event"].is_string());
+            let events = fixture.events("process-turn").await?;
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|entry| entry.event.kind == "swarmie.agent.model-provider-confirmed")
+                    .count(),
+                1
+            );
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|entry| entry.event.kind == "swarmie.agent.model-confirmed")
+                    .count(),
+                1
+            );
+            if mode == "model-transform-resume" {
+                assert!(events.iter().any(|entry| {
+                    entry.event.kind == swarmie_session_contracts::MESSAGE
+                        && entry
+                            .event
+                            .payload
+                            .to_string()
+                            .contains("middleware recovered answer")
+                }));
+            }
         } else if crashing {
             fixture.start("process-turn", Default::default()).await?;
             fixture.terminal("process-turn").await?;
@@ -231,9 +303,7 @@ fn agent_child_process() {
             loop {
                 let record = fixture
                     .agent
-                    .inspect(TurnLookup {
-                        turn_id: "process-turn".into(),
-                    })
+                    .inspect(Harness::lookup("process-turn"))
                     .await?
                     .unwrap();
                 if record.task.status == TaskStatus::Parked {
@@ -288,4 +358,12 @@ fn compatible_native_implementation_replacement_resumes_confirmed_finalization_c
     crash_during_tool(directory.path(), "model-crash");
     complete_process(directory.path(), "inspect-saved-model");
     complete_process(directory.path(), "replacement-resume");
+}
+
+#[test]
+fn real_process_restart_replays_middleware_after_provider_confirmation_without_repeating_model() {
+    let directory = tempfile::tempdir().unwrap();
+    crash_during_tool(directory.path(), "model-transform-crash");
+    complete_process(directory.path(), "inspect-saved-model");
+    complete_process(directory.path(), "model-transform-resume");
 }

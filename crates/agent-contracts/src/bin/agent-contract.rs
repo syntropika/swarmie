@@ -2,18 +2,20 @@
 
 use std::process::ExitCode;
 
-use swarmie_agent_contracts::{AgentLoop, ToolHandler, ToolPolicy};
+use swarmie_agent_contracts::{AgentLoop, AgentObservations, ToolHandler, ToolPolicy};
 use tembra::ContractToken;
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let contract = match std::env::args().nth(1).as_deref() {
         Some("agent-loop") => AgentLoop.descriptor()?,
+        Some("agent-observations") => AgentObservations.descriptor()?,
         Some("agent-tool") => ToolHandler.descriptor()?,
         Some("agent-tool-policy") => ToolPolicy.descriptor()?,
         Some("hooks") => {
             use swarmie_agent_contracts::*;
             let hooks = [
                 on_turn_start()?.descriptor().descriptor().clone(),
+                select_context()?.descriptor().descriptor().clone(),
                 prepare_context()?.descriptor().descriptor().clone(),
                 before_model_call()?.descriptor().descriptor().clone(),
                 after_model_call()?.descriptor().descriptor().clone(),

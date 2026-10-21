@@ -9,6 +9,7 @@ use tembra_hooks::BailOutcome;
 use crate::{
     context::append_message,
     journal,
+    observers::Observation,
     state::{Checkpoint, decode, encode, invalid, stable},
     tools::{self, ToolIntent},
     workflow::{Engine, next},
@@ -48,15 +49,12 @@ impl Engine {
             return self.end_checkpoint(cp, "model repeated tool call identity");
         }
         let suffix = format!("tool:{}:{}:intent", cp.step, cp.tool_index);
-        let id = stable(&request.turn_id, &suffix);
-        let events = journal::history(&self.sessions, &request.session_id, context).await?;
+        let id = stable(request, &suffix);
+        let events = journal::history(&self.sessions, request, context).await?;
         if journal::find(&events, &id).is_none() {
             let invocation = ToolCall {
                 turn: turn.clone(),
-                operation_id: stable(
-                    &request.turn_id,
-                    &format!("tool:{}:{}", cp.step, cp.tool_index),
-                ),
+                operation_id: stable(request, &format!("tool:{}:{}", cp.step, cp.tool_index)),
                 tool_call_id: call.id.clone(),
                 tool: call.name.clone(),
                 arguments: call.arguments.clone(),
@@ -129,16 +127,6 @@ impl Engine {
         let result = self
             .execute_tool(intent.clone(), cp.tool_index, context)
             .await?;
-        self.hooks
-            .run_series(
-                &after_tool_call()?,
-                ToolObservation {
-                    call: intent.call,
-                    result: result.clone(),
-                },
-                context.core(),
-            )
-            .await?;
         append_message(
             &self.sessions,
             &turn,
@@ -147,14 +135,18 @@ impl Engine {
                 role: Role::Tool,
                 content: vec![ContentPart::ToolResult {
                     call_id: result.tool_call_id.clone(),
-                    value: result.output,
+                    value: result.output.clone(),
                     is_error: result.is_error,
                 }],
             },
-            Some(result.tool_call_id),
+            Some(result.tool_call_id.clone()),
             context,
         )
         .await?;
+        self.observers.enqueue(Observation::Tool(ToolObservation {
+            call: intent.call,
+            result: result.clone(),
+        }));
         cp.tool_index += 1;
         let (_, result) = self.model_observation(request, &cp, context).await?;
         let GenerateResult::Response { response } = result else {
@@ -179,7 +171,7 @@ impl Engine {
         cp: &Checkpoint,
         context: &Context,
     ) -> Result<ToolIntent> {
-        let events = journal::history(&self.sessions, &request.session_id, context).await?;
+        let events = journal::history(&self.sessions, request, context).await?;
         let intent: ToolIntent = decode(
             journal::own_event(
                 &events,
@@ -211,10 +203,7 @@ impl Engine {
             .ok_or_else(|| invalid("tool index differs from confirmed model request"))?;
         if intent.call.turn != cp.turn(request)
             || intent.call.operation_id
-                != stable(
-                    &request.turn_id,
-                    &format!("tool:{}:{}", cp.step, cp.tool_index),
-                )
+                != stable(request, &format!("tool:{}:{}", cp.step, cp.tool_index))
             || intent.call.tool_call_id != expected.id
             || intent.call.tool != expected.name
         {

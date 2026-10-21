@@ -13,7 +13,36 @@ const contracts = [
   ["task-storage", "TaskStorage", "swarmie-task-contracts", "task-contract"],
   ["durable-tasks", "DurableTasks", "swarmie-task-contracts", "task-contract"],
   ["task-handler", "TaskHandler", "swarmie-task-contracts", "task-contract"],
+  ["task-created-observer", "TaskCreatedObserver", "swarmie-task-contracts", "task-contract"],
+  [
+    "task-phase-started-observer",
+    "TaskPhaseStartedObserver",
+    "swarmie-task-contracts",
+    "task-contract",
+  ],
+  [
+    "task-phase-settled-observer",
+    "TaskPhaseSettledObserver",
+    "swarmie-task-contracts",
+    "task-contract",
+  ],
+  ["task-checkpoint-observer", "TaskCheckpointObserver", "swarmie-task-contracts", "task-contract"],
+  ["task-waiting-observer", "TaskWaitingObserver", "swarmie-task-contracts", "task-contract"],
+  ["task-sleeping-observer", "TaskSleepingObserver", "swarmie-task-contracts", "task-contract"],
+  ["task-recovered-observer", "TaskRecoveredObserver", "swarmie-task-contracts", "task-contract"],
+  ["task-blocked-observer", "TaskBlockedObserver", "swarmie-task-contracts", "task-contract"],
+  ["task-parked-observer", "TaskParkedObserver", "swarmie-task-contracts", "task-contract"],
+  ["task-retry-observer", "TaskRetryObserver", "swarmie-task-contracts", "task-contract"],
+  [
+    "task-cancellation-requested-observer",
+    "TaskCancellationRequestedObserver",
+    "swarmie-task-contracts",
+    "task-contract",
+  ],
+  ["task-terminal-observer", "TaskTerminalObserver", "swarmie-task-contracts", "task-contract"],
+  ["task-lifecycle", "TaskLifecycle", "swarmie-task-contracts", "task-contract"],
   ["agent-loop", "AgentLoop", "swarmie-agent-contracts", "agent-contract"],
+  ["agent-observations", "AgentObservations", "swarmie-agent-contracts", "agent-contract"],
   ["agent-tool", "ToolHandler", "swarmie-agent-contracts", "agent-contract"],
   ["agent-tool-policy", "ToolPolicy", "swarmie-agent-contracts", "agent-contract"],
   [
@@ -63,6 +92,14 @@ export default defineConfig({
     name,
   })),
   builds: {
+    "durable-observer-v1": {
+      entry: "tests/plugins/fixtures/durable-tasks/observer-v1.ts",
+      platform: "server",
+    },
+    "durable-observer-v2": {
+      entry: "tests/plugins/fixtures/durable-tasks/observer-v2.ts",
+      platform: "server",
+    },
     "session-client": {
       entry: "tests/plugins/fixtures/session-client/index.ts",
       platform: "server",

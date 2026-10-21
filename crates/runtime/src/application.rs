@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 use swarmie_composition::*;
 use swarmie_plugin_manager::LocalSource;
 use tembra::NativeFacet;
+use tembra_executor_js::Executor;
 
 /// A complete imported desired revision. Catalog claims are checked against admitted packages.
 ///
@@ -60,12 +61,14 @@ impl Default for Application {
 }
 
 type Factory = dyn Fn(&Value) -> tembra::Result<Vec<NativeFacet>>;
+type LanguageAdapter = dyn Fn(&Executor) -> tembra::Result<()>;
 
 /// Compile-time adapter for selecting native Facets; never a runtime service container.
 #[derive(Clone)]
 pub struct CompiledPlugin {
     pub release: Release,
     factory: Rc<Factory>,
+    language_adapter: Option<Rc<LanguageAdapter>>,
     pub(crate) trusted_sources: Vec<String>,
 }
 
@@ -81,6 +84,7 @@ impl CompiledPlugin {
         Self {
             release,
             factory: Rc::new(factory),
+            language_adapter: None,
             trusted_sources: vec![],
         }
     }
@@ -92,6 +96,29 @@ impl CompiledPlugin {
     pub fn with_trusted_source(mut self, provider_id: String) -> Self {
         self.trusted_sources.push(provider_id);
         self
+    }
+
+    /// Declares this Core Plugin's language codecs and typed Hook adapters.
+    ///
+    /// The runtime invokes the initializer once per fresh Host, after validating the catalog
+    /// and before activating or recovering any Dynamic plugin. All compiled definitions are
+    /// initialized, including unselected capabilities, so later Profile selection needs no
+    /// bootstrap changes. This registers language types; it must not start services or work.
+    /// A later call to this builder replaces the initializer. Any registration failure aborts
+    /// startup and closes the partial Host before application Facets are installed.
+    pub fn with_language_adapter(
+        mut self,
+        adapter: impl Fn(&Executor) -> tembra::Result<()> + 'static,
+    ) -> Self {
+        self.language_adapter = Some(Rc::new(adapter));
+        self
+    }
+
+    pub(crate) fn register_language_adapter(&self, executor: &Executor) -> tembra::Result<()> {
+        if let Some(adapter) = &self.language_adapter {
+            adapter(executor)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn prepare(&self, configuration: &Value) -> tembra::Result<Vec<NativeFacet>> {
@@ -116,6 +143,7 @@ pub(crate) fn compiled(
     driver: Rc<dyn tembra::core::Driver>,
 ) -> Vec<CompiledPlugin> {
     let task_driver = driver.clone();
+    let session_driver = driver.clone();
     vec![
         CompiledPlugin::new(
             release(
@@ -167,13 +195,14 @@ pub(crate) fn compiled(
                     task_driver.clone(),
                 )?])
             },
-        ),
+        )
+        .with_language_adapter(swarmie_durable_tasks::register_language_hooks),
         CompiledPlugin::new(
             release(
                 swarmie_session_store_sqlite::PLUGIN_ID,
                 swarmie_session_store_sqlite::FACET_ID,
             ),
-            |value| {
+            move |value| {
                 let configuration: swarmie_session_store_sqlite::Configuration =
                     serde_json::from_value(value.clone()).map_err(|error| {
                         tembra::RuntimeError::invalid(
@@ -181,7 +210,10 @@ pub(crate) fn compiled(
                             error.to_string(),
                         )
                     })?;
-                Ok(vec![swarmie_session_store_sqlite::facet(&configuration)?])
+                Ok(vec![swarmie_session_store_sqlite::facet(
+                    &configuration,
+                    session_driver.clone(),
+                )?])
             },
         ),
         CompiledPlugin::new(
@@ -198,7 +230,8 @@ pub(crate) fn compiled(
                 }
                 Ok(vec![swarmie_agent_loop_default::facet(driver.clone())?])
             },
-        ),
+        )
+        .with_language_adapter(swarmie_agent_loop_default::register_agent_hooks),
         CompiledPlugin::new(
             release("swarmie.local-plugin-source", "swarmie.local-plugin-source"),
             move |value| {

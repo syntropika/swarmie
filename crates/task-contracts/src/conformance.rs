@@ -2,6 +2,8 @@
 //!
 //! Run against a fresh provider. The suite has no concrete backend dependencies and leaves
 //! committed records available for a backend-specific restart or process-crash fixture.
+//! The Reference must be bound to a live Context from an installed Facet-owned root, so
+//! consumer operations exercise the same authenticated caller boundary as real plugins.
 
 use tembra::prelude::*;
 
@@ -28,6 +30,7 @@ fn task(id: &str) -> TaskRecord {
 
 fn create(record: TaskRecord) -> TaskWrite {
     TaskWrite {
+        provenance: None,
         expected_revision: None,
         record,
     }
@@ -37,6 +40,7 @@ fn replace(mut record: TaskRecord) -> TaskWrite {
     let revision = record.revision;
     record.revision += 1;
     TaskWrite {
+        provenance: None,
         expected_revision: Some(revision),
         record,
     }
@@ -167,6 +171,7 @@ pub async fn run(storage: &TaskStorageRef) -> Result<()> {
             .commit(TaskTransaction {
                 owner: OWNER.into(),
                 writes: vec![TaskWrite {
+                    provenance: None,
                     expected_revision: Some(1),
                     record: missing
                 }]
@@ -296,6 +301,7 @@ pub async fn run(storage: &TaskStorageRef) -> Result<()> {
             owner: OWNER.into(),
             writes: vec![
                 TaskWrite {
+                    provenance: None,
                     expected_revision: Some(1),
                     record: parent.clone(),
                 },
@@ -524,6 +530,7 @@ pub async fn run(storage: &TaskStorageRef) -> Result<()> {
         .await?;
     assert_eq!(terminal_page.records.len(), 3);
     large_payloads(storage).await?;
+    outbox(storage).await?;
     storage
         .release_owner(StorageOwner { id: OWNER.into() })
         .await?;
@@ -658,5 +665,212 @@ async fn large_payloads(storage: &TaskStorageRef) -> Result<()> {
     });
     commit(storage, vec![replace(record)]).await?;
     assert!(read(storage, "control-reserve").await?.is_terminal());
+    Ok(())
+}
+
+/// Reusable provider requirements for structural atomic outbox, append-stable pagination,
+/// delivered-prefix acknowledgement, multi-consumer retention, and CAS absence.
+async fn outbox(storage: &TaskStorageRef) -> Result<()> {
+    use crate::{
+        TaskOutboxAcknowledgement, TaskOutboxCompaction, TaskOutboxConsumer, TaskOutboxQuery,
+    };
+    let initial = storage.outbox_status().await?;
+    initial.limits.validate()?;
+    assert!(initial.consumers.is_empty());
+    assert_eq!(initial.compactable_events, 0);
+    assert_eq!(initial.pending_events, initial.retained_events);
+    assert!(crate::task_wire_bytes(&initial)? <= crate::MAX_TASK_PAGE_BYTES);
+    assert_eq!(
+        storage.outbox_status().await?,
+        initial,
+        "status is read-only"
+    );
+    let fast = "conformance-outbox-fast";
+    let slow = "conformance-outbox-offline";
+    let state = storage
+        .register_outbox_consumer(TaskOutboxConsumer { id: fast.into() })
+        .await?;
+    let other = storage
+        .register_outbox_consumer(TaskOutboxConsumer { id: slow.into() })
+        .await?;
+    assert_eq!(state.store_id, other.store_id);
+    let owner = state.owner_facet.as_ref().expect("managed consumer owner");
+    crate::validate_task_outbox_owner_facet(owner)?;
+    assert_eq!(state.owner_facet, other.owner_facet);
+    let registered = storage.outbox_status().await?;
+    assert_eq!(registered.store_id, state.store_id);
+    assert_eq!(registered.consumers.len(), 2);
+    assert_eq!(registered.retained_events, initial.retained_events);
+    assert_eq!(registered.retained_bytes, initial.retained_bytes);
+    let before = storage
+        .compact_outbox(TaskOutboxCompaction { limit: 4096 })
+        .await?;
+    assert_eq!(before.removed, 0, "unacknowledged history is retained");
+    let mut all = Vec::new();
+    let mut after = None;
+    loop {
+        let page = storage
+            .read_outbox(TaskOutboxQuery {
+                consumer_id: fast.into(),
+                after: after.clone(),
+                limit: 2,
+            })
+            .await?;
+        assert_eq!(page.store_id, state.store_id);
+        assert!(crate::task_wire_bytes(&page)? <= crate::MAX_TASK_PAGE_BYTES);
+        if page.events.is_empty() {
+            break;
+        }
+        after = page.next;
+        all.extend(page.events);
+    }
+    assert!(!all.is_empty());
+    for pair in all.windows(2) {
+        assert!(
+            (pair[0].id.sequence, pair[0].id.ordinal) < (pair[1].id.sequence, pair[1].id.ordinal)
+        );
+    }
+    let replay = storage
+        .read_outbox(TaskOutboxQuery {
+            consumer_id: fast.into(),
+            after: None,
+            limit: 1,
+        })
+        .await?;
+    assert_eq!(
+        replay.events[0].id, all[0].id,
+        "read does not imply acknowledgement"
+    );
+    let tail = after.expect("existing outbox tail");
+    let mut future = tail.clone();
+    future.sequence += 1;
+    assert!(
+        storage
+            .acknowledge_outbox(TaskOutboxAcknowledgement {
+                consumer_id: fast.into(),
+                through: future.clone()
+            })
+            .await
+            .is_err()
+    );
+    assert!(
+        storage
+            .read_outbox(TaskOutboxQuery {
+                consumer_id: fast.into(),
+                after: Some(future),
+                limit: 1
+            })
+            .await
+            .is_err()
+    );
+    let conflict = storage
+        .commit(TaskTransaction {
+            owner: OWNER.into(),
+            writes: vec![
+                create(task("parent")),
+                create(task("outbox-conflict-never-created")),
+            ],
+        })
+        .await?;
+    assert!(matches!(conflict, CommitResult::Conflict { .. }));
+    assert!(
+        storage
+            .read_outbox(TaskOutboxQuery {
+                consumer_id: fast.into(),
+                after: Some(tail.clone()),
+                limit: 256
+            })
+            .await?
+            .events
+            .is_empty()
+    );
+    let mut child = task("outbox-child");
+    child.parent = Some("outbox-parent".into());
+    let (sequence, _) = commit(storage, vec![create(task("outbox-parent")), create(child)]).await?;
+    let appended = storage
+        .read_outbox(TaskOutboxQuery {
+            consumer_id: fast.into(),
+            after: Some(tail),
+            limit: 256,
+        })
+        .await?;
+    assert_eq!(appended.events.len(), 2);
+    assert_eq!(appended.events[0].task_id, "outbox-parent");
+    assert_eq!(appended.events[1].parent.as_deref(), Some("outbox-parent"));
+    for (ordinal, event) in appended.events.iter().enumerate() {
+        assert_eq!(event.id.sequence, sequence);
+        assert_eq!(event.id.ordinal, ordinal as u32);
+        assert_eq!(event.previous_status, None);
+        assert_eq!(event.current_status, TaskStatus::Pending);
+    }
+    let through = appended.next.expect("tail");
+    storage
+        .acknowledge_outbox(TaskOutboxAcknowledgement {
+            consumer_id: fast.into(),
+            through: through.clone(),
+        })
+        .await?;
+    storage
+        .acknowledge_outbox(TaskOutboxAcknowledgement {
+            consumer_id: fast.into(),
+            through,
+        })
+        .await?;
+    assert_eq!(
+        storage
+            .compact_outbox(TaskOutboxCompaction { limit: 4096 })
+            .await?
+            .removed,
+        0,
+        "offline consumer protects pending events"
+    );
+    let recovered = storage
+        .read_outbox(TaskOutboxQuery {
+            consumer_id: slow.into(),
+            after: None,
+            limit: 256,
+        })
+        .await?;
+    assert!(!recovered.events.is_empty());
+    assert_eq!(recovered.events[0].id, all[0].id);
+    storage
+        .remove_outbox_consumer(TaskOutboxConsumer { id: slow.into() })
+        .await?;
+    let releasable = storage.outbox_status().await?;
+    assert_eq!(releasable.pending_events, 0);
+    assert_eq!(releasable.compactable_events, releasable.retained_events);
+    assert!(
+        storage
+            .compact_outbox(TaskOutboxCompaction { limit: 4096 })
+            .await?
+            .removed
+            > 0
+    );
+    let replacement = storage
+        .register_outbox_consumer(TaskOutboxConsumer {
+            id: "conformance-outbox-new".into(),
+        })
+        .await?;
+    assert!(replacement.retained_after.is_some());
+    assert_eq!(replacement.acknowledged, replacement.retained_after);
+    assert!(
+        storage
+            .read_outbox(TaskOutboxQuery {
+                consumer_id: replacement.consumer_id.clone(),
+                after: None,
+                limit: 256
+            })
+            .await?
+            .events
+            .is_empty()
+    );
+    storage
+        .remove_outbox_consumer(TaskOutboxConsumer { id: fast.into() })
+        .await?;
+    storage
+        .remove_outbox_consumer(TaskOutboxConsumer {
+            id: replacement.consumer_id,
+        })
+        .await?;
     Ok(())
 }

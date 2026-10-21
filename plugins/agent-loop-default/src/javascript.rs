@@ -85,6 +85,7 @@ fn transform<A: Serialize + DeserializeOwned + 'static>(
 /// registrations remain installed if a later registration fails.
 pub fn register_agent_hooks(executor: &Executor) -> Result<()> {
     observer(executor, on_turn_start()?)?;
+    transform(executor, select_context()?)?;
     transform(executor, prepare_context()?)?;
     transform(executor, before_model_call()?)?;
     observer(executor, after_model_call()?)?;

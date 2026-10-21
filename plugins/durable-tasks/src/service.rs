@@ -7,14 +7,17 @@ use std::{
 
 use futures::FutureExt;
 use swarmie_task_contracts::{
-    CommitResult, DurableTasks, DurableTasksProvider, ResumeResult, StorageOwner, TaskLookup,
-    TaskOutcome, TaskPage, TaskQuery, TaskRecord, TaskSpec, TaskStatus, TaskStorage,
-    TaskStorageInput, TaskStorageRef, TaskTransaction, TaskWrite, task_definitions,
+    CommitResult, DurableTasks, DurableTasksProvider, ResumeResult, StorageOwner, TaskLifecycle,
+    TaskLifecycleDiagnostics, TaskLifecycleOrigin, TaskLifecycleProvider, TaskLookup, TaskOutcome,
+    TaskPage, TaskQuery, TaskRecord, TaskSpec, TaskStatus, TaskStorage, TaskStorageInput,
+    TaskStorageRef, TaskTransaction, TaskWrite, task_definitions,
 };
 use tembra::{core, prelude::*};
 
 use crate::{
     Configuration, FACET_ID,
+    mutation::{Change, Mutation},
+    observation::Observations,
     reads::is_contention,
     scheduler::{Engine, Wake},
     work::Work,
@@ -36,6 +39,20 @@ pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Res
         let driver = driver.clone();
         let configuration = configuration.clone();
         let registry = scope.registry(&task_definitions()?)?;
+        let observations = Observations::new(scope.clone(), driver.clone())?;
+        let monitor = observations.clone();
+        setup.serve_with_options(
+            TaskLifecycle,
+            move |_, _, _| {
+                Ok(Monitor {
+                    observations: monitor.clone(),
+                })
+            },
+            core::ServeOptions {
+                lifetime: core::Lifetime::Host,
+                ..Default::default()
+            },
+        )?;
         setup.serve_with_options(
             DurableTasks,
             move |_, _, declaration| {
@@ -92,6 +109,7 @@ pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Res
                     }
                 })?)?;
                 let engine = Rc::new(Engine {
+                    observations: observations.clone(),
                     storage,
                     owner,
                     registry: registry.clone(),
@@ -111,6 +129,10 @@ pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Res
                 declaration
                     .core_mut()
                     .task(move |scope| activity.clone().run(scope).boxed_local())?;
+                let observer_activity = observations.clone();
+                declaration.core_mut().task(move |scope| {
+                    observer_activity.clone().run(scope).boxed_local()
+                })?;
                 Ok(Service { engine })
             },
             core::ServeOptions {
@@ -123,6 +145,69 @@ pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Res
 
 struct Service {
     engine: Rc<Engine>,
+}
+
+impl Service {
+    /// A definite capacity refusal permits only local signalling, never durable intent claims.
+    async fn cancellation_unconfirmed(&self, context: &Context, root: &str) -> RuntimeError {
+        let active = self
+            .engine
+            .active
+            .borrow()
+            .iter()
+            .map(|(id, token)| (id.clone(), token.clone()))
+            .collect::<Vec<_>>();
+        let cancellation = RuntimeError::aborted(
+            "task_cancelled",
+            "local cancellation signal; durable intent is unconfirmed",
+        );
+        let mut signalled = 0;
+        // The requested active task must not depend on another successful storage read.
+        if let Some((_, token)) = active.iter().find(|(id, _)| id == root) {
+            token.cancel(cancellation.clone());
+            signalled += 1;
+        }
+        let mut failed = 0;
+        let mut first_failure = None;
+        for (id, token) in active {
+            if id == root {
+                continue;
+            }
+            match self.engine.family(context, &id).await {
+                Ok(family) if family.ancestors.iter().any(|ancestor| ancestor.id == root) => {
+                    token.cancel(cancellation.clone());
+                    signalled += 1;
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    self.engine.observations.record_error(&error);
+                    failed += 1;
+                    first_failure.get_or_insert_with(|| {
+                        error.to_string().chars().take(256).collect::<String>()
+                    });
+                }
+            }
+        }
+        let detail = first_failure.map_or_else(String::new, |error| {
+            format!("; first descendant check failure: {error}")
+        });
+        RuntimeError::unavailable(
+            "durable_tasks_cancellation_unconfirmed",
+            format!(
+                "outbox capacity rejected cancellation: intent was not persisted; local cancellation was signalled to {signalled} active invocations; {failed} descendant checks failed{detail}; restore outbox capacity and retry cancel to confirm durable intent"
+            ),
+        )
+    }
+}
+
+struct Monitor {
+    observations: Rc<Observations>,
+}
+
+impl TaskLifecycleProvider for Monitor {
+    async fn diagnostics(&self, _context: Context) -> Result<TaskLifecycleDiagnostics> {
+        Ok(self.observations.diagnostics())
+    }
 }
 
 /// The Resource closer runs after managed activity and physical invocation ownership settles.
@@ -158,6 +243,7 @@ async fn restore_reservations(
                 .commit(TaskTransaction {
                     owner: owner.to_owned(),
                     writes: vec![TaskWrite {
+                        provenance: None,
                         expected_revision: Some(expected_revision),
                         record,
                     }],
@@ -191,13 +277,7 @@ impl DurableTasksProvider for Service {
         let record = TaskRecord::new(task, None);
         match self
             .engine
-            .commit(
-                &context,
-                vec![TaskWrite {
-                    expected_revision: None,
-                    record: record.clone(),
-                }],
-            )
+            .commit(&context, vec![Mutation::create(record.clone())])
             .await?
         {
             CommitResult::Conflict { .. } => Err(RuntimeError::invalid(
@@ -250,12 +330,15 @@ impl DurableTasksProvider for Service {
             }
             if !root.cancellation_requested {
                 let mut next = root.clone();
+                let change = Change::from_record(&root, TaskLifecycleOrigin::Cancellation);
                 next.cancellation_requested = true;
-                if matches!(
-                    self.engine.update(&context, next).await?,
-                    CommitResult::Conflict { .. }
-                ) {
-                    continue;
+                match self.engine.update(&context, next, change).await {
+                    Ok(CommitResult::Conflict { .. }) => continue,
+                    Ok(CommitResult::Committed { .. }) => {}
+                    Err(error) if error.reason == "task_storage_outbox_full" => {
+                        return Err(self.cancellation_unconfirmed(&context, &request.id).await);
+                    }
+                    Err(error) => return Err(error),
                 }
             }
             // Persist root intent first. Work hints enqueue its active subtree; fresh
@@ -304,11 +387,12 @@ impl DurableTasksProvider for Service {
                     "only uncancelled parked or blocked tasks can be retried",
                 ));
             }
+            let change = Change::from_record(&task, TaskLifecycleOrigin::Retry);
             task.status = TaskStatus::Pending;
             task.restarts = 0;
             task.blocking_reason = None;
             if matches!(
-                self.engine.update(&context, task).await?,
+                self.engine.update(&context, task, change).await?,
                 CommitResult::Committed { .. }
             ) {
                 return self.engine.require(&context, &request.id).await;

@@ -82,17 +82,14 @@ impl PluginManager {
         Self::start_with_executor(host, executor, database).await
     }
 
-    /// Starts administration using the embedding's configured Tembra JavaScript executor.
+    /// Starts administration with the embedding's configured JavaScript executor.
     ///
-    /// Register application-specific codecs before calling this constructor. The executor
-    /// must use the Driver that owns the fresh Host; this method retains it for all managed
-    /// dynamic plugin activation and reload. It does not register application hook types or
-    /// evaluate dynamic plugins. Restart recovery remains explicit through [`Self::recover`].
+    /// The embedding registers capability-owned language adapters before activation. This
+    /// manager knows neither their Contracts nor the Registries they use. The executor's
+    /// retained Driver must own this fresh Host, as required by [`Self::start`].
     ///
     /// # Errors
-    /// Returns storage, declaration and startup failures. A failure may follow administrative
-    /// database writes or Host installation; the caller owns cleanup of the partial Host.
-    /// Existing cached packages, user data and operation evidence are preserved.
+    /// Refuses database and Tembra startup failures.
     pub async fn start_with_executor(
         host: Host,
         executor: Executor,
@@ -253,5 +250,141 @@ impl PluginManager {
         self.storage()?
             .load(id)?
             .ok_or_else(|| ManagerError::NotInstalled(id.into()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use futures::FutureExt;
+    use serde_json::json;
+    use tembra_executor_js::{BundledJsArtifact, NativeValue, ScopedCodec};
+    use tembra_hooks::{
+        HookDescriptor, HookManager, HookManagerOptions, HookType, RustHookDefinition, Strategy,
+    };
+
+    struct Integer;
+
+    impl ScopedCodec<u32> for Integer {
+        fn encode(&self, value: u32) -> tembra::Result<NativeValue> {
+            Ok(NativeValue::portable(json!(value)))
+        }
+
+        fn decode(&self, value: NativeValue) -> tembra::Result<u32> {
+            serde_json::from_value(value.into_portable()?)
+                .map_err(|error| RuntimeError::invalid("embedding_integer", error.to_string()))
+        }
+    }
+
+    #[test]
+    fn injected_executor_preserves_unrelated_typed_hook_adapters() {
+        let driver = tembra::native::TokioDriver::new();
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(driver.run_until(async {
+                let directory = tempfile::tempdir().unwrap();
+                let host = Host::with_driver(RUNTIME_HOST, "test", driver.clone()).unwrap();
+                let profile = core::contracts::ValueSchema::Portable(
+                    json!({"type": "integer", "minimum": 0}),
+                );
+                let descriptor = HookDescriptor::new(
+                    "embedding.prepare",
+                    1,
+                    Strategy::Waterfall,
+                    Some(profile.clone()),
+                    Some(profile),
+                    None,
+                )
+                .unwrap();
+                let input =
+                    HookType::<u32>::serde(json!({"type": "integer", "minimum": 0})).unwrap();
+                let definition =
+                    RustHookDefinition::from_descriptor(descriptor.clone(), input.clone(), input)
+                        .unwrap();
+                let executor = Executor::new(driver.clone(), ExecutorOptions::default()).unwrap();
+                executor
+                    .register_hook(&descriptor, Rc::new(Integer), Rc::new(Integer))
+                    .unwrap();
+                let manager = PluginManager::start_with_executor(
+                    host.clone(),
+                    executor,
+                    directory.path().join("admin.sqlite"),
+                )
+                .await
+                .unwrap();
+
+                let token = core::contracts::Contract::local(
+                    "embedding.prepare-contributor",
+                    1,
+                    json!({}),
+                    BTreeMap::from([("prepare".into(), descriptor.contribution_member())]),
+                )
+                .unwrap();
+                let source = format!(
+                    r#"
+                    const token = {token}, registry = {registry}, metadata = {metadata};
+                    export default {{ name: 'embedding.adapter', uses: [], setup(_scope, d) {{
+                        d.serve(token, (_input, self) => {{
+                            self.registerMethod(registry, 'prepare', metadata, 'prepare');
+                            return {{ state: {{}}, methods: {{ async prepare(_ctx, args) {{
+                                return args.input + 7;
+                            }} }} }};
+                        }}, {{ lifetime: 'host' }});
+                    }} }};
+                "#,
+                    token = serde_json::to_string(token.descriptor()).unwrap(),
+                    registry = json!({"name": descriptor.registry().name(), "conflict": "error"}),
+                    metadata =
+                        json!({"hook": descriptor.fingerprint(), "priority": 0, "profile": 1}),
+                );
+                let executable = manager
+                    .executor
+                    .prepare(
+                        host.core().id(),
+                        BundledJsArtifact::new("embedding.adapter", source, vec!["default".into()])
+                            .unwrap(),
+                        "default".into(),
+                    )
+                    .await
+                    .unwrap();
+                host.core()
+                    .install_executable(executable, core::LoadOptions::default())
+                    .unwrap()
+                    .await
+                    .unwrap();
+                let captured = Rc::new(RefCell::new(None));
+                let selected = captured.clone();
+                host.core()
+                    .install(
+                        core::NativeFacet::new("embedding.runner", vec![], move |scope, _| {
+                            *selected.borrow_mut() = Some(scope.clone());
+                            Ok(())
+                        })
+                        .unwrap(),
+                        core::LoadOptions::default(),
+                    )
+                    .unwrap()
+                    .await
+                    .unwrap();
+                let hooks = HookManager::new(
+                    captured.borrow().clone().unwrap(),
+                    driver.clone(),
+                    HookManagerOptions::default(),
+                )
+                .unwrap();
+                let output = host
+                    .core()
+                    .root(move |context| {
+                        async move { hooks.run_waterfall(&definition, 5, &context).await }
+                            .boxed_local()
+                    })
+                    .await
+                    .unwrap();
+                assert_eq!(output, 12);
+                host.close().await.unwrap();
+            }));
     }
 }

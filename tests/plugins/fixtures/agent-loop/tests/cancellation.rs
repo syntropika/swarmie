@@ -26,12 +26,7 @@ fn cancellation_while_model_is_running_records_aborted_task() {
         while fixture.model.requests.borrow().is_empty() {
             tokio::time::sleep(Duration::from_millis(2)).await;
         }
-        fixture
-            .agent
-            .cancel(TurnLookup {
-                turn_id: "cancelled".into(),
-            })
-            .await?;
+        fixture.agent.cancel(Harness::lookup("cancelled")).await?;
         let record = fixture.terminal("cancelled").await?;
         assert_eq!(record.task.status, TaskStatus::Terminal);
         assert!(
@@ -88,12 +83,7 @@ fn cancellation_of_a_running_context_hook_settles_without_model_admission() {
         while !entered.get() {
             tokio::time::sleep(Duration::from_millis(2)).await;
         }
-        fixture
-            .agent
-            .cancel(TurnLookup {
-                turn_id: "hook-cancel".into(),
-            })
-            .await?;
+        fixture.agent.cancel(Harness::lookup("hook-cancel")).await?;
         let record = fixture.terminal("hook-cancel").await?;
         assert!(
             matches!(record.task.outcome, Some(TaskOutcome::Aborted { .. })),
@@ -176,18 +166,14 @@ fn cancellation_does_not_publish_terminal_before_tool_physically_settles() {
         }
         fixture
             .agent
-            .cancel(TurnLookup {
-                turn_id: "physical-cancel".into(),
-            })
+            .cancel(Harness::lookup("physical-cancel"))
             .await?;
         while gate.entered().value()? == 0 {
             tokio::time::sleep(Duration::from_millis(2)).await;
         }
         let cancelling = fixture
             .agent
-            .inspect(TurnLookup {
-                turn_id: "physical-cancel".into(),
-            })
+            .inspect(Harness::lookup("physical-cancel"))
             .await?
             .unwrap();
         assert!(cancelling.task.cancellation_requested);
@@ -234,9 +220,7 @@ fn cancellation_during_required_authorization_prevents_late_allowed_tool_effect(
         }
         fixture
             .agent
-            .cancel(TurnLookup {
-                turn_id: "permission-cancel".into(),
-            })
+            .cancel(Harness::lookup("permission-cancel"))
             .await?;
         gate.release_gate().await?;
         let completed = fixture.terminal("permission-cancel").await?;

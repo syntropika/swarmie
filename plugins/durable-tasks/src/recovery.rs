@@ -1,11 +1,13 @@
 use std::time::Duration;
 
 use swarmie_task_contracts::{
-    BlockingReason, CommitResult, TaskOutcome, TaskQuery, TaskRecord, TaskStatus, WaitPolicy,
+    BlockingReason, CommitResult, TaskLifecycleOrigin, TaskOutcome, TaskQuery, TaskRecord,
+    TaskStatus, WaitPolicy,
 };
 use tembra::{Context, Result, RuntimeError};
 
 use crate::{
+    mutation::Change,
     ownership,
     reads::{ACTIVE, busy, is_contention},
     registry,
@@ -17,6 +19,10 @@ impl Engine {
     /// Retained terminal history is read only through explicit graph and family queries.
     pub async fn reconcile(&self, context: &Context) -> Result<Vec<TaskRecord>> {
         let _gate = self.reconcile_gate.lock().await;
+        // A previous post-commit State write can fail while Work already knows the durable
+        // sequence. Retry independently of scans, without repeating lifecycle notifications.
+        let known_sequence = self.work.borrow().sequence;
+        self.publish_sequence(context, known_sequence);
         let startup = !self.work.borrow().initialized;
         let probe_due = self.driver.now() >= self.work.borrow().next_probe;
         if startup || self.work.borrow().rescan || probe_due {
@@ -35,9 +41,7 @@ impl Engine {
                 if !self.work.borrow_mut().discover(&records, sequence, startup) {
                     return Err(busy());
                 }
-                if sequence > self.committed_sequence.value()? {
-                    self.committed_sequence.replace(context, sequence)?;
-                }
+                self.publish_sequence(context, sequence);
             }
             self.work.borrow_mut().next_probe =
                 self.driver.now().saturating_add(Duration::from_secs(1));
@@ -98,13 +102,15 @@ impl Engine {
         let now = now_ms()?;
         let record = family.task.clone();
         let mut next = record.clone();
+        let mut change = Change::from_record(&record, TaskLifecycleOrigin::Reconciliation);
         let cancelled = self.cancelled(&family);
         if self.inflight.borrow().contains(id) {
             if cancelled {
                 if !record.cancellation_requested {
+                    change.origin = TaskLifecycleOrigin::Cancellation;
                     next.cancellation_requested = true;
                     if matches!(
-                        self.update(context, next).await?,
+                        self.update(context, next, change).await?,
                         CommitResult::Conflict { .. }
                     ) {
                         self.work.borrow_mut().schedule(id.to_owned());
@@ -132,6 +138,7 @@ impl Engine {
                     if !self.work.borrow().recover.contains(id) {
                         return Ok(None);
                     }
+                    change.origin = TaskLifecycleOrigin::Recovery;
                     if next.restarts < self.configuration.restart_limit {
                         next.restarts += 1;
                     }
@@ -206,7 +213,7 @@ impl Engine {
             }
         }
         if next != record {
-            match self.update(context, next).await? {
+            match self.update(context, next, change).await? {
                 CommitResult::Committed { .. } => {
                     self.work.borrow_mut().recover.remove(id);
                 }

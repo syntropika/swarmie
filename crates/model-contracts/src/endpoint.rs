@@ -168,6 +168,15 @@ impl GenerationReference {
             .await
             .map(|_| ())
     }
+
+    /// Recovers this live object's bounded local completion without restarting inference.
+    /// A settled value can precede a failed terminal State publication.
+    /// # Errors
+    /// Returns Tembra lifecycle/serialization errors when recovery cannot be delivered.
+    pub async fn recover(&self) -> Result<GenerationState> {
+        invoke(&self.raw, "recover", None, self.context.as_ref()).await
+    }
+
     pub async fn cancel(&self) -> Result<()> {
         self.raw
             .call_json("cancel", None, self.context.as_ref())

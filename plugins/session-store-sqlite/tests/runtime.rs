@@ -14,8 +14,8 @@ fn canonical_create_append_retry_restart_and_resource_closure() -> Result<()> {
     let mut expected = None;
     let database = &database;
     let expected_ref = &mut expected;
-    run(|host, _driver| async move {
-        let store = open(&host, database.as_path()).await?;
+    run(|host, driver| async move {
+        let store = open(&host, database.as_path(), driver.clone()).await?;
         assert!(
             store
                 .open(SessionLookup {
@@ -36,8 +36,8 @@ fn canonical_create_append_retry_restart_and_resource_closure() -> Result<()> {
         assert!(store.events(EventQuery::new("chat")).await.is_err());
         Ok(())
     })?;
-    run(|host, _driver| async move {
-        let store = open(&host, database.as_path()).await?;
+    run(|host, driver| async move {
+        let store = open(&host, database.as_path(), driver.clone()).await?;
         assert_eq!(
             store.events(EventQuery::new("chat")).await?,
             expected.unwrap()
@@ -50,8 +50,13 @@ fn canonical_create_append_retry_restart_and_resource_closure() -> Result<()> {
 #[test]
 fn concurrent_appends_cas_conflicts_and_identity_refusals_are_atomic() -> Result<()> {
     let directory = tempfile::tempdir().unwrap();
-    run(|host, _driver| async move {
-        let store = open(&host, &directory.path().join("sessions.sqlite")).await?;
+    run(|host, driver| async move {
+        let store = open(
+            &host,
+            &directory.path().join("sessions.sqlite"),
+            driver.clone(),
+        )
+        .await?;
         create(&store, "chat").await?;
         let mut cas = batch("chat", "cas-a", vec![message("m1", "user", "A")]);
         cas.expected_head = Some(0);
@@ -118,8 +123,13 @@ fn concurrent_appends_cas_conflicts_and_identity_refusals_are_atomic() -> Result
 #[test]
 fn bounded_prefix_pagination_survives_appends_and_turn_filters() -> Result<()> {
     let directory = tempfile::tempdir().unwrap();
-    run(|host, _driver| async move {
-        let store = open(&host, &directory.path().join("sessions.sqlite")).await?;
+    run(|host, driver| async move {
+        let store = open(
+            &host,
+            &directory.path().join("sessions.sqlite"),
+            driver.clone(),
+        )
+        .await?;
         create(&store, "chat").await?;
         let events = (0..15)
             .map(|n| {
@@ -178,8 +188,13 @@ fn bounded_prefix_pagination_survives_appends_and_turn_filters() -> Result<()> {
 #[test]
 fn projections_preserve_compacted_history_unknown_versions_and_model_neutrality() -> Result<()> {
     let directory = tempfile::tempdir().unwrap();
-    run(|host, _driver| async move {
-        let store = open(&host, &directory.path().join("sessions.sqlite")).await?;
+    run(|host, driver| async move {
+        let store = open(
+            &host,
+            &directory.path().join("sessions.sqlite"),
+            driver.clone(),
+        )
+        .await?;
         create(&store, "chat").await?;
         let mut future = message("future", "assistant", "Future payload");
         future.version = 2;
@@ -258,8 +273,13 @@ fn projections_preserve_compacted_history_unknown_versions_and_model_neutrality(
 #[test]
 fn state_observes_only_commits_and_reconnect_recovers_missed_history() -> Result<()> {
     let directory = tempfile::tempdir().unwrap();
-    run(|host, _driver| async move {
-        let store = open(&host, &directory.path().join("sessions.sqlite")).await?;
+    run(|host, driver| async move {
+        let store = open(
+            &host,
+            &directory.path().join("sessions.sqlite"),
+            driver.clone(),
+        )
+        .await?;
         let received = Rc::new(RefCell::new(vec![]));
         let callback = received.clone();
         let subscription = store.committed().subscribe(move |snapshot| {
@@ -305,8 +325,8 @@ fn failures_before_commit_rollback_all_rows_and_busy_writer_refuses_promptly() -
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("sessions.sqlite");
     let database = &database;
-    run(|host, _driver| async move {
-        let store = open(&host, database.as_path()).await?;
+    run(|host, driver| async move {
+        let store = open(&host, database.as_path(), driver.clone()).await?;
         create(&store, "chat").await?;
         let raw = rusqlite::Connection::open(database.as_path()).unwrap();
         raw.execute_batch("CREATE TRIGGER fail_second BEFORE INSERT ON session_events WHEN NEW.event_id='second' BEGIN SELECT RAISE(FAIL,'injected failure'); END;").unwrap();
@@ -362,8 +382,13 @@ fn failures_before_commit_rollback_all_rows_and_busy_writer_refuses_promptly() -
 #[test]
 fn canonical_sizes_bytes_and_portable_numbers_bound_memory_and_retry_equality() -> Result<()> {
     let directory = tempfile::tempdir().unwrap();
-    run(|host, _driver| async move {
-        let store = open(&host, &directory.path().join("sessions.sqlite")).await?;
+    run(|host, driver| async move {
+        let store = open(
+            &host,
+            &directory.path().join("sessions.sqlite"),
+            driver.clone(),
+        )
+        .await?;
         create(&store, "chat").await?;
         let mut events = vec![];
         for n in 0..8 {
@@ -418,20 +443,27 @@ fn schema_owner_validation_and_corruption_are_explicit() -> Result<()> {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("sessions.sqlite");
     let database = &database;
-    run(|host, _driver| async move {
-        let store = open(&host, database.as_path()).await?;
+    run(|host, driver| async move {
+        let store = open(&host, database.as_path(), driver.clone()).await?;
         create(&store, "chat").await?;
-        let other = tembra::Host::with_driver("competitor", "application", _driver.clone())?;
+        let other = tembra::Host::with_driver("competitor", "application", driver.clone())?;
         assert_eq!(
-            open(&other, database.as_path()).await.err().unwrap().reason,
+            open(&other, database.as_path(), driver.clone())
+                .await
+                .err()
+                .unwrap()
+                .reason,
             "session_store_owned"
         );
         other.close().await?;
         for path in ["", ":memory:", "file:db"] {
             assert!(
-                swarmie_session_store_sqlite::facet(&swarmie_session_store_sqlite::Configuration {
-                    database: path.into()
-                })
+                swarmie_session_store_sqlite::facet(
+                    &swarmie_session_store_sqlite::Configuration {
+                        database: path.into()
+                    },
+                    driver.clone()
+                )
                 .is_err()
             );
         }
@@ -439,9 +471,13 @@ fn schema_owner_validation_and_corruption_are_explicit() -> Result<()> {
         raw.execute_batch("PRAGMA user_version=99").unwrap();
         host.close().await
     })?;
-    run(|host, _driver| async move {
+    run(|host, driver| async move {
         assert_eq!(
-            open(&host, database.as_path()).await.err().unwrap().reason,
+            open(&host, database.as_path(), driver.clone())
+                .await
+                .err()
+                .unwrap()
+                .reason,
             "session_store_schema"
         );
         host.close().await
@@ -451,8 +487,13 @@ fn schema_owner_validation_and_corruption_are_explicit() -> Result<()> {
 #[test]
 fn publication_failure_does_not_undo_sqlite_and_exact_retry_recovers_receipt() -> Result<()> {
     let directory = tempfile::tempdir().unwrap();
-    run(|host, _driver| async move {
-        let store = open(&host, &directory.path().join("sessions.sqlite")).await?;
+    run(|host, driver| async move {
+        let store = open(
+            &host,
+            &directory.path().join("sessions.sqlite"),
+            driver.clone(),
+        )
+        .await?;
         create(&store, "chat").await?;
         let _failing = store.committed().subscribe(|snapshot| {
             if snapshot.value()?.commit_sequence > 1 {
@@ -469,14 +510,11 @@ fn publication_failure_does_not_undo_sqlite_and_exact_retry_recovers_receipt() -
             "uncertain",
             vec![message("m1", "user", "Committed")],
         );
-        let result = store.append(request.clone()).await;
-        // Core may surface subscriber failure after adopting State. Either way the database
-        // receipt and live watermark must describe the committed event, exactly once.
-        if let Err(error) = result {
-            assert_eq!(error.reason, "session_store_publication");
-        }
+        // Downstream subscriber failure cannot replace a committed SQLite receipt.
+        let original = store.append(request.clone()).await?;
         assert_eq!(store.committed().value()?.commit_sequence, 2);
         let receipt = store.append(request).await?;
+        assert_eq!(receipt, original);
         assert_eq!(receipt.last_sequence, 1);
         assert_eq!(store.events(EventQuery::new("chat")).await?.events.len(), 1);
         host.close().await
@@ -490,9 +528,9 @@ fn crash_child() -> Result<()> {
         return Ok(());
     };
     let mode = std::env::var("SWARMIE_SESSION_CRASH_MODE").unwrap();
-    run(|host, _driver| async move {
+    run(|host, driver| async move {
         let path = std::path::Path::new(&path);
-        let store = open(&host, path).await?;
+        let store = open(&host, path, driver.clone()).await?;
         create(&store, "chat").await?;
         store
             .append(batch(
@@ -556,8 +594,8 @@ fn process_death_before_and_after_commit_preserves_only_confirmed_rows() -> Resu
             .expect("child commit boundary");
         child.0.kill().unwrap();
         assert!(!child.0.wait().unwrap().success());
-        run(|host, _driver| async move {
-            let store = open(&host, database.as_path()).await?;
+        run(|host, driver| async move {
+            let store = open(&host, database.as_path(), driver.clone()).await?;
             let page = store.events(EventQuery::new("chat")).await?;
             assert_eq!(page.events.len(), 1);
             assert_eq!(page.through_sequence, 1);
@@ -594,8 +632,13 @@ fn process_death_before_and_after_commit_preserves_only_confirmed_rows() -> Resu
 #[ignore = "explicit release benchmark through just session-benchmark"]
 fn session_volume_benchmark() -> Result<()> {
     let directory = tempfile::tempdir().unwrap();
-    run(|host, _driver| async move {
-        let store = open(&host, &directory.path().join("sessions.sqlite")).await?;
+    run(|host, driver| async move {
+        let store = open(
+            &host,
+            &directory.path().join("sessions.sqlite"),
+            driver.clone(),
+        )
+        .await?;
         create(&store, "large").await?;
         let started = std::time::Instant::now();
         for n in 0..200 {
@@ -651,7 +694,12 @@ fn generated_typescript_runs_against_rust_sqlite_through_actual_tembra_executor(
     let artifact = BundledJsArtifact::from_json(&std::fs::read_to_string(artifact).unwrap())?;
     let directory = tempfile::tempdir().unwrap();
     run(|host, driver| async move {
-        let store = open(&host, &directory.path().join("sessions.sqlite")).await?;
+        let store = open(
+            &host,
+            &directory.path().join("sessions.sqlite"),
+            driver.clone(),
+        )
+        .await?;
         let executor = Executor::new(driver, ExecutorOptions::default())?;
         let definition = executor
             .prepare(host.core().id(), artifact, "default".into())
@@ -663,7 +711,7 @@ fn generated_typescript_runs_against_rust_sqlite_through_actual_tembra_executor(
         assert_eq!(client.run().await?, 1);
         assert_eq!(client.run().await?, 1);
         let page = store.events(EventQuery::new("typescript")).await?;
-        assert_eq!(page.events.len(), 1);
+        assert_eq!(page.events.len(), 2);
         assert_eq!(
             page.events[0].event.payload["content"][0]["text"],
             "Hello from TypeScript"
@@ -712,7 +760,12 @@ fn actual_rpc_disconnect_after_commit_retries_exact_batch_and_recovers_state() -
     use tembra::core::{self, rpc::*};
     let directory = tempfile::tempdir().unwrap();
     run(|server, driver| async move {
-        let store = open(&server, &directory.path().join("sessions.sqlite")).await?;
+        let store = open(
+            &server,
+            &directory.path().join("sessions.sqlite"),
+            driver.clone(),
+        )
+        .await?;
         create(&store, "chat").await?;
         let disconnect = Rc::new(RefCell::new(None));
         let factory = disconnect.clone();
@@ -789,9 +842,9 @@ fn actual_rpc_disconnect_after_commit_retries_exact_batch_and_recovers_state() -
 #[test]
 fn invalid_batches_and_corrupted_rows_never_become_valid_history() -> Result<()> {
     let directory = tempfile::tempdir().unwrap();
-    run(|host, _driver| async move {
+    run(|host, driver| async move {
         let database = directory.path().join("sessions.sqlite");
-        let store = open(&host, &database).await?;
+        let store = open(&host, &database, driver.clone()).await?;
         create(&store, "chat").await?;
         let before = store.committed().value()?;
         for request in [
@@ -855,8 +908,8 @@ fn cursor_rejects_different_database_and_byte_splits_replay_every_event() -> Res
     let second_database = directory.path().join("second.sqlite");
     let cursor = Rc::new(RefCell::new(None));
     let first = cursor.clone();
-    run(|host, _driver| async move {
-        let store = open(&host, &first_database).await?;
+    run(|host, driver| async move {
+        let store = open(&host, &first_database, driver.clone()).await?;
         create(&store, "chat").await?;
         for n in 0..3 {
             store
@@ -882,8 +935,8 @@ fn cursor_rejects_different_database_and_byte_splits_replay_every_event() -> Res
         assert_eq!(count, 3);
         host.close().await
     })?;
-    run(|host, _driver| async move {
-        let store = open(&host, &second_database).await?;
+    run(|host, driver| async move {
+        let store = open(&host, &second_database, driver.clone()).await?;
         create(&store, "chat").await?;
         let mut query = EventQuery::new("chat");
         query.cursor = cursor.borrow().clone();

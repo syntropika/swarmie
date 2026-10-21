@@ -131,6 +131,8 @@ pub enum ProviderErrorKind {
     PayloadLimit,
     Transport,
     DataLoss,
+    // Local State publication failed after inference admission; never retries inference.
+    Publication,
 }
 
 /// SafeToRetry is restricted to known local refusal before any remote attempt.

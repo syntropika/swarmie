@@ -78,7 +78,28 @@ pub async fn open_selected(
         tool_configuration,
         allowed,
         include_tool,
-        false,
+        LoopSetup::default(),
+    )
+    .await
+}
+
+pub async fn open_with_contributions(
+    driver: Rc<TokioDriver>,
+    root: &Path,
+    replies: Vec<Reply>,
+    contributions: Vec<NativeFacet>,
+) -> Result<Harness> {
+    open_with_loop(
+        driver,
+        root,
+        replies,
+        Default::default(),
+        Some(true),
+        true,
+        LoopSetup {
+            contributions,
+            ..Default::default()
+        },
     )
     .await
 }
@@ -91,9 +112,18 @@ pub async fn open_replacement(driver: Rc<TokioDriver>, root: &Path) -> Result<Ha
         Default::default(),
         None,
         false,
-        true,
+        LoopSetup {
+            replacement: true,
+            ..Default::default()
+        },
     )
     .await
+}
+
+#[derive(Default)]
+struct LoopSetup {
+    replacement: bool,
+    contributions: Vec<NativeFacet>,
 }
 
 async fn open_with_loop(
@@ -103,8 +133,12 @@ async fn open_with_loop(
     tool_configuration: ToolConfiguration,
     allowed: Option<bool>,
     include_tool: bool,
-    replacement: bool,
+    setup: LoopSetup,
 ) -> Result<Harness> {
+    let LoopSetup {
+        replacement,
+        contributions,
+    } = setup;
     let host = Host::with_driver("agent-acceptance", "application", driver.clone())?;
     let model = ModelProbe::default();
     let tool = ToolProbe::default();
@@ -112,10 +146,15 @@ async fn open_with_loop(
     for facet in [
         swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
             database: root.join("tasks.sqlite"),
+            outbox: Default::default(),
+            outbox_legacy_owners: Default::default(),
         })?,
-        swarmie_session_store_sqlite::facet(&swarmie_session_store_sqlite::Configuration {
-            database: root.join("sessions.sqlite"),
-        })?,
+        swarmie_session_store_sqlite::facet(
+            &swarmie_session_store_sqlite::Configuration {
+                database: root.join("sessions.sqlite"),
+            },
+            driver.clone(),
+        )?,
         model::facet(replies, model.clone())?,
     ] {
         host.install(facet, core::LoadOptions::default())?.await?;
@@ -133,6 +172,10 @@ async fn open_with_loop(
             core::LoadOptions::default(),
         )?
         .await?;
+    }
+    for contribution in contributions {
+        host.install(contribution, core::LoadOptions::default())?
+            .await?;
     }
     host.install(
         swarmie_durable_tasks::facet(
@@ -169,6 +212,14 @@ async fn open_with_loop(
 }
 
 impl Harness {
+    pub fn lookup(turn: &str) -> TurnLookup {
+        TurnLookup {
+            session_id: format!("session-{turn}"),
+            conversation_id: "conversation".into(),
+            turn_id: turn.into(),
+        }
+    }
+
     pub async fn start(&self, turn: &str, limits: TurnLimits) -> Result<TurnRecord> {
         let session_id = format!("session-{turn}");
         let input_event_id = format!("input-{turn}");
@@ -187,7 +238,10 @@ impl Harness {
                     event_id: input_event_id.clone(),
                     kind: MESSAGE.into(),
                     version: 1,
-                    correlation: Correlation::default(),
+                    correlation: Correlation {
+                        conversation_id: Some("conversation".into()),
+                        ..Default::default()
+                    },
                     occurred_at_ms: None,
                     payload: serde_json::to_value(swarmie_session_contracts::Message {
                         role: "user".into(),
@@ -203,6 +257,7 @@ impl Harness {
             .start(StartTurn {
                 turn_id: turn.into(),
                 session_id,
+                conversation_id: "conversation".into(),
                 input_event_id,
                 model: ModelIdentity {
                     connection: "fixture".into(),
@@ -214,35 +269,18 @@ impl Harness {
     }
 
     pub async fn terminal(&self, turn: &str) -> Result<TurnRecord> {
-        let record = self
-            .agent
-            .inspect(TurnLookup {
-                turn_id: turn.into(),
-            })
-            .await?
-            .unwrap();
+        let record = self.agent.inspect(Harness::lookup(turn)).await?.unwrap();
         let waiting = tokio::time::timeout(
             Duration::from_secs(5),
             self.tasks.wait(TaskLookup { id: record.task.id }),
         )
         .await;
         if let Err(error) = waiting {
-            let record = self
-                .agent
-                .inspect(TurnLookup {
-                    turn_id: turn.into(),
-                })
-                .await?;
+            let record = self.agent.inspect(Harness::lookup(turn)).await?;
             panic!("turn did not settle: {error}; record={record:?}");
         }
         waiting.unwrap()?;
-        Ok(self
-            .agent
-            .inspect(TurnLookup {
-                turn_id: turn.into(),
-            })
-            .await?
-            .unwrap())
+        Ok(self.agent.inspect(Harness::lookup(turn)).await?.unwrap())
     }
 
     pub async fn events(&self, turn: &str) -> Result<Vec<SessionEvent>> {

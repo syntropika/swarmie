@@ -1,4 +1,4 @@
-use rusqlite::{Connection, OpenFlags, TransactionBehavior};
+use rusqlite::{Connection, OpenFlags};
 use std::{
     cell::RefCell,
     fs::{File, OpenOptions, TryLockError},
@@ -96,6 +96,7 @@ impl Store {
         .map_err(io)?;
         // Refuse external contention promptly instead of blocking Tembra's local executor.
         connection.busy_timeout(Duration::ZERO).map_err(io)?;
+        crate::schema::admit(&mut connection)?;
         let mode: String = connection
             .query_row("PRAGMA journal_mode=WAL", [], |row| row.get(0))
             .map_err(io)?;
@@ -108,7 +109,7 @@ impl Store {
         connection
             .pragma_update(None, "foreign_keys", "ON")
             .map_err(io)?;
-        migrate(&mut connection)?;
+        crate::schema::migrate(&mut connection)?;
         metadata(&connection)?;
         Ok(Self {
             connection: RefCell::new(Some(connection)),
@@ -141,63 +142,6 @@ impl Store {
         self.lock.borrow_mut().take();
         Ok(())
     }
-}
-
-fn migrate(connection: &mut Connection) -> Result<()> {
-    const APPLICATION: i64 = 0x53575345;
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(io)?;
-    let application: i64 = transaction
-        .pragma_query_value(None, "application_id", |row| row.get(0))
-        .map_err(io)?;
-    let version: i64 = transaction
-        .pragma_query_value(None, "user_version", |row| row.get(0))
-        .map_err(io)?;
-    if (application != 0 && application != APPLICATION)
-        || version > 1
-        || (version != 0 && application != APPLICATION)
-        || (version == 0 && application == APPLICATION)
-    {
-        return Err(RuntimeError::unavailable(
-            "session_store_schema",
-            "foreign or unsupported schema; data retained",
-        ));
-    }
-    if version == 0 {
-        let tables: i64 = transaction.query_row("SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'", [], |row| row.get(0)).map_err(io)?;
-        if tables != 0 {
-            return Err(invalid(
-                "session storage requires a dedicated empty database",
-            ));
-        }
-        transaction.execute_batch(
-            "CREATE TABLE session_store(singleton INTEGER PRIMARY KEY CHECK(singleton=1), store_id TEXT NOT NULL, sequence INTEGER NOT NULL CHECK(sequence BETWEEN 0 AND 9007199254740991));
-             CREATE TABLE sessions(id TEXT PRIMARY KEY, head INTEGER NOT NULL CHECK(head BETWEEN 0 AND 9007199254740991), metadata TEXT NOT NULL CHECK(length(CAST(metadata AS BLOB))<=65536)) WITHOUT ROWID;
-             CREATE TABLE session_events(session_id TEXT NOT NULL REFERENCES sessions(id), sequence INTEGER NOT NULL CHECK(sequence BETWEEN 1 AND 9007199254740991), event_id TEXT NOT NULL, turn_id TEXT, event TEXT NOT NULL CHECK(length(CAST(event AS BLOB))<=262144), PRIMARY KEY(session_id, sequence), UNIQUE(session_id,event_id)) WITHOUT ROWID;
-             CREATE INDEX session_events_turn ON session_events(session_id,turn_id,sequence);
-             CREATE TABLE session_batches(session_id TEXT NOT NULL REFERENCES sessions(id), batch_id TEXT NOT NULL, request TEXT NOT NULL, receipt TEXT NOT NULL, PRIMARY KEY(session_id,batch_id)) WITHOUT ROWID;
-             CREATE TRIGGER immutable_events_update BEFORE UPDATE ON session_events BEGIN SELECT RAISE(ABORT,'immutable event'); END;
-             CREATE TRIGGER immutable_events_delete BEFORE DELETE ON session_events BEGIN SELECT RAISE(ABORT,'immutable event'); END;
-             CREATE TRIGGER immutable_batches_update BEFORE UPDATE ON session_batches BEGIN SELECT RAISE(ABORT,'immutable receipt'); END;
-             CREATE TRIGGER immutable_batches_delete BEFORE DELETE ON session_batches BEGIN SELECT RAISE(ABORT,'immutable receipt'); END;
-             CREATE TRIGGER immutable_metadata BEFORE UPDATE OF id,metadata ON sessions BEGIN SELECT RAISE(ABORT,'immutable session'); END;
-             CREATE TRIGGER immutable_sessions_delete BEFORE DELETE ON sessions BEGIN SELECT RAISE(ABORT,'retained session'); END;"
-        ).map_err(io)?;
-        transaction
-            .execute(
-                "INSERT INTO session_store VALUES(1,?1,0)",
-                [uuid::Uuid::new_v4().to_string()],
-            )
-            .map_err(io)?;
-        transaction
-            .pragma_update(None, "application_id", APPLICATION)
-            .map_err(io)?;
-        transaction
-            .pragma_update(None, "user_version", 1)
-            .map_err(io)?;
-    }
-    transaction.commit().map_err(io)
 }
 
 /// Stored rows were admitted canonically. Refuse corrupted JSON rather than silently accepting

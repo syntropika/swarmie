@@ -29,8 +29,8 @@ fn main() -> Result<()> {
                 let host=Host::with_driver("agent-example","application",driver.clone())?;
                 let replies=if with_tool {vec![Reply::double(21),Reply::text("The answer is 42.")]} else {vec![Reply::text("Hello from the extensible agent loop.")]};
                 for facet in [
-                    swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {database:directory.path().join("tasks.sqlite")})?,
-                    swarmie_session_store_sqlite::facet(&swarmie_session_store_sqlite::Configuration {database:directory.path().join("sessions.sqlite")})?,
+                    swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {database:directory.path().join("tasks.sqlite"),outbox:Default::default(),outbox_legacy_owners:Default::default()})?,
+                    swarmie_session_store_sqlite::facet(&swarmie_session_store_sqlite::Configuration {database:directory.path().join("sessions.sqlite")},driver.clone())?,
                     model::facet(replies,ModelProbe::default())?,
                     tool::facet(Default::default(),ToolProbe::default())?,
                     policy::facet(true,PolicyProbe::default())?,
@@ -40,11 +40,11 @@ fn main() -> Result<()> {
                 let sessions=host.get(SessionStore,SessionStoreInput {}).await?;
                 sessions.create(CreateSession {session_id:"demo".into(),metadata:json!({})}).await?;
                 sessions.append(AppendEvents {session_id:"demo".into(),batch_id:"input".into(),expected_head:None,events:vec![NewEvent {
-                    event_id:"input".into(),kind:MESSAGE.into(),version:1,correlation:Correlation::default(),occurred_at_ms:None,
+                    event_id:"input".into(),kind:MESSAGE.into(),version:1,correlation:Correlation {conversation_id:Some("conversation".into()),..Default::default()},occurred_at_ms:None,
                     payload:json!({"role":"user","content":"Compute 21 doubled.","reply_to":null,"tool_call_id":null}),
                 }]}).await?;
                 let agent=host.get(AgentLoop,AgentLoopInput {}).await?;
-                let turn=agent.start(StartTurn {turn_id:"demo-turn".into(),session_id:"demo".into(),input_event_id:"input".into(),model:ModelIdentity {connection:"fixture".into(),model:"scripted".into()},limits:TurnLimits::default()}).await?;
+                let turn=agent.start(StartTurn {turn_id:"demo-turn".into(),session_id:"demo".into(),conversation_id:"conversation".into(),input_event_id:"input".into(),model:ModelIdentity {connection:"fixture".into(),model:"scripted".into()},limits:TurnLimits::default()}).await?;
                 let tasks=host.get(DurableTasks,DurableTasksInput {}).await?;
                 let outcome=tasks.wait(TaskLookup {id:turn.task.id}).await?;
                 println!("{}",serde_json::to_string_pretty(&outcome).expect("serializable outcome"));

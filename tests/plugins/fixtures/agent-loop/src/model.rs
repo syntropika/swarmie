@@ -2,6 +2,7 @@
 
 use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 
+use futures::FutureExt;
 use swarmie_model_contracts::*;
 use tembra::{core, prelude::*};
 
@@ -27,6 +28,7 @@ pub enum Reply {
     },
     Error,
     Hang,
+    OpaqueTool,
 }
 
 impl Reply {
@@ -47,38 +49,130 @@ impl Reply {
 pub struct ModelProbe {
     pub requests: Rc<RefCell<Vec<ModelRequest>>>,
     pub admission_log: Rc<RefCell<Option<std::path::PathBuf>>>,
+    pub reject_terminal: Rc<std::cell::Cell<bool>>,
+    pub suppress_publication_error: Rc<std::cell::Cell<bool>>,
+    pub publication_failures: Rc<std::cell::Cell<u32>>,
+    pub recovery_calls: Rc<std::cell::Cell<u32>>,
+    pub cancel_calls: Rc<std::cell::Cell<u32>>,
+    pub physical_gate: Rc<RefCell<Option<crate::gate::AgentGateRef>>>,
+    pub dropped: Rc<std::cell::Cell<u32>>,
+    pub premature_drop: Rc<std::cell::Cell<u32>>,
+    pub backend_closes: Rc<std::cell::Cell<u32>>,
+    pub stream_events: Rc<std::cell::Cell<u32>>,
+    pub close_barrier: Rc<RefCell<Option<futures::channel::oneshot::Receiver<()>>>>,
+    pub close_publication_failures: Rc<std::cell::Cell<u32>>,
 }
 
 /// Provides scripted replies through an ordinary Tembra-owned provider Facet.
 pub fn facet(replies: Vec<Reply>, probe: ModelProbe) -> Result<NativeFacet> {
     let replies = Rc::new(RefCell::new(VecDeque::from(replies)));
-    NativeFacet::new("fixture.agent-model", vec![], move |_, setup| {
+    NativeFacet::new("fixture.agent-model", vec![], move |scope, setup| {
         let replies = replies.clone();
         let probe = probe.clone();
         let generation_replies = replies.clone();
         let generation_probe = probe.clone();
+        let generation_scope = scope.clone();
         setup.serve(
             FixtureGeneration,
             move |input: GenerationInput, _, declaration| {
                 let request = input.request;
-                Ok(Generation {
-                    state: declaration.state(
-                        "progress",
-                        GenerationState {
-                            request_id: request.request_id.clone(),
-                            phase: GenerationPhase::Prepared,
-                            acknowledged: 0,
-                            last_sequence: 0,
-                            events: vec![],
-                            response: None,
-                            error: None,
-                            physically_settled: false,
+                let state = declaration.state(
+                    "progress",
+                    GenerationState {
+                        request_id: request.request_id.clone(),
+                        phase: GenerationPhase::Prepared,
+                        acknowledged: 0,
+                        last_sequence: 0,
+                        events: vec![],
+                        response: None,
+                        error: None,
+                        physically_settled: false,
+                    },
+                )?;
+                let rejection = generation_probe.clone();
+                let _projection = declaration.derive((state.readable(),), move |(candidate,)| {
+                    if rejection.reject_terminal.get() && candidate.physically_settled {
+                        rejection
+                            .publication_failures
+                            .set(rejection.publication_failures.get() + 1);
+                        return Err(RuntimeError::invalid(
+                            "fixture_terminal_publication",
+                            "the owning graph refused terminal State",
+                        ));
+                    }
+                    Ok(true)
+                })?;
+                let completion = Rc::new(RefCell::new(None::<GenerationState>));
+                let closed_state = state.clone();
+                let closed_completion = completion.clone();
+                let closed_probe = generation_probe.clone();
+                let closing_scope = generation_scope.clone();
+                let lifetime = declaration.core_mut().resource(
+                    "backend-lifetime",
+                    core::ResourceDeclaration::new(|_| async { Ok(()) }.boxed_local()).with_close(
+                        move |_| {
+                            let state = closed_state.clone();
+                            let completion = closed_completion.clone();
+                            let probe = closed_probe.clone();
+                            let scope = closing_scope.clone();
+                            async move {
+                                // The managed closer owns the backend after Host retirement has
+                                // invalidated public References. It settles before the provider drops.
+                                probe.backend_closes.set(probe.backend_closes.get() + 1);
+                                if completion.borrow().is_none() {
+                                    let barrier = probe.close_barrier.borrow_mut().take();
+                                    if let Some(barrier) = barrier {
+                                        barrier.await.map_err(|_| {
+                                            RuntimeError::invalid(
+                                                "fixture_close_barrier",
+                                                "physical worker barrier was abandoned",
+                                            )
+                                        })?;
+                                    }
+                                    let mut terminal = state.readable().value()?;
+                                    terminal.phase = GenerationPhase::Settled;
+                                    terminal.physically_settled = true;
+                                    terminal.error = Some(ProviderError {
+                                        kind: ProviderErrorKind::Cancelled,
+                                        submission: Submission::MayHaveBeenSent,
+                                        http_status: None,
+                                        retry_after_ms: None,
+                                    });
+                                    *completion.borrow_mut() = Some(terminal.clone());
+                                    if scope
+                                        .root(move |context| {
+                                            async move {
+                                                state
+                                                    .change(&Context::from_core(context), |state| {
+                                                        *state = terminal;
+                                                        Ok(())
+                                                    })
+                                                    .map(|_| ())
+                                            }
+                                            .boxed_local()
+                                        })
+                                        .await
+                                        .is_err()
+                                    {
+                                        probe
+                                            .close_publication_failures
+                                            .set(probe.close_publication_failures.get() + 1);
+                                    }
+                                }
+                                Ok(())
+                            }
+                            .boxed_local()
                         },
-                    )?,
+                    ),
+                )?;
+                Ok(Generation {
+                    state,
                     request,
                     replies: generation_replies.clone(),
                     probe: generation_probe.clone(),
                     pending: RefCell::new(None),
+                    completion,
+                    _lifetime: lifetime,
                 })
             },
         )?;
@@ -168,6 +262,9 @@ trait FixtureGeneration {
     async fn acknowledge(&self, through: u64) -> Result<()>;
 
     #[portable]
+    async fn recover(&self) -> Result<GenerationState>;
+
+    #[portable]
     async fn cancel(&self) -> Result<()>;
 }
 
@@ -177,6 +274,8 @@ struct Generation {
     replies: Rc<RefCell<VecDeque<Reply>>>,
     probe: ModelProbe,
     pending: RefCell<Option<GenerateResult>>,
+    completion: Rc<RefCell<Option<GenerationState>>>,
+    _lifetime: core::Resource<()>,
 }
 
 impl FixtureGenerationProvider for Generation {
@@ -208,31 +307,54 @@ impl FixtureGenerationProvider for Generation {
                 .state
                 .change(&context, |state| {
                     state.phase = GenerationPhase::Running;
+                    state.last_sequence = 1;
+                    state.events.push(SequencedEvent {
+                        sequence: 1,
+                        event: ModelEvent::TextDelta {
+                            text: "partial streamed answer".into(),
+                        },
+                    });
                     Ok(())
                 })
                 .map(|_| ());
         }
         let result = scripted_response(self.request.clone(), reply);
-        let event = match &result {
-            GenerateResult::Response { response } => match response.message.content.first() {
-                Some(ContentPart::Text { text }) => {
-                    Some(ModelEvent::TextDelta { text: text.clone() })
-                }
-                Some(ContentPart::ToolCall { call }) => Some(ModelEvent::ToolCallSnapshot {
-                    id: call.id.clone(),
-                    name: call.name.clone(),
-                    arguments_json: call.arguments.to_string(),
-                }),
-                _ => None,
-            },
-            GenerateResult::Error { .. } => None,
+        let events = match &result {
+            GenerateResult::Response { response } => response
+                .message
+                .content
+                .iter()
+                .filter_map(|part| match part {
+                    ContentPart::Text { text } => {
+                        Some(ModelEvent::TextDelta { text: text.clone() })
+                    }
+                    ContentPart::Reasoning { text } => {
+                        Some(ModelEvent::ReasoningDelta { text: text.clone() })
+                    }
+                    ContentPart::ToolCall { call } => Some(ModelEvent::ToolCallSnapshot {
+                        id: call.id.clone(),
+                        name: call.name.clone(),
+                        arguments_json: call.arguments.to_string(),
+                    }),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            GenerateResult::Error { .. } => vec![],
+        };
+        let events = if events.len() == 1 && self.probe.stream_events.get() > 0 {
+            vec![events[0].clone(); self.probe.stream_events.get().min(256) as usize]
+        } else {
+            events
         };
         *self.pending.borrow_mut() = Some(result);
         self.state.change(&context, |state| {
             state.phase = GenerationPhase::Running;
-            if let Some(event) = event {
-                state.last_sequence = 1;
-                state.events.push(SequencedEvent { sequence: 1, event });
+            for event in events {
+                state.last_sequence += 1;
+                state.events.push(SequencedEvent {
+                    sequence: state.last_sequence,
+                    event,
+                });
             }
             Ok(())
         })?;
@@ -260,21 +382,43 @@ impl FixtureGenerationProvider for Generation {
         self.settle(&context)
     }
 
+    async fn recover(&self, _context: Context) -> Result<GenerationState> {
+        self.probe
+            .recovery_calls
+            .set(self.probe.recovery_calls.get() + 1);
+        let mut current = self.state.readable().value()?;
+        if let Some(completion) = self.completion.borrow().as_ref() {
+            current.phase = completion.phase;
+            current.physically_settled = completion.physically_settled;
+            current.response.clone_from(&completion.response);
+            current.error.clone_from(&completion.error);
+        }
+        Ok(current)
+    }
+
     async fn cancel(&self, context: Context) -> Result<()> {
+        self.probe
+            .cancel_calls
+            .set(self.probe.cancel_calls.get() + 1);
+        let gate = self.probe.physical_gate.borrow().clone();
+        if let Some(gate) = gate {
+            gate.await_gate().await?;
+        }
+        if self.completion.borrow().is_some() {
+            return Ok(());
+        }
         self.pending.borrow_mut().take();
-        self.state
-            .change(&context, |state| {
-                state.phase = GenerationPhase::Settled;
-                state.physically_settled = true;
-                state.error = Some(ProviderError {
+        self.complete(
+            GenerateResult::Error {
+                error: ProviderError {
                     kind: ProviderErrorKind::Cancelled,
                     submission: Submission::MayHaveBeenSent,
                     http_status: None,
                     retry_after_ms: None,
-                });
-                Ok(())
-            })
-            .map(|_| ())
+                },
+            },
+            &context,
+        )
     }
 }
 
@@ -283,17 +427,46 @@ impl Generation {
         let Some(result) = self.pending.borrow_mut().take() else {
             return Ok(());
         };
-        self.state
+        self.complete(result, context)
+    }
+
+    fn complete(&self, result: GenerateResult, context: &Context) -> Result<()> {
+        let mut terminal = self.state.readable().value()?;
+        terminal.phase = GenerationPhase::Settled;
+        terminal.physically_settled = true;
+        match result {
+            GenerateResult::Response { response } => terminal.response = Some(*response),
+            GenerateResult::Error { error } => terminal.error = Some(error),
+        }
+        *self.completion.borrow_mut() = Some(terminal.clone());
+        let publication = self
+            .state
             .change(context, |state| {
-                state.phase = GenerationPhase::Settled;
-                state.physically_settled = true;
-                match result {
-                    GenerateResult::Response { response } => state.response = Some(*response),
-                    GenerateResult::Error { error } => state.error = Some(error),
-                }
+                *state = terminal;
                 Ok(())
             })
-            .map(|_| ())
+            .map(|_| ());
+        if self.probe.suppress_publication_error.get() {
+            Ok(())
+        } else {
+            publication
+        }
+    }
+}
+
+impl Drop for Generation {
+    fn drop(&mut self) {
+        self.probe.dropped.set(self.probe.dropped.get() + 1);
+        if !self
+            .completion
+            .borrow()
+            .as_ref()
+            .is_some_and(|state| state.physically_settled)
+        {
+            self.probe
+                .premature_drop
+                .set(self.probe.premature_drop.get() + 1);
+        }
     }
 }
 
@@ -311,6 +484,46 @@ fn scripted_response(request: ModelRequest, reply: Reply) -> GenerateResult {
                         extensions: vec![],
                     },
                 }],
+            },
+            FinishReason::ToolCalls,
+        ),
+        Reply::OpaqueTool => (
+            Message {
+                role: Role::Assistant,
+                content: vec![
+                    ContentPart::Reasoning {
+                        text: "private thought prose".into(),
+                    },
+                    ContentPart::Extension {
+                        extension: Extension {
+                            namespace: "swarmie.continuation.anthropic".into(),
+                            version: 2,
+                            value: serde_json::json!({"kind":"provider_content","value":{"type":"thinking","thinking":"private thought prose","signature":"signed-opaque-value"}}),
+                        },
+                    },
+                    ContentPart::Text {
+                        text: "before tool".into(),
+                    },
+                    ContentPart::ToolCall {
+                        call: ToolCall {
+                            id: format!("{}:call", request.request_id),
+                            name: "fixture.double".into(),
+                            arguments: serde_json::json!({"value":21}),
+                            extensions: vec![Extension {
+                                namespace: "swarmie.continuation.fixture".into(),
+                                version: 1,
+                                value: serde_json::json!({"kind":"tool_thought_signatures","value":["opaque-tool-signature"]}),
+                            }],
+                        },
+                    },
+                    ContentPart::Extension {
+                        extension: Extension {
+                            namespace: "swarmie.continuation.anthropic".into(),
+                            version: 2,
+                            value: serde_json::json!({"kind":"provider_content","value":{"type":"redacted_thinking","data":"redacted-opaque-value"}}),
+                        },
+                    },
+                ],
             },
             FinishReason::ToolCalls,
         ),

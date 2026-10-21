@@ -4,21 +4,32 @@ use swarmie_session_contracts::{
 };
 use tembra::{Context, Result, RuntimeError};
 
-use crate::state::stable;
+use crate::state::{TurnIdentity, stable};
 
 /// Reads one immutable prefix with bounded total admission. The Session provider owns paging.
-/// Large contexts require a contributing context policy or a more selective future projection.
+/// Only current-turn receipts are materialized here; conversation context uses selection first.
 pub(crate) async fn history(
     store: &SessionStoreRef,
-    session: &str,
+    turn: &impl TurnIdentity,
     context: &Context,
 ) -> Result<Vec<SessionEvent>> {
-    let mut query = EventQuery::new(session);
+    let mut query = EventQuery::new(turn.session_id());
+    query.conversation_id = Some(turn.conversation_id().into());
+    query.turn_id = Some(turn.turn_id().into());
     let mut events = Vec::new();
     let mut bytes = 0;
     loop {
         let page = store.with_context(context).events(query.clone()).await?;
         for event in page.events {
+            if event.session_id != turn.session_id()
+                || event.event.correlation.conversation_id.as_deref()
+                    != Some(turn.conversation_id())
+                || event.event.correlation.turn_id.as_deref() != Some(turn.turn_id())
+            {
+                return Err(crate::state::invalid(
+                    "session returned an event outside its turn selector",
+                ));
+            }
             bytes += swarmie_session_contracts::wire_bytes(&event)?;
             if bytes > 4 * 1024 * 1024 || events.len() >= 4096 {
                 return Err(RuntimeError::invalid(
@@ -34,6 +45,40 @@ pub(crate) async fn history(
         query.cursor = Some(cursor);
     }
     Ok(events)
+}
+
+/// Finds admission evidence with bounded page memory, without materializing conversation
+/// history. Lookup cost is proportional to the conversation prefix; every page remains
+/// cancelable and explicitly conversation-filtered.
+pub(crate) async fn input(
+    store: &SessionStoreRef,
+    turn: &impl TurnIdentity,
+    event_id: &str,
+    context: &Context,
+) -> Result<Option<SessionEvent>> {
+    let mut query = EventQuery::new(turn.session_id());
+    query.conversation_id = Some(turn.conversation_id().into());
+    loop {
+        context.check(context.host_id())?;
+        let page = store.with_context(context).events(query.clone()).await?;
+        for event in page.events {
+            if event.session_id != turn.session_id()
+                || event.event.correlation.conversation_id.as_deref()
+                    != Some(turn.conversation_id())
+            {
+                return Err(crate::state::invalid(
+                    "session returned an event outside its conversation selector",
+                ));
+            }
+            if event.event.event_id == event_id {
+                return Ok(Some(event));
+            }
+        }
+        let Some(cursor) = page.next else {
+            return Ok(None);
+        };
+        query.cursor = Some(cursor);
+    }
 }
 
 pub(crate) fn find<'a>(events: &'a [SessionEvent], id: &str) -> Option<&'a NewEvent> {
@@ -53,15 +98,20 @@ pub(crate) async fn append(
     payload: serde_json::Value,
     context: &Context,
 ) -> Result<String> {
-    let event_id = stable(&turn.turn_id, suffix);
+    let event_id = stable(turn, suffix);
     let event = NewEvent {
         event_id: event_id.clone(),
         kind: kind.into(),
-        version: 1,
+        version: if kind.starts_with("swarmie.agent.") {
+            2
+        } else {
+            1
+        },
         correlation: Correlation {
+            conversation_id: Some(turn.conversation_id.clone()),
             turn_id: Some(turn.turn_id.clone()),
             task_id: Some(turn.task_id.clone()),
-            step_id: Some(stable(&turn.turn_id, &format!("step:{}", turn.step))),
+            step_id: Some(stable(turn, &format!("step:{}", turn.step))),
             ..Default::default()
         },
         occurred_at_ms: None,
@@ -87,8 +137,14 @@ pub(crate) fn own_event<'a>(
 ) -> Result<&'a NewEvent> {
     let event =
         find(events, id).ok_or_else(|| crate::state::invalid("referenced event is absent"))?;
-    if event.version != 1
+    if event.version
+        != if kind.starts_with("swarmie.agent.") {
+            2
+        } else {
+            1
+        }
         || event.kind != kind
+        || event.correlation.conversation_id.as_deref() != Some(&turn.conversation_id)
         || event.correlation.turn_id.as_deref() != Some(&turn.turn_id)
         || event.correlation.task_id.as_deref() != Some(&turn.task_id)
     {

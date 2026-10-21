@@ -85,6 +85,7 @@ impl StorageControl {
             .commit(TaskTransaction {
                 owner,
                 writes: vec![TaskWrite {
+                    provenance: None,
                     expected_revision: None,
                     record: TaskRecord::new(spec, None),
                 }],
@@ -124,6 +125,7 @@ impl StorageControl {
             .commit(TaskTransaction {
                 owner: owner.into(),
                 writes: vec![TaskWrite {
+                    provenance: None,
                     expected_revision: Some(revision),
                     record,
                 }],
@@ -163,6 +165,74 @@ struct Proxy {
 }
 
 impl TaskStorageProvider for Proxy {
+    async fn outbox_status(&self, _context: Context) -> Result<TaskOutboxStatus> {
+        self.control.backend.outbox_status().await
+    }
+
+    async fn register_outbox_consumer(
+        &self,
+        _request: TaskOutboxConsumer,
+        context: Context,
+    ) -> Result<TaskOutboxConsumerState> {
+        task_outbox_consumer_owner(&context)?;
+        // This fixture delegates to a different Host; a local Context cannot transfer its
+        // authenticated Facet attribution across that boundary. Do not impersonate callers.
+        Err(RuntimeError::invalid(
+            "fixture_outbox_delegation",
+            "cross-Host consumer delegation is unsupported",
+        ))
+    }
+
+    async fn read_outbox(
+        &self,
+        _request: TaskOutboxQuery,
+        context: Context,
+    ) -> Result<TaskOutboxPage> {
+        task_outbox_consumer_owner(&context)?;
+        // This fixture delegates to a different Host; a local Context cannot transfer its
+        // authenticated Facet attribution across that boundary. Do not impersonate callers.
+        Err(RuntimeError::invalid(
+            "fixture_outbox_delegation",
+            "cross-Host consumer delegation is unsupported",
+        ))
+    }
+
+    async fn acknowledge_outbox(
+        &self,
+        _request: TaskOutboxAcknowledgement,
+        context: Context,
+    ) -> Result<()> {
+        task_outbox_consumer_owner(&context)?;
+        // This fixture delegates to a different Host; a local Context cannot transfer its
+        // authenticated Facet attribution across that boundary. Do not impersonate callers.
+        Err(RuntimeError::invalid(
+            "fixture_outbox_delegation",
+            "cross-Host consumer delegation is unsupported",
+        ))
+    }
+
+    async fn remove_outbox_consumer(
+        &self,
+        _request: TaskOutboxConsumer,
+        context: Context,
+    ) -> Result<()> {
+        task_outbox_consumer_owner(&context)?;
+        // This fixture delegates to a different Host; a local Context cannot transfer its
+        // authenticated Facet attribution across that boundary. Do not impersonate callers.
+        Err(RuntimeError::invalid(
+            "fixture_outbox_delegation",
+            "cross-Host consumer delegation is unsupported",
+        ))
+    }
+
+    async fn compact_outbox(
+        &self,
+        request: TaskOutboxCompaction,
+        _context: Context,
+    ) -> Result<TaskOutboxRetention> {
+        self.control.backend.compact_outbox(request).await
+    }
+
     async fn claim_owner(&self, owner: StorageOwner, _context: Context) -> Result<()> {
         self.control.backend.claim_owner(owner.clone()).await?;
         *self.control.owner.borrow_mut() = Some(owner.id);
@@ -243,6 +313,7 @@ impl TaskStorageProvider for Proxy {
                     .commit(TaskTransaction {
                         owner: transaction.owner.clone(),
                         writes: vec![TaskWrite {
+                            provenance: None,
                             expected_revision: None,
                             record: child
                         }]
@@ -274,6 +345,7 @@ impl TaskStorageProvider for Proxy {
                     .commit(TaskTransaction {
                         owner: transaction.owner.clone(),
                         writes: vec![TaskWrite {
+                            provenance: None,
                             expected_revision: None,
                             record: child
                         }]

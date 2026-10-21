@@ -1,6 +1,8 @@
 use futures::FutureExt;
 use swarmie_task_contracts::{
-    CommitResult, StorageOwner, TaskLookup, TaskPage, TaskQuery, TaskRecord, TaskStorage,
+    CommitResult, StorageOwner, TaskLookup, TaskOutboxAcknowledgement, TaskOutboxCompaction,
+    TaskOutboxConsumer, TaskOutboxConsumerState, TaskOutboxPage, TaskOutboxQuery,
+    TaskOutboxRetention, TaskOutboxStatus, TaskPage, TaskQuery, TaskRecord, TaskStorage,
     TaskStorageProvider, TaskTransaction,
 };
 use tembra::{core, prelude::*};
@@ -16,21 +18,27 @@ pub fn facet(configuration: &Configuration) -> Result<NativeFacet> {
     configuration
         .validate()
         .map_err(|error| RuntimeError::invalid("task_storage_configuration", error.to_string()))?;
+    let outbox_limits = configuration.outbox;
+    let legacy_owners = configuration.outbox_legacy_owners.clone();
     let database = configuration.database.clone();
     NativeFacet::new(FACET_ID, vec![], move |_, setup| {
         let database = database.clone();
+        let legacy_owners = legacy_owners.clone();
         setup.serve_with_options(
             TaskStorage,
             move |_, _, declaration| {
                 let database = database.clone();
+                let legacy_owners = legacy_owners.clone();
                 let resource = declaration.core_mut().resource(
                     "sqlite",
                     ResourceDeclaration::new(move |_| {
                         let database = database.clone();
+                        let legacy_owners = legacy_owners.clone();
                         async move {
-                                Store::open(&database).map_err(crate::store::Error::into_runtime)
-                            }
-                            .boxed_local()
+                            Store::open_with_outbox_limits(&database, outbox_limits, &legacy_owners)
+                                .map_err(crate::store::Error::into_runtime)
+                        }
+                        .boxed_local()
                     })
                     .with_close(|store| {
                         async move { store.close().map_err(crate::store::Error::into_runtime) }
@@ -88,6 +96,71 @@ impl TaskStorageProvider for Service {
         self.resource
             .value()?
             .commit(transaction)
+            .map_err(crate::store::Error::into_runtime)
+    }
+    async fn outbox_status(&self, _context: Context) -> Result<TaskOutboxStatus> {
+        self.resource
+            .value()?
+            .outbox_status()
+            .map_err(crate::store::Error::into_runtime)
+    }
+
+    async fn register_outbox_consumer(
+        &self,
+        request: TaskOutboxConsumer,
+        context: Context,
+    ) -> Result<TaskOutboxConsumerState> {
+        let owner = swarmie_task_contracts::task_outbox_consumer_owner(&context)?;
+        self.resource
+            .value()?
+            .register_outbox_consumer(request, &owner)
+            .map_err(crate::store::Error::into_runtime)
+    }
+
+    async fn read_outbox(
+        &self,
+        request: TaskOutboxQuery,
+        context: Context,
+    ) -> Result<TaskOutboxPage> {
+        let owner = swarmie_task_contracts::task_outbox_consumer_owner(&context)?;
+        self.resource
+            .value()?
+            .read_outbox(request, &owner)
+            .map_err(crate::store::Error::into_runtime)
+    }
+
+    async fn acknowledge_outbox(
+        &self,
+        request: TaskOutboxAcknowledgement,
+        context: Context,
+    ) -> Result<()> {
+        let owner = swarmie_task_contracts::task_outbox_consumer_owner(&context)?;
+        self.resource
+            .value()?
+            .acknowledge_outbox(request, &owner)
+            .map_err(crate::store::Error::into_runtime)
+    }
+
+    async fn remove_outbox_consumer(
+        &self,
+        request: TaskOutboxConsumer,
+        context: Context,
+    ) -> Result<()> {
+        let owner = swarmie_task_contracts::task_outbox_consumer_owner(&context)?;
+        self.resource
+            .value()?
+            .remove_outbox_consumer(request, &owner)
+            .map_err(crate::store::Error::into_runtime)
+    }
+
+    async fn compact_outbox(
+        &self,
+        request: TaskOutboxCompaction,
+        _context: Context,
+    ) -> Result<TaskOutboxRetention> {
+        self.resource
+            .value()?
+            .compact_outbox(request)
             .map_err(crate::store::Error::into_runtime)
     }
 }

@@ -110,7 +110,11 @@ rust-check: rust-fmt-check rust-clippy
 tembra-tooling-test:
     python3 -m unittest discover -s scripts/tembra -p 'test_*.py'
 
-foundation-check: tembra-tooling-test tembra-plugins rust-check
+# Compare native Hook descriptors with their generated TypeScript registrations.
+tembra-authoring-test: tembra-plugins
+    bun test tests/plugins/lifecycle-authoring.test.ts tests/plugins/fixtures/agent-context/contracts.test.ts
+
+foundation-check: tembra-tooling-test tembra-authoring-test rust-check
     bunx tsc --noEmit -p tests/plugins/tsconfig.json
     bunx tsc --noEmit -p scripts/tembra/tsconfig.json
 

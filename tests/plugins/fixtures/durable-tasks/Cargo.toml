@@ -6,18 +6,21 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+tembra-hooks.workspace = true
 swarmie-task-contracts = { path = "../../../../crates/task-contracts" }
 tembra.workspace = true
 serde_json.workspace = true
 futures.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
+swarmie-memory-store = { path = "../../../../plugins/memory-store" }
 swarmie-task-storage-sqlite = { path = "../../../../plugins/task-storage-sqlite" }
 swarmie-durable-tasks = { path = "../../../../plugins/durable-tasks" }
 swarmie-runtime = { path = "../../../../crates/runtime" }
 swarmie-composition = { path = "../../../../crates/composition" }
 tembra-native.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 tempfile.workspace = true
 rusqlite.workspace = true
 

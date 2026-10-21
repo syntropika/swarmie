@@ -5,8 +5,10 @@
 
 mod api;
 mod hooks;
+mod observation;
 mod tools;
 
 pub use api::*;
 pub use hooks::*;
+pub use observation::*;
 pub use tools::*;

@@ -2,12 +2,14 @@ use std::collections::BTreeSet;
 use std::rc::Rc;
 
 use swarmie_task_contracts::{
-    BlockingReason, CommitResult, TaskInvocation, TaskOutcome, TaskRecord, TaskStatus,
+    BlockingReason, CommitResult, TaskInvocation, TaskLifecycleEvent, TaskLifecycleOrigin,
+    TaskLifecycleTask, TaskOutcome, TaskPhaseKind, TaskPhaseOutcome, TaskRecord, TaskStatus,
     TaskTransition, TaskWrite, task_wire_bytes, validate_task_payload_size,
 };
 use tembra::{Context, Result, RuntimeError};
 
 use crate::{
+    mutation::{Change, Mutation},
     ownership,
     reads::{TaskFamily, is_contention},
     registry,
@@ -92,10 +94,11 @@ impl Engine {
         let definition = match registry::definition(&self.registry, &record, context.core()) {
             Ok(definition) => definition,
             Err(reason) => {
+                let change = Change::from_record(&record, TaskLifecycleOrigin::Reconciliation);
                 record.status = TaskStatus::Blocked;
                 record.blocking_reason = Some(reason);
                 if matches!(
-                    self.update(&context, record).await?,
+                    self.update(&context, record, change).await?,
                     CommitResult::Conflict { .. }
                 ) {
                     self.schedule(&id);
@@ -119,17 +122,25 @@ impl Engine {
                 )
                 .await;
         };
+        let change = Change::from_record(&record, TaskLifecycleOrigin::Reservation);
         record.status = TaskStatus::Running;
         record.blocking_reason = None;
         record.attempts = attempts;
         self.reservations.borrow_mut().insert(id.clone());
-        if matches!(
-            self.update(&context, record).await?,
-            CommitResult::Conflict { .. }
-        ) {
-            self.reservations.borrow_mut().remove(&id);
-            self.schedule(&id);
-            return Ok(());
+        match self.update(&context, record, change).await {
+            Ok(CommitResult::Committed { .. }) => {}
+            Ok(CommitResult::Conflict { .. }) => {
+                self.reservations.borrow_mut().remove(&id);
+                self.schedule(&id);
+                return Ok(());
+            }
+            Err(error) if error.reason == "task_storage_outbox_full" => {
+                // Capacity rejection is definite: no Running reservation was committed.
+                self.reservations.borrow_mut().remove(&id);
+                self.schedule(&id);
+                return Ok(());
+            }
+            Err(error) => return Err(error),
         }
         let (handler_context, handler_guard) = context.child_call(context.principal().clone())?;
         self.active
@@ -181,6 +192,21 @@ impl Engine {
         let result = call.await;
         // Physical execution ownership remains valid until the actual Tembra receipt settles.
         receipt.settled().await;
+        self.observations.emit(TaskLifecycleEvent::PhaseSettled {
+            task: TaskLifecycleTask::from(&admitted),
+            invocation: if migrating {
+                TaskPhaseKind::Migrate
+            } else {
+                TaskPhaseKind::Run
+            },
+            outcome: match &result {
+                Ok(_) => TaskPhaseOutcome::Returned,
+                Err(error) if error.code == tembra::core::ErrorCode::Aborted => {
+                    TaskPhaseOutcome::Cancelled
+                }
+                Err(_) => TaskPhaseOutcome::Rejected,
+            },
+        });
         drop(handler_guard);
         self.active.borrow_mut().remove(&id);
         if context.check(context.host_id()).is_err() || self.failure.borrow().is_some() {
@@ -229,6 +255,7 @@ impl Engine {
             }
             let family = self.settled_family(context, &admitted.id).await?;
             let mut latest = family.task.clone();
+            let mut change = Change::from_record(&latest, TaskLifecycleOrigin::Handler);
             if matches!(latest.status, TaskStatus::Terminal | TaskStatus::Completing) {
                 return Ok(());
             }
@@ -240,6 +267,7 @@ impl Engine {
                 decision = Decision::Park("settled phase conflicts with a newer committed record; explicit retry required; external effect may have occurred".into());
             }
             let outcome = if cancelled {
+                change.origin = TaskLifecycleOrigin::Cancellation;
                 latest.cancellation_requested = true;
                 ownership::settle(
                     &mut latest,
@@ -248,7 +276,7 @@ impl Engine {
                         reason: "cancellation requested".into(),
                     },
                 );
-                self.update(context, latest).await
+                self.update(context, latest, change).await
             } else {
                 match decision.clone() {
                     Decision::Park(detail) => {
@@ -258,7 +286,7 @@ impl Engine {
                         latest.blocking_reason = Some(BlockingReason::HandlerFailure {
                             detail: diagnostic(detail),
                         });
-                        self.update(context, latest).await
+                        self.update(context, latest, change).await
                     }
                     Decision::Fault(detail) => {
                         ownership::settle(
@@ -268,7 +296,7 @@ impl Engine {
                                 error: diagnostic(detail),
                             },
                         );
-                        self.update(context, latest).await
+                        self.update(context, latest, change).await
                     }
                     Decision::RejectMigration(target_version, detail) => {
                         latest.status = TaskStatus::Blocked;
@@ -276,18 +304,19 @@ impl Engine {
                             target_version,
                             detail: diagnostic(detail),
                         });
-                        self.update(context, latest).await
+                        self.update(context, latest, change).await
                     }
                     Decision::Transition(transition) => {
                         if let Some(target_version) = migration {
                             match transition {
                                 TaskTransition::Migrate { checkpoint, phase } => {
+                                    change.checkpoint_committed = true;
                                     latest.definition_version = target_version;
                                     latest.checkpoint = checkpoint;
                                     latest.phase = phase;
                                     latest.status = TaskStatus::Pending;
                                     latest.restarts = 0;
-                                    self.update(context, latest).await
+                                    self.update(context, latest, change).await
                                 }
                                 TaskTransition::RejectMigration { reason } => {
                                     decision = Decision::RejectMigration(target_version, reason);
@@ -314,6 +343,11 @@ impl Engine {
                 Ok(CommitResult::Conflict { .. }) => {
                     // A known atomic refusal cannot justify replaying an external effect.
                     decision = Decision::Park("settled phase transaction conflicted; checkpoint preserved; explicit retry required; external effect may have occurred".into());
+                    self.contention_pause(context).await?;
+                }
+                Err(error) if error.reason == "task_storage_outbox_full" => {
+                    // Capacity refusal committed nothing. Retain this physically settled
+                    // decision while consumers acknowledge/compact; never replay its effect.
                     self.contention_pause(context).await?;
                 }
                 Err(error) if invalid_decision(&error) => {
@@ -348,6 +382,13 @@ impl Engine {
         children: &[TaskRecord],
     ) -> Result<CommitResult> {
         let mut created = Vec::new();
+        let mut change = Change::from_record(&task, TaskLifecycleOrigin::Handler);
+        change.checkpoint_committed = matches!(
+            &transition,
+            TaskTransition::Checkpoint { .. }
+                | TaskTransition::Sleep { .. }
+                | TaskTransition::Wait { .. }
+        );
         task.restarts = 0;
         match transition {
             TaskTransition::Checkpoint { checkpoint, phase } => {
@@ -398,10 +439,10 @@ impl Engine {
                         ));
                     }
                     task.wait_for.push(child.id.clone());
-                    created.push(TaskWrite {
-                        expected_revision: None,
-                        record: TaskRecord::new(child, Some(task.id.clone())),
-                    });
+                    created.push(Mutation::create(TaskRecord::new(
+                        child,
+                        Some(task.id.clone()),
+                    )));
                 }
                 if task.wait_for.is_empty() {
                     return Err(RuntimeError::invalid(
@@ -430,9 +471,13 @@ impl Engine {
         task.revision = revision.checked_add(1).ok_or_else(|| {
             RuntimeError::invalid("durable_tasks_revision", "task revision exhausted")
         })?;
-        created.push(TaskWrite {
-            expected_revision: Some(revision),
-            record: task,
+        created.push(Mutation {
+            write: TaskWrite {
+                provenance: None,
+                expected_revision: Some(revision),
+                record: task,
+            },
+            change,
         });
         self.commit(context, created).await
     }

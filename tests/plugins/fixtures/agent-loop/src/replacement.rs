@@ -1,9 +1,10 @@
 //! A distinct fixture-only AgentLoop implementation that completes confirmed final answers.
-//! It shares only public Contracts and explicitly admits the default version-one finalization
-//! checkpoints. Other phases are refused rather than guessed or silently migrated.
+//! It shares only public Contracts and explicitly admits version-two finalization checkpoints
+//! or a model-phase checkpoint with a complete correlated provider receipt. It does not invoke
+//! models, tools or lifecycle contributions; unsupported or uncertain phases remain refused.
 
 use swarmie_agent_contracts::*;
-use swarmie_model_contracts::{ContentPart, GenerateResult};
+use swarmie_model_contracts::{ContentPart, FinishReason, GenerateResult, Role};
 use swarmie_session_contracts::{EventQuery, SessionStore, SessionStoreInput, SessionStoreRef};
 use swarmie_task_contracts::*;
 use tembra::{core, prelude::*};
@@ -40,10 +41,11 @@ pub fn facet() -> Result<NativeFacet> {
                 declaration.core_mut().register_method(
                     &task_definitions()?,
                     KIND,
-                    serde_json::json!({"kind":KIND,"version":1}),
+                    serde_json::json!({"kind":KIND,"version":2}),
                     "step",
                 )?;
                 Ok(Finalizer {
+                    tasks: declaration.get(DurableTasks, DurableTasksInput {})?,
                     sessions: declaration.get(SessionStore, SessionStoreInput {})?,
                 })
             },
@@ -60,7 +62,7 @@ struct Control {
 }
 
 impl Control {
-    async fn find(&self, turn_id: &str, context: &Context) -> Result<Option<TurnRecord>> {
+    async fn find(&self, lookup: &TurnLookup, context: &Context) -> Result<Option<TurnRecord>> {
         let mut query = TaskQuery::default();
         loop {
             let page = self
@@ -69,14 +71,19 @@ impl Control {
                 .graph(query.clone())
                 .await?;
             for task in page.records {
-                if task.kind == KIND && task.input["turn_id"] == turn_id {
+                if task.kind == KIND
+                    && task.input["turn_id"] == lookup.turn_id
+                    && task.input["session_id"] == lookup.session_id
+                    && task.input["conversation_id"] == lookup.conversation_id
+                {
                     let request: StartTurn =
                         serde_json::from_value(task.input.clone()).map_err(|error| {
                             RuntimeError::invalid("fixture_replacement_input", error.to_string())
                         })?;
                     return Ok(Some(TurnRecord {
-                        turn_id: turn_id.into(),
+                        turn_id: lookup.turn_id.clone(),
                         session_id: request.session_id,
+                        conversation_id: request.conversation_id,
                         task,
                     }));
                 }
@@ -93,7 +100,14 @@ impl Control {
 impl AgentLoopProvider for Control {
     async fn start(&self, request: StartTurn, context: Context) -> Result<TurnRecord> {
         let record = self
-            .find(&request.turn_id, &context)
+            .find(
+                &TurnLookup {
+                    session_id: request.session_id.clone(),
+                    conversation_id: request.conversation_id.clone(),
+                    turn_id: request.turn_id.clone(),
+                },
+                &context,
+            )
             .await?
             .ok_or_else(|| {
                 RuntimeError::invalid(
@@ -115,12 +129,27 @@ impl AgentLoopProvider for Control {
     }
 
     async fn inspect(&self, request: TurnLookup, context: Context) -> Result<Option<TurnRecord>> {
-        self.find(&request.turn_id, &context).await
+        self.find(
+            &TurnLookup {
+                session_id: request.session_id.clone(),
+                conversation_id: request.conversation_id.clone(),
+                turn_id: request.turn_id.clone(),
+            },
+            &context,
+        )
+        .await
     }
 
     async fn cancel(&self, request: TurnLookup, context: Context) -> Result<TurnRecord> {
         let record = self
-            .find(&request.turn_id, &context)
+            .find(
+                &TurnLookup {
+                    session_id: request.session_id.clone(),
+                    conversation_id: request.conversation_id.clone(),
+                    turn_id: request.turn_id.clone(),
+                },
+                &context,
+            )
             .await?
             .ok_or_else(|| {
                 RuntimeError::invalid("fixture_replacement_missing", "turn is absent")
@@ -129,9 +158,16 @@ impl AgentLoopProvider for Control {
             .with_context(&context)
             .cancel(TaskLookup { id: record.task.id })
             .await?;
-        self.find(&request.turn_id, &context)
-            .await?
-            .ok_or_else(|| RuntimeError::invalid("fixture_replacement_missing", "turn is absent"))
+        self.find(
+            &TurnLookup {
+                session_id: request.session_id.clone(),
+                conversation_id: request.conversation_id.clone(),
+                turn_id: request.turn_id.clone(),
+            },
+            &context,
+        )
+        .await?
+        .ok_or_else(|| RuntimeError::invalid("fixture_replacement_missing", "turn is absent"))
     }
 
     async fn continue_turn(&self, request: ContinueTurn, context: Context) -> Result<TurnRecord> {
@@ -142,13 +178,21 @@ impl AgentLoopProvider for Control {
             ));
         }
         self.tasks.with_context(&context).resume().await?;
-        self.find(&request.turn_id, &context)
-            .await?
-            .ok_or_else(|| RuntimeError::invalid("fixture_replacement_missing", "turn is absent"))
+        self.find(
+            &TurnLookup {
+                session_id: request.session_id.clone(),
+                conversation_id: request.conversation_id.clone(),
+                turn_id: request.turn_id.clone(),
+            },
+            &context,
+        )
+        .await?
+        .ok_or_else(|| RuntimeError::invalid("fixture_replacement_missing", "turn is absent"))
     }
 }
 
 struct Finalizer {
+    tasks: DurableTasksRef,
     sessions: SessionStoreRef,
 }
 
@@ -160,48 +204,137 @@ impl ReplacementHandlerProvider for Finalizer {
                 task,
                 target_version,
             } => {
-                return if target_version == 1 && task.definition_version == 1 {
+                return if target_version == 2 && task.definition_version == 2 {
                     Ok(TaskTransition::Migrate {
                         checkpoint: task.checkpoint,
                         phase: task.phase,
                     })
                 } else {
                     Ok(TaskTransition::RejectMigration {
-                        reason: "replacement supports only checkpoint version one".into(),
+                        reason: "replacement supports only checkpoint version two".into(),
                     })
                 };
             }
         };
-        if !matches!(task.phase.as_str(), "model-result" | "step-end" | "finish") {
+        let admitted = self
+            .tasks
+            .with_context(&context)
+            .get(TaskLookup {
+                id: task.id.clone(),
+            })
+            .await?
+            .ok_or_else(|| RuntimeError::invalid("fixture_replacement_task", "task is absent"))?;
+        if admitted != task
+            || task.definition_version != 2
+            || task.kind != KIND
+            || task.status != TaskStatus::Running
+            || task.cancellation_requested
+        {
             return Err(RuntimeError::invalid(
-                "fixture_replacement_scope",
-                "checkpoint is outside finalization scope",
+                "fixture_replacement_task",
+                "invocation differs from its admitted task",
             ));
         }
-        let request: StartTurn = serde_json::from_value(task.input).map_err(|error| {
+        if !matches!(
+            task.phase.as_str(),
+            "model" | "model-result" | "step-end" | "finish"
+        ) {
+            return Err(RuntimeError::invalid(
+                "fixture_replacement_scope",
+                "checkpoint is outside confirmed final-answer scope",
+            ));
+        }
+        let request: StartTurn = serde_json::from_value(task.input.clone()).map_err(|error| {
             RuntimeError::invalid("fixture_replacement_input", error.to_string())
         })?;
-        let response_id = task.checkpoint["response_event"].as_str().ok_or_else(|| {
+        if task.checkpoint["version"] != 2
+            || task.checkpoint["session_id"] != request.session_id
+            || task.checkpoint["conversation_id"] != request.conversation_id
+            || task.checkpoint["turn_id"] != request.turn_id
+        {
+            return Err(RuntimeError::invalid(
+                "fixture_replacement_checkpoint",
+                "checkpoint identity or version differs",
+            ));
+        }
+        let request_id = task.checkpoint["request_event"].as_str().ok_or_else(|| {
             RuntimeError::invalid(
                 "fixture_replacement_checkpoint",
-                "confirmed response reference is absent",
+                "request reference is absent",
             )
         })?;
+        let effective_id = if task.phase == "model" {
+            None
+        } else {
+            Some(task.checkpoint["response_event"].as_str().ok_or_else(|| {
+                RuntimeError::invalid(
+                    "fixture_replacement_checkpoint",
+                    "confirmed response reference is absent",
+                )
+            })?)
+        };
+        let kind = if effective_id.is_some() {
+            "swarmie.agent.model-confirmed"
+        } else {
+            "swarmie.agent.model-provider-confirmed"
+        };
         let mut query = EventQuery::new(&request.session_id);
+        query.conversation_id = Some(request.conversation_id.clone());
+        query.turn_id = Some(request.turn_id.clone());
+        let mut planned: Option<ModelCall> = None;
         loop {
             let page = self
                 .sessions
                 .with_context(&context)
                 .events(query.clone())
                 .await?;
-            if let Some(entry) = page
-                .events
-                .iter()
-                .find(|entry| entry.event.event_id == response_id)
-            {
-                if entry.event.kind != "swarmie.agent.model-confirmed"
+            for entry in &page.events {
+                if entry.event.event_id == request_id {
+                    if entry.event.version != 2 || entry.event.kind != "swarmie.agent.model-request"
+                    {
+                        return Err(RuntimeError::invalid(
+                            "fixture_replacement_request",
+                            "request event shape differs",
+                        ));
+                    }
+                    let call: ModelCall = serde_json::from_value(entry.event.payload.clone())
+                        .map_err(|error| {
+                            RuntimeError::invalid("fixture_replacement_request", error.to_string())
+                        })?;
+                    if call.turn.session_id != request.session_id
+                        || call.turn.conversation_id != request.conversation_id
+                        || call.turn.turn_id != request.turn_id
+                        || call.turn.task_id != task.id
+                        || Some(u64::from(call.turn.step)) != task.checkpoint["step"].as_u64()
+                        || call.request.model != request.model
+                    {
+                        return Err(RuntimeError::invalid(
+                            "fixture_replacement_request",
+                            "request causal identity differs",
+                        ));
+                    }
+                    planned = Some(call);
+                }
+                let Some(call) = &planned else {
+                    continue;
+                };
+                let selected = if let Some(id) = effective_id {
+                    entry.event.event_id == id
+                } else {
+                    entry.event.kind == kind
+                        && entry.event.payload["operation_id"] == call.request.request_id
+                };
+                if !selected {
+                    continue;
+                }
+                if entry.event.version != 2
+                    || entry.event.kind != kind
+                    || entry.session_id != request.session_id
+                    || entry.event.correlation.conversation_id.as_deref()
+                        != Some(&request.conversation_id)
                     || entry.event.correlation.turn_id.as_deref() != Some(&request.turn_id)
                     || entry.event.correlation.task_id.as_deref() != Some(&task.id)
+                    || entry.event.payload["operation_id"] != call.request.request_id
                 {
                     return Err(RuntimeError::invalid(
                         "fixture_replacement_receipt",
@@ -217,22 +350,30 @@ impl ReplacementHandlerProvider for Finalizer {
                 let GenerateResult::Response { response } = result else {
                     return Err(RuntimeError::invalid(
                         "fixture_replacement_scope",
-                        "replacement requires a confirmed successful answer",
+                        "replacement requires a successful final response",
                     ));
                 };
-                if response
-                    .message
-                    .content
-                    .iter()
-                    .any(|part| matches!(part, ContentPart::ToolCall { .. }))
+                if response.request_id != call.request.request_id
+                    || response.model != call.request.model
+                    || response.message.role != Role::Assistant
+                    || !matches!(
+                        response.finish_reason,
+                        FinishReason::Stop | FinishReason::StopSequence
+                    )
+                    || response.message.content.iter().any(|part| {
+                        matches!(
+                            part,
+                            ContentPart::ToolCall { .. } | ContentPart::Reasoning { .. }
+                        )
+                    })
                 {
                     return Err(RuntimeError::invalid(
                         "fixture_replacement_scope",
-                        "replacement does not execute tool requests",
+                        "replacement requires a correlated final answer without tools or private reasoning",
                     ));
                 }
                 return Ok(TaskTransition::Complete {
-                    value: serde_json::json!({"session_id":request.session_id,"response_event_id":response_id,"implementation":"fixture.replacement-agent-loop"}),
+                    value: serde_json::json!({"session_id":request.session_id,"conversation_id":request.conversation_id,"turn_id":request.turn_id,"response_event_id":entry.event.event_id,"implementation":"fixture.replacement-agent-loop"}),
                 });
             }
             let Some(cursor) = page.next else {

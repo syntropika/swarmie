@@ -11,6 +11,7 @@ use tembra_hooks::{HookManager, HookManagerOptions};
 
 use crate::{
     TURN_KIND, journal,
+    observers::{Observation, ObserverDispatcher},
     state::{Checkpoint, decode, encode, invalid, now_ms},
 };
 
@@ -24,11 +25,13 @@ pub(crate) fn declare(
     scope: &core::FacetScope,
     setup: &mut tembra::FacetDeclaration<'_, '_>,
     driver: Rc<dyn core::Driver>,
+    observers: Rc<ObserverDispatcher>,
 ) -> Result<()> {
     let tools = scope.registry(&tool_definitions()?)?;
     let terminals = scope.registry(&crate::model::terminals()?)?;
     let hooks = HookManager::new(scope.clone(), driver.clone(), HookManagerOptions::default())?;
     let terminal_driver = driver.clone();
+    let terminal_observers = observers.clone();
     setup.serve_with_options(
         TurnHandler,
         move |_, _, declaration| {
@@ -37,13 +40,15 @@ pub(crate) fn declare(
                 TURN_KIND,
                 encode(&TaskDefinition {
                     kind: TURN_KIND.into(),
-                    version: 1,
+                    version: 2,
                 })?,
                 "step",
             )?;
             Ok(Engine {
                 sessions: declaration.get(SessionStore, SessionStoreInput {})?,
                 hooks: hooks.clone(),
+                observers: observers.clone(),
+                _monitor: declaration.get(AgentObservations, AgentObservationsInput {})?,
                 tools: tools.clone(),
                 terminals: terminals.clone(),
                 driver: driver.clone(),
@@ -55,12 +60,14 @@ pub(crate) fn declare(
             ..Default::default()
         },
     )?;
-    crate::model::declare(scope, setup, terminal_driver)
+    crate::model::declare(scope, setup, terminal_driver, terminal_observers)
 }
 
 pub(crate) struct Engine {
     pub(crate) sessions: SessionStoreRef,
     pub(crate) hooks: HookManager,
+    pub(crate) observers: Rc<ObserverDispatcher>,
+    _monitor: AgentObservationsRef,
     pub(crate) tools: core::RegistryView,
     pub(crate) terminals: core::RegistryView,
     driver: Rc<dyn core::Driver>,
@@ -85,14 +92,14 @@ impl TurnHandlerProvider for Engine {
                 task,
                 target_version,
             } => {
-                return if target_version == 1 && task.definition_version == 1 {
+                return if target_version == 2 && task.definition_version == 2 {
                     Ok(TaskTransition::Migrate {
                         checkpoint: task.checkpoint,
                         phase: task.phase,
                     })
                 } else {
                     Ok(TaskTransition::RejectMigration {
-                        reason: "unsupported agent checkpoint version".into(),
+                        reason: "agent checkpoint v1 has no conversation identity; migration requires explicit evidence and is not automatic".into(),
                     })
                 };
             }
@@ -123,7 +130,7 @@ impl TurnHandlerProvider for Engine {
             .ok_or_else(|| invalid("turn task is absent"))?;
         if admitted != task
             || task.kind != TURN_KIND
-            || task.definition_version != 1
+            || task.definition_version != 2
             || task.status != swarmie_task_contracts::TaskStatus::Running
             || task.cancellation_requested
         {
@@ -133,10 +140,11 @@ impl TurnHandlerProvider for Engine {
         }
         let request: StartTurn = decode(task.input.clone())?;
         request.limits.validate()?;
-        if task.id != crate::state::task_id(&request.turn_id) {
+        if task.id != crate::state::task_id(&request) {
             return Err(invalid("task identity differs from the turn"));
         }
         let checkpoint: Checkpoint = decode(task.checkpoint.clone())?;
+        checkpoint.validate_identity(&request)?;
         let remaining = checkpoint
             .started_at_ms
             .saturating_add(request.limits.max_duration_ms)
@@ -190,7 +198,14 @@ impl TurnHandlerProvider for Engine {
             )
             .await?;
         }
+        let duration_exhausted =
+            now_ms()?.saturating_sub(checkpoint.started_at_ms) >= request.limits.max_duration_ms;
         match result {
+            Err(_) if duration_exhausted && context.check(context.host_id()).is_ok() => {
+                // A phase's own deadline can settle just before the enclosing timer fires.
+                // Its physical work is already joined; do not park an exhausted turn.
+                self.end_checkpoint(checkpoint, "duration limit reached")
+            }
             Err(error)
                 if matches!(
                     task.phase.as_str(),
@@ -230,9 +245,7 @@ impl Engine {
                     context,
                 )
                 .await?;
-                self.hooks
-                    .run_series(&on_turn_start()?, turn, context.core())
-                    .await?;
+                self.observers.enqueue(Observation::TurnStart(turn));
                 next(cp, "prepare-model")
             }
             "prepare-model" => self.prepare_model(request, cp, context).await,
@@ -246,18 +259,12 @@ impl Engine {
                 let GenerateResult::Response { response } = result else {
                     return Err(invalid("missing model response"));
                 };
-                self.hooks
-                    .run_series(
-                        &on_step_end()?,
-                        StepEnd {
-                            turn: turn.clone(),
-                            finish_reason: response.finish_reason,
-                            tool_calls: cp.tool_index,
-                        },
-                        context.core(),
-                    )
-                    .await?;
                 journal::append(&self.sessions,&turn,&format!("step:{}:end",cp.step),"swarmie.agent.step-ended",serde_json::json!({"finish_reason":response.finish_reason,"tool_calls":cp.tool_index,"output_tokens":cp.output_tokens}),context).await?;
+                self.observers.enqueue(Observation::Step(StepEnd {
+                    turn: turn.clone(),
+                    finish_reason: response.finish_reason,
+                    tool_calls: cp.tool_index,
+                }));
                 if cp.tool_index == 0 {
                     if !matches!(
                         response.finish_reason,
@@ -281,7 +288,7 @@ impl Engine {
                     }
                 } else {
                     TaskOutcome::Completed {
-                        value: serde_json::json!({"session_id":request.session_id,"response_event_id":cp.response_event,"steps":cp.step+1,"tool_calls":cp.tool_calls,"output_tokens":cp.output_tokens}),
+                        value: serde_json::json!({"session_id":request.session_id,"conversation_id":request.conversation_id,"turn_id":request.turn_id,"response_event_id":cp.response_event,"steps":cp.step+1,"tool_calls":cp.tool_calls,"output_tokens":cp.output_tokens}),
                     }
                 };
                 journal::append(
@@ -293,16 +300,10 @@ impl Engine {
                     context,
                 )
                 .await?;
-                self.hooks
-                    .run_series(
-                        &on_turn_end()?,
-                        TurnEnd {
-                            turn,
-                            outcome: outcome.clone(),
-                        },
-                        context.core(),
-                    )
-                    .await?;
+                self.observers.enqueue(Observation::Turn(TurnEnd {
+                    turn,
+                    outcome: outcome.clone(),
+                }));
                 match outcome {
                     TaskOutcome::Completed { value } => Ok(TaskTransition::Complete { value }),
                     TaskOutcome::Failed { error } => Ok(TaskTransition::Fail { error }),

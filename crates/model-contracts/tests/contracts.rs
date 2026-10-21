@@ -63,3 +63,30 @@ fn portable_requests_and_all_state_branches_validate() -> tembra::Result<()> {
     assert!(validate(&schema, &bad).is_err());
     Ok(())
 }
+
+#[test]
+fn generation_recovery_and_publication_error_are_portable_contract_members() -> tembra::Result<()> {
+    use tembra::contracts::{schema_for, to_portable_value, validate};
+    let descriptor = ModelGenerationSchema.descriptor()?;
+    let expected = schema_for::<GenerationState>().unwrap();
+    let member = descriptor.members("").unwrap().get("recover").unwrap();
+    match member {
+        tembra::contracts::Member::Method { result, .. } => assert_eq!(
+            result.as_ref(),
+            Some(&tembra::contracts::ValueSchema::Portable(expected))
+        ),
+        _ => panic!("recover must be a method"),
+    }
+    let error = ProviderError {
+        kind: ProviderErrorKind::Publication,
+        submission: Submission::ResponseReceived,
+        http_status: None,
+        retry_after_ms: None,
+    };
+    validate(
+        &schema_for::<ProviderError>().unwrap(),
+        &to_portable_value(&error).unwrap(),
+    )
+    .unwrap();
+    Ok(())
+}

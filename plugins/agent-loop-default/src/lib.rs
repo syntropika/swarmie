@@ -10,6 +10,7 @@ mod context;
 mod journal;
 mod model;
 mod model_steps;
+mod observers;
 mod service;
 mod state;
 mod tool_steps;

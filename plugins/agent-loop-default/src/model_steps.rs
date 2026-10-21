@@ -9,8 +9,9 @@ use tembra::prelude::*;
 use tembra_hooks::{HookTerminal, HookType};
 
 use crate::{
-    context::{append_message, context_messages},
+    context::append_message,
     journal,
+    observers::Observation,
     state::{Checkpoint, decode, encode, invalid, stable},
     tools,
     workflow::{Engine, next},
@@ -31,10 +32,12 @@ impl Engine {
             return self.end_checkpoint(cp, "output token limit reached");
         }
         let suffix = format!("model:{}:request", cp.step);
-        let id = stable(&request.turn_id, &suffix);
-        let events = journal::history(&self.sessions, &request.session_id, context).await?;
+        let id = stable(request, &suffix);
+        let events = journal::history(&self.sessions, request, context).await?;
         if journal::find(&events, &id).is_none() {
-            let messages = context_messages(&events, request, &cp)?;
+            let messages =
+                crate::context::select_messages(&self.sessions, &self.hooks, request, &cp, context)
+                    .await?;
             let prepared = self
                 .hooks
                 .run_waterfall(
@@ -69,7 +72,7 @@ impl Engine {
             let call = ModelCall {
                 turn: turn.clone(),
                 request: ModelRequest {
-                    request_id: stable(&request.turn_id, &format!("model:{}", cp.step)),
+                    request_id: stable(request, &format!("model:{}", cp.step)),
                     model: request.model.clone(),
                     messages: prepared.messages,
                     tools: definitions,
@@ -131,7 +134,7 @@ impl Engine {
         context: &Context,
     ) -> Result<TaskTransition> {
         let turn = cp.turn(request);
-        let events = journal::history(&self.sessions, &request.session_id, context).await?;
+        let events = journal::history(&self.sessions, request, context).await?;
         let call: ModelCall = decode(
             journal::own_event(
                 &events,
@@ -145,7 +148,7 @@ impl Engine {
             .clone(),
         )?;
         let suffix = format!("model:{}:confirmed", cp.step);
-        let id = stable(&request.turn_id, &suffix);
+        let id = stable(request, &suffix);
         if journal::find(&events, &id).is_none() {
             let operation = {
                 let table = self.terminals.table(Some(context.core()))?;
@@ -162,10 +165,11 @@ impl Engine {
                 |value| encode(&value).map(Some),
                 |value| decode(value.ok_or_else(|| invalid("model terminal returned no result"))?),
             )?;
-            let result = self
+            let mut result = self
                 .hooks
                 .run_middleware(&wrap_model_call()?, call.clone(), context.core(), terminal)
                 .await?;
+            crate::model::redact_reasoning(&mut result);
             check_model_result(&result, &call)?;
             // Middleware may supply a complete replacement without entering the terminal.
             journal::append(
@@ -190,16 +194,10 @@ impl Engine {
     ) -> Result<TaskTransition> {
         let turn = cp.turn(request);
         let (call, result) = self.model_observation(request, &cp, context).await?;
-        self.hooks
-            .run_series(
-                &after_model_call()?,
-                ModelObservation {
-                    call: call.clone(),
-                    result: result.clone(),
-                },
-                context.core(),
-            )
-            .await?;
+        self.observers.enqueue(Observation::Model(ModelObservation {
+            call: call.clone(),
+            result: result.clone(),
+        }));
         match result {
             GenerateResult::Error { .. } => self.end_checkpoint(cp, "model request failed"),
             GenerateResult::Response { response } => {
@@ -257,7 +255,7 @@ impl Engine {
         cp: &Checkpoint,
         context: &Context,
     ) -> Result<(ModelCall, GenerateResult)> {
-        let events = journal::history(&self.sessions, &request.session_id, context).await?;
+        let events = journal::history(&self.sessions, request, context).await?;
         let turn = cp.turn(request);
         let call: ModelCall = decode(
             journal::own_event(
@@ -271,7 +269,7 @@ impl Engine {
             .payload
             .clone(),
         )?;
-        let actual_id = stable(&request.turn_id, &format!("model:{}:actual", cp.step));
+        let actual_id = stable(request, &format!("model:{}:actual", cp.step));
         let call = if journal::find(&events, &actual_id).is_some() {
             decode(
                 journal::own_event(&events, &actual_id, &turn, "swarmie.agent.model-actual")?

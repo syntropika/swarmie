@@ -55,7 +55,7 @@ pub struct ToolResult {
 /// same method and contribute it to [`tool_definitions`]. This token is not a singleton
 /// provider identity. The real terminal must independently enforce required permissions;
 /// optional hook participation never grants authority.
-#[tembra::contract(local, name = "swarmie.agent-tool-schema", version = 1)]
+#[tembra::contract(local, name = "swarmie.agent-tool-schema", version = 2)]
 pub trait ToolHandler {
     #[portable]
     async fn execute(&self, call: ToolCall) -> Result<ToolResult>;
@@ -88,7 +88,7 @@ pub struct ToolAuthorization {
 }
 
 /// Required final-boundary policy, independent from optional lifecycle contributions.
-#[tembra::contract(local, name = "swarmie.agent-tool-policy", version = 1)]
+#[tembra::contract(local, name = "swarmie.agent-tool-policy", version = 2)]
 pub trait ToolPolicy {
     #[portable]
     async fn authorize(&self, call: ToolCall) -> Result<ToolAuthorization>;

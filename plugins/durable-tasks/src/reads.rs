@@ -26,7 +26,10 @@ pub(crate) struct TaskFamily {
 pub(crate) fn is_contention(error: &RuntimeError) -> bool {
     matches!(
         error.reason.as_str(),
-        "task_storage_cursor" | "task_storage_cursor_invalidated" | "durable_tasks_snapshot_busy"
+        "task_storage_cursor"
+            | "task_storage_cursor_invalidated"
+            | "durable_tasks_snapshot_busy"
+            | "task_storage_outbox_full"
     )
 }
 

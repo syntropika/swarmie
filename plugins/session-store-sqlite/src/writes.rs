@@ -83,7 +83,7 @@ impl Store {
                 events.push(event);
             }
             for event in events {
-                transaction.execute("INSERT INTO session_events VALUES(?1,?2,?3,?4,?5)", params![request.session_id,event.sequence,event.event.event_id,event.event.correlation.turn_id,canonical(&event)?]).map_err(io)?;
+                transaction.execute("INSERT INTO session_events(session_id,sequence,event_id,conversation_id,turn_id,event) VALUES(?1,?2,?3,?4,?5,?6)", params![request.session_id,event.sequence,event.event.event_id,event.event.correlation.conversation_id,event.event.correlation.turn_id,canonical(&event)?]).map_err(io)?;
             }
             transaction.execute("UPDATE sessions SET head=?2 WHERE id=?1", params![request.session_id,last_sequence]).map_err(io)?;
             transaction.execute("INSERT INTO session_batches VALUES(?1,?2,?3,?4)", params![request.session_id,request.batch_id,encoded,canonical(&receipt)?]).map_err(io)?;

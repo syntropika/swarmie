@@ -21,6 +21,8 @@ async function writeJson(file: string, value: unknown): Promise<void> {
 /** Swarmie release metadata composes actual upstream artifacts without rebuilding them. */
 export async function packageFixtures(artifacts: readonly BuiltArtifact[]): Promise<void> {
   const releases = [
+    ["durable-observer-v1", "durable-observer", "1.0.0", "fixture.durable-observer"],
+    ["durable-observer-v2", "durable-observer", "1.1.0", "fixture.durable-observer"],
     ["agent-context-v1", "agent-context", "1.0.0", "fixture.agent-context"],
     ["agent-context-v2", "agent-context", "1.1.0", "fixture.agent-context"],
     ["durable-workflow-v1", "durable-workflow", "1.0.0", "fixture.durable-workflow"],

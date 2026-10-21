@@ -119,6 +119,12 @@ pub trait DurableTasks {
 
     /// Records logical intent and propagates it to owned work. Does not force external effects
     /// or arbitrary non-cooperative handler code to stop.
+    ///
+    /// Success confirms persisted intent (or an already terminal task). If outbox capacity
+    /// definitely rejects that write, `durable_tasks_cancellation_unconfirmed` reports only
+    /// local cancellation signals to current invocations and any failed descendant checks.
+    /// No durable intent or transition is implied by that error; restore capacity and retry.
+    /// A process restart can resume the task unless cancellation was subsequently confirmed.
     #[portable]
     async fn cancel(&self, request: TaskLookup) -> Result<TaskRecord>;
 

@@ -2,11 +2,14 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 
 use crate::store::{Error, Result};
 
-const VERSION: i64 = 1;
+const VERSION: i64 = 3;
 const APPLICATION_ID: i64 = 0x5357544b;
 
 /// Refuses unrelated or newer databases and installs the complete schema atomically.
-pub(crate) fn apply(connection: &mut Connection) -> Result<()> {
+pub(crate) fn apply(
+    connection: &mut Connection,
+    legacy_owners: &std::collections::BTreeMap<String, String>,
+) -> Result<()> {
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let application: i64 =
         transaction.pragma_query_value(None, "application_id", |row| row.get(0))?;
@@ -57,6 +60,68 @@ pub(crate) fn apply(connection: &mut Connection) -> Result<()> {
         )?;
         transaction.pragma_update(None, "application_id", APPLICATION_ID)?;
         transaction.pragma_update(None, "user_version", VERSION)?;
+    }
+    if version < 2 {
+        transaction.execute_batch(
+            "CREATE TABLE task_outbox (
+                sequence INTEGER NOT NULL,
+                ordinal INTEGER NOT NULL,
+                event TEXT NOT NULL,
+                bytes INTEGER NOT NULL CHECK (bytes > 0),
+                PRIMARY KEY(sequence, ordinal)
+             ) WITHOUT ROWID;
+             CREATE TABLE task_outbox_metadata (
+                singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+                retained_events INTEGER NOT NULL,
+                retained_bytes INTEGER NOT NULL,
+                floor_sequence INTEGER NOT NULL,
+                floor_ordinal INTEGER NOT NULL
+             );
+             INSERT INTO task_outbox_metadata SELECT 1, 0, 0, sequence, CASE WHEN sequence=0 THEN -1 ELSE 255 END FROM task_storage_metadata WHERE singleton=1;
+             CREATE TABLE task_outbox_consumers (
+                id TEXT PRIMARY KEY COLLATE BINARY,
+                ack_sequence INTEGER NOT NULL,
+                ack_ordinal INTEGER NOT NULL,
+                delivered_sequence INTEGER NOT NULL,
+                delivered_ordinal INTEGER NOT NULL
+             ) WITHOUT ROWID;",
+        )?;
+        transaction.pragma_update(None, "user_version", VERSION)?;
+    }
+    if version < 3 {
+        transaction
+            .execute_batch("ALTER TABLE task_outbox_consumers ADD COLUMN owner_facet TEXT;")?;
+        transaction.pragma_update(None, "user_version", VERSION)?;
+    }
+    // Validate the complete operator request before adopting any row. A failure rolls back
+    // schema changes and prior data together; no legacy owner is inferred from first use.
+    for (id, owner) in legacy_owners {
+        swarmie_task_contracts::validate_identity(id)
+            .map_err(|error| Error::Invalid(error.to_string()))?;
+        swarmie_task_contracts::validate_task_outbox_owner_facet(owner)
+            .map_err(|error| Error::Invalid(error.to_string()))?;
+        let existing = transaction
+            .query_row(
+                "SELECT owner_facet FROM task_outbox_consumers WHERE id=?1",
+                [id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?;
+        match existing {
+            None => {
+                return Err(Error::Invalid(
+                    "legacy ownership adoption requires an existing consumer".into(),
+                ));
+            }
+            Some(Some(existing)) if existing != *owner => return Err(Error::OutboxOwnerMismatch),
+            _ => {}
+        }
+    }
+    for (id, owner) in legacy_owners {
+        transaction.execute(
+            "UPDATE task_outbox_consumers SET owner_facet=?1 WHERE id=?2 AND owner_facet IS NULL",
+            rusqlite::params![owner, id],
+        )?;
     }
     let metadata: Option<(i64, String)> = transaction
         .query_row(

@@ -54,6 +54,7 @@ impl TurnLimits {
 pub struct TurnContext {
     pub turn_id: String,
     pub session_id: String,
+    pub conversation_id: String,
     pub task_id: String,
     pub step: u32,
 }
@@ -67,6 +68,7 @@ pub struct TurnContext {
 pub struct StartTurn {
     pub turn_id: String,
     pub session_id: String,
+    pub conversation_id: String,
     pub input_event_id: String,
     pub model: swarmie_model_contracts::ModelIdentity,
     pub limits: TurnLimits,
@@ -78,6 +80,8 @@ pub struct StartTurn {
 #[schemars(crate = "tembra::schemars")]
 pub struct TurnLookup {
     pub turn_id: String,
+    pub session_id: String,
+    pub conversation_id: String,
 }
 
 /// Committed task state is the authoritative execution observation. The Session separately
@@ -88,6 +92,7 @@ pub struct TurnLookup {
 pub struct TurnRecord {
     pub turn_id: String,
     pub session_id: String,
+    pub conversation_id: String,
     pub task: TaskRecord,
 }
 
@@ -108,12 +113,14 @@ pub struct KnownResult {
 #[schemars(crate = "tembra::schemars")]
 pub struct ContinueTurn {
     pub turn_id: String,
+    pub session_id: String,
+    pub conversation_id: String,
     pub resolution: Option<KnownResult>,
 }
 
 /// Portable control surface shared by compatible agent-loop implementations.
 /// Implementation selection uses ordinary Tembra Contract provider selection.
-#[tembra::contract(local, name = "swarmie.agent-loop", version = 1)]
+#[tembra::contract(local, name = "swarmie.agent-loop", version = 2)]
 pub trait AgentLoop {
     #[portable]
     async fn start(&self, request: StartTurn) -> Result<TurnRecord>;

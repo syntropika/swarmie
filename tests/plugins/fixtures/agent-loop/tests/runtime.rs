@@ -208,9 +208,7 @@ fn raw_tool_failure_remains_uncertain_without_a_fabricated_confirmed_result() {
         loop {
             let record = fixture
                 .agent
-                .inspect(TurnLookup {
-                    turn_id: "raw-tool-error".into(),
-                })
+                .inspect(Harness::lookup("raw-tool-error"))
                 .await?
                 .unwrap();
             if record.task.status == TaskStatus::Parked {
@@ -253,9 +251,7 @@ fn unsafe_uncertainty_continues_only_after_matching_committed_external_evidence(
         let record = loop {
             let record = fixture
                 .agent
-                .inspect(TurnLookup {
-                    turn_id: "reconcile".into(),
-                })
+                .inspect(Harness::lookup("reconcile"))
                 .await?
                 .unwrap();
             if record.task.status == TaskStatus::Parked {
@@ -269,6 +265,8 @@ fn unsafe_uncertainty_continues_only_after_matching_committed_external_evidence(
         fixture
             .agent
             .continue_turn(ContinueTurn {
+                session_id: format!("session-{}", "reconcile"),
+                conversation_id: "conversation".into(),
                 turn_id: "reconcile".into(),
                 resolution: None,
             })
@@ -276,9 +274,7 @@ fn unsafe_uncertainty_continues_only_after_matching_committed_external_evidence(
         loop {
             let state = fixture
                 .agent
-                .inspect(TurnLookup {
-                    turn_id: "reconcile".into(),
-                })
+                .inspect(Harness::lookup("reconcile"))
                 .await?
                 .unwrap();
             if state.task.status == TaskStatus::Parked {
@@ -304,8 +300,9 @@ fn unsafe_uncertainty_continues_only_after_matching_committed_external_evidence(
                 events: vec![NewEvent {
                     event_id: "external-result".into(),
                     kind: "swarmie.agent.tool-confirmed".into(),
-                    version: 1,
+                    version: 2,
                     correlation: Correlation {
+                        conversation_id: Some("conversation".into()),
                         turn_id: Some("reconcile".into()),
                         task_id: Some(record.task.id),
                         step_id: Some("reconcile:0".into()),
@@ -319,6 +316,8 @@ fn unsafe_uncertainty_continues_only_after_matching_committed_external_evidence(
         fixture
             .agent
             .continue_turn(ContinueTurn {
+                session_id: format!("session-{}", "reconcile"),
+                conversation_id: "conversation".into(),
                 turn_id: "reconcile".into(),
                 resolution: Some(KnownResult {
                     operation_id: call.operation_id,
@@ -357,7 +356,7 @@ fn maximal_turn_identity_keeps_generated_session_correlation_within_limits() {
             .await?;
         fixture.sessions.append(AppendEvents {
             session_id:"long-turn-session".into(),batch_id:"long-turn-input".into(),expected_head:None,
-            events:vec![NewEvent {event_id:"long-turn-input".into(),kind:swarmie_session_contracts::MESSAGE.into(),version:1,correlation:Correlation::default(),occurred_at_ms:None,payload:json!({"role":"user","content":"Hello","reply_to":null,"tool_call_id":null})}],
+            events:vec![NewEvent {event_id:"long-turn-input".into(),kind:swarmie_session_contracts::MESSAGE.into(),version:1,correlation:Correlation { conversation_id: Some("conversation".into()), ..Default::default() },occurred_at_ms:None,payload:json!({"role":"user","content":"Hello","reply_to":null,"tool_call_id":null})}],
         }).await?;
         let turn_id = "t".repeat(256);
         let turn = fixture
@@ -365,6 +364,7 @@ fn maximal_turn_identity_keeps_generated_session_correlation_within_limits() {
             .start(StartTurn {
                 turn_id: turn_id.clone(),
                 session_id: "long-turn-session".into(),
+                conversation_id: "conversation".into(),
                 input_event_id: "long-turn-input".into(),
                 model: swarmie_model_contracts::ModelIdentity {
                     connection: "fixture".into(),

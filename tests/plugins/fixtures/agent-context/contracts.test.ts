@@ -10,6 +10,7 @@ import { ToolHandler } from "../../../../target/generated/contracts/agent-tool";
 const start: AgentLoopLocalStartArgs = {
   turn_id: "turn",
   session_id: "session",
+  conversation_id: "conversation",
   input_event_id: "input-event",
   model: { connection: "test", model: "fake" },
   limits: {
@@ -45,7 +46,13 @@ test("generated agent start preserves the neutral model identity and strict publ
 test("generated tool execution requires stable identity without accepting an authorization grant", () => {
   const schema = argumentSchema(ToolHandler, "execute");
   const call = {
-    turn: { turn_id: "turn", session_id: "session", task_id: "task", step: 0 },
+    turn: {
+      turn_id: "turn",
+      session_id: "session",
+      conversation_id: "conversation",
+      task_id: "task",
+      step: 0,
+    },
     operation_id: "operation",
     tool_call_id: "model-call",
     tool: "echo",
@@ -57,12 +64,12 @@ test("generated tool execution requires stable identity without accepting an aut
 });
 
 test("every Rust hook descriptor materializes through the real TypeScript hook API", () => {
-  expect(hookDescriptors).toHaveLength(11);
+  expect(hookDescriptors).toHaveLength(12);
   for (const descriptor of hookDescriptors) {
     const hook = hookFromDescriptor(descriptor);
     expect(hook.descriptor.fingerprint).toBe(descriptor.fingerprint);
-    expect(hook.descriptor.version).toBe(1);
-    expect(() => hookFromDescriptor({ ...descriptor, version: 2 })).toThrow();
+    expect(hook.descriptor.version).toBe(2);
+    expect(() => hookFromDescriptor({ ...descriptor, version: 3 })).toThrow();
   }
 });
 
@@ -75,7 +82,13 @@ test("context hook schema accepts model messages and rejects malformed transform
   }
   const hook = hookFromDescriptor(descriptor);
   const context = {
-    turn: { turn_id: "turn", session_id: "session", task_id: "task", step: 0 },
+    turn: {
+      turn_id: "turn",
+      session_id: "session",
+      conversation_id: "conversation",
+      task_id: "task",
+      step: 0,
+    },
     messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
   };
   expect(validateValue(hook.descriptor.input, context)).toBe(true);

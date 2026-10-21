@@ -9,12 +9,12 @@ license = "Apache-2.0"
 rust-version = "1.99"
 
 [workspace.dependencies]
-tembra = { git = "https://github.com/syntropika/tembra.git", rev = "415051fcfc937a54d17f6193ce2d05c9c0429900", features = ["native"] }
-tembra-hooks = { git = "https://github.com/syntropika/tembra.git", rev = "415051fcfc937a54d17f6193ce2d05c9c0429900" }
-tembra-core = { git = "https://github.com/syntropika/tembra.git", rev = "415051fcfc937a54d17f6193ce2d05c9c0429900" }
-tembra-contracts = { git = "https://github.com/syntropika/tembra.git", rev = "415051fcfc937a54d17f6193ce2d05c9c0429900" }
-tembra-native = { git = "https://github.com/syntropika/tembra.git", rev = "415051fcfc937a54d17f6193ce2d05c9c0429900" }
-tembra-executor-js = { git = "https://github.com/syntropika/tembra.git", rev = "415051fcfc937a54d17f6193ce2d05c9c0429900" }
+tembra = { git = "https://github.com/syntropika/tembra.git", rev = "5d57976f92459cf5497ae6e3941b30f903bea742", features = ["native"] }
+tembra-hooks = { git = "https://github.com/syntropika/tembra.git", rev = "5d57976f92459cf5497ae6e3941b30f903bea742" }
+tembra-core = { git = "https://github.com/syntropika/tembra.git", rev = "5d57976f92459cf5497ae6e3941b30f903bea742" }
+tembra-contracts = { git = "https://github.com/syntropika/tembra.git", rev = "5d57976f92459cf5497ae6e3941b30f903bea742" }
+tembra-native = { git = "https://github.com/syntropika/tembra.git", rev = "5d57976f92459cf5497ae6e3941b30f903bea742" }
+tembra-executor-js = { git = "https://github.com/syntropika/tembra.git", rev = "5d57976f92459cf5497ae6e3941b30f903bea742" }
 futures = "0.3"
 tokio = { version = "1.53.3", features = ["rt", "time", "net", "macros", "signal"] }
 tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["handshake", "connect"] }

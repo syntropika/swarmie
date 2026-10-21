@@ -432,9 +432,7 @@ fn middleware_can_transform_next_result_and_retry_after_confirmed_provider_resul
         loop {
             let state = fixture
                 .agent
-                .inspect(TurnLookup {
-                    turn_id: "middleware".into(),
-                })
+                .inspect(Harness::lookup("middleware"))
                 .await?
                 .unwrap();
             if state.task.status == TaskStatus::Parked {
@@ -451,6 +449,8 @@ fn middleware_can_transform_next_result_and_retry_after_confirmed_provider_resul
         fixture
             .agent
             .continue_turn(ContinueTurn {
+                session_id: format!("session-{}", "middleware"),
+                conversation_id: "conversation".into(),
                 turn_id: "middleware".into(),
                 resolution: None,
             })
@@ -610,10 +610,23 @@ fn complete_observation_lifecycle_orders_tool_steps_and_notifies_turn_end_once()
         // Repeated terminal reconciliation must not replay the normal completion observer.
         fixture
             .agent
-            .inspect(TurnLookup {
-                turn_id: "observation-order".into(),
-            })
+            .inspect(Harness::lookup("observation-order"))
             .await?;
+        let monitor = fixture
+            .host
+            .get(AgentObservations, AgentObservationsInput {})
+            .await?;
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let diagnostics = monitor.diagnostics().await?;
+                if !diagnostics.active && diagnostics.queued == 0 {
+                    return Ok::<_, RuntimeError>(());
+                }
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+        })
+        .await
+        .expect("observation activity drains after turn completion")?;
         assert_eq!(
             &*order.borrow(),
             &[

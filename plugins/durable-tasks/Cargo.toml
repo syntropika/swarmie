@@ -5,13 +5,23 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+javascript = ["dep:tembra-executor-js"]
+
 [dependencies]
 swarmie-task-contracts = { path = "../../crates/task-contracts" }
 tembra.workspace = true
+tembra-hooks.workspace = true
+tembra-executor-js = { workspace = true, optional = true }
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
+
+[dev-dependencies]
+swarmie-task-storage-sqlite = { path = "../task-storage-sqlite" }
+tempfile.workspace = true
+tokio.workspace = true
 
 [lints]
 workspace = true

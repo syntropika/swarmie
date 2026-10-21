@@ -42,7 +42,7 @@ pub trait ModelGenerationSchema {
 
     /// Idempotent within this live object. An acknowledged start does not prove remote admission.
     /// # Errors
-    /// Returns Tembra lifecycle/publication errors; State observations remain authoritative.
+    /// Returns Tembra lifecycle/publication errors; a refused start does not restart inference.
     #[portable]
     async fn start(&self) -> Result<()>;
 
@@ -51,6 +51,15 @@ pub trait ModelGenerationSchema {
     /// Refuses future cursors without mutation, or reports a Tembra lifecycle/publication error.
     #[portable]
     async fn acknowledge(&self, through: u64) -> Result<()>;
+
+    /// Reads bounded retained completion even when terminal State publication was rejected.
+    /// # Guarantees
+    /// Does not submit or restart inference. After local I/O settlement this may be ahead of
+    /// progress State. Keep the Reference alive; losing the object loses this volatile result.
+    /// # Errors
+    /// Returns Tembra admission/serialization errors if the object is no longer callable.
+    #[portable]
+    async fn recover(&self) -> Result<GenerationState>;
 
     /// Requests cancellation. Observe physically_settled before treating local work as stopped.
     /// # Errors

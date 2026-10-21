@@ -1,19 +1,20 @@
 use std::rc::Rc;
 
+use futures::FutureExt;
 use swarmie_agent_contracts::{
-    AgentLoop, AgentLoopProvider, ContinueTurn, StartTurn, TurnEnd, TurnLookup, TurnRecord,
-    on_turn_end,
+    AgentLoop, AgentLoopProvider, AgentObservations, ContinueTurn, StartTurn, TurnEnd, TurnLookup,
+    TurnRecord,
 };
 use swarmie_session_contracts::{MESSAGE, SessionStore, SessionStoreInput, SessionStoreRef};
 use swarmie_task_contracts::{
     DurableTasks, DurableTasksInput, DurableTasksRef, TaskLookup, TaskSpec, TaskStatus,
 };
 use tembra::{core, prelude::*};
-use tembra_hooks::{HookManager, HookManagerOptions};
 
 use crate::{
     TURN_KIND, journal,
-    state::{Checkpoint, decode, encode, invalid, now_ms, task_id},
+    observers::{Monitor, Observation, ObserverDispatcher},
+    state::{Checkpoint, TurnIdentity, decode, encode, invalid, now_ms, task_id},
 };
 
 /// Installs one compiled implementation of the Agent Contract and its registered turn handler.
@@ -23,12 +24,33 @@ use crate::{
 /// Returns Tembra declaration errors. Missing dependencies fail actual installation readiness.
 pub fn facet(driver: Rc<dyn core::Driver>) -> Result<NativeFacet> {
     NativeFacet::new("swarmie.agent-loop-default", vec![], move |scope, setup| {
-        let hooks = HookManager::new(scope.clone(), driver.clone(), HookManagerOptions::default())?;
+        let observers = ObserverDispatcher::new(scope.clone(), driver.clone())?;
+        let monitor = observers.clone();
+        setup.serve_with_options(
+            AgentObservations,
+            move |_, _, declaration| {
+                let activity = monitor.clone();
+                declaration
+                    .core_mut()
+                    .task(move |scope| activity.clone().run(scope).boxed_local())?;
+                Ok(Monitor(monitor.clone()))
+            },
+            core::ServeOptions {
+                lifetime: core::Lifetime::Host,
+                ..Default::default()
+            },
+        )?;
+        let service_observers = observers.clone();
         setup.serve_with_options(
             AgentLoop,
             move |_, _, declaration| {
                 Ok(Service {
-                    hooks: hooks.clone(),
+                    observers: service_observers.clone(),
+                    // Keep the diagnostics service's managed observation activity live.
+                    _monitor: declaration.get(
+                        AgentObservations,
+                        swarmie_agent_contracts::AgentObservationsInput {},
+                    )?,
                     tasks: declaration.get(DurableTasks, DurableTasksInput {})?,
                     sessions: declaration.get(SessionStore, SessionStoreInput {})?,
                 })
@@ -38,35 +60,42 @@ pub fn facet(driver: Rc<dyn core::Driver>) -> Result<NativeFacet> {
                 ..Default::default()
             },
         )?;
-        crate::workflow::declare(scope, setup, driver.clone())
+        crate::workflow::declare(scope, setup, driver.clone(), observers)
     })
 }
 
 struct Service {
     tasks: DurableTasksRef,
     sessions: SessionStoreRef,
-    hooks: HookManager,
+    observers: Rc<ObserverDispatcher>,
+    _monitor: swarmie_agent_contracts::AgentObservationsRef,
 }
 
 impl Service {
-    async fn require(&self, turn_id: &str, context: &Context) -> Result<TurnRecord> {
+    async fn require(&self, identity: &impl TurnIdentity, context: &Context) -> Result<TurnRecord> {
         let task = self
             .tasks
             .with_context(context)
             .get(TaskLookup {
-                id: task_id(turn_id),
+                id: task_id(identity),
             })
             .await?
             .ok_or_else(|| invalid("turn does not exist"))?;
-        if task.kind != TURN_KIND {
+        if task.kind != TURN_KIND || task.definition_version != 2 {
             return Err(invalid("task is not an agent turn"));
         }
         let request: StartTurn = decode(task.input.clone())?;
-        if request.turn_id != turn_id {
+        let checkpoint: Checkpoint = decode(task.checkpoint.clone())?;
+        checkpoint.validate_identity(&request)?;
+        if request.turn_id != identity.turn_id()
+            || request.session_id != identity.session_id()
+            || request.conversation_id != identity.conversation_id()
+        {
             return Err(invalid("turn identity differs"));
         }
         Ok(TurnRecord {
-            turn_id: turn_id.into(),
+            turn_id: request.turn_id.clone(),
+            conversation_id: request.conversation_id,
             session_id: request.session_id,
             task,
         })
@@ -77,28 +106,13 @@ impl Service {
             let request: StartTurn = decode(record.task.input.clone())?;
             let checkpoint: Checkpoint = decode(record.task.checkpoint.clone())?;
             let turn = checkpoint.turn(&request);
-            let events = journal::history(&self.sessions, &request.session_id, context).await?;
-            if journal::find(
-                &events,
-                &crate::state::stable(&request.turn_id, "turn-decision"),
-            )
-            .is_none()
-            {
+            let events = journal::history(&self.sessions, &request, context).await?;
+            if journal::find(&events, &crate::state::stable(&request, "turn-decision")).is_none() {
                 let outcome = record
                     .task
                     .outcome
                     .clone()
                     .ok_or_else(|| invalid("terminal task lacks outcome"))?;
-                self.hooks
-                    .run_series(
-                        &on_turn_end()?,
-                        TurnEnd {
-                            turn: turn.clone(),
-                            outcome: outcome.clone(),
-                        },
-                        context.core(),
-                    )
-                    .await?;
                 journal::append(
                     &self.sessions,
                     &turn,
@@ -108,6 +122,10 @@ impl Service {
                     context,
                 )
                 .await?;
+                self.observers.enqueue(Observation::Turn(TurnEnd {
+                    turn: turn.clone(),
+                    outcome,
+                }));
             }
             journal::append(
                 &self.sessions,
@@ -128,8 +146,9 @@ impl AgentLoopProvider for Service {
         request.limits.validate()?;
         swarmie_session_contracts::identity(&request.turn_id)?;
         swarmie_session_contracts::identity(&request.session_id)?;
+        swarmie_session_contracts::identity(&request.conversation_id)?;
         let lookup = TaskLookup {
-            id: task_id(&request.turn_id),
+            id: task_id(&request),
         };
         if let Some(task) = self
             .tasks
@@ -140,21 +159,23 @@ impl AgentLoopProvider for Service {
             if task.kind != TURN_KIND || task.input != encode(&request)? {
                 return Err(invalid("turn identity already has different submission"));
             }
-            return self.require(&request.turn_id, &context).await;
+            return self.require(&request, &context).await;
         }
-        let events = journal::history(&self.sessions, &request.session_id, &context).await?;
-        let input = events
-            .iter()
-            .find(|event| event.event.event_id == request.input_event_id)
+        let input = journal::input(&self.sessions, &request, &request.input_event_id, &context)
+            .await?
             .filter(|event| event.event.kind == MESSAGE && event.event.version == 1)
             .ok_or_else(|| {
-                invalid("input must reference a committed version-one session message")
+                invalid("input must reference a committed message in this session and conversation")
             })?;
         let message: swarmie_session_contracts::Message = decode(input.event.payload.clone())?;
         if message.role != "user" {
             return Err(invalid("turn input must be a user message"));
         }
         let checkpoint = Checkpoint {
+            version: 2,
+            session_id: request.session_id.clone(),
+            conversation_id: request.conversation_id.clone(),
+            turn_id: request.turn_id.clone(),
             started_at_ms: now_ms()?,
             input_sequence: input.sequence,
             ..Default::default()
@@ -165,7 +186,7 @@ impl AgentLoopProvider for Service {
             .create(TaskSpec {
                 id: lookup.id,
                 kind: TURN_KIND.into(),
-                definition_version: 1,
+                definition_version: 2,
                 input: encode(&request)?,
                 checkpoint: encode(&checkpoint)?,
                 phase: "start".into(),
@@ -177,7 +198,7 @@ impl AgentLoopProvider for Service {
                 .tasks
                 .with_context(&context)
                 .get(TaskLookup {
-                    id: task_id(&request.turn_id),
+                    id: task_id(&request),
                 })
                 .await?
             else {
@@ -187,7 +208,7 @@ impl AgentLoopProvider for Service {
                 return Err(error);
             }
         }
-        self.require(&request.turn_id, &context).await
+        self.require(&request, &context).await
     }
 
     async fn inspect(&self, request: TurnLookup, context: Context) -> Result<Option<TurnRecord>> {
@@ -195,20 +216,20 @@ impl AgentLoopProvider for Service {
             .tasks
             .with_context(&context)
             .get(TaskLookup {
-                id: task_id(&request.turn_id),
+                id: task_id(&request),
             })
             .await?
             .is_none()
         {
             return Ok(None);
         }
-        let record = self.require(&request.turn_id, &context).await?;
+        let record = self.require(&request, &context).await?;
         self.reconcile_terminal(&record, &context).await?;
         Ok(Some(record))
     }
 
     async fn cancel(&self, request: TurnLookup, context: Context) -> Result<TurnRecord> {
-        let before = self.require(&request.turn_id, &context).await?;
+        let before = self.require(&request, &context).await?;
         let start: StartTurn = decode(before.task.input.clone())?;
         let mut checkpoint: Checkpoint = decode(before.task.checkpoint.clone())?;
         checkpoint.step = 0; // Cancellation batch identity cannot depend on task progress.
@@ -225,16 +246,16 @@ impl AgentLoopProvider for Service {
             .with_context(&context)
             .cancel(TaskLookup { id: before.task.id })
             .await?;
-        let record = self.require(&request.turn_id, &context).await?;
+        let record = self.require(&request, &context).await?;
         self.reconcile_terminal(&record, &context).await?;
         Ok(record)
     }
 
     async fn continue_turn(&self, request: ContinueTurn, context: Context) -> Result<TurnRecord> {
-        let record = self.require(&request.turn_id, &context).await?;
+        let record = self.require(&request, &context).await?;
         let start: StartTurn = decode(record.task.input.clone())?;
         let checkpoint: Checkpoint = decode(record.task.checkpoint.clone())?;
-        if let Some(resolution) = request.resolution {
+        if let Some(resolution) = &request.resolution {
             if record.task.status != TaskStatus::Parked {
                 return Err(invalid("reconciliation requires a parked turn"));
             }
@@ -242,13 +263,13 @@ impl AgentLoopProvider for Service {
             let (operation, kind) = match record.task.phase.as_str() {
                 "tool" => (
                     crate::state::stable(
-                        &start.turn_id,
+                        &start,
                         &format!("tool:{}:{}", checkpoint.step, checkpoint.tool_index),
                     ),
                     "swarmie.agent.tool-confirmed",
                 ),
                 "model" => (
-                    crate::state::stable(&start.turn_id, &format!("model:{}", checkpoint.step)),
+                    crate::state::stable(&start, &format!("model:{}", checkpoint.step)),
                     "swarmie.agent.model-provider-confirmed",
                 ),
                 _ => {
@@ -260,10 +281,11 @@ impl AgentLoopProvider for Service {
             if resolution.operation_id != operation {
                 return Err(invalid("resolution refers to a different operation"));
             }
-            let events = journal::history(&self.sessions, &start.session_id, &context).await?;
+            let events = journal::history(&self.sessions, &start, &context).await?;
             let result = journal::find(&events, &resolution.result_event_id)
                 .ok_or_else(|| invalid("resolution event is absent"))?;
-            if result.version != 1
+            if result.version != 2
+                || result.correlation.conversation_id.as_deref() != Some(&start.conversation_id)
                 || result.correlation.turn_id.as_deref() != Some(&request.turn_id)
                 || result.correlation.task_id.as_deref() != Some(&record.task.id)
                 || result.payload["operation_id"] != resolution.operation_id
@@ -290,7 +312,7 @@ impl AgentLoopProvider for Service {
         } else {
             self.tasks.with_context(&context).resume().await?;
         }
-        let record = self.require(&request.turn_id, &context).await?;
+        let record = self.require(&request, &context).await?;
         self.reconcile_terminal(&record, &context).await?;
         Ok(record)
     }
