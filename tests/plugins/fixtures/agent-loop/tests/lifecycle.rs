@@ -496,40 +496,136 @@ fn middleware_can_transform_next_result_and_retry_after_confirmed_provider_resul
 fn complete_observation_lifecycle_orders_tool_steps_and_notifies_turn_end_once() {
     run(|driver| async move {
         let directory = tempfile::tempdir().unwrap();
-        let fixture = open(driver, directory.path(), vec![Reply::double(21), Reply::text("42")], Default::default(), true).await?;
+        let fixture = open(
+            driver,
+            directory.path(),
+            vec![Reply::double(21), Reply::text("42")],
+            Default::default(),
+            true,
+        )
+        .await?;
         let order = Rc::new(RefCell::new(Vec::<String>::new()));
         let observed = order.clone();
-        fixture.host.install(hooks::contribution(on_turn_start()?, "observe-turn-start", 0, move |args: HookArgs<TurnContext, ()>, _| {
-            observed.borrow_mut().push(format!("turn-start:{}", args.input().step));
-            async { Ok(()) }.boxed_local()
-        })?, core::LoadOptions::default())?.await?;
+        fixture
+            .host
+            .install(
+                hooks::contribution(
+                    on_turn_start()?,
+                    "observe-turn-start",
+                    0,
+                    move |args: HookArgs<TurnContext, ()>, _| {
+                        observed
+                            .borrow_mut()
+                            .push(format!("turn-start:{}", args.input().step));
+                        async { Ok(()) }.boxed_local()
+                    },
+                )?,
+                core::LoadOptions::default(),
+            )?
+            .await?;
         let observed = order.clone();
-        fixture.host.install(hooks::contribution(after_model_call()?, "observe-model", 0, move |args: HookArgs<ModelObservation, ()>, _| {
-            observed.borrow_mut().push(format!("after-model:{}", args.input().call.turn.step));
-            async { Ok(()) }.boxed_local()
-        })?, core::LoadOptions::default())?.await?;
+        fixture
+            .host
+            .install(
+                hooks::contribution(
+                    after_model_call()?,
+                    "observe-model",
+                    0,
+                    move |args: HookArgs<ModelObservation, ()>, _| {
+                        observed
+                            .borrow_mut()
+                            .push(format!("after-model:{}", args.input().call.turn.step));
+                        async { Ok(()) }.boxed_local()
+                    },
+                )?,
+                core::LoadOptions::default(),
+            )?
+            .await?;
         let observed = order.clone();
-        fixture.host.install(hooks::contribution(after_tool_call()?, "observe-tool", 0, move |args: HookArgs<ToolObservation, ()>, _| {
-            observed.borrow_mut().push(format!("after-tool:{}", args.input().call.turn.step));
-            async { Ok(()) }.boxed_local()
-        })?, core::LoadOptions::default())?.await?;
+        fixture
+            .host
+            .install(
+                hooks::contribution(
+                    after_tool_call()?,
+                    "observe-tool",
+                    0,
+                    move |args: HookArgs<ToolObservation, ()>, _| {
+                        observed
+                            .borrow_mut()
+                            .push(format!("after-tool:{}", args.input().call.turn.step));
+                        async { Ok(()) }.boxed_local()
+                    },
+                )?,
+                core::LoadOptions::default(),
+            )?
+            .await?;
         let observed = order.clone();
-        fixture.host.install(hooks::contribution(on_step_end()?, "observe-step-end", 0, move |args: HookArgs<StepEnd, ()>, _| {
-            observed.borrow_mut().push(format!("step-end:{}", args.input().turn.step));
-            async { Ok(()) }.boxed_local()
-        })?, core::LoadOptions::default())?.await?;
+        fixture
+            .host
+            .install(
+                hooks::contribution(
+                    on_step_end()?,
+                    "observe-step-end",
+                    0,
+                    move |args: HookArgs<StepEnd, ()>, _| {
+                        observed
+                            .borrow_mut()
+                            .push(format!("step-end:{}", args.input().turn.step));
+                        async { Ok(()) }.boxed_local()
+                    },
+                )?,
+                core::LoadOptions::default(),
+            )?
+            .await?;
         let observed = order.clone();
-        fixture.host.install(hooks::contribution(on_turn_end()?, "observe-turn-end", 0, move |args: HookArgs<TurnEnd, ()>, _| {
-            assert!(matches!(args.input().outcome, TaskOutcome::Completed { .. }));
-            observed.borrow_mut().push(format!("turn-end:{}", args.input().turn.step));
-            async { Ok(()) }.boxed_local()
-        })?, core::LoadOptions::default())?.await?;
-        fixture.start("observation-order", Default::default()).await?;
+        fixture
+            .host
+            .install(
+                hooks::contribution(
+                    on_turn_end()?,
+                    "observe-turn-end",
+                    0,
+                    move |args: HookArgs<TurnEnd, ()>, _| {
+                        assert!(matches!(
+                            args.input().outcome,
+                            TaskOutcome::Completed { .. }
+                        ));
+                        observed
+                            .borrow_mut()
+                            .push(format!("turn-end:{}", args.input().turn.step));
+                        async { Ok(()) }.boxed_local()
+                    },
+                )?,
+                core::LoadOptions::default(),
+            )?
+            .await?;
+        fixture
+            .start("observation-order", Default::default())
+            .await?;
         let completed = fixture.terminal("observation-order").await?;
-        assert!(matches!(completed.task.outcome, Some(TaskOutcome::Completed { .. })), "{completed:?}");
+        assert!(
+            matches!(completed.task.outcome, Some(TaskOutcome::Completed { .. })),
+            "{completed:?}"
+        );
         // Repeated terminal reconciliation must not replay the normal completion observer.
-        fixture.agent.inspect(TurnLookup { turn_id: "observation-order".into() }).await?;
-        assert_eq!(&*order.borrow(), &["turn-start:0", "after-model:0", "after-tool:0", "step-end:0", "after-model:1", "step-end:1", "turn-end:1"]);
+        fixture
+            .agent
+            .inspect(TurnLookup {
+                turn_id: "observation-order".into(),
+            })
+            .await?;
+        assert_eq!(
+            &*order.borrow(),
+            &[
+                "turn-start:0",
+                "after-model:0",
+                "after-tool:0",
+                "step-end:0",
+                "after-model:1",
+                "step-end:1",
+                "turn-end:1"
+            ]
+        );
         fixture.host.close().await
     });
 }

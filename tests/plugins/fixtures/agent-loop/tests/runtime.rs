@@ -335,3 +335,60 @@ fn unsafe_uncertainty_continues_only_after_matching_committed_external_evidence(
         fixture.host.close().await
     });
 }
+
+#[test]
+fn maximal_turn_identity_keeps_generated_session_correlation_within_limits() {
+    run(|driver| async move {
+        let directory = tempfile::tempdir().unwrap();
+        let fixture = open(
+            driver,
+            directory.path(),
+            vec![Reply::text("bounded identity")],
+            Default::default(),
+            true,
+        )
+        .await?;
+        fixture
+            .sessions
+            .create(swarmie_session_contracts::CreateSession {
+                session_id: "long-turn-session".into(),
+                metadata: json!({}),
+            })
+            .await?;
+        fixture.sessions.append(AppendEvents {
+            session_id:"long-turn-session".into(),batch_id:"long-turn-input".into(),expected_head:None,
+            events:vec![NewEvent {event_id:"long-turn-input".into(),kind:swarmie_session_contracts::MESSAGE.into(),version:1,correlation:Correlation::default(),occurred_at_ms:None,payload:json!({"role":"user","content":"Hello","reply_to":null,"tool_call_id":null})}],
+        }).await?;
+        let turn_id = "t".repeat(256);
+        let turn = fixture
+            .agent
+            .start(StartTurn {
+                turn_id: turn_id.clone(),
+                session_id: "long-turn-session".into(),
+                input_event_id: "long-turn-input".into(),
+                model: swarmie_model_contracts::ModelIdentity {
+                    connection: "fixture".into(),
+                    model: "scripted".into(),
+                },
+                limits: Default::default(),
+            })
+            .await?;
+        let outcome = fixture
+            .tasks
+            .wait(swarmie_task_contracts::TaskLookup { id: turn.task.id })
+            .await?;
+        assert!(matches!(outcome, TaskOutcome::Completed { .. }));
+        let events = fixture
+            .sessions
+            .events(swarmie_session_contracts::EventQuery::new(
+                "long-turn-session",
+            ))
+            .await?;
+        for event in events.events {
+            if let Some(step) = event.event.correlation.step_id {
+                assert!(step.len() <= 256);
+            }
+        }
+        fixture.host.close().await
+    });
+}

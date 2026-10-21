@@ -40,8 +40,14 @@ fn cancellation_while_model_is_running_records_aborted_task() {
         );
         assert!(fixture.tool.calls.borrow().is_empty());
         let events = fixture.events("cancelled").await?;
-        let request = events.iter().find(|entry| entry.event.kind == "swarmie.agent.cancellation-requested").expect("logical cancellation request");
-        let settled = events.iter().find(|entry| entry.event.kind == "swarmie.agent.task-settled").expect("authoritative terminal outcome reconciliation");
+        let request = events
+            .iter()
+            .find(|entry| entry.event.kind == "swarmie.agent.cancellation-requested")
+            .expect("logical cancellation request");
+        let settled = events
+            .iter()
+            .find(|entry| entry.event.kind == "swarmie.agent.task-settled")
+            .expect("authoritative terminal outcome reconciliation");
         assert!(request.sequence < settled.sequence);
         let outcome: TaskOutcome = serde_json::from_value(settled.event.payload.clone()).unwrap();
         assert!(matches!(outcome, TaskOutcome::Aborted { .. }));

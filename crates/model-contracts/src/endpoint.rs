@@ -77,7 +77,7 @@ impl ModelReference {
         invoke(
             &self.raw,
             "capabilities",
-            Some(tembra::serde_json::json!(model)),
+            Some(argument(&model)?),
             self.context.as_ref(),
         )
         .await
@@ -86,7 +86,7 @@ impl ModelReference {
         invoke(
             &self.raw,
             "models",
-            Some(tembra::serde_json::json!(connection)),
+            Some(argument(&connection)?),
             self.context.as_ref(),
         )
         .await
@@ -95,7 +95,7 @@ impl ModelReference {
         invoke(
             &self.raw,
             "generate",
-            Some(tembra::serde_json::json!(request)),
+            Some(argument(&request)?),
             self.context.as_ref(),
         )
         .await
@@ -162,7 +162,7 @@ impl GenerationReference {
         self.raw
             .call_json(
                 "acknowledge",
-                Some(tembra::serde_json::json!(through)),
+                Some(argument(&through)?),
                 self.context.as_ref(),
             )
             .await
@@ -188,4 +188,9 @@ async fn invoke<T: tembra::serde::de::DeserializeOwned>(
         .ok_or_else(|| RuntimeError::invalid("model_result", "missing model result"))?;
     tembra::contracts::from_portable_value(&value)
         .map_err(|_| RuntimeError::invalid("model_result", "invalid model result"))
+}
+
+fn argument<T: tembra::serde::Serialize>(value: &T) -> Result<tembra::serde_json::Value> {
+    tembra::contracts::to_portable_value(value)
+        .map_err(|_| RuntimeError::invalid("model_argument", "model argument is not portable"))
 }

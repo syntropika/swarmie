@@ -61,7 +61,7 @@ pub(crate) async fn append(
         correlation: Correlation {
             turn_id: Some(turn.turn_id.clone()),
             task_id: Some(turn.task_id.clone()),
-            step_id: Some(format!("{}:{}", turn.turn_id, turn.step)),
+            step_id: Some(stable(&turn.turn_id, &format!("step:{}", turn.step))),
             ..Default::default()
         },
         occurred_at_ms: None,
