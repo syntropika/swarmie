@@ -9,6 +9,7 @@ rust-version.workspace = true
 swarmie-composition = { path = "../composition" }
 swarmie-memory-store = { path = "../../plugins/memory-store" }
 swarmie-session-store-sqlite = { path = "../../plugins/session-store-sqlite" }
+swarmie-task-session-integration = { path = "../../plugins/task-session-integration" }
 swarmie-task-storage-sqlite = { path = "../../plugins/task-storage-sqlite" }
 swarmie-durable-tasks = { path = "../../plugins/durable-tasks", features = ["javascript"] }
 swarmie-model-provider-genai = { path = "../../plugins/model-provider-genai" }
@@ -27,6 +28,7 @@ thiserror.workspace = true
 [dev-dependencies]
 swarmie-session-contracts = { path = "../session-contracts" }
 swarmie-model-contracts = { path = "../model-contracts" }
+swarmie-task-session-contracts = { path = "../task-session-contracts" }
 swarmie-counter = { path = "../../tests/plugins/fixtures/counter" }
 swarmie-task-contracts = { path = "../task-contracts" }
 tembra-hooks.workspace = true

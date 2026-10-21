@@ -2827,10 +2827,12 @@ dependencies = [
  "swarmie-model-provider-genai",
  "swarmie-plugin-contracts",
  "swarmie-plugin-manager",
- "swarmie-task-contracts",
- "swarmie-task-storage-sqlite",
- "swarmie-session-store-sqlite",
  "swarmie-session-contracts",
+ "swarmie-session-store-sqlite",
+ "swarmie-task-contracts",
+ "swarmie-task-session-contracts",
+ "swarmie-task-session-integration",
+ "swarmie-task-storage-sqlite",
  "tembra",
  "tembra-executor-js",
  "tembra-hooks",
@@ -2874,6 +2876,36 @@ dependencies = [
  "serde_json",
  "tembra",
  "tembra-hooks",
+]
+
+[[package]]
+name = "swarmie-task-session-contracts"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "swarmie-task-contracts",
+ "tembra",
+]
+
+[[package]]
+name = "swarmie-task-session-integration"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "hex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "swarmie-durable-tasks",
+ "swarmie-session-contracts",
+ "swarmie-session-store-sqlite",
+ "swarmie-task-contracts",
+ "swarmie-task-session-contracts",
+ "swarmie-task-storage-sqlite",
+ "tembra",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

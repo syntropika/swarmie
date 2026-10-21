@@ -143,7 +143,24 @@ pub(crate) fn compiled(
     driver: Rc<dyn tembra::core::Driver>,
 ) -> Vec<CompiledPlugin> {
     let session_driver = driver.clone();
+    let bridge_driver = driver.clone();
     vec![
+        CompiledPlugin::new(
+            release(
+                swarmie_task_session_integration::PLUGIN_ID,
+                swarmie_task_session_integration::FACET_ID,
+            ),
+            move |value| {
+                let configuration: swarmie_task_session_integration::Configuration =
+                    serde_json::from_value(value.clone()).map_err(|error| {
+                        tembra::RuntimeError::invalid("binding_configuration", error.to_string())
+                    })?;
+                Ok(vec![swarmie_task_session_integration::facet(
+                    &configuration,
+                    bridge_driver.clone(),
+                )?])
+            },
+        ),
         CompiledPlugin::new(
             release(
                 swarmie_session_store_sqlite::PLUGIN_ID,
