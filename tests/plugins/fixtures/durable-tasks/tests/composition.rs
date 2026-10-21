@@ -668,9 +668,9 @@ fn javascript_lifecycle_contribution_reloads_and_retires_with_physical_ownership
         while gate.entered().value().unwrap() == 0 {
             tokio::time::sleep(Duration::from_millis(2)).await;
         }
-        // Replace while the old observation is physically admitted. Task completion is
-        // checked after releasing the barrier so unrelated SQLite latency cannot consume
-        // this observation's intentional one-second cancellation budget.
+        // The physical-ownership assertion must not race the observation deadline while
+        // real package validation, JavaScript preparation and SQLite commits run. Timeout
+        // behavior is tested separately with real time; only this reload window pauses time.
         let mut replacement = runtime.desired_application().clone();
         replacement
             .composition
@@ -680,12 +680,41 @@ fn javascript_lifecycle_contribution_reloads_and_retires_with_physical_ownership
             .find(|selection| selection.id == "observer")
             .unwrap()
             .version = "1.1.0".into();
-        let report = runtime.apply_application(replacement).await.unwrap();
+        let host = runtime.host.clone();
+        let before = host.core().code_version();
+        let (report, released) = {
+            tokio::time::pause();
+            let wall_started = std::time::Instant::now();
+            let reload = async {
+                futures::join!(runtime.apply_application(replacement), async {
+                    while host.core().code_version() == before {
+                        tokio::task::yield_now().await;
+                    }
+                    gate.release_gate().await
+                })
+            };
+            futures::pin_mut!(reload);
+            let result = loop {
+                assert!(
+                    wall_started.elapsed() < Duration::from_secs(10),
+                    "real reload did not progress while the test clock was paused"
+                );
+                // Keep a runnable future so Tokio does not automatically advance paused time.
+                tokio::select! {
+                    biased;
+                    result = &mut reload => break result,
+                    () = tokio::task::yield_now() => {}
+                }
+            };
+            tokio::time::resume();
+            result
+        };
+        let report = report.unwrap();
+        released.unwrap();
         assert!(matches!(
             report.results["observer"].outcome,
             swarmie_runtime::TransitionOutcome::Applied
         ));
-        gate.release_gate().await.unwrap();
         terminal(&tasks, "observer-gated").await;
         loop {
             let diagnostics = lifecycle.diagnostics().await.unwrap();

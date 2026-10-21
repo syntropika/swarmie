@@ -20,7 +20,7 @@ swarmie-durable-tasks = { path = "../../../../plugins/durable-tasks" }
 swarmie-runtime = { path = "../../../../crates/runtime" }
 swarmie-composition = { path = "../../../../crates/composition" }
 tembra-native.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 tempfile.workspace = true
 rusqlite.workspace = true
 
