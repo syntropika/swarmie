@@ -4,8 +4,10 @@ The Agent Loop consumes SessionStore, DurableTasks and neutral Model Contracts t
 References and Registries. Providers remain independently replaceable. The default executable
 catalog exposes the loop and SQLite SessionStore as optional compiled plugins. A Profile must
 select their dependencies and a model-provider contribution; the default foundation does not
-implicitly start inference. Runtime bootstrap registers the known hook codecs on its configured
-Tembra JavaScript Executor before handing it to PluginManager. PluginManager imports no agent
+implicitly start inference. Compiled Core Plugins declare their language adapters through `with_language_adapter`. Generic
+Runtime initialization registers all adapters on its configured Tembra JavaScript Executor before
+source/application installation and PluginManager cached recovery, preserving both task and agent
+hook definitions. PluginManager imports no agent
 contracts and remains outside ordinary model/tool dispatch.
 
 ## Session content and receipt conventions
@@ -33,27 +35,31 @@ projections remain policy-free; context transformation belongs to the loop and c
 | `swarmie.agent.task-settled` | Reconciled authoritative terminal TaskStorage outcome |
 | `swarmie.agent.operation-resolution` | Validated reference to evidence resolving an uncertain operation |
 
-All kinds currently use payload version one. A provider receipt and effective middleware receipt
+Agent event kinds use payload version two; the independent `swarmie.message` envelope retains
+Session payload version one. Agent payloads include the new conversation scope where applicable. A provider receipt and effective middleware receipt
 have separate immutable identities. If middleware fails after the provider result commits, a retry
 can reenter the middleware while the model terminal reuses the physical receipt. The external
 request is not repeated. A middleware result that bypasses the terminal still passes correlation,
 role and persistence checks. Observers receive the effective result and, when entered, the actual
 terminal request.
 
-Loop-owned event and batch identities use SHA-256 over turn identity and semantic phase suffix.
+Loop-owned event and batch identities use SHA-256 over length-prefixed session/conversation/turn identity and semantic phase suffix
+under the `swarmie.agent.v2` domain.
 The loop never places provider tool-call IDs directly into a TaskStorage identity. Envelopes
-carry turn, task and step correlation; confirmed operation payloads additionally name the stable
+carry conversation, turn, task and step correlation; confirmed operation payloads additionally name the stable
 operation ID. Cancellation request identity is independent of the current step. Append retries
 keep the complete original payload, version, correlation and expected-head policy unchanged.
 
-## Default checkpoint version one
+## Default checkpoint version two
 
-A replacement handler registers task kind `swarmie.agent-turn`, definition version one, only if it
+A replacement handler registers task kind `swarmie.agent-turn`, definition version two, only if it
 understands the persisted format and phase being resumed. The input is the public StartTurn DTO.
 The checkpoint object has these exact fields:
 
 | Field | Type and purpose |
 | --- | --- |
+| `version` | Required value 2 |
+| `session_id`, `conversation_id`, `turn_id` | Persisted immutable causal identity, validated against task input |
 | `step` | u32 model-step index, starting at zero |
 | `tool_index` | u32 index within the confirmed model response |
 | `tool_calls` | u32 accumulated admitted tool calls |
@@ -66,11 +72,26 @@ The checkpoint object has these exact fields:
 | `ending` | Optional controlled failure reason for finalization |
 
 Phases are `start`, `prepare-model`, `model`, `model-result`, `prepare-tool`, `tool`, `tool-result`,
-`step-end` and `finish`. Every checkpoint field is required; nullable fields explicitly use null.
+`step-end` and `finish`. Version, identity and counter fields are required. The serializer emits explicit null for absent
+receipt references and `ending`; a reader also accepts an omitted optional field as None, and
+phases requiring a receipt reject its absence explicitly.
 No content, arguments, model response or tool result is copied into this checkpoint. A compatible
 replacement may support a narrower set of phases and explicitly refuse others. Different formats
 must select a new definition version and implement the Durable Tasks migration contract, with
 explicit acceptance or rejection. Native code replacement uses a fresh Host and preserved stores.
+
+Version-one AgentLoop, Hook, tool-schema and policy descriptors are incompatible with the required
+conversation fields. Version-two contracts have new fingerprints and generated bindings. There
+is no default conversation and no format guessing. A version-one persisted task is explicitly
+rejected through `TaskTransition::RejectMigration`; Durable Tasks preserves its input/checkpoint
+and marks unsupported recovery instead of running effects. Mapping it to a conversation requires
+independent evidence and an explicitly designed migration. The alternate implementation fixture supports version-two confirmed finalization checkpoints and
+the exact `model` checkpoint with a correlated confirmed provider receipt for a final answer without
+tool calls. It validates the admitted task, input, request and receipt before completing. It refuses
+unknown effects and other phases. Default-loop recovery instead reenters the currently installed
+model middleware and reuses the provider receipt, so transformations can finish without inference
+resubmission. Native replacement does not promise identical behavior across arbitrary middleware
+policies or unsupported checkpoint formats.
 
 ## Model qualification and external effects
 
@@ -78,7 +99,16 @@ Inference messages, content parts, finish reasons, usage, capabilities and sanit
 failures come from Model Contracts, without importing a provider SDK. Streaming uses its managed
 generation Contract and bounded single-consumer event window. Incomplete tool snapshots are
 observations only. The loop retains the generation Reference until physical local settlement,
-acknowledges processed event prefixes and treats the final response as authoritative.
+acknowledges processed event prefixes and treats the final response as authoritative. The updated
+neutral Contract adds `GenerationReference.recover()` and `ProviderErrorKind::Publication`. The loop
+consults the retained live terminal authority whenever progress publication fails or remains behind,
+including cancellation and cleanup. Confirmed recovered results are persisted before normal
+checkpoint advancement. Recovery never repairs State by reissuing HTTP; the loop imports no network
+provider implementation. Permanent failure of both callable live recovery and progress leaves settlement unconfirmed;
+a timeout never fabricates completion. During Host retirement the Reference becomes Gone and
+recovery is no longer callable. The loop yields its claim to Tembra disposal, whose Resource
+closers join backend work. It writes no invented result; a started receipt without confirmation
+remains uncertain and cannot authorize inference replay after restart.
 
 Provider connection discovery must be unique. Unsupported effective capabilities fail before
 submission; a capability marked model-dependent still requires remote acceptance. Unknown model
@@ -90,15 +120,40 @@ loop does not offer an automatic unsafe replay permission.
 The executable examples and agent acceptance suite use a synthetic provider implementing the
 actual neutral Contracts. A concrete network adapter must additionally qualify credentials,
 provider-specific continuation, usage omissions, streaming failure and remote cancellation limits.
-Authorized opaque continuation extensions round-trip; the generic loop excludes hidden reasoning
+Authorized ordered v2 opaque continuation extensions round-trip in their original message/content
+positions, including signed tool continuations and original model tool-call IDs; the generic loop excludes hidden reasoning
 prose. That exclusion is an explicit support constraint when an adapter requires other signed or
 reasoning forms. It must be resolved through the owning Model Contract rather than a duplicate API.
 
 Durable Tasks lifecycle notifications are independent observations. This loop does not subscribe
 to them to decide execution progress or reconstruct conversation history. TaskStorage and Session
 commits are reconciled by operation IDs and confirmed receipts, without assuming atomicity or
-requiring an unfinished transactional outbox. Generic terminal inspection can reconcile current
+using best-effort notifications as a publication source. The current TaskStorage transactional
+outbox remains independent from the loop's confirmed effect receipts. Generic terminal inspection can reconcile current
 outcome; it cannot manufacture missing intermediate task transitions.
+
+## Integration-owned task/session association
+
+The loop durably writes session/conversation/turn identity in the task input and checkpoint during
+`create`, before the scheduler can execute it. All effect admission uses that persisted identity.
+This is necessary context, but is not a complete store-to-store routing agreement for an outbox
+publisher. The current Durable Tasks Contract has no atomic task/session binding admission API.
+An ephemeral `onTaskCreated` handler and a second post-create binding write cannot close that race.
+
+The integration owner must settle one immutable binding containing source TaskStorage identity,
+task ID, root and optional parent ID; destination SessionStore identity and session ID; conversation
+and turn IDs; and mapping version. Admission must commit it atomically with task creation, or a
+mandatory durable gate must confirm it before any model/tool effect. Child tasks inherit the same
+authoritative routing according to that contract. The loop will consume that interface when it is
+stabilized; it does not create a private table, alternate public binding Contract or second bridge.
+Production publisher routing and combined child/restart/crash acceptance remain an explicit
+integration dependency. This branch does not claim that selecting the plugins enables that bridge.
+
+The agreed destination protocol uses identical complete immutable append batches with
+`expected_head=None`, a stable mapping of source store/sequence/ordinal/version, and confirmation
+of the destination durable receipt before source acknowledgement. Consumer identity belongs to a
+managed Facet. Explicit acknowledged-prefix compaction, replay deduplication, supervision under
+full outbox capacity and mapping compatibility belong to the integration-owned publisher.
 
 ## Executable examples
 
