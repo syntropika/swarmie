@@ -1745,12 +1745,40 @@ dependencies = [
  "swarmie-plugin-contracts",
  "swarmie-plugin-manager",
  "swarmie-task-storage-sqlite",
+ "swarmie-session-store-sqlite",
+ "swarmie-session-contracts",
  "tembra",
  "tembra-native",
  "tempfile",
  "thiserror",
  "tokio",
  "tokio-tungstenite",
+]
+
+[[package]]
+name = "swarmie-session-contracts"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tembra",
+]
+
+[[package]]
+name = "swarmie-session-store-sqlite"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "swarmie-session-contracts",
+ "swarmie-counter",
+ "tembra",
+ "tembra-executor-js",
+ "tembra-native",
+ "tempfile",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
