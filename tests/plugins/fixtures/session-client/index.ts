@@ -35,7 +35,10 @@ export default defineFacet({
                     event_id: "typescript:message:1",
                     kind: "swarmie.message",
                     version: 1,
-                    correlation: { turn_id: "typescript:turn" },
+                    correlation: {
+                      conversation_id: "typescript:conversation",
+                      turn_id: "typescript:turn",
+                    },
                     payload: {
                       role: "user",
                       content: [{ type: "text", text: "Hello from TypeScript" }],
@@ -50,11 +53,40 @@ export default defineFacet({
               if (receipt.last_sequence !== retry.last_sequence) {
                 throw new Error("Idempotent receipt changed");
               }
+              await store.append(
+                {
+                  session_id: "typescript",
+                  batch_id: "typescript:other",
+                  events: [
+                    {
+                      event_id: "typescript:other",
+                      kind: "swarmie.message",
+                      version: 1,
+                      correlation: { conversation_id: "typescript:other" },
+                      payload: {
+                        role: "user",
+                        content: "Other conversation",
+                        reply_to: null,
+                        tool_call_id: null,
+                      },
+                    },
+                  ],
+                },
+                context,
+              );
+              const status = await store.publication_status(context);
+              if (
+                status.pending ||
+                status.durable.commit_sequence !== status.published.commit_sequence
+              ) {
+                throw new Error("Session watermark is not current");
+              }
               const page = await store.project(
                 {
                   kind: "conversation",
                   source: {
                     session_id: "typescript",
+                    conversation_id: "typescript:conversation",
                     after_sequence: 0,
                     limit: 128,
                     max_bytes: 786_432,

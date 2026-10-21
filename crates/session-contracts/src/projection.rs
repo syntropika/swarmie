@@ -4,6 +4,7 @@ use crate::{COMPACTION, INSTRUCTIONS, MESSAGE, SessionEvent};
 
 /// Durable cursor for a fixed immutable prefix. Later appends never invalidate it. To tail,
 /// start a new query after the completed prefix's through_sequence with through=None.
+/// Conversation and turn selectors are part of cursor identity; changing either is refused.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
@@ -12,11 +13,14 @@ pub struct EventCursor {
     pub session_id: String,
     pub after_sequence: u64,
     pub through_sequence: u64,
+    pub conversation_id: Option<String>,
     pub turn_id: Option<String>,
 }
 
 /// Row and canonical byte bounds apply together. Without a cursor, through=None freezes the
-/// current head. Turn filtering preserves source sequence identity and source prefix bounds.
+/// current head. Conversation and turn filters combine with AND and preserve source sequence
+/// identity and prefix bounds. An absent conversation selects the entire session, including
+/// uncorrelated events. Multiplexed model contexts must select their conversation explicitly.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
@@ -24,6 +28,7 @@ pub struct EventQuery {
     pub session_id: String,
     pub after_sequence: u64,
     pub through_sequence: Option<u64>,
+    pub conversation_id: Option<String>,
     pub turn_id: Option<String>,
     pub limit: u32,
     pub max_bytes: u32,
@@ -37,6 +42,7 @@ impl EventQuery {
             session_id: session_id.into(),
             after_sequence: 0,
             through_sequence: None,
+            conversation_id: None,
             turn_id: None,
             limit: 128,
             max_bytes: crate::MAX_PAGE_BYTES as u32,
@@ -45,7 +51,7 @@ impl EventQuery {
     }
 }
 
-/// A complete prefix boundary and a lossless continuation. Empty turn-filtered pages can still
+/// A complete prefix boundary and a lossless continuation. Empty filtered pages can still
 /// advance through_sequence. A budget too small for one row returns an explicit size error.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(crate = "tembra::serde", deny_unknown_fields)]

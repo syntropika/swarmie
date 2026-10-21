@@ -41,6 +41,19 @@ pub struct StoreHead {
     pub commit_sequence: u64,
 }
 
+/// Bounded observation of reactive repair. SQLite results remain authoritative while pending.
+/// The last error retains only its category; failures include repeated managed repair attempts.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct PublicationStatus {
+    pub durable: StoreHead,
+    pub published: StoreHead,
+    pub pending: bool,
+    pub failures: u64,
+    pub last_error: Option<String>,
+}
+
 /// Atomic ordered append, limited to 128 events. Batch identity is unique within one session.
 /// An exact retry returns the original receipt before evaluating expected_head. Changed events,
 /// order, or expected_head under the same batch ID are refused. Duplicate event IDs under a new
@@ -69,14 +82,20 @@ pub struct AppendReceipt {
 }
 
 /// Provider-neutral history authority. Only successful storage commits establish progress.
-/// Validation, CAS, duplicate and size refusals mutate nothing. An I/O, publication, transport
+/// Validation, CAS, duplicate and size refusals mutate nothing. An I/O or transport
 /// failure or cancelled caller may have unknown outcome: retry the *identical* batch identity.
 /// A native provider replacement requires a fresh Host; closing never deletes history.
+/// Successful SQLite reads and commits do not depend on reactive publication. Publication lag
+/// is observable separately and repaired through managed activity while the Host remains live.
 /// There is no transaction spanning TaskStorage and this Contract.
 #[tembra::contract(local, name = "swarmie.session-store", version = 1)]
 pub trait SessionStore {
     #[state]
     fn committed(&self) -> StoreHead;
+
+    /// Reads publication lag and bounded failure categories without requiring State adoption.
+    #[portable]
+    async fn publication_status(&self) -> Result<PublicationStatus>;
 
     #[portable]
     async fn create(&self, request: CreateSession) -> Result<SessionRecord>;

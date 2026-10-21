@@ -24,11 +24,18 @@ where
         }))
 }
 
-pub async fn open(host: &Host, path: &Path) -> Result<SessionStoreRef> {
+pub async fn open(
+    host: &Host,
+    path: &Path,
+    driver: std::rc::Rc<dyn core::Driver>,
+) -> Result<SessionStoreRef> {
     host.install(
-        swarmie_session_store_sqlite::facet(&Configuration {
-            database: path.into(),
-        })?,
+        swarmie_session_store_sqlite::facet(
+            &Configuration {
+                database: path.into(),
+            },
+            driver,
+        )?,
         core::LoadOptions::default(),
     )?
     .await?;

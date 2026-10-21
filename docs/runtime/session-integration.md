@@ -23,12 +23,13 @@ This capability does not create anonymous network access or change administratio
 
 1. Create/open the session and append the user message with stable batch and event identities.
    Recover an uncertain response by retrying the exact canonical request.
-2. Submit a durable turn referencing that committed message. Retain stable session, conversation,
-   turn, task, step and attempt identities as applicable. There is no cross-store transaction.
+2. Persist the task/session binding described below, then submit a durable turn referencing
+   that committed message. Retain stable session, conversation, turn, task, step and attempt
+   identities as applicable. There is no cross-store transaction.
 3. Before each repeatable external operation, persist an intention identifying the operation.
    Retain the complete append request or reconstruct it deterministically, including CAS input.
-4. Build model input from a frozen source prefix. Read all context pages, resolve unfamiliar
-   kinds/versions, then apply the agent's plugins and translate into Model Contracts. Record
+4. Build model input from a frozen source prefix with the exact conversation selector. Read all
+   context pages, resolve unfamiliar kinds/versions, then apply the agent's plugins and translate into Model Contracts. Record
    authorized assembled input or a durable blob reference if exact request replay is needed.
 5. Append the settled model/tool result using the stable operation identity. Only then advance
    the task checkpoint to reference that event. A crash after the append and before checkpoint
@@ -37,16 +38,58 @@ This capability does not create anonymous network access or change administratio
    Apply the effect's own idempotency/reconciliation protocol. Unsafe ambiguous effects must
    await application-owned resolution; replaying Session history does not replay effects.
 7. Record turn settlement as a Session fact once the owner confirms it. Observe State and read
-   turn-filtered source pages to follow progress. A cancel request and physical cancellation
-   settlement are distinct facts and must not be inferred from each other.
+   conversation- and turn-filtered source pages to follow progress. A cancel request and physical
+   cancellation settlement are distinct facts and must not be inferred from each other.
 
 A checkpoint can lag a Session result without data loss. Conversely, if a task commits before
 Session append, reconciliation can record the task's current state but cannot recreate every
 missing transition. Store ownership and task execution ownership remain separate concepts.
 
-## Durable task observations and future outbox
+## Durable task routing association
 
-The current independent lifecycle design uses Tembra series Hooks with compact
+The outbox fact identity `(store_id, sequence, ordinal)` identifies a TaskStorage transition;
+it does not identify a SessionStore destination. Generic tasks need not contain `session_id`.
+The Agent Loop or embedding integration adapter must own a durable routing table with at least:
+
+- Key: `(task_store_id, task_id)`; task IDs alone are insufficient across store replacement.
+- Destination: `(session_store_id, session_id, conversation_id)` and the stable turn ID when known.
+- Lineage: root task ID, parent task ID and an immutable routing-format version.
+- Admission: pending/active routing intent and an explicit excluded disposition for unrelated tasks.
+
+Persist an exact routing intent before task submission. Its stable task ID makes a crash before
+submission reconcilable by checking TaskStorage and retrying submission. A crash after task
+commit and before marking the binding active is reconciled from that same durable intent;
+consumers may resolve a committed task against its pending intent after validating the match.
+If the scheduler can execute immediately, the intent must already contain all routing data and
+the handler must refuse external effects until that data is durably available. Merely writing
+a binding after an ordinary runnable submit leaves an unsafe crash window. There is no implied
+cross-store atomicity; an embedding that cannot enforce this ordering needs an explicit gated
+admission protocol in its task owner.
+
+Child submission inherits the parent's exact persisted destination and root identity. Persist
+its own binding before admission, under the child's stable ID and source store identity. An
+explicit child conversation fork chooses and freezes its new conversation before submission.
+The outbox's `parent` field can validate or reconcile lineage but cannot substitute for a durable
+root route. Do not resolve children from transient hook context or a mutable current session.
+Keep historical bindings immutable or retain their per-fact routing version; retries must never
+redirect an already ingested fact after a route change.
+
+An unresolved mapping pauses the consumer's contiguous acknowledgement prefix and exposes a
+repair condition. An explicitly unrelated task may be skipped only under a durable exclusion
+policy; absence of a mapping is not evidence of exclusion. Verify destination store identity
+before append, and retain bindings until all required consumers and retained facts no longer
+need them. Reject replacement-store mismatches rather than sending history to a same-named
+session in a different database.
+
+The inspected Agent Loop submission currently stores session and turn identity but does not
+expose conversation identity or this store-scoped routing table. It must adopt the conversation
+selector and stable binding protocol before multiplexed context/outbox qualification. These
+associations belong to Agent Loop or integration, not SessionStore; this delivery specifies the
+seam without implementing another owner's task lifecycle or claiming combined crash acceptance.
+
+## Durable task observations and outbox
+
+The current independent lifecycle design uses typed Tembra Hooks with series composition and compact
 committed-transition and physical-settlement observations. It excludes task input, checkpoint
 and result bodies, uses bounded best-effort delivery and records delivery diagnostics. It does
 not supply durable replay. A process can die after TaskStorage commit and before hook admission,
@@ -54,7 +97,7 @@ delivery or Session append. No Session claim can repair this gap merely by subsc
 
 Treat a hook-derived Session entry as an **external observation**, with explicit provenance:
 source store identity, task ID, revision, fact kind, source sequence when present and origin.
-The current draft observation payload does not carry store identity; the embedding must bind
+The inspected observation payload does not carry store identity; the embedding must bind
 it to the actual selected TaskStorage identity. Never deduplicate solely by task ID/revision
 across replacement stores. Physical-settlement observations need a separate fact discriminator
 and stable invocation identity; they are not additional committed TaskStorage transitions.
@@ -66,15 +109,35 @@ is not thereby made durable. On reconnect or startup, scan authoritative TaskSto
 and append explicitly labeled reconciliation observations. Such snapshots recover current state;
 they cannot reconstruct lost intermediate transitions or physical-settlement notifications.
 
-A future transactional outbox must be committed atomically with selected task facts by its
-owning TaskStorage implementation. A suitable fact identity is source store/commit sequence/
-ordinal, with per-consumer acknowledgement and bounded scanning. A consumer appends facts to
-SessionStore, confirms its receipt and only then advances the source acknowledgement. A crash
-between append and acknowledgement repeats ingestion under the same identity. This provides
-idempotent at-least-once ingestion when the source outbox retains facts; it does not create
-an atomic transaction spanning stores. Source retention, lag, acknowledgement failure and
-consumer retirement need explicit policy. This delivery neither implements nor depends on that
-outbox, and never modifies task lifecycle ownership or other teams' worktrees.
+The independently implemented TaskStorage outbox commits selected task facts atomically with
+their record revisions. Its version-one event carries source store/commit sequence/ordinal,
+transaction size, task identity and parent, but no session identity. It exposes bounded scanning,
+per-consumer acknowledgement and retention boundaries. This implementation remains a separate
+branch; this SessionStore branch does not contain or qualify an outbox consumer.
+
+The integration consumer resolves each fact through the durable binding above, freezes a
+versioned deterministic mapping, then appends one fact per Session batch using stable batch and
+event IDs derived from source identity. Set `expected_head=None`: an acknowledgement lost after
+a committed append must retry the identical canonical request, not a newly read session head.
+Do not include a fresh timestamp, random identity or current mutable task snapshot in a retry.
+Record mapping version and full source fact identity in provenance. Destination events retain
+conversation, turn and task correlation. Exact batch retry returns the original receipt; a
+new batch containing the same event ID is a duplicate error, not an ingestion success receipt.
+
+Confirm the matching Session receipt before advancing the source consumer's contiguous
+acknowledgement prefix. A crash between append and acknowledgement repeats that same ingestion.
+Interleaved destinations and page boundaries must never acknowledge past an unresolved fact.
+A source transaction can span sessions; single-fact batches make no false destination-wide
+atomicity claim. Consumers requiring grouped destination semantics must explicitly handle
+`transaction_size`, bounded buffering and cross-session partial delivery.
+
+This provides idempotent at-least-once ingestion while the source retains facts and bindings.
+It creates no atomic transaction spanning stores. Source retention, lag, acknowledgement
+failure, excluded tasks and consumer retirement require explicit policy. The integration owner
+must test process death before/after binding, task commit, Session append and acknowledgement,
+child inheritance, exact retry after lost replies, mapping absence and store replacement against
+the actual selected providers. Hook-only physical-settlement observations remain best effort;
+the transition outbox does not manufacture durable physical-settlement facts.
 
 ## Extensions and integration checklist
 

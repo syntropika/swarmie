@@ -53,18 +53,20 @@ API exposes no destructive history or retention operation.
    Validate every complete stored envelope and compaction prefix before inserting any row.
 5. Insert all events, update the session head, retain the complete canonical request and its
    compact receipt, and advance the store commit sequence in the same transaction.
-6. Commit SQLite, then adopt the small Tembra State watermark without an intervening await.
+6. Commit SQLite, then attempt adoption of the small Tembra State watermark without an
+   intervening await. Publication failure retains repair work and does not replace the receipt.
 
 Validation, duplicate and CAS refusals write nothing. Repeated event IDs under another batch
 ID are refused, even if their payloads match. A producer recovering a lost response retries the
 **identical original batch**, including expected head. A successful receipt contains the exact
 sequence range and store commit sequence of that batch, not a later session head.
 
-SQLite, transport, caller cancellation or State-publication failures can have unknown outcome.
-They are never proof that a write did not happen. Read the authoritative prefix or retry the
-original identity. A failing observer does not undo SQLite. Reads and exact retries repair a
-missed State publication from current database metadata. No detached write task outlives a
-native invocation; synchronous SQLite work can complete before caller cancellation is observed.
+SQLite, transport or caller cancellation failures can have unknown outcome. They are never
+proof that a write did not happen. Read the authoritative prefix or retry the original identity.
+Reactive publication is separate: successful SQLite reads and committed writes return their
+authoritative results even if State adoption fails. Reads, exact retries and a managed repair
+activity reconcile the watermark from current database metadata. No detached write task outlives
+a native invocation; synchronous SQLite work can complete before caller cancellation is observed.
 
 Canonical requests are retained with receipts to make equality exact rather than hash-only.
 This costs additional disk space. There is no batch receipt expiry or automatic data deletion.
@@ -86,17 +88,25 @@ still depends on correct filesystem/device synchronization; process-kill tests a
 power-loss qualification. Synchronous admission bounds work per request but does not promise
 a latency deadline for an unhealthy filesystem.
 
-Schema installation is atomic and identified by application ID and `user_version`. Foreign,
-nonempty unrelated and newer schemas are refused without deleting data. Version one needs no
-historical development importer. Any future upgrade must define its own atomic migration or
-explicit refusal. Resource closure releases the connection and ownership lock without deleting
-sessions, events, SQLite sidecars or receipts.
+Schema ownership and supported structure are checked in a read-only transaction before
+changing journal mode. Foreign, nonempty unrelated and newer schemas are refused without
+adopting WAL or deleting data. Installation and upgrades use an immediate transaction that
+revalidates admission. Schema version two indexes conversation identity; the version-one upgrade
+backfills this column one envelope at a time without changing event JSON, heads or batch receipts.
+The update trigger is restored within the same transaction. Future upgrades require an explicit
+atomic migration or refusal. Resource closure releases the connection and ownership lock without
+deleting sessions, events, SQLite sidecars or receipts.
 
 ## Bounded historical reads and reactive recovery
 
-`events` accepts a session, source position, optional fixed upper sequence, optional turn ID,
-row limit, byte budget and continuation. The first page freezes the committed upper sequence.
-The continuation records store ID, session ID, source position, upper sequence and turn filter.
+`events` accepts a session, source position, optional fixed upper sequence, optional conversation
+and turn IDs, row limit, byte budget and continuation. Both selectors combine with AND. An absent
+conversation selector intentionally reads the entire session, including uncorrelated events.
+Model-context consumers of multiplexed sessions must select their conversation explicitly;
+session-wide instructions require a separate deliberate policy and are not implicitly mixed in.
+The first page freezes the committed upper sequence. The continuation records store ID, session
+ID, source position, upper sequence and both filters. SQLite indexes conversation and combined
+conversation/turn scans; filtered envelopes are checked against their immutable JSON correlation.
 Later appends never invalidate a cursor over immutable history. Another store/session/filter
 or impossible prefix is refused. On continuation, leave `after_sequence` zero; the cursor owns
 that position. A complete page has no next cursor. To tail, start a new query after the completed
@@ -124,6 +134,14 @@ reacquire the Reference, verify store identity and catch up from the durable sou
 A slow observer does not cause unbounded SessionStore buffering: Tembra owns subscription
 backpressure, delta/reset behavior and closure. Store replacement initializes State from SQLite.
 Global hints may wake readers for another session; readers obtain their own committed head.
+
+`publication_status` reports durable/published watermarks, pending lag, a bounded failure count
+and the last error category for the live provider. It does not require successful State adoption.
+One pending bit coalesces repair work; no event queue grows with observer lag. A Tembra managed activity uses
+the existing Host Driver, waits 50 ms between retries and opens fresh roots. It stops on activity
+cancellation before resource closure. A permanently refusing State can remain behind while
+SQLite stays readable; diagnostics expose this condition. Provider construction takes that
+Driver explicitly, so embeddings must pass the same Driver used by their Host.
 
 ## Deterministic projections
 

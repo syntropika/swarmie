@@ -115,13 +115,14 @@ pub(crate) fn compiled(
     source: PathBuf,
     driver: Rc<dyn tembra::core::Driver>,
 ) -> Vec<CompiledPlugin> {
+    let session_driver = driver.clone();
     vec![
         CompiledPlugin::new(
             release(
                 swarmie_session_store_sqlite::PLUGIN_ID,
                 swarmie_session_store_sqlite::FACET_ID,
             ),
-            |value| {
+            move |value| {
                 let configuration: swarmie_session_store_sqlite::Configuration =
                     serde_json::from_value(value.clone()).map_err(|error| {
                         tembra::RuntimeError::invalid(
@@ -129,7 +130,10 @@ pub(crate) fn compiled(
                             error.to_string(),
                         )
                     })?;
-                Ok(vec![swarmie_session_store_sqlite::facet(&configuration)?])
+                Ok(vec![swarmie_session_store_sqlite::facet(
+                    &configuration,
+                    session_driver.clone(),
+                )?])
             },
         ),
         CompiledPlugin::new(
