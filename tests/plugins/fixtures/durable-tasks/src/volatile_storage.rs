@@ -147,17 +147,31 @@ impl TaskStorageProvider for Service {
                 store_id: data.store_id.clone(),
                 sequence: data.sequence,
                 after: selected.last().unwrap().id.clone(),
-                statuses: query.statuses,
-                parent: query.parent,
+                statuses: query.statuses.clone(),
+                parent: query.parent.clone(),
             })
         } else {
             None
         };
-        Ok(TaskPage {
+        let mut page = TaskPage {
             sequence: data.sequence,
             records: selected,
             next,
-        })
+        };
+        while let Err(error) = validate_task_payload_size(&page) {
+            if error.reason != "task_storage_too_large" || page.records.len() <= 1 {
+                return Err(error);
+            }
+            page.records.pop();
+            page.next = Some(TaskCursor {
+                store_id: data.store_id.clone(),
+                sequence: data.sequence,
+                after: page.records.last().unwrap().id.clone(),
+                statuses: query.statuses.clone(),
+                parent: query.parent.clone(),
+            });
+        }
+        Ok(page)
     }
     async fn commit(
         &self,
@@ -172,9 +186,15 @@ impl TaskStorageProvider for Service {
         if transaction.writes.is_empty() || transaction.writes.len() > 256 {
             return Err(invalid("fixture transaction requires 1..=256 writes"));
         }
+        validate_task_payload_size(&transaction)?;
+        let portable = tembra::contracts::to_portable_value(&transaction)
+            .map_err(|error| invalid(&error.to_string()))?;
+        let transaction: TaskTransaction = tembra::contracts::from_portable_value(&portable)
+            .map_err(|error| invalid(&error.to_string()))?;
         let mut ids = BTreeSet::new();
         for write in &transaction.writes {
             let record = &write.record;
+            validate_task_record_size(record)?;
             validate_identity(&record.id)?;
             validate_identity(&record.kind)?;
             validate_identity(&record.phase)?;
@@ -220,13 +240,15 @@ impl TaskStorageProvider for Service {
             .into_iter()
             .map(|write| write.record)
             .collect::<Vec<_>>();
+        let receipt = CommitResult::Committed {
+            sequence: data.sequence + 1,
+            records: records.clone(),
+        };
+        validate_task_payload_size(&receipt)?;
         for record in &records {
             data.records.insert(record.id.clone(), record.clone());
         }
         data.sequence += 1;
-        Ok(CommitResult::Committed {
-            sequence: data.sequence,
-            records,
-        })
+        Ok(receipt)
     }
 }

@@ -8,12 +8,12 @@ use std::{
 
 use futures::{FutureExt, StreamExt, future::LocalBoxFuture, stream::FuturesUnordered};
 use swarmie_task_contracts::{
-    CommitResult, StorageOwner, TaskLookup, TaskQuery, TaskRecord, TaskStorageRef, TaskTransaction,
-    TaskWrite,
+    CommitResult, StorageOwner, TaskLookup, TaskRecord, TaskStorageRef, TaskTransaction, TaskWrite,
+    validate_task_payload_size, validate_task_record_size,
 };
 use tembra::{Context, Resource, Result, RuntimeError, core};
 
-use crate::Configuration;
+use crate::{Configuration, reads::is_contention, work::Work};
 
 /// Coalesced local pump notification. Task transitions remain exclusively in TaskStorage.
 #[derive(Default)]
@@ -59,6 +59,8 @@ pub(crate) struct Engine {
     /// are retained only until a non-running commit or graceful Resource cleanup.
     pub reservations: Rc<RefCell<BTreeSet<String>>>,
     pub committed_sequence: tembra::Cell<u64>,
+    pub work: RefCell<Work>,
+    pub reconcile_gate: futures::lock::Mutex<()>,
 }
 
 impl Engine {
@@ -86,69 +88,54 @@ impl Engine {
             .ok_or_else(|| RuntimeError::invalid("durable_tasks_missing", "task does not exist"))
     }
 
-    /// Reads a complete committed graph. Cursors refuse concurrent changes instead of mixing
-    /// snapshots. Retrying a bounded number of invalidated reads never mutates task records.
-    pub async fn records(&self, context: &Context) -> Result<Vec<TaskRecord>> {
-        for _ in 0..8 {
-            let mut result = Vec::new();
-            let mut query = TaskQuery {
-                limit: 256,
-                ..Default::default()
-            };
-            loop {
-                match self.storage.with_context(context).scan(query.clone()).await {
-                    Ok(page) => {
-                        result.extend(page.records);
-                        if let Some(cursor) = page.next {
-                            query.cursor = Some(cursor);
-                        } else {
-                            return Ok(result);
-                        }
-                    }
-                    Err(error)
-                        if error.reason == "task_storage_cursor_invalidated"
-                            || error.reason == "task_storage_cursor" =>
-                    {
-                        break;
-                    }
-                    Err(error) => return Err(error),
-                }
-            }
-        }
-        Err(RuntimeError::unavailable(
-            "durable_tasks_snapshot_busy",
-            "committed graph changed during eight complete scan attempts",
-        ))
+    pub fn schedule(&self, id: &str) {
+        self.work.borrow_mut().schedule(id.to_owned());
+        self.wake.notify();
     }
 
-    pub async fn commit(&self, context: &Context, writes: Vec<TaskWrite>) -> Result<bool> {
+    pub async fn commit(&self, context: &Context, writes: Vec<TaskWrite>) -> Result<CommitResult> {
         if writes.is_empty() {
-            return Ok(true);
+            return Err(RuntimeError::invalid(
+                "durable_tasks_transaction",
+                "a task commit requires at least one write",
+            ));
         }
         let owner = self.owner.value()?.id.clone();
+        for write in &writes {
+            validate_task_record_size(&write.record)?;
+        }
+        let transaction = TaskTransaction { owner, writes };
+        validate_task_payload_size(&transaction)?;
         match self
             .storage
             .with_context(context)
-            .commit(TaskTransaction { owner, writes })
+            .commit(transaction)
             .await?
         {
             CommitResult::Committed { sequence, records } => {
-                for record in records {
+                let mut work = self.work.borrow_mut();
+                if work.initialized && sequence > work.sequence.saturating_add(1) {
+                    work.rescan = true;
+                }
+                work.sequence = work.sequence.max(sequence);
+                for record in &records {
+                    work.observe(record);
                     if record.status != swarmie_task_contracts::TaskStatus::Running {
                         self.reservations.borrow_mut().remove(&record.id);
                     }
                 }
+                drop(work);
                 if sequence > self.committed_sequence.value()? {
                     self.committed_sequence.replace(context, sequence)?;
                 }
                 self.wake.notify();
-                Ok(true)
+                Ok(CommitResult::Committed { sequence, records })
             }
-            CommitResult::Conflict { .. } => Ok(false),
+            conflict @ CommitResult::Conflict { .. } => Ok(conflict),
         }
     }
 
-    pub async fn update(&self, context: &Context, mut record: TaskRecord) -> Result<bool> {
+    pub async fn update(&self, context: &Context, mut record: TaskRecord) -> Result<CommitResult> {
         let revision = record.revision;
         record.revision = revision.checked_add(1).ok_or_else(|| {
             RuntimeError::invalid("durable_tasks_revision", "task revision is exhausted")
@@ -167,6 +154,7 @@ impl Engine {
         self.failure.borrow_mut().take();
         let observed = self.clone();
         let subscription = self.registry.subscribe(move |_| {
+            observed.work.borrow_mut().definitions_changed();
             observed.wake.notify();
             Ok(())
         });
@@ -190,10 +178,16 @@ impl Engine {
                         async move { engine.reconcile(&Context::from_core(context)).await }
                             .boxed_local()
                     })
-                    .await?;
+                    .await;
+                let candidates = match candidates {
+                    Ok(candidates) => candidates,
+                    Err(error) if is_contention(&error) => Vec::new(),
+                    Err(error) => return Err(error),
+                };
                 for candidate in candidates {
                     if self.inflight.borrow().len() >= self.configuration.max_parallel as usize {
-                        break;
+                        self.work.borrow_mut().schedule(candidate.id);
+                        continue;
                     }
                     if !self.inflight.borrow_mut().insert(candidate.id.clone()) {
                         continue;
@@ -211,11 +205,20 @@ impl Engine {
                             let result = phase.await;
                             cleanup.inflight.borrow_mut().remove(&cleanup_id);
                             cleanup.active.borrow_mut().remove(&cleanup_id);
-                            result
+                            cleanup.work.borrow_mut().settled(&cleanup_id);
+                            cleanup.wake.notify();
+                            match result {
+                                Err(error) if is_contention(&error) => Ok(()),
+                                result => result,
+                            }
                         }
                         .boxed_local(),
                     );
                 }
+                // Native operations can settle synchronously. Yield through the existing
+                // runtime Driver after bounded work so other Facets, timers and cancellation
+                // are polled even when local notifications stay continuously ready.
+                self.driver.sleep(Duration::from_millis(1)).await;
                 let timer = self
                     .driver
                     .sleep(Duration::from_millis(self.configuration.poll_interval_ms));

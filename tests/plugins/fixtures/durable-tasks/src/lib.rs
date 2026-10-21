@@ -8,6 +8,7 @@ use swarmie_task_contracts::{
 use tembra::{core, prelude::*};
 
 pub mod adversarial;
+pub mod concurrency;
 pub mod gate;
 pub mod volatile_storage;
 

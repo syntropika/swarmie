@@ -4,13 +4,16 @@
 //! authoritative; phase futures and cancellation tokens are ephemeral execution observations.
 //! External effects may repeat after an interrupted phase and require stable operation identities.
 
+mod cancellation;
 mod configuration;
 mod execution;
 mod ownership;
+mod reads;
 mod recovery;
 mod registry;
 mod scheduler;
 mod service;
+mod work;
 
 pub use configuration::Configuration;
 pub use service::facet;

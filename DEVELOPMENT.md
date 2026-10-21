@@ -23,6 +23,41 @@ reactive State exposes committed progress. Checkpoints preserve resumable state,
 transactions can update a parent while creating its children. Applications use stable operation
 identities and idempotency to handle external effects that may repeat after interruption.
 
+### Task storage and transport limits
+
+TaskStorage bounds complete records to 768 KiB and complete portable pages, transactions,
+receipts and handler invocations to 1 MiB minus 8 KiB. These are canonical UTF-8 JSON byte
+limits, including envelopes and escaped strings. The record validator reserves 8 KiB for
+control data and budgets mutable counters at their maximum encoded widths so checkpoint
+data cannot consume the space needed for recovery diagnostics.
+SQLite persists the same canonical JSON number representation used by the portable boundary;
+mathematically equivalent values such as `1.0` and `1` do not change immutable input identity.
+
+A scan page can contain fewer records than its requested limit. Follow its continuation
+cursor until `next` is absent; record count alone does not indicate the end of a scan.
+Cursors bind the provider, filters and committed sequence. Concurrent writes can invalidate
+a continuation, requiring a fresh consistent read. The scheduler retries transient read
+contention without treating it as a storage outage. Oversized values fail explicitly with
+`task_storage_too_large` before storage mutation. Values rejected before method admission
+retain Tembra's portable transport errors. Checkpoints and child lists are never silently
+truncated. Shared validation helpers live in
+[`crates/task-contracts/src/transport.rs`](crates/task-contracts/src/transport.rs).
+
+### Recovery and retention
+
+Terminal records are immutable and retained indefinitely, including outcomes and ownership
+relationships. Automatic deletion is not part of TaskStorage. Indexed active-state and
+parent queries keep unrelated terminal history outside scheduling work; applications can
+inspect retained history through bounded graph queries. Plan storage capacity for retained
+data and backups. Portable revision and global commit counters are finite. Exhaustion refuses
+further writes explicitly; counters never wrap or reset to bypass compare-and-swap checks.
+
+Interrupted Running reservations are recovered when a new scheduler owner starts. A known
+commit conflict after a handler has settled parks the task with its latest durable checkpoint
+and an explicit diagnostic. Cancellation intent takes precedence over an uncommitted handler
+decision. Before retrying a parked effect, reconcile the external operation using its stable
+identity; a rejected local transition does not prove that the external effect did not happen.
+
 ## Getting started
 
 Install [mise](https://mise.jdx.dev/), Rustup, Python 3.11 or later, Git and your platform's

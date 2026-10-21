@@ -14,8 +14,10 @@ use swarmie_task_contracts::{
 use tembra::{core, prelude::*};
 
 use crate::{
-    Configuration, FACET_ID, ownership,
+    Configuration, FACET_ID,
+    reads::is_contention,
     scheduler::{Engine, Wake},
+    work::Work,
 };
 
 /// Declares a compiled scheduler with a replaceable TaskStorage dependency. The supplied Driver
@@ -86,7 +88,7 @@ pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Res
                 let committed_sequence = declaration.state_with("committed_sequence", StateDeclaration::with_initializer(move |context| {
                     let storage = initial_storage.clone();
                     async move {
-                        storage.with_context(&context).scan(TaskQuery { limit:1, ..Default::default() }).await.map(|page| page.sequence)
+                        storage.with_context(&context).scan(TaskQuery { limit:1, statuses:vec![TaskStatus::Pending], ..Default::default() }).await.map(|page| page.sequence)
                     }
                 })?)?;
                 let engine = Rc::new(Engine {
@@ -102,6 +104,8 @@ pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Res
                     rejected_migrations: RefCell::new(BTreeMap::new()),
                     reservations,
                     committed_sequence,
+                    work: RefCell::new(Work::default()),
+                    reconcile_gate: futures::lock::Mutex::new(()),
                 });
                 let activity = engine.clone();
                 declaration
@@ -185,7 +189,7 @@ impl DurableTasksProvider for Service {
     async fn create(&self, task: TaskSpec, context: Context) -> Result<TaskRecord> {
         self.engine.ensure_running()?;
         let record = TaskRecord::new(task, None);
-        if !self
+        match self
             .engine
             .commit(
                 &context,
@@ -196,12 +200,20 @@ impl DurableTasksProvider for Service {
             )
             .await?
         {
-            return Err(RuntimeError::invalid(
+            CommitResult::Conflict { .. } => Err(RuntimeError::invalid(
                 "durable_tasks_exists",
                 "task identity is already committed",
-            ));
+            )),
+            CommitResult::Committed { mut records, .. }
+                if records.len() == 1 && records[0].id == record.id =>
+            {
+                Ok(records.remove(0))
+            }
+            CommitResult::Committed { .. } => Err(RuntimeError::invalid(
+                "durable_tasks_storage_receipt",
+                "storage commit did not return the created task",
+            )),
         }
-        Ok(record)
     }
 
     async fn get(&self, request: TaskLookup, context: Context) -> Result<Option<TaskRecord>> {
@@ -232,59 +244,47 @@ impl DurableTasksProvider for Service {
     async fn cancel(&self, request: TaskLookup, context: Context) -> Result<TaskRecord> {
         self.engine.ensure_running()?;
         for _ in 0..8 {
-            let records = self.engine.records(&context).await?;
-            let root = records
-                .iter()
-                .find(|record| record.id == request.id)
-                .ok_or_else(|| {
-                    RuntimeError::invalid("durable_tasks_missing", "task does not exist")
-                })?;
+            let root = self.engine.require(&context, &request.id).await?;
             if root.is_terminal() {
-                return Ok(root.clone());
+                return Ok(root);
             }
-            let descendants = ownership::descendants(&records, &request.id);
-            // Persist root intent first. Reconciliation propagates any remainder of a tree
-            // larger than one storage batch before admitting descendants' new phases.
-            let mut ordered: Vec<_> = records
-                .iter()
-                .filter(|record| {
-                    descendants.contains(&record.id)
-                        && !record.is_terminal()
-                        && !record.cancellation_requested
-                })
-                .collect();
-            ordered.sort_by_key(|record| record.id != request.id);
-            let writes = ordered
-                .into_iter()
-                .take(256)
-                .map(|record| {
-                    let mut next = record.clone();
-                    next.cancellation_requested = true;
-                    next.revision += 1;
-                    TaskWrite {
-                        expected_revision: Some(record.revision),
-                        record: next,
-                    }
-                })
-                .collect::<Vec<_>>();
-            if self.engine.commit(&context, writes).await? {
-                let tokens: Vec<_> = self
-                    .engine
-                    .active
-                    .borrow()
-                    .iter()
-                    .filter(|(id, _)| descendants.contains(*id))
-                    .map(|(_, token)| token.clone())
-                    .collect();
-                for token in tokens {
-                    token.cancel(RuntimeError::aborted(
-                        "task_cancelled",
-                        "cancellation requested",
-                    ));
+            if !root.cancellation_requested {
+                let mut next = root.clone();
+                next.cancellation_requested = true;
+                if matches!(
+                    self.engine.update(&context, next).await?,
+                    CommitResult::Conflict { .. }
+                ) {
+                    continue;
                 }
-                self.engine.wake.notify();
-                return self.engine.require(&context, &request.id).await;
             }
+            // Persist root intent first. Work hints enqueue its active subtree; fresh
+            // ancestor reads prevent admission even before descendant intent is copied.
+            self.engine.schedule(&request.id);
+            let active: Vec<_> = self.engine.active.borrow().keys().cloned().collect();
+            for id in active {
+                match self.engine.family(&context, &id).await {
+                    Ok(family)
+                        if family.task.id == request.id
+                            || family
+                                .ancestors
+                                .iter()
+                                .any(|ancestor| ancestor.id == request.id) =>
+                    {
+                        let token = self.engine.active.borrow().get(&id).cloned();
+                        if let Some(token) = token {
+                            token.cancel(RuntimeError::aborted(
+                                "task_cancelled",
+                                "cancellation requested",
+                            ));
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(error) if is_contention(&error) => self.engine.schedule(&id),
+                    Err(error) => return Err(error),
+                }
+            }
+            return self.engine.require(&context, &request.id).await;
         }
         Err(RuntimeError::unavailable(
             "durable_tasks_conflict",
@@ -307,7 +307,10 @@ impl DurableTasksProvider for Service {
             task.status = TaskStatus::Pending;
             task.restarts = 0;
             task.blocking_reason = None;
-            if self.engine.update(&context, task).await? {
+            if matches!(
+                self.engine.update(&context, task).await?,
+                CommitResult::Committed { .. }
+            ) {
                 return self.engine.require(&context, &request.id).await;
             }
         }
@@ -319,28 +322,19 @@ impl DurableTasksProvider for Service {
 
     async fn resume(&self, context: Context) -> Result<ResumeResult> {
         self.engine.ensure_running()?;
-        let before = self
-            .engine
-            .storage
-            .with_context(&context)
-            .scan(TaskQuery {
-                limit: 1,
-                ..Default::default()
-            })
-            .await?
-            .sequence;
-        self.engine.reconcile(&context).await?;
+        let before = self.engine.sequence(&context).await?;
+        self.engine.work.borrow_mut().rescan = true;
+        match self.engine.reconcile(&context).await {
+            Ok(candidates) => {
+                for task in candidates {
+                    self.engine.schedule(&task.id);
+                }
+            }
+            Err(error) if is_contention(&error) => {}
+            Err(error) => return Err(error),
+        }
         self.engine.wake.notify();
-        let after = self
-            .engine
-            .storage
-            .with_context(&context)
-            .scan(TaskQuery {
-                limit: 1,
-                ..Default::default()
-            })
-            .await?
-            .sequence;
+        let after = self.engine.sequence(&context).await?;
         Ok(ResumeResult {
             progressed: u32::try_from(after.saturating_sub(before)).unwrap_or(u32::MAX),
         })
