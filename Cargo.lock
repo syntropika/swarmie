@@ -1668,9 +1668,12 @@ dependencies = [
  "serde",
  "serde_json",
  "swarmie-task-contracts",
+ "swarmie-task-storage-sqlite",
  "tembra",
  "tembra-executor-js",
  "tembra-hooks",
+ "tempfile",
+ "tokio",
  "uuid",
 ]
 

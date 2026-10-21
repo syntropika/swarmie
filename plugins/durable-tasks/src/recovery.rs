@@ -19,6 +19,10 @@ impl Engine {
     /// Retained terminal history is read only through explicit graph and family queries.
     pub async fn reconcile(&self, context: &Context) -> Result<Vec<TaskRecord>> {
         let _gate = self.reconcile_gate.lock().await;
+        // A previous post-commit State write can fail while Work already knows the durable
+        // sequence. Retry independently of scans, without repeating lifecycle notifications.
+        let known_sequence = self.work.borrow().sequence;
+        self.publish_sequence(context, known_sequence);
         let startup = !self.work.borrow().initialized;
         let probe_due = self.driver.now() >= self.work.borrow().next_probe;
         if startup || self.work.borrow().rescan || probe_due {
@@ -37,9 +41,7 @@ impl Engine {
                 if !self.work.borrow_mut().discover(&records, sequence, startup) {
                     return Err(busy());
                 }
-                if sequence > self.committed_sequence.value()? {
-                    self.committed_sequence.replace(context, sequence)?;
-                }
+                self.publish_sequence(context, sequence);
             }
             self.work.borrow_mut().next_probe =
                 self.driver.now().saturating_add(Duration::from_secs(1));

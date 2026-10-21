@@ -18,5 +18,10 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 
+[dev-dependencies]
+swarmie-task-storage-sqlite = { path = "../task-storage-sqlite" }
+tempfile.workspace = true
+tokio.workspace = true
+
 [lints]
 workspace = true
