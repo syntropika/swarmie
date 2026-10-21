@@ -1,6 +1,9 @@
 use std::{future::Future, rc::Rc, time::Duration};
 
-use swarmie_durable_tasks_fixture::adversarial::{self, Control};
+use swarmie_durable_tasks_fixture::{
+    adversarial::{self, Control},
+    concurrency::{self, StorageControl},
+};
 use swarmie_task_contracts::*;
 use tembra::{core, prelude::*};
 use tembra_native::TokioDriver;
@@ -312,15 +315,16 @@ fn an_older_registered_definition_cannot_downgrade_the_checkpoint() {
 fn cancellation_of_a_large_tree_blocks_all_descendant_handler_admission() {
     run(|driver| async move {
         let directory = tempfile::tempdir().unwrap();
-        let host = Host::with_driver("cancel-tree", "application", driver.clone())?;
-        host.install(
-            swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
-                database: directory.path().join("tasks.sqlite"),
-            })?,
-            core::LoadOptions::default(),
-        )?
-        .await?;
-        let storage = host.get(TaskStorage, TaskStorageInput {}).await?;
+        let backend_host = Host::with_driver("cancel-tree-storage", "application", driver.clone())?;
+        backend_host
+            .install(
+                swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
+                    database: directory.path().join("tasks.sqlite"),
+                })?,
+                core::LoadOptions::default(),
+            )?
+            .await?;
+        let storage = backend_host.get(TaskStorage, TaskStorageInput {}).await?;
         storage
             .claim_owner(StorageOwner {
                 id: "fixture-writer".into(),
@@ -376,6 +380,13 @@ fn cancellation_of_a_large_tree_blocks_all_descendant_handler_admission() {
                 id: "fixture-writer".into(),
             })
             .await?;
+        let host = Host::with_driver("cancel-tree", "application", driver.clone())?;
+        let calls = StorageControl::new(storage);
+        host.install(
+            concurrency::storage_facet(calls.clone())?,
+            core::LoadOptions::default(),
+        )?
+        .await?;
         let control = Rc::new(Control::default());
         host.install(
             adversarial::facet(control.clone(), 1)?,
@@ -398,6 +409,16 @@ fn cancellation_of_a_large_tree_blocks_all_descendant_handler_admission() {
             tasks.wait(TaskLookup { id: "tree".into() }).await?,
             TaskOutcome::Aborted { .. }
         ));
+        let scan_count = calls.scans.get();
+        assert!(
+            calls.commits.get() <= 16,
+            "bounded subtree cancellation must commit batches rather than individual leaves: {} commits",
+            calls.commits.get()
+        );
+        assert!(
+            scan_count <= 350,
+            "bounded subtree sweeps must batch cancellation instead of reading every leaf family: {scan_count} scans"
+        );
         let first = tasks
             .graph(TaskQuery {
                 limit: 256,
@@ -416,7 +437,8 @@ fn cancellation_of_a_large_tree_blocks_all_descendant_handler_admission() {
         assert_eq!(second.records.len(), 4);
         assert!(second.records.iter().all(TaskRecord::is_terminal));
         assert!(!control.started.get());
-        host.close().await
+        host.close().await?;
+        backend_host.close().await
     });
 }
 

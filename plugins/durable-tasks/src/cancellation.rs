@@ -93,6 +93,8 @@ impl Engine {
                 );
             }
         }
+        let unfinished = !pending.is_empty();
+        let settled = projected.values().any(TaskRecord::is_terminal);
         // Expanded descendants precede parents, satisfying ownership across batches.
         // Unexpanded descendants receive intent only, keeping their parents Completing.
         // Conflicts abandon remaining writes and require a fresh subtree snapshot.
@@ -145,8 +147,14 @@ impl Engine {
             receipt_bytes += comma + record_bytes;
             writes.push(write);
         }
-        if !writes.is_empty() {
-            self.cancel_batch(context, writes).await?;
+        if !writes.is_empty() && !self.cancel_batch(context, writes).await? {
+            return Ok(());
+        }
+        if unfinished && settled {
+            // Continue the bounded subtree sweep before its unexpanded leaves. Otherwise
+            // each leaf repeats ancestry reads and a single-record cancellation transaction.
+            // Require settlement progress so a tree held by physical work cannot spin here.
+            self.work.borrow_mut().prioritize(id);
         }
         Ok(())
     }

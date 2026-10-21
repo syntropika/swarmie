@@ -14,6 +14,7 @@ pub struct StorageControl {
     backend: TaskStorageRef,
     owner: RefCell<Option<String>>,
     pub scans: Cell<usize>,
+    pub commits: Cell<usize>,
     pub page_limit: Cell<u32>,
     pub unfiltered_scans: Cell<usize>,
     pub scanned_rows: Cell<usize>,
@@ -36,6 +37,7 @@ impl StorageControl {
             backend,
             owner: RefCell::new(None),
             scans: Cell::new(0),
+            commits: Cell::new(0),
             page_limit: Cell::new(0),
             unfiltered_scans: Cell::new(0),
             scanned_rows: Cell::new(0),
@@ -55,6 +57,7 @@ impl StorageControl {
 
     pub fn reset_counts(&self) {
         self.scans.set(0);
+        self.commits.set(0);
         self.unfiltered_scans.set(0);
         self.scanned_rows.set(0);
         self.terminal_root_rows.set(0);
@@ -214,6 +217,7 @@ impl TaskStorageProvider for Proxy {
         transaction: TaskTransaction,
         _context: Context,
     ) -> Result<CommitResult> {
+        self.control.commits.set(self.control.commits.get() + 1);
         if self.control.insert_child_during_cancel.get()
             && transaction.writes.iter().any(|write| {
                 write.record.id == "leaf"

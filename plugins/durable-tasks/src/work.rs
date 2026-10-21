@@ -35,6 +35,14 @@ impl Work {
         }
     }
 
+    pub fn prioritize(&mut self, id: &str) {
+        if self.hints.contains_key(id) {
+            self.pending.retain(|queued| queued != id);
+            self.queued.insert(id.to_owned());
+            self.pending.push_front(id.to_owned());
+        }
+    }
+
     pub fn settled(&mut self, id: &str) {
         if self.hints.contains_key(id) {
             self.schedule(id.to_owned());

@@ -70,6 +70,21 @@ impl Engine {
             self.work.borrow_mut().observe(&record);
             return Ok(None);
         }
+        if record.cancellation_requested {
+            if self.inflight.borrow().contains(id) {
+                if let Some(token) = self.active.borrow().get(id).cloned() {
+                    token.cancel(RuntimeError::aborted(
+                        "task_cancelled",
+                        "owned task cancellation requested",
+                    ));
+                }
+            } else {
+                // Intent is monotone. The cancellation sweep rereads its own fenced
+                // snapshot; an additional full family read would discard the same children.
+                self.cancel_owned(context, id).await?;
+            }
+            return Ok(None);
+        }
         // Root candidates need no ancestry. The managed execution still owns coherent
         // checks before reservation and immediately before handler admission. Owned tasks
         // retain reconciliation ancestry checks so fail-fast cancellation can settle them.
