@@ -143,24 +143,7 @@ pub(crate) fn compiled(
     driver: Rc<dyn tembra::core::Driver>,
 ) -> Vec<CompiledPlugin> {
     let session_driver = driver.clone();
-    let bridge_driver = driver.clone();
     vec![
-        CompiledPlugin::new(
-            release(
-                swarmie_task_session_integration::PLUGIN_ID,
-                swarmie_task_session_integration::FACET_ID,
-            ),
-            move |value| {
-                let configuration: swarmie_task_session_integration::Configuration =
-                    serde_json::from_value(value.clone()).map_err(|error| {
-                        tembra::RuntimeError::invalid("binding_configuration", error.to_string())
-                    })?;
-                Ok(vec![swarmie_task_session_integration::facet(
-                    &configuration,
-                    bridge_driver.clone(),
-                )?])
-            },
-        ),
         CompiledPlugin::new(
             release(
                 swarmie_session_store_sqlite::PLUGIN_ID,
@@ -257,6 +240,49 @@ pub(crate) fn compiled(
                 }
             },
         ),
+        CompiledPlugin::new(
+            release(
+                swarmie_task_session_integration::PLUGIN_ID,
+                swarmie_task_session_integration::FACET_ID,
+            ),
+            {
+                let binding_driver = driver.clone();
+                move |value| {
+                    let configuration: swarmie_task_session_integration::Configuration =
+                        serde_json::from_value(value.clone()).map_err(|error| {
+                            tembra::RuntimeError::invalid(
+                                "task_session_configuration",
+                                error.to_string(),
+                            )
+                        })?;
+                    Ok(vec![swarmie_task_session_integration::facet(
+                        &configuration,
+                        binding_driver.clone(),
+                    )?])
+                }
+            },
+        ),
+        CompiledPlugin::new(
+            release(
+                swarmie_agent_loop_default::PLUGIN_ID,
+                swarmie_agent_loop_default::FACET_ID,
+            ),
+            {
+                let agent_driver = driver.clone();
+                move |value| {
+                    if value != &json!({}) {
+                        return Err(tembra::RuntimeError::invalid(
+                            "agent_loop_configuration",
+                            "agent loop configuration must be an empty object",
+                        ));
+                    }
+                    Ok(vec![swarmie_agent_loop_default::facet(
+                        agent_driver.clone(),
+                    )?])
+                }
+            },
+        )
+        .with_language_adapter(swarmie_agent_loop_default::register_agent_hooks),
         CompiledPlugin::new(
             release("swarmie.local-plugin-source", "swarmie.local-plugin-source"),
             move |value| {

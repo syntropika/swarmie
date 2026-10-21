@@ -15,6 +15,10 @@ const contracts = [
     "swarmie-task-session-contracts",
     "task-session-contract",
   ],
+  ["agent-loop", "AgentLoop", "swarmie-agent-contracts", "agent-contract"],
+  ["agent-observations", "AgentObservations", "swarmie-agent-contracts", "agent-contract"],
+  ["agent-tool", "ToolHandler", "swarmie-agent-contracts", "agent-contract"],
+  ["agent-tool-policy", "ToolPolicy", "swarmie-agent-contracts", "agent-contract"],
   ["session-store", "SessionStore", "swarmie-session-contracts", "session-contract"],
   ["counter", "Counter", "swarmie-counter", "fixture-contract"],
   ["remote-counter", "RemoteCounter", "swarmie-counter", "fixture-contract"],
@@ -75,6 +79,7 @@ const watch = [
     "crates/task-contracts",
     "crates/session-contracts",
     "crates/model-contracts",
+    "crates/agent-contracts",
     "crates/task-session-contracts",
     "tests/plugins/fixtures/counter",
     "tests/plugins/fixtures/durable-tasks",
@@ -108,6 +113,14 @@ export default defineConfig({
     name,
   })),
   builds: {
+    "agent-context-v1": {
+      entry: "tests/plugins/fixtures/agent-context/v1.ts",
+      platform: "server",
+    },
+    "agent-context-v2": {
+      entry: "tests/plugins/fixtures/agent-context/v2.ts",
+      platform: "server",
+    },
     "durable-observer-v1": {
       entry: "tests/plugins/fixtures/durable-tasks/observer-v1.ts",
       platform: "server",

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*", "plugins/*", "tests/plugins/fixtures/counter", "tests/plugins/fixtures/durable-tasks"]
+members = ["crates/*", "plugins/*", "tests/plugins/fixtures/counter", "tests/plugins/fixtures/durable-tasks", "tests/plugins/fixtures/agent-loop"]
 exclude = ["vendor/genai-0.7.0"]
 resolver = "2"
 

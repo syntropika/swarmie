@@ -1,0 +1,32 @@
+[package]
+name = "swarmie-agent-loop-fixture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+swarmie-agent-contracts = { path = "../../../../crates/agent-contracts" }
+swarmie-model-contracts = { path = "../../../../crates/model-contracts" }
+swarmie-session-contracts = { path = "../../../../crates/session-contracts" }
+swarmie-task-contracts = { path = "../../../../crates/task-contracts" }
+swarmie-task-session-contracts = { path = "../../../../crates/task-session-contracts" }
+tembra.workspace = true
+tembra-hooks.workspace = true
+serde_json.workspace = true
+futures.workspace = true
+
+[dev-dependencies]
+swarmie-model-provider-genai = { path = "../../../../plugins/model-provider-genai" }
+swarmie-task-session-integration = { path = "../../../../plugins/task-session-integration" }
+swarmie-agent-loop-default = { path = "../../../../plugins/agent-loop-default", features = ["javascript"] }
+swarmie-session-store-sqlite = { path = "../../../../plugins/session-store-sqlite" }
+swarmie-task-storage-sqlite = { path = "../../../../plugins/task-storage-sqlite" }
+swarmie-durable-tasks = { path = "../../../../plugins/durable-tasks" }
+tembra-native.workspace = true
+tembra-executor-js.workspace = true
+tokio.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

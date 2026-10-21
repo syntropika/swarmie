@@ -63,10 +63,14 @@ Contracts in `crates/task-contracts` and an independently selected TaskStorage p
 Registries own handler contributions and Tembra owns their actual execution and cancellation.
 TaskStorage commits own durable task state; reactive State only publishes committed projections.
 
-Agent Loop, durable subagents, model providers, tools, semantic memory, compaction, coordination,
-workflows, a hosted marketplace and Desktop application development are outside this delivery.
-MemoryStore provides independent namespaced persistent JSON storage; do not expand it into task
-storage or introduce premature contracts for the remaining future features.
+Agent turns use the Agent Contract, native Tembra hooks, neutral Model Contracts and SessionStore.
+The default loop contributes ordinary Durable Tasks handlers; it must not replace their scheduler,
+implement model providers, own another event log or import concrete memory/compaction plugins.
+Tools use managed Registry operations with final-boundary authorization and explicit replay policy.
+SessionStore owns history; TaskStorage owns durable task transitions. Never assume cross-store
+atomicity or exactly-once external effects. Durable subagents, semantic memory, compaction,
+coordination, workflows, a hosted marketplace and Desktop application development remain separate
+work. MemoryStore remains independent namespaced persistent JSON storage.
 
 ## Repository boundaries and documentation
 

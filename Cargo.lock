@@ -2689,6 +2689,61 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
+name = "swarmie-agent-contracts"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "swarmie-model-contracts",
+ "swarmie-task-contracts",
+ "tembra",
+ "tembra-hooks",
+]
+
+[[package]]
+name = "swarmie-agent-loop-default"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "swarmie-agent-contracts",
+ "swarmie-model-contracts",
+ "swarmie-session-contracts",
+ "swarmie-task-contracts",
+ "swarmie-task-session-contracts",
+ "tembra",
+ "tembra-executor-js",
+ "tembra-hooks",
+]
+
+[[package]]
+name = "swarmie-agent-loop-fixture"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "serde_json",
+ "swarmie-agent-contracts",
+ "swarmie-agent-loop-default",
+ "swarmie-durable-tasks",
+ "swarmie-model-contracts",
+ "swarmie-model-provider-genai",
+ "swarmie-session-contracts",
+ "swarmie-session-store-sqlite",
+ "swarmie-task-contracts",
+ "swarmie-task-session-contracts",
+ "swarmie-task-session-integration",
+ "swarmie-task-storage-sqlite",
+ "tembra",
+ "tembra-executor-js",
+ "tembra-hooks",
+ "tembra-native",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "swarmie-composition"
 version = "0.1.0"
 dependencies = [
@@ -2819,6 +2874,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "swarmie-agent-contracts",
+ "swarmie-agent-loop-default",
  "swarmie-composition",
  "swarmie-counter",
  "swarmie-durable-tasks",

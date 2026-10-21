@@ -293,3 +293,10 @@ Session history guarantees and the publication protocol are described in the
 [SessionStore guide](plugins/session-store-sqlite/guides/session-event-log.md) and
 [session integration guide](plugins/session-store-sqlite/guides/session-integration.md).
 Run `just session-test` for the focused SessionStore suite.
+
+`mise exec -- just tembra-authoring-test` regenerates fixtures and checks Rust/TypeScript Hook descriptor parity.
+
+The [Agent Loop guide](plugins/agent-loop-default/guides/agent-loop.md) and
+[Agent integration guide](plugins/agent-loop-default/guides/agent-loop-integration.md)
+describe turn execution and capability composition. Durable admission and outbox publication
+are documented in the [task/session capability guide](plugins/task-session-integration/README.md).

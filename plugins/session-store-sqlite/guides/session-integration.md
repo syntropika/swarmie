@@ -8,8 +8,8 @@ translation into Model Contracts. Inference DTOs, including provider extensions,
 Model Contracts. Session `Message` is a persistent transcript payload with opaque structured
 content; it is not a competing hierarchy of inference content parts.
 
-The independent Agent Loop design uses a stable turn ID, session ID, committed input-event ID,
-model selection and bounded execution limits. Its task checkpoints should reference event and
+The Agent Loop Contract requires stable turn, session and conversation IDs, a committed input-event
+ID, model selection and bounded execution limits. Its task checkpoints reference event and
 operation IDs instead of copying full transcripts. This matches SessionStore's optional causal
 IDs, immutable message identity and fixed-prefix projection pages. Neither the mere presence
 of draft source nor a copied contract snapshot establishes final integration qualification.
@@ -108,11 +108,13 @@ before append, and retain bindings until all required consumers and retained fac
 need them. Reject replacement-store mismatches rather than sending history to a same-named
 session in a different database.
 
-The inspected Agent Loop submission currently stores session and turn identity but does not
-expose conversation identity or this store-scoped routing table. It must adopt the conversation
-selector and stable binding protocol before multiplexed context/outbox qualification. These
-associations belong to Agent Loop or integration, not SessionStore; this delivery specifies the
-seam without implementing another owner's task lifecycle or claiming combined crash acceptance.
+The default Agent Loop consumes the integration-owned `TaskSessionBindings` Contract: historical
+lookup preserves the original TaskSpec, prepare retains the route, and owner admit creates the
+root. Mandatory binding confirmation gates phases, actual effects and Agent Session reads/writes.
+The Agent requires persisted conversation identity for context and recovery. Binding persistence
+and the outbox publisher belong to the [task/session integration capability](../../task-session-integration/README.md),
+while [Agent integration](../../agent-loop-default/guides/agent-loop-integration.md) describes the consumer's reconciliation and
+uncertain-effect boundaries. SessionStore itself implements neither task admission nor routing.
 
 ## Durable task observations and outbox
 
