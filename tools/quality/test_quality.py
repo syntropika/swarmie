@@ -10,6 +10,8 @@ import unittest
 from unittest.mock import patch
 import local
 import cases
+import runtime_trace
+import hashlib
 
 import architecture
 from common import ROOT, git
@@ -167,6 +169,39 @@ class LocalTests(unittest.TestCase):
     def test_missing_critical_case_is_not_presumed_passed(self):
         manifest = {"criteria": {"criterion": {"success": ["missing"]}}}
         self.assertEqual(cases.trace(manifest, {})["criterion"]["success"]["missing"], "not_executed")
+
+
+class RuntimeTraceTests(unittest.TestCase):
+    def fixture(self, log):
+        source = "tests/plugins/fixtures/agent-loop/tests/runtime.rs"
+        name = "functional_tool_turn_runs_multiple_steps_and_enforces_final_policy"
+        manifest = {"scope": "fixture", "limitations": [], "criteria": {"effect": {"success": {"source": source, "test": name}}}}
+        receipt = {"log_sha256": hashlib.sha256(log.encode()).hexdigest(), "source_changed": False,
+                   "source_before": {"commit": git(ROOT, "rev-parse", "HEAD").decode().strip(),
+                                     "files": {source: hashlib.sha256((ROOT / source).read_bytes()).hexdigest()}},
+                   "argv": ["cargo", "test"], "exit_code": 0}
+        return manifest, receipt
+
+    def test_named_runtime_result_is_bound_to_source_and_receipt(self):
+        log = "test functional_tool_turn_runs_multiple_steps_and_enforces_final_policy ... ok\n"
+        manifest, receipt = self.fixture(log)
+        result = runtime_trace.trace(ROOT, manifest, log, receipt)
+        self.assertEqual(result["criteria"]["effect"]["success"]["outcome"], "passed")
+        self.assertEqual(result["acceptance"], "not_determined")
+        receipt["log_sha256"] = "wrong"
+        with self.assertRaises(ValueError):
+            runtime_trace.trace(ROOT, manifest, log, receipt)
+
+    def test_missing_duplicate_skipped_and_changed_source_are_explicit(self):
+        name = "functional_tool_turn_runs_multiple_steps_and_enforces_final_policy"
+        for log, outcome in (("", "not_executed"), (f"test {name} ... ok\ntest {name} ... ok\n", "ambiguous"),
+                             (f"test {name} ... ignored\n", "skipped")):
+            manifest, receipt = self.fixture(log)
+            self.assertEqual(runtime_trace.trace(ROOT, manifest, log, receipt)["criteria"]["effect"]["success"]["outcome"], outcome)
+        log = f"test {name} ... ok\n"
+        manifest, receipt = self.fixture(log)
+        receipt["source_before"]["files"] = {}
+        self.assertEqual(runtime_trace.trace(ROOT, manifest, log, receipt)["criteria"]["effect"]["success"]["outcome"], "source_unverified")
 
 
 class EvidenceTests(Repository):

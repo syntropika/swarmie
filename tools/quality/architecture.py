@@ -80,6 +80,9 @@ def check(root, metadata=None):
                 errors.append(f"{name}: Agent loop imports concrete execution/storage/provider: {', '.join(sorted(forbidden))}")
         if name == "swarmie-durable-tasks" and "rusqlite" in dependencies:
             errors.append(f"{name}: scheduler depends on concrete SQLite storage")
+        member_path = Path(packages[identity]["manifest_path"]).resolve()
+        if member_path.is_relative_to(root / "plugins") and "swarmie-plugin-manager" in dependencies:
+            errors.append(f"{name}: ordinary plugin depends on administrative Plugin Manager")
 
     revisions = {spec.get("rev") for name, spec in definitions.items()
                  if name.startswith("tembra") and isinstance(spec, dict)}
@@ -88,6 +91,10 @@ def check(root, metadata=None):
                      if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "REVISION" for t in node.targets)), None)
     if len(revisions) != 1 or revision not in revisions or not re.fullmatch(r"[0-9a-f]{40}", revision or ""):
         errors.append("Tembra Rust and SDK must share one immutable public revision")
+    expected = f"git+https://github.com/syntropika/tembra.git?rev={revision}#{revision}"
+    for package in packages.values():
+        if package["name"].startswith("tembra") and package["source"] != expected:
+            errors.append(f"{package['name']}: resolved Tembra source differs from the immutable public pin")
     return {"schema_version": 1, "errors": errors, "metadata": metadata, "resolved_edges": edges,
             "limitations": ["Cargo metadata --locked --all-features resolves workspace optional features and all target conditions; normal/build closure is checked, dev-only edges are recorded but excluded. Dependencies outside workspace use Cargo-resolved features; this is not every possible downstream feature combination.",
                             "Static dependency checks do not prove runtime authority, lifecycle, absence of an alternate scheduler, or transaction semantics."]}

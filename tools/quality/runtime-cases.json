@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "scope": "selected existing runtime acceptance scenarios",
+  "limitations": [
+    "Named test outcomes are behavioral evidence for the listed assertions, not instrumented branch coverage or exhaustive runtime acceptance.",
+    "A scenario mapping requires human review when its source or intended guarantee changes.",
+    "Unlisted critical paths, hosted behavior, native devices, power-loss guarantees and concurrent capacity remain unqualified by this manifest."
+  ],
+  "criteria": {
+    "runtime.admission-authority": {
+      "success": {
+        "source": "tests/plugins/fixtures/agent-loop/tests/context_identity.rs",
+        "test": "context_accepts_the_confirmed_destination_across_pages"
+      },
+      "rejection": {
+        "source": "plugins/task-session-integration/tests/runtime.rs",
+        "test": "unbound_handler_never_performs_an_effect"
+      },
+      "recovery": {
+        "source": "tests/plugins/fixtures/agent-loop/tests/bindings.rs",
+        "test": "prepared_intent_reuses_original_checkpoint_when_start_reconciles_absent_task"
+      }
+    },
+    "runtime.external-effect-confirmation": {
+      "success": {
+        "source": "tests/plugins/fixtures/agent-loop/tests/runtime.rs",
+        "test": "functional_tool_turn_runs_multiple_steps_and_enforces_final_policy"
+      },
+      "rejection": {
+        "source": "tests/plugins/fixtures/agent-loop/tests/runtime.rs",
+        "test": "raw_tool_failure_remains_uncertain_without_a_fabricated_confirmed_result"
+      },
+      "recovery": {
+        "source": "tests/plugins/fixtures/agent-loop/tests/runtime.rs",
+        "test": "unsafe_uncertainty_continues_only_after_matching_committed_external_evidence"
+      }
+    },
+    "runtime.outbox-restart": {
+      "success": {
+        "source": "tests/plugins/fixtures/agent-loop/tests/bindings.rs",
+        "test": "joined_publisher_routes_authoritative_facts_once_without_repeating_effects"
+      },
+      "rejection": {
+        "source": "plugins/task-session-integration/tests/runtime.rs",
+        "test": "missing_mapping_stops_contiguous_prefix_and_explicit_repair_preserves_destinations"
+      },
+      "recovery": {
+        "source": "plugins/task-session-integration/tests/crash.rs",
+        "test": "abrupt_process_death_reconciles_every_admission_and_publication_boundary"
+      }
+    },
+    "runtime.cancellation": {
+      "success": {
+        "source": "tests/plugins/fixtures/agent-loop/tests/cancellation.rs",
+        "test": "cancellation_while_model_is_running_records_aborted_task"
+      },
+      "rejection": {
+        "source": "tests/plugins/fixtures/agent-loop/tests/cancellation.rs",
+        "test": "cancellation_during_required_authorization_prevents_late_allowed_tool_effect"
+      },
+      "recovery": {
+        "source": "tests/plugins/fixtures/agent-loop/tests/generation_recovery.rs",
+        "test": "cancelled_stream_retains_reference_until_recovered_physical_settlement_is_committed"
+      }
+    }
+  }
+}

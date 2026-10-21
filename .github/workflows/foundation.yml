@@ -67,6 +67,9 @@ jobs:
       - name: Verify canonical contracts, packaging and actual native lifecycle
         if: env.SELECTED == 'true'
         run: python3 tools/quality/evidence.py --output "$RUNNER_TEMP/evidence/foundation" --tool cargo --tool rustc --tool bun --tool just --criterion integration.contracts-and-native-lifecycle -- just foundation-check
+      - name: Bind critical runtime scenarios to actual executed outcomes
+        if: env.SELECTED == 'true'
+        run: python3 tools/quality/runtime_trace.py --log "$RUNNER_TEMP/evidence/foundation/command.log" --receipt "$RUNNER_TEMP/evidence/foundation/result.json" --output "$RUNNER_TEMP/evidence/runtime-trace.json"
       - name: Verify root frontend policy and retained clients
         if: env.SELECTED == 'true'
         run: python3 tools/quality/evidence.py --output "$RUNNER_TEMP/evidence/frontend-policy" --tool bun --criterion integration.root-policy -- bun run check

@@ -61,8 +61,12 @@ logs and explicitly requested artifacts. Evidence stays outside the checkout. A 
 interrupted command remains failed/incomplete and its output cannot be reused by a later run.
 `tools/quality/critical-cases.json` maps the quality tooling's success, rejection and recovery
 cases; `just quality-test OUTPUT_JSON` records individual executed outcomes and rejects missing
-or skipped mapped cases. It does not qualify application critical behavior. Runtime authorization,
-durability and recovery need their own reviewed scenario mappings and actual results. Neither
+or skipped mapped cases. `tools/quality/runtime-cases.json` separately maps selected existing application authorization,
+external-effect confirmation, outbox/restart and cancellation scenarios. `runtime_trace.py` binds
+individual named Rust outcomes to a verified command log, source commit and test-file hashes;
+missing, ignored, duplicate or source-unverified cases do not pass. The integration workflow
+emits this trace from its actual Rust execution. This is scoped behavioral evidence, not complete
+application acceptance or instrumented branch coverage. Unlisted critical cases remain gaps. Neither
 aggregate pass counts, a build, coverage percentage nor a criterion label automatically marks
 acceptance complete; evidence records leave acceptance undetermined for review.
 
