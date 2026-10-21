@@ -122,3 +122,14 @@ tembra-browser-tools:
 # Real Browser Host ESM, React, managed contribution and server RPC acceptance.
 plugin-browser-check: tembra-plugins tembra-browser
     bun tests/plugins/browser/check.ts
+
+# Session authority, replay and actual Tembra/SQLite durability acceptance.
+session-test:
+    just rust-test -p swarmie-session-contracts -p swarmie-session-store-sqlite
+
+session-benchmark:
+    cargo +{{rust_version}} test --locked --release -p swarmie-session-store-sqlite --test runtime session_volume_benchmark -- --ignored --nocapture
+
+# Explicit scale qualification of the atomic conversation-index migration.
+session-migration-benchmark:
+    cargo +{{rust_version}} test --locked --release -p swarmie-session-store-sqlite --test migration million_event_migration_benchmark -- --ignored --nocapture

@@ -1,6 +1,7 @@
 import { defineConfig } from "@tembra/sdk/tooling";
 
 const contracts = [
+  ["session-store", "SessionStore", "swarmie-session-contracts", "session-contract"],
   ["counter", "Counter", "swarmie-counter", "fixture-contract"],
   ["remote-counter", "RemoteCounter", "swarmie-counter", "fixture-contract"],
   ["dynamic-consumer", "DynamicConsumer", "swarmie-counter", "fixture-contract"],
@@ -54,6 +55,7 @@ const watch = [
   ...[
     "crates/plugin-contracts",
     "crates/task-contracts",
+    "crates/session-contracts",
     "tests/plugins/fixtures/counter",
     "tests/plugins/fixtures/durable-tasks",
     "plugins/memory-store",
@@ -90,6 +92,10 @@ export default defineConfig({
     },
     "durable-observer-v2": {
       entry: "tests/plugins/fixtures/durable-tasks/observer-v2.ts",
+      platform: "server",
+    },
+    "session-client": {
+      entry: "tests/plugins/fixtures/session-client/index.ts",
       platform: "server",
     },
     "durable-workflow-v1": {
