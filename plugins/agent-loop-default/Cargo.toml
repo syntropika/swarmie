@@ -1,0 +1,26 @@
+[package]
+name = "swarmie-agent-loop-default"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+javascript = ["dep:tembra-executor-js"]
+
+[dependencies]
+swarmie-agent-contracts = { path = "../../crates/agent-contracts" }
+swarmie-task-contracts = { path = "../../crates/task-contracts" }
+swarmie-model-contracts = { path = "../../crates/model-contracts" }
+swarmie-session-contracts = { path = "../../crates/session-contracts" }
+tembra.workspace = true
+tembra-hooks.workspace = true
+tembra-executor-js = { workspace = true, optional = true }
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true
+
+[lints]
+workspace = true

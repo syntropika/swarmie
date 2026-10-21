@@ -1,6 +1,7 @@
 import { defineConfig } from "@tembra/sdk/tooling";
 
 const contracts = [
+  ["session-store", "SessionStore", "swarmie-session-contracts", "session-contract"],
   ["counter", "Counter", "swarmie-counter", "fixture-contract"],
   ["remote-counter", "RemoteCounter", "swarmie-counter", "fixture-contract"],
   ["dynamic-consumer", "DynamicConsumer", "swarmie-counter", "fixture-contract"],
@@ -12,6 +13,9 @@ const contracts = [
   ["task-storage", "TaskStorage", "swarmie-task-contracts", "task-contract"],
   ["durable-tasks", "DurableTasks", "swarmie-task-contracts", "task-contract"],
   ["task-handler", "TaskHandler", "swarmie-task-contracts", "task-contract"],
+  ["agent-loop", "AgentLoop", "swarmie-agent-contracts", "agent-contract"],
+  ["agent-tool", "ToolHandler", "swarmie-agent-contracts", "agent-contract"],
+  ["agent-tool-policy", "ToolPolicy", "swarmie-agent-contracts", "agent-contract"],
   [
     "durable-workflow",
     "DurableWorkflow",
@@ -26,6 +30,9 @@ const watch = [
   ...[
     "crates/plugin-contracts",
     "crates/task-contracts",
+    "crates/session-contracts",
+    "crates/agent-contracts",
+    "crates/model-contracts",
     "tests/plugins/fixtures/counter",
     "tests/plugins/fixtures/durable-tasks",
     "plugins/memory-store",
@@ -56,6 +63,18 @@ export default defineConfig({
     name,
   })),
   builds: {
+    "session-client": {
+      entry: "tests/plugins/fixtures/session-client/index.ts",
+      platform: "server",
+    },
+    "agent-context-v1": {
+      entry: "tests/plugins/fixtures/agent-context/v1.ts",
+      platform: "server",
+    },
+    "agent-context-v2": {
+      entry: "tests/plugins/fixtures/agent-context/v2.ts",
+      platform: "server",
+    },
     "durable-workflow-v1": {
       entry: "tests/plugins/fixtures/durable-tasks/v1.ts",
       platform: "server",

@@ -78,12 +78,32 @@ impl PluginManager {
         driver: Rc<dyn core::Driver>,
         database: impl Into<PathBuf>,
     ) -> Result<Rc<Self>> {
+        let executor = Executor::new(driver, ExecutorOptions::default())?;
+        Self::start_with_executor(host, executor, database).await
+    }
+
+    /// Starts administration using the embedding's configured Tembra JavaScript executor.
+    ///
+    /// Register application-specific codecs before calling this constructor. The executor
+    /// must use the Driver that owns the fresh Host; this method retains it for all managed
+    /// dynamic plugin activation and reload. It does not register application hook types or
+    /// evaluate dynamic plugins. Restart recovery remains explicit through [`Self::recover`].
+    ///
+    /// # Errors
+    /// Returns storage, declaration and startup failures. A failure may follow administrative
+    /// database writes or Host installation; the caller owns cleanup of the partial Host.
+    /// Existing cached packages, user data and operation evidence are preserved.
+    pub async fn start_with_executor(
+        host: Host,
+        executor: Executor,
+        database: impl Into<PathBuf>,
+    ) -> Result<Rc<Self>> {
         let manager = Rc::new(Self {
             host: host.clone(),
 
             database: database.into(),
             store: RefCell::new(None),
-            executor: Executor::new(driver, ExecutorOptions::default())?,
+            executor,
             busy: Flag::new(false),
             fresh_session: Flag::new(true),
             restart_required: Flag::new(false),

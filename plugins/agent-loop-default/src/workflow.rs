@@ -1,0 +1,327 @@
+use std::{cell::RefCell, collections::BTreeSet, rc::Rc, time::Duration};
+
+use swarmie_agent_contracts::*;
+use swarmie_model_contracts::{FinishReason, GenerateResult};
+use swarmie_session_contracts::{SessionStore, SessionStoreInput, SessionStoreRef};
+use swarmie_task_contracts::{
+    TaskDefinition, TaskInvocation, TaskOutcome, TaskRecord, TaskTransition, task_definitions,
+};
+use tembra::{core, prelude::*};
+use tembra_hooks::{HookManager, HookManagerOptions};
+
+use crate::{
+    TURN_KIND, journal,
+    state::{Checkpoint, decode, encode, invalid, now_ms},
+};
+
+#[tembra::contract(local, name = "swarmie.agent-loop-default.turn-handler", version = 1)]
+trait TurnHandler {
+    #[portable]
+    async fn step(&self, invocation: TaskInvocation) -> Result<TaskTransition>;
+}
+
+pub(crate) fn declare(
+    scope: &core::FacetScope,
+    setup: &mut tembra::FacetDeclaration<'_, '_>,
+    driver: Rc<dyn core::Driver>,
+) -> Result<()> {
+    let tools = scope.registry(&tool_definitions()?)?;
+    let terminals = scope.registry(&crate::model::terminals()?)?;
+    let hooks = HookManager::new(scope.clone(), driver.clone(), HookManagerOptions::default())?;
+    let terminal_driver = driver.clone();
+    setup.serve_with_options(
+        TurnHandler,
+        move |_, _, declaration| {
+            declaration.core_mut().register_method(
+                &task_definitions()?,
+                TURN_KIND,
+                encode(&TaskDefinition {
+                    kind: TURN_KIND.into(),
+                    version: 1,
+                })?,
+                "step",
+            )?;
+            Ok(Engine {
+                sessions: declaration.get(SessionStore, SessionStoreInput {})?,
+                hooks: hooks.clone(),
+                tools: tools.clone(),
+                terminals: terminals.clone(),
+                driver: driver.clone(),
+                active: RefCell::new(BTreeSet::new()),
+            })
+        },
+        core::ServeOptions {
+            lifetime: core::Lifetime::Host,
+            ..Default::default()
+        },
+    )?;
+    crate::model::declare(scope, setup, terminal_driver)
+}
+
+pub(crate) struct Engine {
+    pub(crate) sessions: SessionStoreRef,
+    pub(crate) hooks: HookManager,
+    pub(crate) tools: core::RegistryView,
+    pub(crate) terminals: core::RegistryView,
+    driver: Rc<dyn core::Driver>,
+    active: RefCell<BTreeSet<String>>,
+}
+
+struct PhaseGuard<'a> {
+    active: &'a RefCell<BTreeSet<String>>,
+    id: String,
+}
+
+impl Drop for PhaseGuard<'_> {
+    fn drop(&mut self) {
+        self.active.borrow_mut().remove(&self.id);
+    }
+}
+
+impl TurnHandlerProvider for Engine {
+    async fn step(&self, invocation: TaskInvocation, context: Context) -> Result<TaskTransition> {
+        let task = match invocation {
+            TaskInvocation::Migrate {
+                task,
+                target_version,
+            } => {
+                return if target_version == 1 && task.definition_version == 1 {
+                    Ok(TaskTransition::Migrate {
+                        checkpoint: task.checkpoint,
+                        phase: task.phase,
+                    })
+                } else {
+                    Ok(TaskTransition::RejectMigration {
+                        reason: "unsupported agent checkpoint version".into(),
+                    })
+                };
+            }
+            TaskInvocation::Run { task, .. } => task,
+        };
+        if !self.active.borrow_mut().insert(task.id.clone()) {
+            return Err(RuntimeError::unavailable(
+                "agent_turn_busy",
+                "this turn phase is already physically active",
+            ));
+        }
+        let _active = PhaseGuard {
+            active: &self.active,
+            id: task.id.clone(),
+        };
+        let tasks = context
+            .get(
+                swarmie_task_contracts::DurableTasks,
+                swarmie_task_contracts::DurableTasksInput {},
+            )
+            .await?;
+        let admitted = tasks
+            .with_context(&context)
+            .get(swarmie_task_contracts::TaskLookup {
+                id: task.id.clone(),
+            })
+            .await?
+            .ok_or_else(|| invalid("turn task is absent"))?;
+        if admitted != task
+            || task.kind != TURN_KIND
+            || task.definition_version != 1
+            || task.status != swarmie_task_contracts::TaskStatus::Running
+            || task.cancellation_requested
+        {
+            return Err(invalid(
+                "turn invocation differs from the admitted durable task",
+            ));
+        }
+        let request: StartTurn = decode(task.input.clone())?;
+        request.limits.validate()?;
+        if task.id != crate::state::task_id(&request.turn_id) {
+            return Err(invalid("task identity differs from the turn"));
+        }
+        let checkpoint: Checkpoint = decode(task.checkpoint.clone())?;
+        let remaining = checkpoint
+            .started_at_ms
+            .saturating_add(request.limits.max_duration_ms)
+            .saturating_sub(now_ms()?);
+        if remaining == 0 && task.phase != "finish" {
+            return self.end_checkpoint(checkpoint, "duration limit reached");
+        }
+        let (child, guard) = context.child_call(context.principal().clone())?;
+        let child = Context::from_core(child);
+        let work = self.phase(&task, &request, checkpoint.clone(), &child);
+        let timer = self
+            .driver
+            .sleep(Duration::from_millis(if task.phase == "finish" {
+                1_000
+            } else {
+                remaining.max(1)
+            }));
+        futures::pin_mut!(work, timer);
+        let result = match futures::future::select(work, timer).await {
+            futures::future::Either::Left((result, _)) => result,
+            futures::future::Either::Right(((), work)) => {
+                child.cancellation().cancel(RuntimeError::aborted(
+                    "agent_deadline",
+                    "turn duration limit reached",
+                ));
+                // Cooperative cancellation still awaits physical invocation ownership.
+                let _ = work.await;
+                if task.phase == "finish" {
+                    Ok(TaskTransition::Fail {
+                        error: checkpoint
+                            .ending
+                            .clone()
+                            .unwrap_or_else(|| "turn finalization deadline reached".into()),
+                    })
+                } else {
+                    self.end_checkpoint(checkpoint.clone(), "duration limit reached")
+                }
+            }
+        };
+        drop(guard);
+        if let Err(error) = &result
+            && context.check(context.host_id()).is_ok()
+        {
+            journal::append(
+                &self.sessions,
+                &checkpoint.turn(&request),
+                &format!("error:{}:{}", task.phase, task.attempts),
+                "swarmie.agent.phase-error",
+                serde_json::json!({"phase":task.phase,"reason":error.reason}),
+                &context,
+            )
+            .await?;
+        }
+        match result {
+            Err(error)
+                if matches!(
+                    task.phase.as_str(),
+                    "start" | "prepare-model" | "prepare-tool"
+                ) && matches!(
+                    error.code,
+                    core::ErrorCode::Invalid
+                        | core::ErrorCode::Forbidden
+                        | core::ErrorCode::ContractMismatch
+                ) && context.check(context.host_id()).is_ok() =>
+            {
+                self.end_checkpoint(checkpoint, &format!("phase refused: {}", error.reason))
+            }
+            other => other,
+        }
+    }
+}
+
+impl Engine {
+    async fn phase(
+        &self,
+        task: &TaskRecord,
+        request: &StartTurn,
+        mut cp: Checkpoint,
+        context: &Context,
+    ) -> Result<TaskTransition> {
+        context.check(context.host_id())?;
+        let turn = cp.turn(request);
+        match task.phase.as_str() {
+            "start" => {
+                journal::append(
+                    &self.sessions,
+                    &turn,
+                    "turn-started",
+                    "swarmie.agent.turn-started",
+                    encode(request)?,
+                    context,
+                )
+                .await?;
+                self.hooks
+                    .run_series(&on_turn_start()?, turn, context.core())
+                    .await?;
+                next(cp, "prepare-model")
+            }
+            "prepare-model" => self.prepare_model(request, cp, context).await,
+            "model" => self.model(request, cp, context).await,
+            "model-result" => self.model_result(request, cp, context).await,
+            "prepare-tool" => self.prepare_tool(request, cp, context).await,
+            "tool" => self.tool(request, cp, context).await,
+            "tool-result" => self.tool_result(request, cp, context).await,
+            "step-end" => {
+                let (_, result) = self.model_observation(request, &cp, context).await?;
+                let GenerateResult::Response { response } = result else {
+                    return Err(invalid("missing model response"));
+                };
+                self.hooks
+                    .run_series(
+                        &on_step_end()?,
+                        StepEnd {
+                            turn: turn.clone(),
+                            finish_reason: response.finish_reason,
+                            tool_calls: cp.tool_index,
+                        },
+                        context.core(),
+                    )
+                    .await?;
+                journal::append(&self.sessions,&turn,&format!("step:{}:end",cp.step),"swarmie.agent.step-ended",serde_json::json!({"finish_reason":response.finish_reason,"tool_calls":cp.tool_index,"output_tokens":cp.output_tokens}),context).await?;
+                if cp.tool_index == 0 {
+                    if !matches!(
+                        response.finish_reason,
+                        FinishReason::Stop | FinishReason::StopSequence
+                    ) {
+                        return self
+                            .end_checkpoint(cp, "model did not finish with a complete answer");
+                    }
+                    next(cp, "finish")
+                } else {
+                    cp.step += 1;
+                    cp.tool_index = 0;
+                    cp.tool_event = None;
+                    next(cp, "prepare-model")
+                }
+            }
+            "finish" => {
+                let outcome = if let Some(error) = &cp.ending {
+                    TaskOutcome::Failed {
+                        error: error.clone(),
+                    }
+                } else {
+                    TaskOutcome::Completed {
+                        value: serde_json::json!({"session_id":request.session_id,"response_event_id":cp.response_event,"steps":cp.step+1,"tool_calls":cp.tool_calls,"output_tokens":cp.output_tokens}),
+                    }
+                };
+                journal::append(
+                    &self.sessions,
+                    &turn,
+                    "turn-decision",
+                    "swarmie.agent.turn-ended",
+                    encode(&outcome)?,
+                    context,
+                )
+                .await?;
+                self.hooks
+                    .run_series(
+                        &on_turn_end()?,
+                        TurnEnd {
+                            turn,
+                            outcome: outcome.clone(),
+                        },
+                        context.core(),
+                    )
+                    .await?;
+                match outcome {
+                    TaskOutcome::Completed { value } => Ok(TaskTransition::Complete { value }),
+                    TaskOutcome::Failed { error } => Ok(TaskTransition::Fail { error }),
+                    _ => unreachable!(),
+                }
+            }
+            _ => Err(invalid("unsupported agent phase")),
+        }
+    }
+
+    pub(crate) fn end_checkpoint(&self, mut cp: Checkpoint, error: &str) -> Result<TaskTransition> {
+        cp.ending = Some(error.into());
+        next(cp, "finish")
+    }
+}
+
+pub(crate) fn next(cp: Checkpoint, phase: &str) -> Result<TaskTransition> {
+    Ok(TaskTransition::Checkpoint {
+        checkpoint: encode(&cp)?,
+        phase: phase.into(),
+    })
+}

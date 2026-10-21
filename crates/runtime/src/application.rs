@@ -115,6 +115,7 @@ pub(crate) fn compiled(
     source: PathBuf,
     driver: Rc<dyn tembra::core::Driver>,
 ) -> Vec<CompiledPlugin> {
+    let task_driver = driver.clone();
     vec![
         CompiledPlugin::new(
             release(
@@ -163,8 +164,39 @@ pub(crate) fn compiled(
                     })?;
                 Ok(vec![swarmie_durable_tasks::facet(
                     &configuration,
-                    driver.clone(),
+                    task_driver.clone(),
                 )?])
+            },
+        ),
+        CompiledPlugin::new(
+            release(
+                swarmie_session_store_sqlite::PLUGIN_ID,
+                swarmie_session_store_sqlite::FACET_ID,
+            ),
+            |value| {
+                let configuration: swarmie_session_store_sqlite::Configuration =
+                    serde_json::from_value(value.clone()).map_err(|error| {
+                        tembra::RuntimeError::invalid(
+                            "session_store_configuration",
+                            error.to_string(),
+                        )
+                    })?;
+                Ok(vec![swarmie_session_store_sqlite::facet(&configuration)?])
+            },
+        ),
+        CompiledPlugin::new(
+            release(
+                swarmie_agent_loop_default::PLUGIN_ID,
+                swarmie_agent_loop_default::FACET_ID,
+            ),
+            move |value| {
+                if value != &json!({}) {
+                    return Err(tembra::RuntimeError::invalid(
+                        "agent_loop_configuration",
+                        "agent loop configuration must be an empty object",
+                    ));
+                }
+                Ok(vec![swarmie_agent_loop_default::facet(driver.clone())?])
             },
         ),
         CompiledPlugin::new(
