@@ -163,7 +163,7 @@ pub struct ProviderError {
 )]
 #[schemars(crate = "tembra::schemars", transform = crate::tagged_union)]
 pub enum GenerateResult {
-    Response { response: ModelResponse },
+    Response { response: Box<ModelResponse> },
     Error { error: ProviderError },
 }
 
