@@ -1,0 +1,23 @@
+[package]
+name = "swarmie-model-provider-genai"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+swarmie-model-contracts = { path = "../../crates/model-contracts" }
+tembra.workspace = true
+futures.workspace = true
+tracing = "0.1"
+serde.workspace = true
+serde_json.workspace = true
+genai = { version = "=0.7.0", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream"] }
+
+[dev-dependencies]
+tembra-native.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

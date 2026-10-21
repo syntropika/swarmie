@@ -153,18 +153,43 @@ pub(crate) fn compiled(
                 swarmie_durable_tasks::PLUGIN_ID,
                 swarmie_durable_tasks::FACET_ID,
             ),
-            move |value| {
-                let configuration: swarmie_durable_tasks::Configuration =
-                    serde_json::from_value(value.clone()).map_err(|error| {
-                        tembra::RuntimeError::invalid(
-                            "durable_tasks_configuration",
-                            error.to_string(),
-                        )
-                    })?;
-                Ok(vec![swarmie_durable_tasks::facet(
-                    &configuration,
-                    driver.clone(),
-                )?])
+            {
+                let task_driver = driver.clone();
+                move |value| {
+                    let configuration: swarmie_durable_tasks::Configuration =
+                        serde_json::from_value(value.clone()).map_err(|error| {
+                            tembra::RuntimeError::invalid(
+                                "durable_tasks_configuration",
+                                error.to_string(),
+                            )
+                        })?;
+                    Ok(vec![swarmie_durable_tasks::facet(
+                        &configuration,
+                        task_driver.clone(),
+                    )?])
+                }
+            },
+        ),
+        CompiledPlugin::new(
+            release(
+                swarmie_model_provider_genai::PLUGIN_ID,
+                swarmie_model_provider_genai::FACET_ID,
+            ),
+            {
+                let model_driver = driver.clone();
+                move |value| {
+                    let configuration: swarmie_model_provider_genai::Configuration =
+                        serde_json::from_value(value.clone()).map_err(|_| {
+                            tembra::RuntimeError::invalid(
+                                "model_configuration",
+                                "invalid model provider configuration",
+                            )
+                        })?;
+                    Ok(vec![swarmie_model_provider_genai::facet(
+                        &configuration,
+                        model_driver.clone(),
+                    )?])
+                }
             },
         ),
         CompiledPlugin::new(

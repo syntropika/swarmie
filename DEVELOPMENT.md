@@ -129,3 +129,6 @@ mise exec -- just check
 
 This runs formatting, typechecks, lint, frontend tests, plugin generation, Rust workspace tests,
 Clippy and Rustdoc checks. Additional recipes are listed by `mise exec -- just --list`.
+
+Model inference integration, streaming ownership and provider configuration are described in
+[the model integration guide](docs/models.md). Run `just models-check` for its focused checks.

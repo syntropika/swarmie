@@ -122,3 +122,14 @@ tembra-browser-tools:
 # Real Browser Host ESM, React, managed contribution and server RPC acceptance.
 plugin-browser-check: tembra-plugins tembra-browser
     bun tests/plugins/browser/check.ts
+
+# Qualify model Contracts, the provider adapter and real Tembra Host behavior.
+models-check:
+    just rust-fmt-check
+    cargo +{{rust_version}} clippy --locked -p swarmie-model-contracts -p swarmie-model-provider-genai --all-targets -- -D warnings
+    just rust-test -p swarmie-model-contracts -p swarmie-model-provider-genai
+    RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo +{{rust_version}} doc --locked -p swarmie-model-contracts -p swarmie-model-provider-genai --no-deps
+
+# Measures State publication batching with deterministic local HTTP SSE.
+models-benchmark:
+    just rust-test -p swarmie-model-provider-genai benchmark_batched_state_publications -- --ignored --nocapture
