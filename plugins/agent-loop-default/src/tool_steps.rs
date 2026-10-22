@@ -60,8 +60,8 @@ impl Engine {
                 arguments: call.arguments.clone(),
             };
             let transformed = self
-                .hooks
-                .run_waterfall(&before_tool_call()?, invocation.clone(), context.core())
+                .before_tool
+                .run(invocation.clone(), context.core())
                 .await?;
             if transformed.turn != turn
                 || transformed.operation_id != invocation.operation_id
@@ -73,13 +73,8 @@ impl Engine {
             let definition = tools::definition(&self.tools, &transformed.tool, context)?;
             tools::validate_arguments(&definition.metadata, &transformed)?;
             let denial = match self
-                .hooks
-                .run_bail(
-                    &authorize_tool_call()?,
-                    transformed.clone(),
-                    context.core(),
-                    None,
-                )
+                .authorize_tool
+                .run(transformed.clone(), context.core(), None)
                 .await?
             {
                 BailOutcome::Unresolved => None,

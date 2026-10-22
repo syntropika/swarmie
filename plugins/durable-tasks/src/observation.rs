@@ -8,7 +8,7 @@ use tembra::{Result, RuntimeError, core};
 use tembra_hooks::{HookManager, HookManagerOptions};
 
 use crate::{
-    delivery::{Notification, Pipelines, notifications},
+    delivery::{Notification, Pipelines, RegistryProbes, notifications},
     scheduler::Wake,
 };
 
@@ -17,7 +17,7 @@ const MAX_CONTRIBUTIONS: usize = 64;
 const DEADLINE: Duration = Duration::from_secs(1);
 
 pub(crate) struct Observations {
-    pipelines: Pipelines,
+    probes: RegistryProbes,
     manager: HookManager,
     driver: Rc<dyn core::Driver>,
     queue: RefCell<VecDeque<Notification>>,
@@ -32,7 +32,7 @@ fn increment(counter: &mut u64) {
 
 impl Observations {
     pub fn new(scope: core::FacetScope, driver: Rc<dyn core::Driver>) -> Result<Rc<Self>> {
-        let pipelines = Pipelines::new(&scope)?;
+        let probes = RegistryProbes::new(&scope)?;
         let manager = HookManager::new(
             scope,
             driver.clone(),
@@ -42,7 +42,7 @@ impl Observations {
             },
         )?;
         Ok(Rc::new(Self {
-            pipelines,
+            probes,
             manager,
             driver,
             queue: RefCell::default(),
@@ -50,6 +50,11 @@ impl Observations {
             signal: RefCell::default(),
             wake: Wake::default(),
         }))
+    }
+
+    /// Declares weak handles under the scheduler implementation owning this activity.
+    pub fn declare(&self, declaration: &mut core::Declaration) -> Result<Pipelines> {
+        Pipelines::declare(&self.manager, declaration)
     }
 
     /// Infallible after-commit admission, independent of the submitting caller's Context.
@@ -70,7 +75,7 @@ impl Observations {
             increment(&mut self.diagnostics.borrow_mut().abandoned);
             return;
         }
-        match self.pipelines.has_handlers(&event) {
+        match self.probes.has_handlers(&event) {
             Ok(false) => {
                 increment(&mut self.diagnostics.borrow_mut().skipped);
                 return;
@@ -112,7 +117,7 @@ impl Observations {
         diagnostics.last_error = Some(detail);
     }
 
-    pub async fn run(self: Rc<Self>, scope: core::TaskScope) -> Result<()> {
+    pub async fn run(self: Rc<Self>, scope: core::TaskScope, pipelines: Pipelines) -> Result<()> {
         let signal = scope.signal();
         *self.signal.borrow_mut() = Some(signal.clone());
         let mut batch = 0;
@@ -128,10 +133,11 @@ impl Observations {
                     diagnostics.active = true;
                 }
                 let selected = self.clone();
+                let pipelines = pipelines.clone();
                 let result = scope
                     .root(move |context| {
                         async move {
-                            let run = selected.pipelines.run(&selected.manager, event, &context);
+                            let run = pipelines.run(event, &context);
                             let timer = selected.driver.sleep(DEADLINE);
                             futures::pin_mut!(run, timer);
                             match futures::future::select(run, timer).await {

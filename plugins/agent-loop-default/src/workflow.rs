@@ -9,7 +9,9 @@ use swarmie_task_contracts::{
 };
 use swarmie_task_session_contracts::{TaskSessionBindings, TaskSessionBindingsInput};
 use tembra::{core, prelude::*};
-use tembra_hooks::{HookManager, HookManagerOptions};
+use tembra_hooks::{
+    HookManager, HookManagerOptions, PreparedBail, PreparedMiddleware, PreparedWaterfall,
+};
 
 use crate::{
     TURN_KIND,
@@ -57,7 +59,36 @@ pub(crate) fn declare(
             Ok(Engine {
                 sessions,
                 admission,
-                hooks: hooks.clone(),
+                select_context: hooks.declare_waterfall(
+                    declaration.core_mut(),
+                    "select-context",
+                    select_context,
+                )?,
+                prepare_context: hooks.declare_waterfall(
+                    declaration.core_mut(),
+                    "prepare-context",
+                    prepare_context,
+                )?,
+                before_model: hooks.declare_waterfall(
+                    declaration.core_mut(),
+                    "before-model",
+                    before_model_call,
+                )?,
+                wrap_model: hooks.declare_middleware(
+                    declaration.core_mut(),
+                    "wrap-model",
+                    wrap_model_call,
+                )?,
+                before_tool: hooks.declare_waterfall(
+                    declaration.core_mut(),
+                    "before-tool",
+                    before_tool_call,
+                )?,
+                authorize_tool: hooks.declare_bail(
+                    declaration.core_mut(),
+                    "authorize-tool",
+                    authorize_tool_call,
+                )?,
                 observers: observers.clone(),
                 _monitor: declaration.get(AgentObservations, AgentObservationsInput {})?,
                 tools: tools.clone(),
@@ -77,7 +108,12 @@ pub(crate) fn declare(
 pub(crate) struct Engine {
     pub(crate) sessions: SessionStoreRef,
     pub(crate) admission: Admission,
-    pub(crate) hooks: HookManager,
+    pub(crate) select_context: PreparedWaterfall<ContextSelection>,
+    pub(crate) prepare_context: PreparedWaterfall<PreparedContext>,
+    pub(crate) before_model: PreparedWaterfall<ModelCall>,
+    pub(crate) wrap_model: PreparedMiddleware<ModelCall, GenerateResult>,
+    pub(crate) before_tool: PreparedWaterfall<ToolCall>,
+    pub(crate) authorize_tool: PreparedBail<ToolCall, ToolDenial>,
     pub(crate) observers: Rc<ObserverDispatcher>,
     _monitor: AgentObservationsRef,
     pub(crate) tools: core::RegistryView,

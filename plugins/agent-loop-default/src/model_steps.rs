@@ -6,7 +6,6 @@ use swarmie_model_contracts::{
 };
 use swarmie_task_contracts::TaskTransition;
 use tembra::prelude::*;
-use tembra_hooks::{HookTerminal, HookType};
 
 use crate::{
     context::append_message,
@@ -35,13 +34,17 @@ impl Engine {
         let id = stable(request, &suffix);
         let events = journal::history(&self.sessions, request, context).await?;
         if journal::find(&events, &id).is_none() {
-            let messages =
-                crate::context::select_messages(&self.sessions, &self.hooks, request, &cp, context)
-                    .await?;
+            let messages = crate::context::select_messages(
+                &self.sessions,
+                &self.select_context,
+                request,
+                &cp,
+                context,
+            )
+            .await?;
             let prepared = self
-                .hooks
-                .run_waterfall(
-                    &prepare_context()?,
+                .prepare_context
+                .run(
                     PreparedContext {
                         turn: turn.clone(),
                         messages,
@@ -82,10 +85,7 @@ impl Engine {
                     },
                 },
             };
-            let mut transformed = self
-                .hooks
-                .run_waterfall(&before_model_call()?, call.clone(), context.core())
-                .await?;
+            let mut transformed = self.before_model.run(call.clone(), context.core()).await?;
             if transformed.turn != turn
                 || transformed.request.request_id != call.request.request_id
                 || transformed.request.model != request.model
@@ -158,16 +158,17 @@ impl Engine {
                     .ok_or_else(|| invalid("model terminal is unavailable"))?
                     .clone()
             };
-            let terminal = HookTerminal::portable(
-                operation,
-                hook_type::<ModelCall>()?,
-                hook_type::<GenerateResult>()?,
-                |value| encode(&value).map(Some),
-                |value| decode(value.ok_or_else(|| invalid("model terminal returned no result"))?),
-            )?;
             let mut result = self
-                .hooks
-                .run_middleware(&wrap_model_call()?, call.clone(), context.core(), terminal)
+                .wrap_model
+                .run_portable(
+                    call.clone(),
+                    context.core(),
+                    operation,
+                    |value| encode(&value).map(Some),
+                    |value| {
+                        decode(value.ok_or_else(|| invalid("model terminal returned no result"))?)
+                    },
+                )
                 .await?;
             crate::model::redact_reasoning(&mut result);
             check_model_result(&result, &call)?;
@@ -294,12 +295,6 @@ impl Engine {
         check_model_result(&result, &call)?;
         Ok((call, result))
     }
-}
-
-fn hook_type<T: serde::Serialize + JsonSchema + 'static>() -> Result<HookType<T>> {
-    HookType::serde(
-        tembra::contracts::schema_for::<T>().map_err(|error| invalid(error.to_string()))?,
-    )
 }
 
 fn check_model_result(result: &GenerateResult, call: &ModelCall) -> Result<()> {

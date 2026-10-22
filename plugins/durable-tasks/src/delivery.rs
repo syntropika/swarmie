@@ -2,21 +2,7 @@
 
 use swarmie_task_contracts::*;
 use tembra::{Result, core};
-use tembra_hooks::{HookManager, HookRun, RustHookDefinition};
-
-struct Binding<T: 'static> {
-    definition: RustHookDefinition<T, ()>,
-    registry: core::RegistryView,
-}
-
-impl<T: 'static> Binding<T> {
-    fn new(scope: &core::FacetScope, definition: RustHookDefinition<T, ()>) -> Result<Self> {
-        Ok(Self {
-            registry: scope.registry(definition.descriptor().registry())?,
-            definition,
-        })
-    }
-}
+use tembra_hooks::{HookManager, HookRun, PreparedSeries};
 
 // The list declares typed wiring only. Detection stays in notifications(), and all
 // composition, invocation, priorities and physical settlement stay in Tembra.
@@ -25,21 +11,31 @@ macro_rules! pipelines {
         #[derive(Clone)]
         pub(crate) enum Notification { $($variant($payload)),+ }
 
-        pub(crate) struct Pipelines { $($field: Binding<$payload>),+ }
+        pub(crate) struct RegistryProbes { $($field: core::RegistryView),+ }
 
-        impl Pipelines {
+        #[derive(Clone)]
+        pub(crate) struct Pipelines { $($field: PreparedSeries<$payload>),+ }
+
+        impl RegistryProbes {
             pub fn new(scope: &core::FacetScope) -> Result<Self> {
-                Ok(Self { $($field: Binding::new(scope, $definition()?)?),+ })
+                Ok(Self { $($field: scope.registry($definition()?.descriptor().registry())?),+ })
             }
 
             pub fn has_handlers(&self, notification: &Notification) -> Result<bool> {
                 match notification { $(Notification::$variant(_) =>
-                    self.$field.registry.table(None).map(|table| !table.is_empty())),+ }
+                    self.$field.table(None).map(|table| !table.is_empty())),+ }
             }
 
-            pub fn run(&self, manager: &HookManager, notification: Notification, context: &core::Context) -> HookRun<()> {
+        }
+
+        impl Pipelines {
+            pub fn declare(manager: &HookManager, declaration: &mut core::Declaration) -> Result<Self> {
+                Ok(Self { $($field: manager.declare_series(declaration, stringify!($field), $definition)?),+ })
+            }
+
+            pub fn run(&self, notification: Notification, context: &core::Context) -> HookRun<()> {
                 match notification { $(Notification::$variant(value) =>
-                    manager.run_series(&self.$field.definition, value, context)),+ }
+                    self.$field.run(value, context)),+ }
             }
         }
     };

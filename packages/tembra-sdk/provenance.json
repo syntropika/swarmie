@@ -1,6 +1,6 @@
 {
   "source": "https://github.com/syntropika/tembra.git",
-  "revision": "176e4d2df20f00ad3b5d565edc7fa2f0f804755b",
+  "revision": "3910110bc7aa6e1b4401dbf8dab42addc3048d37",
   "upstream_package_sha256": "d789046dce24fcec7dfbfd0a0b49f59c5c177b50a86c60ba09e82d4eb87aa025",
   "bun": "1.4.3",
   "package": {

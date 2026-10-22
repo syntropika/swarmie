@@ -38,10 +38,11 @@ pub fn facet(driver: Rc<dyn core::Driver>) -> Result<NativeFacet> {
         setup.serve_with_options(
             AgentObservations,
             move |_, _, declaration| {
+                let pipelines = monitor.declare(declaration.core_mut())?;
                 let activity = monitor.clone();
-                declaration
-                    .core_mut()
-                    .task(move |scope| activity.clone().run(scope).boxed_local())?;
+                declaration.core_mut().task(move |scope| {
+                    activity.clone().run(scope, pipelines.clone()).boxed_local()
+                })?;
                 Ok(Monitor(monitor.clone()))
             },
             core::ServeOptions {

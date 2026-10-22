@@ -12,26 +12,12 @@ use futures::FutureExt;
 use swarmie_agent_contracts::*;
 use swarmie_task_contracts::MAX_PORTABLE_INTEGER;
 use tembra::{core, prelude::*};
-use tembra_hooks::{HookManager, HookManagerOptions, HookRun, RustHookDefinition};
+use tembra_hooks::{HookManager, HookManagerOptions, HookRun, PreparedSeries};
 
 const MAX_PENDING: usize = 64;
 const MAX_BYTES: usize = 4 * 1024 * 1024;
 const MAX_NOTIFICATION_BYTES: usize = 1024 * 1024;
 const DEADLINE: Duration = Duration::from_secs(1);
-
-struct Binding<T: 'static> {
-    definition: RustHookDefinition<T, ()>,
-    registry: core::RegistryView,
-}
-
-impl<T: 'static> Binding<T> {
-    fn new(scope: &core::FacetScope, definition: RustHookDefinition<T, ()>) -> Result<Self> {
-        Ok(Self {
-            registry: scope.registry(definition.descriptor().registry())?,
-            definition,
-        })
-    }
-}
 
 // Only static typed wiring is declared here; no handler ordering or Next engine is recreated.
 macro_rules! observations {
@@ -39,21 +25,31 @@ macro_rules! observations {
         #[derive(serde::Serialize)]
         pub(crate) enum Observation { $($variant($payload)),+ }
 
-        struct Pipelines { $($field: Binding<$payload>),+ }
+        struct RegistryProbes { $($field: core::RegistryView),+ }
 
-        impl Pipelines {
+        #[derive(Clone)]
+        pub(crate) struct Pipelines { $($field: PreparedSeries<$payload>),+ }
+
+        impl RegistryProbes {
             fn new(scope: &core::FacetScope) -> Result<Self> {
-                Ok(Self { $($field: Binding::new(scope, $definition()?)?),+ })
+                Ok(Self { $($field: scope.registry($definition()?.descriptor().registry())?),+ })
             }
 
             fn has_handlers(&self, observation: &Observation) -> Result<bool> {
                 match observation { $(Observation::$variant(_) =>
-                    self.$field.registry.table(None).map(|table| !table.is_empty())),+ }
+                    self.$field.table(None).map(|table| !table.is_empty())),+ }
             }
 
-            fn run(&self, manager: &HookManager, observation: Observation, context: &core::Context) -> HookRun<()> {
+        }
+
+        impl Pipelines {
+            fn declare(manager: &HookManager, declaration: &mut core::Declaration) -> Result<Self> {
+                Ok(Self { $($field: manager.declare_series(declaration, stringify!($field), $definition)?),+ })
+            }
+
+            fn run(&self, observation: Observation, context: &core::Context) -> HookRun<()> {
                 match observation { $(Observation::$variant(value) =>
-                    manager.run_series(&self.$field.definition, value, context)),+ }
+                    self.$field.run(value, context)),+ }
             }
         }
     };
@@ -72,7 +68,7 @@ observations! {
 /// Deadlines request cancellation and still join physical work; noncooperative handlers can
 /// delay later observations and Host closure, but never hold a turn phase or generation open.
 pub(crate) struct ObserverDispatcher {
-    pipelines: Pipelines,
+    probes: RegistryProbes,
     manager: HookManager,
     driver: Rc<dyn core::Driver>,
     queue: RefCell<VecDeque<(Observation, usize)>>,
@@ -88,7 +84,7 @@ fn increment(value: &mut u64) {
 
 impl ObserverDispatcher {
     pub fn new(scope: core::FacetScope, driver: Rc<dyn core::Driver>) -> Result<Rc<Self>> {
-        let pipelines = Pipelines::new(&scope)?;
+        let probes = RegistryProbes::new(&scope)?;
         let manager = HookManager::new(
             scope,
             driver.clone(),
@@ -98,7 +94,7 @@ impl ObserverDispatcher {
             },
         )?;
         Ok(Rc::new(Self {
-            pipelines,
+            probes,
             manager,
             driver,
             queue: RefCell::default(),
@@ -107,6 +103,11 @@ impl ObserverDispatcher {
             pending: Cell::new(false),
             waiter: RefCell::default(),
         }))
+    }
+
+    /// Declares weak execution handles under the monitor implementation owning its activity.
+    pub fn declare(&self, declaration: &mut core::Declaration) -> Result<Pipelines> {
+        Pipelines::declare(&self.manager, declaration)
     }
 
     /// Infallible, bounded admission. Notification loss is explicit in diagnostics and never
@@ -121,7 +122,7 @@ impl ObserverDispatcher {
             increment(&mut self.diagnostics.borrow_mut().abandoned);
             return;
         }
-        match self.pipelines.has_handlers(&observation) {
+        match self.probes.has_handlers(&observation) {
             Ok(false) => {
                 increment(&mut self.diagnostics.borrow_mut().skipped);
                 return;
@@ -173,7 +174,7 @@ impl ObserverDispatcher {
         self.diagnostics.borrow().clone()
     }
 
-    pub async fn run(self: Rc<Self>, scope: core::TaskScope) -> Result<()> {
+    pub async fn run(self: Rc<Self>, scope: core::TaskScope, pipelines: Pipelines) -> Result<()> {
         let signal = scope.signal();
         *self.signal.borrow_mut() = Some(signal.clone());
         let mut batch = 0;
@@ -190,13 +191,11 @@ impl ObserverDispatcher {
                     diagnostics.active = true;
                 }
                 let selected = self.clone();
+                let pipelines = pipelines.clone();
                 let result = scope
                     .root(move |context| {
                         async move {
-                            let run =
-                                selected
-                                    .pipelines
-                                    .run(&selected.manager, observation, &context);
+                            let run = pipelines.run(observation, &context);
                             let timer = selected.driver.sleep(DEADLINE);
                             futures::pin_mut!(run, timer);
                             match futures::future::select(run, timer).await {

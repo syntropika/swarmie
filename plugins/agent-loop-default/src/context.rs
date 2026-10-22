@@ -81,12 +81,12 @@ pub(crate) async fn append_message(
 /// durable head, not a materialized transcript. Session cursors preserve that immutable prefix.
 pub(crate) async fn select_messages(
     store: &SessionStoreRef,
-    hooks: &tembra_hooks::HookManager,
+    selection: &tembra_hooks::PreparedWaterfall<swarmie_agent_contracts::ContextSelection>,
     request: &StartTurn,
     cp: &Checkpoint,
     context: &Context,
 ) -> Result<Vec<Message>> {
-    use swarmie_agent_contracts::{ContextBudget, ContextRange, ContextSelection, select_context};
+    use swarmie_agent_contracts::{ContextBudget, ContextRange, ContextSelection};
     use swarmie_session_contracts::{EventQuery, SessionLookup};
 
     let binding = journal::guard(store, &cp.turn(request), context).await?;
@@ -123,9 +123,7 @@ pub(crate) async fn select_messages(
         ranges,
         budget: ContextBudget::default(),
     };
-    let selected = hooks
-        .run_waterfall(&select_context()?, original.clone(), context.core())
-        .await?;
+    let selected = selection.run(original.clone(), context.core()).await?;
     validate_selection(&original, &selected)?;
     let mut events = Vec::new();
     let mut bytes = 0;

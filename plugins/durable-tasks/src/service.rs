@@ -129,9 +129,10 @@ pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Res
                 declaration
                     .core_mut()
                     .task(move |scope| activity.clone().run(scope).boxed_local())?;
+                let pipelines=observations.declare(declaration.core_mut())?;
                 let observer_activity = observations.clone();
                 declaration.core_mut().task(move |scope| {
-                    observer_activity.clone().run(scope).boxed_local()
+                    observer_activity.clone().run(scope,pipelines.clone()).boxed_local()
                 })?;
                 Ok(Service { engine })
             },
