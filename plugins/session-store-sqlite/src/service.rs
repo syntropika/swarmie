@@ -15,6 +15,7 @@ pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Res
     NativeFacet::new(FACET_ID, vec![], move |_, setup| {
         let database = database.clone();
         let driver = driver.clone();
+        let committed_definition = setup.state("committed")?;
         setup.serve_with_options(
             SessionStore,
             move |_, _, declaration| {
@@ -28,13 +29,11 @@ pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Res
                     .with_close(|store| async move { store.close() }.boxed_local()),
                 )?;
                 let initial = resource.clone();
-                let committed = declaration.state_with(
-                    "committed",
-                    StateDeclaration::with_initializer(move |_| {
+                let committed =
+                    declaration.state(committed_definition.with_initializer(move |_| {
                         let resource = initial.clone();
                         async move { resource.value()?.head() }
-                    })?,
-                )?;
+                    }))?;
                 let publication =
                     Publication::new(resource.clone(), committed.clone(), driver.clone());
                 publication.attach(declaration)?;
@@ -223,6 +222,8 @@ mod tests {
                             let database = database.clone();
                             let reject = rejected.clone();
                             let driver = factory_driver.clone();
+                            let committed_definition = setup.state("committed")?;
+                            let commit_projection_definition = setup.state("commit-projection")?;
                             setup.serve_with_options(
                                 AdmissionProbe,
                                 move |_, _, declaration| {
@@ -238,14 +239,14 @@ mod tests {
                                         ),
                                     )?;
                                     let committed = declaration.state(
-                                        "committed",
-                                        StoreHead {
+                                        committed_definition.value(StoreHead {
                                             store_id: "initializer".into(),
                                             commit_sequence: 0,
-                                        },
+                                        })?,
                                     )?;
                                     let reject = reject.clone();
                                     let projected = declaration.derive(
+                                        &commit_projection_definition,
                                         (committed.readable(),),
                                         move |(head,)| {
                                             if head.commit_sequence > 1 && reject.get() {

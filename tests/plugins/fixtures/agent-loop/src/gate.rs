@@ -22,11 +22,12 @@ pub const FACET_ID: &str = "fixture.agent-gate";
 
 pub fn facet() -> Result<NativeFacet> {
     NativeFacet::new(FACET_ID, vec![], |_, setup| {
+        let entered_definition = setup.state("entered")?;
         setup.serve_with_options(
             AgentGate,
-            |_, _, declaration| {
+            move |_, _, declaration| {
                 Ok(Gate {
-                    entered: declaration.state("entered", 0)?,
+                    entered: declaration.state(entered_definition.value(0)?)?,
                     opened: Rc::new(Flag::new(false)),
                     waiters: Rc::new(RefCell::new(Vec::new())),
                 })

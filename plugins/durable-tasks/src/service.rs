@@ -53,6 +53,7 @@ pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Res
                 ..Default::default()
             },
         )?;
+        let committed_sequence_definition = setup.state("committed_sequence")?;
         setup.serve_with_options(
             DurableTasks,
             move |_, _, declaration| {
@@ -102,12 +103,12 @@ pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Res
                     .core_mut()
                     .resource("scheduler-owner", resource)?;
                 let initial_storage = storage.clone();
-                let committed_sequence = declaration.state_with("committed_sequence", StateDeclaration::with_initializer(move |context| {
+                let committed_sequence = declaration.state(committed_sequence_definition.with_initializer(move |context| {
                     let storage = initial_storage.clone();
                     async move {
                         storage.with_context(&context).scan(TaskQuery { limit:1, statuses:vec![TaskStatus::Pending], ..Default::default() }).await.map(|page| page.sequence)
                     }
-                })?)?;
+                }))?;
                 let engine = Rc::new(Engine {
                     observations: observations.clone(),
                     storage,

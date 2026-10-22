@@ -695,6 +695,9 @@ mod tests {
                     let driver = driver.clone();
                     let attempts = attempts.clone();
                     let scope = scope.clone();
+                    let progress_definition = setup.state("progress")?;
+                    let terminal_publication_guard_definition =
+                        setup.state("terminal-publication-guard")?;
                     setup.serve(
                         GenerationEndpoint::new("fixture.rejected-generation")?,
                         move |input, _, declaration| {
@@ -702,11 +705,14 @@ mod tests {
                                 ModelEndpoint::new(crate::PROVIDER_CONTRACT)?,
                                 ModelProviderSchemaInput {},
                             )?;
-                            let state = declaration
-                                .state("progress", Generation::initial(&input.request))?;
+                            let state = declaration.state(
+                                progress_definition.value(Generation::initial(&input.request))?,
+                            )?;
                             let attempts = attempts.clone();
-                            let _gate =
-                                declaration.derive((state.readable(),), move |(candidate,)| {
+                            let _gate = declaration.derive(
+                                &terminal_publication_guard_definition,
+                                (state.readable(),),
+                                move |(candidate,)| {
                                     if attempts.get() < max_failures
                                         && ((reject_terminal && candidate.physically_settled)
                                             || (!reject_terminal && !candidate.events.is_empty()))
@@ -718,7 +724,8 @@ mod tests {
                                         ));
                                     }
                                     Ok(true)
-                                })?;
+                                },
+                            )?;
                             let generation = Rc::new(Generation {
                                 state,
                                 request: input.request,

@@ -41,10 +41,13 @@ pub fn facet(backend: SessionStoreRef, initial: StoreHead, probe: Probe) -> Resu
         let backend = backend.clone();
         let initial = initial.clone();
         let probe = probe.clone();
+        let committed_definition = setup.state("committed")?;
         setup.serve(SessionStore, move |_, _, declaration| {
             Ok(Proxy {
                 backend: backend.clone(),
-                committed: declaration.state("committed", initial.clone())?.readable(),
+                committed: declaration
+                    .state(committed_definition.value(initial.clone())?)?
+                    .readable(),
                 probe: probe.clone(),
             })
         })

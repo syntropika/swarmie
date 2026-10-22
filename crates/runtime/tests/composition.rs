@@ -158,12 +158,14 @@ fn native_consumer() -> CompiledPlugin {
                 "example.native-consumer.facet",
                 vec![],
                 |_, setup| {
+                    let invocations_definition = setup.state("invocations")?;
                     setup.serve_with_options(
                         DynamicConsumer,
-                        |_, _, declaration| {
+                        move |_, _, declaration| {
                             Ok(NativeConsumer {
                                 counter: declaration.get(Counter, CounterInput {})?,
-                                invocations: declaration.state("invocations", 0_u32)?,
+                                invocations: declaration
+                                    .state(invocations_definition.value(0_u32)?)?,
                             })
                         },
                         core::ServeOptions {

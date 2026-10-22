@@ -378,7 +378,7 @@ mod tests {
                 let output = host
                     .core()
                     .root(move |context| {
-                        async move { hooks.run_waterfall(&definition, 5, &context).await }
+                        async move { hooks.run_dynamic_waterfall(&definition, 5, &context).await }
                             .boxed_local()
                     })
                     .await

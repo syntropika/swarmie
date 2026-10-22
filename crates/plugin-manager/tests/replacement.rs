@@ -78,11 +78,12 @@ async fn node(
     host.install(
         NativeFacet::new("gated-counter", vec![], move |_, setup| {
             let gate = factory_gate.clone();
+            let count_definition = setup.state("count")?;
             setup.serve_with_options(
                 Counter,
                 move |_, _, declaration| {
                     Ok(GatedCounter {
-                        count: declaration.state("count", 0)?,
+                        count: declaration.state(count_definition.value(0)?)?,
                         gate: gate.clone(),
                     })
                 },

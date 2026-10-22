@@ -447,6 +447,8 @@ mod tests {
                         let driver = factory_driver.clone();
                         let reject = rejected.clone();
                         let captured = selected.clone();
+                        let sequence_definition = setup.state("sequence")?;
+                        let sequence_projection_definition = setup.state("sequence-projection")?;
                         setup.serve_with_options(
                             SequenceRepair,
                             move |_, _, declaration| {
@@ -489,9 +491,11 @@ mod tests {
                                     storage.core().clone(),
                                 ));
                                 let owner = declaration.core_mut().resource("owner", resource)?;
-                                let committed_sequence = declaration.state("sequence", 0_u64)?;
+                                let committed_sequence =
+                                    declaration.state(sequence_definition.value(0_u64)?)?;
                                 let refuse = reject.clone();
                                 let projection = declaration.derive(
+                                    &sequence_projection_definition,
                                     (committed_sequence.readable(),),
                                     move |(sequence,)| {
                                         if sequence > 0 && refuse.get() {

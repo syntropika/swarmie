@@ -37,6 +37,7 @@ pub fn facet_with_initial(initial: u32) -> Result<NativeFacet> {
     let registry = core::Registry::new(CAPABILITY_REGISTRY, core::ConflictPolicy::Error)?;
     NativeFacet::new(FACET_ID, vec![], move |_, setup| {
         let registry = registry.clone();
+        let count_definition = setup.state("count")?;
         setup.serve_with_options(
             Counter,
             move |_, _, declaration| {
@@ -51,7 +52,7 @@ pub fn facet_with_initial(initial: u32) -> Result<NativeFacet> {
                     "increment",
                 )?;
                 Ok(CounterService {
-                    count: declaration.state("count", initial)?,
+                    count: declaration.state(count_definition.value(initial)?)?,
                 })
             },
             core::ServeOptions {

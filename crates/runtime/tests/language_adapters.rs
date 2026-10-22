@@ -277,7 +277,12 @@ async fn invoke(
         .host
         .core()
         .root(move |context| {
-            async move { manager.run_waterfall(&definition, input, &context).await }.boxed_local()
+            async move {
+                manager
+                    .run_dynamic_waterfall(&definition, input, &context)
+                    .await
+            }
+            .boxed_local()
         })
         .await
         .unwrap()

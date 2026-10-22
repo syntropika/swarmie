@@ -72,36 +72,39 @@ pub fn facet(replies: Vec<Reply>, probe: ModelProbe) -> Result<NativeFacet> {
         let generation_replies = replies.clone();
         let generation_probe = probe.clone();
         let generation_scope = scope.clone();
+        let progress_definition = setup.state("progress")?;
+        let terminal_publication_guard_definition = setup.state("terminal-publication-guard")?;
         setup.serve(
             FixtureGeneration,
             move |input: GenerationInput, _, declaration| {
                 let request = input.request;
-                let state = declaration.state(
-                    "progress",
-                    GenerationState {
-                        request_id: request.request_id.clone(),
-                        phase: GenerationPhase::Prepared,
-                        acknowledged: 0,
-                        last_sequence: 0,
-                        events: vec![],
-                        response: None,
-                        error: None,
-                        physically_settled: false,
+                let state = declaration.state(progress_definition.value(GenerationState {
+                    request_id: request.request_id.clone(),
+                    phase: GenerationPhase::Prepared,
+                    acknowledged: 0,
+                    last_sequence: 0,
+                    events: vec![],
+                    response: None,
+                    error: None,
+                    physically_settled: false,
+                })?)?;
+                let rejection = generation_probe.clone();
+                let _projection = declaration.derive(
+                    &terminal_publication_guard_definition,
+                    (state.readable(),),
+                    move |(candidate,)| {
+                        if rejection.reject_terminal.get() && candidate.physically_settled {
+                            rejection
+                                .publication_failures
+                                .set(rejection.publication_failures.get() + 1);
+                            return Err(RuntimeError::invalid(
+                                "fixture_terminal_publication",
+                                "the owning graph refused terminal State",
+                            ));
+                        }
+                        Ok(true)
                     },
                 )?;
-                let rejection = generation_probe.clone();
-                let _projection = declaration.derive((state.readable(),), move |(candidate,)| {
-                    if rejection.reject_terminal.get() && candidate.physically_settled {
-                        rejection
-                            .publication_failures
-                            .set(rejection.publication_failures.get() + 1);
-                        return Err(RuntimeError::invalid(
-                            "fixture_terminal_publication",
-                            "the owning graph refused terminal State",
-                        ));
-                    }
-                    Ok(true)
-                })?;
                 let completion = Rc::new(RefCell::new(None::<GenerationState>));
                 let closed_state = state.clone();
                 let closed_completion = completion.clone();

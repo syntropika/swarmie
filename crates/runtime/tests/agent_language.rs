@@ -88,7 +88,7 @@ async fn invoke(runtime: &Runtime, hooks: HookManager) -> String {
         .root(move |context| {
             async move {
                 hooks
-                    .run_waterfall(
+                    .run_dynamic_waterfall(
                         &prepare_context()?,
                         PreparedContext {
                             turn: TurnContext {

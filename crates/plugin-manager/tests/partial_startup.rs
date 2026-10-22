@@ -39,15 +39,15 @@ fn earlier_native_facet_is_used_before_later_failure_and_requires_a_fresh_host()
             let observed = read_before_failure.clone();
             let failing = NativeFacet::new("later-failure", vec![], move |_, setup| {
                 let observed = observed.clone();
+                let invocations_definition = setup.state("invocations")?;
                 setup.serve_with_options(
                     DynamicConsumer,
                     move |_, _, declaration| {
                         let counter = declaration.get(Counter, CounterInput {})?;
                         let observed = observed.clone();
                         Ok(FailingConsumer {
-                            invocations: declaration.state_with(
-                                "invocations",
-                                StateDeclaration::with_initializer(move |context| {
+                            invocations: declaration.state(
+                                invocations_definition.with_initializer(move |context| {
                                     let counter = counter.clone();
                                     let observed = observed.clone();
                                     async move {
@@ -57,7 +57,7 @@ fn earlier_native_facet_is_used_before_later_failure_and_requires_a_fresh_host()
                                             "later Facet failed after using the earlier provider",
                                         ))
                                     }
-                                })?,
+                                }),
                             )?,
                         })
                     },
@@ -183,15 +183,15 @@ fn dropping_native_startup_waiter_retains_recovery_requirement() {
             let facet = NativeFacet::new("pending-startup", vec![], move |_, setup| {
                 let entered = factory_entered.clone();
                 let release = factory_release.clone();
+                let invocations_definition = setup.state("invocations")?;
                 setup.serve_with_options(
                     DynamicConsumer,
                     move |_, _, declaration| {
                         let entered = entered.clone();
                         let release = release.clone();
                         Ok(FailingConsumer {
-                            invocations: declaration.state_with(
-                                "invocations",
-                                StateDeclaration::with_initializer(move |_| {
+                            invocations: declaration.state(
+                                invocations_definition.with_initializer(move |_| {
                                     let entered = entered.clone();
                                     let release = release.clone();
                                     async move {
@@ -199,7 +199,7 @@ fn dropping_native_startup_waiter_retains_recovery_requirement() {
                                         release.notified().await;
                                         Ok(0)
                                     }
-                                })?,
+                                }),
                             )?,
                         })
                     },

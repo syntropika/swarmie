@@ -111,13 +111,14 @@ fn compiled(driver: Rc<dyn core::Driver>) -> Vec<CompiledPlugin> {
                 CONSUMER_FACET,
                 vec![],
                 |_, setup| {
+                    let calls_definition = setup.state("calls")?;
                     setup.serve_with_options(
                         Counter,
-                        |_, _, declaration| {
+                        move |_, _, declaration| {
                             Ok(StableConsumer {
                                 provider: declaration
                                     .get(DynamicConsumer, DynamicConsumerInput {})?,
-                                calls: declaration.state("calls", 0_u32)?,
+                                calls: declaration.state(calls_definition.value(0_u32)?)?,
                             })
                         },
                         core::ServeOptions {

@@ -44,18 +44,32 @@ fn subscriber_and_external_projection_errors_do_not_reject_source_or_rerun_http(
         let host = host(&configuration(&server.url), driver).await;
         let generation = generation(&host, request("observer-errors")).await;
         let source = generation.progress();
-        host.serve(Projection, move |_, _, declaration| {
-            let accepted = declaration.derive((source.clone(),), |(state,)| {
-                if !state.events.is_empty() || state.physically_settled {
-                    return Err(RuntimeError::invalid(
-                        "fixture_projection",
-                        "projection refused",
-                    ));
-                }
-                Ok(true)
-            })?;
-            Ok(ProjectionService(accepted))
-        })
+        host.install(
+            tembra::NativeFacet::new("projection-provider", vec![], move |_, setup| {
+                let source = source.clone();
+                let accepted_definition = setup.state("accepted")?;
+                setup.serve(Projection, move |_, _, declaration| {
+                    let accepted = declaration.derive(
+                        &accepted_definition,
+                        (source.clone(),),
+                        |(state,)| {
+                            if !state.events.is_empty() || state.physically_settled {
+                                return Err(RuntimeError::invalid(
+                                    "fixture_projection",
+                                    "projection refused",
+                                ));
+                            }
+                            Ok(true)
+                        },
+                    )?;
+                    Ok(ProjectionService(accepted))
+                })
+            })
+            .unwrap(),
+            Default::default(),
+        )
+        .unwrap()
+        .await
         .unwrap();
         let projection = host.get(Projection, ProjectionInput {}).await.unwrap();
         let rejected = generation

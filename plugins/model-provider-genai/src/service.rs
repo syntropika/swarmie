@@ -81,6 +81,7 @@ pub fn facet_with_credentials(
         let limits = configuration.limits.clone();
         let generation_scope = scope.clone();
         let driver = driver.clone();
+        let progress_definition = setup.state("progress")?;
         setup.serve(
             GenerationEndpoint::new(GENERATION_CONTRACT)?,
             move |input, _, declaration| {
@@ -94,7 +95,8 @@ pub fn facet_with_credentials(
                         "provider Resource is not declared",
                     )
                 })?;
-                let state = declaration.state("progress", Generation::initial(&input.request))?;
+                let state = declaration
+                    .state(progress_definition.value(Generation::initial(&input.request))?)?;
                 let generation = Rc::new(Generation {
                     state,
                     request: input.request,

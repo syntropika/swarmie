@@ -25,7 +25,7 @@ pub const UI_REGISTRY: &str = "swarmie.ui-contributions";
 pub const RUNTIME_HOST: &str = "swarmie-runtime";
 
 /// Exact Tembra revision accepted by this foundation.
-pub const TEMBRA_REVISION: &str = "3910110bc7aa6e1b4401dbf8dab42addc3048d37";
+pub const TEMBRA_REVISION: &str = "f69860b1d9f57435b2d3366eb2ccf487aee7dc35";
 
 /// Creates the source registry with deterministic conflict refusal.
 pub fn source_registry() -> tembra::Result<tembra::core::Registry> {
