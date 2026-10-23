@@ -125,6 +125,41 @@ impl EndpointTokens {
     }
 }
 
+/// Selects the unique version-1 registration that claims `connection` from one complete registry
+/// table, together with the contract names of every version-1 registration in that table.
+///
+/// # Errors
+/// Returns the first registration decoding error, or refuses the connection as soon as a second
+/// registration claims it, without completing the scan.
+fn select_provider(
+    registrations: impl IntoIterator<Item = Result<ProviderRegistration>>,
+    connection: &str,
+) -> Result<(Option<ProviderRegistration>, BTreeSet<EndpointNames>)> {
+    let mut selected = None;
+    let mut registered = BTreeSet::new();
+    for registration in registrations {
+        let registration = registration?;
+        if registration.version != 1 {
+            continue;
+        }
+        registered.insert((
+            registration.provider_contract.clone(),
+            registration.generation_contract.clone(),
+        ));
+        if registration
+            .connections
+            .iter()
+            .any(|claimed| claimed == connection)
+        {
+            if selected.is_some() {
+                return Err(invalid("multiple model providers claim the connection"));
+            }
+            selected = Some(registration);
+        }
+    }
+    Ok((selected, registered))
+}
+
 pub(crate) struct ModelExecutor {
     sessions: SessionStoreRef,
     admission: Admission,
@@ -476,27 +511,12 @@ impl ModelExecutor {
         context: &Context,
     ) -> Result<(ModelEndpoint, GenerationEndpoint)> {
         let table = self.providers.table(Some(context.core()))?;
-        let mut selected = None;
-        let mut registered = BTreeSet::new();
-        for (_, entry) in table.entries() {
-            let registration: ProviderRegistration = decode(entry.data().clone())?;
-            if registration.version != 1 {
-                continue;
-            }
-            registered.insert((
-                registration.provider_contract.clone(),
-                registration.generation_contract.clone(),
-            ));
-            if registration
-                .connections
-                .contains(&call.request.model.connection)
-            {
-                if selected.is_some() {
-                    return Err(invalid("multiple model providers claim the connection"));
-                }
-                selected = Some(registration);
-            }
-        }
+        let (selected, registered) = select_provider(
+            table
+                .entries()
+                .map(|(_, entry)| decode::<ProviderRegistration>(entry.data().clone())),
+            &call.request.model.connection,
+        )?;
         self.endpoints.retain_registered(&registered);
         let registration = selected.ok_or_else(|| {
             RuntimeError::unavailable(
@@ -859,6 +879,95 @@ mod tests {
         assert!(endpoints.tokens(names("", "fixture.generation")).is_err());
         assert!(endpoints.tokens(names("fixture.model", "")).is_err());
         assert!(endpoints.retained.borrow().is_empty());
+    }
+
+    fn registration(
+        provider: &str,
+        version: u32,
+        connections: &[&str],
+    ) -> Result<ProviderRegistration> {
+        Ok(ProviderRegistration {
+            provider: provider.into(),
+            version,
+            provider_contract: format!("{provider}.model"),
+            generation_contract: format!("{provider}.generation"),
+            connections: connections.iter().map(|&claimed| claimed.into()).collect(),
+        })
+    }
+
+    #[test]
+    fn selection_uses_one_complete_registry_table() {
+        let table = || {
+            [
+                registration("fixture", 1, &["fixture"]),
+                registration("other", 1, &["other"]),
+                registration("future", 2, &["fixture"]),
+            ]
+        };
+        let (selected, registered) = select_provider(table(), "fixture").unwrap();
+        assert_eq!(selected.unwrap().provider, "fixture");
+        assert_eq!(
+            registered,
+            BTreeSet::from([
+                names("fixture.model", "fixture.generation"),
+                names("other.model", "other.generation"),
+            ])
+        );
+        let (selected, unclaimed) = select_provider(table(), "absent").unwrap();
+        assert!(selected.is_none());
+        assert_eq!(unclaimed, registered);
+
+        let ambiguous = table()
+            .into_iter()
+            .chain([registration("duplicate", 1, &["fixture"])]);
+        let error = select_provider(ambiguous, "fixture").unwrap_err();
+        assert_eq!(error.reason, "agent_state");
+        assert_eq!(
+            error.message,
+            "multiple model providers claim the connection"
+        );
+
+        let corrupt = table()
+            .into_iter()
+            .chain([Err(invalid("undecodable registration"))]);
+        assert_eq!(
+            select_provider(corrupt, "fixture").unwrap_err().message,
+            "undecodable registration"
+        );
+    }
+
+    #[test]
+    fn replaced_and_removed_registrations_release_their_retained_tokens() {
+        let endpoints = EndpointTokens::default();
+        let first = endpoints
+            .tokens(names("fixture.model", "fixture.generation"))
+            .unwrap();
+        // The connection moves to a provider published under other contract names.
+        let (selected, registered) =
+            select_provider([registration("replacement", 1, &["fixture"])], "fixture").unwrap();
+        endpoints.retain_registered(&registered);
+        let selected = selected.unwrap();
+        let replacement = endpoints
+            .tokens((selected.provider_contract, selected.generation_contract))
+            .unwrap();
+        assert_eq!(
+            replacement.0.descriptor().unwrap().name(),
+            "replacement.model"
+        );
+        assert_eq!(
+            endpoints.retained.borrow().keys().collect::<Vec<_>>(),
+            [&names("replacement.model", "replacement.generation")]
+        );
+        // With no registration left, nothing is selected and no token stays retained.
+        let (selected, registered) = select_provider([], "fixture").unwrap();
+        endpoints.retain_registered(&registered);
+        assert!(selected.is_none());
+        assert!(endpoints.retained.borrow().is_empty());
+        // A provider registered again under the first names receives a new token.
+        let restored = endpoints
+            .tokens(names("fixture.model", "fixture.generation"))
+            .unwrap();
+        assert!(!same(&first, &restored));
     }
 
     fn running_model_task() -> TaskRecord {
