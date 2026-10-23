@@ -83,9 +83,11 @@ routing version and root/parent provenance; it adds no timestamp or current task
 Conversation, turn and task correlations remain attached to every destination event.
 
 Every retry uses the identical batch with `expected_head=None`. The publisher validates the
-returned store/session/batch identity and single-event receipt before acknowledging that fact.
-A crash between append and ACK repeats the exact append and receives the original receipt.
-Missing routes and failed receipts stop the contiguous ACK prefix. Only an explicit persisted
+returned store/session/batch identity and single-event receipt for each fact. A fully confirmed
+bounded page advances the contiguous source prefix with one durable ACK; empty pages do not
+ACK. A failure or cancellation before that ACK leaves the whole page unacknowledged; any
+redelivered fact repeats its exact append and receives the original receipt. Missing routes and
+failed receipts never permit an ACK beyond the unresolved fact. Only an explicit persisted
 exclusion permits skipping an unrelated fact. Interleaved destinations retain source order
 without implying atomic delivery of a source transaction across sessions.
 

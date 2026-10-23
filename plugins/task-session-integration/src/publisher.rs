@@ -98,6 +98,7 @@ impl Publisher {
         }
         let mut published = 0;
         let mut excluded = 0;
+        let mut through = None;
         *self.missing.borrow_mut() = None;
         for fact in page.events {
             let key = BindingKey {
@@ -141,18 +142,23 @@ impl Publisher {
                     // No later await may replace the exact request before its matching receipt.
                 }
             }
-            self.storage
-                .with_context(context)
-                .acknowledge_outbox(TaskOutboxAcknowledgement {
-                    consumer_id: self.configuration.consumer_id.clone(),
-                    through: fact.id,
-                })
-                .await?;
             if matches!(disposition, Some(BindingDisposition::Excluded { .. })) {
                 excluded += 1;
             } else {
                 published += 1;
             }
+            through = Some(fact.id);
+        }
+        // Only a fully confirmed bounded page advances the durable prefix. Any earlier error
+        // or cancellation leaves the whole page replayable with the same per-fact requests.
+        if let Some(through) = through {
+            self.storage
+                .with_context(context)
+                .acknowledge_outbox(TaskOutboxAcknowledgement {
+                    consumer_id: self.configuration.consumer_id.clone(),
+                    through,
+                })
+                .await?;
         }
         let consumer = self
             .storage

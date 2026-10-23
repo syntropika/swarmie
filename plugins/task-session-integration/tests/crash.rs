@@ -45,6 +45,13 @@ fn crash_worker() -> Result<()> {
             std::process::exit(42);
         }
         h.bindings.admit(key(&request)).await?;
+        if stage == "after-append" || stage == "after-ack" {
+            for id in ["crash-second", "crash-third"] {
+                let request = h.request(id, "chat", "conversation").await?;
+                h.bindings.prepare(request.clone()).await?;
+                h.bindings.admit(key(&request)).await?;
+            }
+        }
         if stage == "after-append" {
             // The real publisher appends, receives the real Session receipt and attempts ACK.
             // SQLite refuses only that ACK; abrupt process death then tests exact redelivery.
@@ -73,7 +80,15 @@ fn crash_worker() -> Result<()> {
             std::process::exit(42);
         }
         if stage == "after-ack" {
-            drain(&h.publisher).await?;
+            // The child observes publish success, including its internal ACK reply. It then
+            // exits before returning a normal result to the parent; recovery uses durable ACK.
+            assert!(
+                h.publisher
+                    .publish(PublishRequest { limit: 256 })
+                    .await?
+                    .published
+                    >= 3
+            );
             std::process::exit(42);
         }
         panic!("unknown crash stage");
@@ -135,6 +150,12 @@ fn abrupt_process_death_reconciles_every_admission_and_publication_boundary() ->
             let binding = h.bindings.admit(key(&request)).await?;
             assert_eq!(binding.admission, BindingAdmission::Active);
             let before = h.sessions.events(EventQuery::new("chat")).await?.events;
+            if stage == "after-append" || stage == "after-ack" {
+                assert!(
+                    before.len() >= 3,
+                    "every confirmed fact precedes the cumulative ACK"
+                );
+            }
             drain(&h.publisher).await?;
             let after = h.sessions.events(EventQuery::new("chat")).await?.events;
             assert!(after.len() >= before.len());
