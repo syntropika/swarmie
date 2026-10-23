@@ -511,7 +511,7 @@ fn a_fatal_pump_error_is_visible_while_physical_work_is_still_draining() {
 }
 
 #[test]
-fn waiting_rereads_storage_only_after_terminal_notifications() {
+fn terminal_notifications_wake_waiters_before_the_fallback_interval() {
     run(|driver| async move {
         let directory = tempfile::tempdir().unwrap();
         let backend_host = Host::with_driver("wait-storage", "application", driver.clone())?;
@@ -542,7 +542,7 @@ fn waiting_rereads_storage_only_after_terminal_notifications() {
         host.install(
             swarmie_durable_tasks::facet(
                 &swarmie_durable_tasks::Configuration {
-                    poll_interval_ms: 2,
+                    poll_interval_ms: 5_000,
                     ..Default::default()
                 },
                 driver,
@@ -562,14 +562,19 @@ fn waiting_rereads_storage_only_after_terminal_notifications() {
             result = &mut waiting => panic!("a held phase cannot be terminal: {result:?}"),
             () = tokio::time::sleep(Duration::from_millis(100)) => {}
         }
+        // A fallback read remains valid at the configured interval. Before that interval,
+        // the waiter must sleep and then wake promptly from the local terminal notification.
         assert!(
             calls.gets.get() <= 1,
-            "a waiter on a held phase reread storage {} times instead of sleeping",
+            "a waiter reread storage {} times before its fallback interval",
             calls.gets.get()
         );
         tasks.cancel(TaskLookup { id: "held".into() }).await?;
         control.release();
-        assert!(matches!(waiting.await?, TaskOutcome::Aborted { .. }));
+        let outcome = tokio::time::timeout(Duration::from_millis(250), waiting)
+            .await
+            .expect("terminal notification did not wake the waiter before its fallback timer")?;
+        assert!(matches!(outcome, TaskOutcome::Aborted { .. }));
         host.close().await?;
         backend_host.close().await
     });
