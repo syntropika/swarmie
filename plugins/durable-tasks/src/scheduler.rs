@@ -10,6 +10,7 @@ use futures::{FutureExt, StreamExt, future::LocalBoxFuture, stream::FuturesUnord
 use swarmie_task_contracts::{
     CommitResult, StorageOwner, TaskLifecycleOrigin, TaskLookup, TaskRecord, TaskStatus,
     TaskStorageRef, TaskTransaction, TaskWrite, validate_task_payload_size,
+    validate_task_record_size,
 };
 use tembra::{Context, Resource, Result, RuntimeError, core};
 
@@ -158,8 +159,17 @@ impl Engine {
             ));
         }
         let owner = self.owner.value()?.id.clone();
-        // Storage refuses every oversized record before mutation, with the same reason. Only the
-        // complete transaction is bounded here, because it must cross the portable boundary.
+        // Storage validates each record and then checks its compare-and-swap, in write order.
+        // In a multi-write transaction an earlier conflict would hide a later oversized record,
+        // so validate every record first: an oversized decision then faults instead of parking
+        // on a conflict. Storage refuses a single oversized record before its own
+        // compare-and-swap, with the same reason, so single writes skip the duplicate encoding.
+        if writes.len() > 1 {
+            for write in &writes {
+                validate_task_record_size(&write.record)?;
+            }
+        }
+        // The complete transaction must cross the portable boundary.
         let transaction = TaskTransaction { owner, writes };
         validate_task_payload_size(&transaction)?;
         match self

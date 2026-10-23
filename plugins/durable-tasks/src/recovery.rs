@@ -14,7 +14,8 @@ use crate::{
     scheduler::{Engine, now_ms},
 };
 
-/// Bound on noticing committed writes that did not pass through this engine's own commits.
+/// Minimum interval between global sequence probes. Discovery runs on scheduler passes,
+/// whose cadence can be slower when the configured poll interval exceeds this interval.
 pub(crate) const PROBE_INTERVAL: Duration = Duration::from_secs(1);
 
 impl Engine {

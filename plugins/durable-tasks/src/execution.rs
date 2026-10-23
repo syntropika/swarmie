@@ -85,6 +85,16 @@ impl Engine {
         context.check(context.host_id())
     }
 
+    /// A capacity refusal committed nothing, and only outbox consumers can free capacity. The
+    /// task is queued again after the contention pause rather than for the next pass: that pass
+    /// would be refused again at once, and a scheduling loop that stays ready starves the
+    /// Host's timers while nothing can progress.
+    async fn retry_after_capacity(&self, context: &Context, id: &str) -> Result<Next> {
+        self.contention_pause(context).await?;
+        self.schedule(id);
+        Ok(Next::Done)
+    }
+
     // A settled handler decision stays in its original managed execution while relation
     // reads contend. Retrying these reads cannot invoke the external phase again.
     async fn settled_family(&self, context: &Context, id: &str) -> Result<TaskFamily> {
@@ -133,13 +143,17 @@ impl Engine {
                 let change = Change::from_record(&record, TaskLifecycleOrigin::Reconciliation);
                 record.status = TaskStatus::Blocked;
                 record.blocking_reason = Some(reason);
-                if matches!(
-                    self.update(&context, record, change).await?,
-                    CommitResult::Conflict { .. }
-                ) {
-                    self.schedule(&id);
-                }
-                return Ok(Next::Done);
+                return match self.update(&context, record, change).await {
+                    Ok(CommitResult::Committed { .. }) => Ok(Next::Done),
+                    Ok(CommitResult::Conflict { .. }) => {
+                        self.schedule(&id);
+                        Ok(Next::Done)
+                    }
+                    Err(error) if error.reason == "task_storage_outbox_full" => {
+                        self.retry_after_capacity(&context, &id).await
+                    }
+                    Err(error) => Err(error),
+                };
             }
         };
         let migrating = record.definition_version != definition.metadata.version;
@@ -173,8 +187,7 @@ impl Engine {
             Err(error) if error.reason == "task_storage_outbox_full" => {
                 // Capacity rejection is definite: no Running reservation was committed.
                 self.reservations.borrow_mut().remove(&id);
-                self.schedule(&id);
-                return Ok(Next::Done);
+                return self.retry_after_capacity(&context, &id).await;
             }
             Err(error) => return Err(error),
         }

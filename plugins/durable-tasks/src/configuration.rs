@@ -3,9 +3,9 @@ use tembra::{Result, RuntimeError};
 
 /// Scheduling limits. Wake timestamps are persisted as UTC milliseconds. `poll_interval_ms`
 /// bounds the delay before observing an elapsed wake time, paces contention retries and checks
-/// scheduler liveness for waiting callers. This scheduler's own commits wake its loop and the
-/// callers waiting on a terminal task immediately; commits that bypass it are observed by a
-/// bounded sequence probe.
+/// scheduler liveness for waiting callers. Waiting callers also reread at this interval to observe
+/// external writers. This scheduler's own commits wake its loop and the callers waiting on a
+/// terminal task immediately; global discovery uses a separate bounded sequence probe.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Configuration {

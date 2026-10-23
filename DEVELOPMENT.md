@@ -159,7 +159,9 @@ and a terminal commit wakes the `DurableTasks.wait` callers for that task, which
 authoritative record. Between passes the loop yields to the Host executor without a fixed
 timer. `poll_interval_ms` bounds the detection of elapsed sleep deadlines, paces contention
 retries and checks scheduler liveness for waiting callers. Writes that bypass the running
-scheduler are observed by a bounded sequence probe about once per second.
+scheduler are observed by waiting callers at `poll_interval_ms`; global discovery uses a
+separate sequence probe at least one second apart, performed on the next scheduler pass.
+Longer poll intervals and active work on the Host can delay global discovery.
 
 A handler that returns `Checkpoint` ends its phase: the task becomes Pending and a later pass
 reserves the next phase in a second write. A handler may instead opt into

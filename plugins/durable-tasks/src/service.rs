@@ -19,7 +19,6 @@ use crate::{
     mutation::{Change, Mutation},
     observation::Observations,
     reads::is_contention,
-    recovery::PROBE_INTERVAL,
     scheduler::{Engine, Wake},
     waiters::Waiters,
     work::Work,
@@ -305,10 +304,9 @@ impl DurableTasksProvider for Service {
         self.engine.get(&context, &request.id).await
     }
 
-    /// Every outcome comes from an authoritative terminal read. Between reads the caller sleeps
-    /// until this engine commits the task as terminal, or until reconciliation observes commits
-    /// that bypassed this engine. A timer at `poll_interval_ms` checks scheduler liveness without
-    /// reading storage, and rereads at most once per probe interval as a fallback.
+    /// Every outcome comes from an authoritative terminal read. A terminal commit wakes the
+    /// task's callers immediately; a fallback read at `poll_interval_ms` also observes external
+    /// writers. Registration precedes the first read so a concurrent commit cannot lose a wake.
     async fn wait(&self, request: TaskLookup, context: Context) -> Result<TaskOutcome> {
         let waiter = self.engine.waiters.register(&request.id);
         let interval = Duration::from_millis(self.engine.configuration.poll_interval_ms);
@@ -319,22 +317,15 @@ impl DurableTasksProvider for Service {
                     RuntimeError::invalid("durable_tasks_outcome", "terminal task has no outcome")
                 });
             }
-            let read_at = self.engine.driver.now();
-            loop {
-                self.engine.ensure_running()?;
-                let stopped = context.cancellation().cancelled();
-                let notified = waiter.notified();
-                let timer = self.engine.driver.sleep(interval);
-                futures::pin_mut!(stopped, notified, timer);
-                futures::select_biased! {
-                    error = stopped.fuse() => return Err(error),
-                    () = notified.fuse() => break,
-                    () = timer.fuse() => {
-                        if self.engine.driver.now().saturating_sub(read_at) >= PROBE_INTERVAL {
-                            break;
-                        }
-                    }
-                }
+            self.engine.ensure_running()?;
+            let stopped = context.cancellation().cancelled();
+            let notified = waiter.notified();
+            let timer = self.engine.driver.sleep(interval);
+            futures::pin_mut!(stopped, notified, timer);
+            futures::select_biased! {
+                error = stopped.fuse() => return Err(error),
+                () = notified.fuse() => {},
+                () = timer.fuse() => {},
             }
         }
     }

@@ -33,6 +33,9 @@ pub struct StorageControl {
     pub continuation_commit_started: Cell<bool>,
     /// Commits the parent's cancellation intent right after its next continuation write.
     pub cancel_after_continuation: Cell<bool>,
+    /// Commits cancellation intent for the owner of the next continued child task right after
+    /// that child's continuation write.
+    pub cancel_owner_after_continuation: Cell<bool>,
     /// Every write confirmed through this proxy, in commit order.
     pub committed: RefCell<Vec<TaskWrite>>,
     released: core::CancellationToken,
@@ -69,6 +72,7 @@ impl StorageControl {
             pause_continuation_commit: Cell::new(false),
             continuation_commit_started: Cell::new(false),
             cancel_after_continuation: Cell::new(false),
+            cancel_owner_after_continuation: Cell::new(false),
             committed: RefCell::new(Vec::new()),
             released: core::CancellationToken::new(),
             effects: RefCell::new(BTreeMap::new()),
@@ -155,6 +159,48 @@ impl StorageControl {
             CommitResult::Conflict { .. } => Err(RuntimeError::invalid(
                 "fixture_conflict",
                 "external task already exists",
+            )),
+        }
+    }
+
+    /// Settles a childless task with `outcome` through the backend under the scheduler's claimed
+    /// owner. The write bypasses the scheduler, so no local commit hint reaches its waiters.
+    pub async fn external_settle(&self, id: &str, outcome: TaskOutcome) -> Result<()> {
+        let owner = self
+            .owner
+            .borrow()
+            .clone()
+            .expect("claimed scheduler storage");
+        let mut record = self
+            .backend
+            .get(TaskLookup { id: id.into() })
+            .await?
+            .ok_or_else(|| {
+                RuntimeError::invalid("fixture_missing", "settlement requires a committed task")
+            })?;
+        let revision = record.revision;
+        record.revision += 1;
+        record.status = TaskStatus::Terminal;
+        record.outcome = Some(outcome);
+        record.wake_at_ms = None;
+        record.wait_for.clear();
+        record.blocking_reason = None;
+        match self
+            .backend
+            .commit(TaskTransaction {
+                owner,
+                writes: vec![TaskWrite {
+                    provenance: None,
+                    expected_revision: Some(revision),
+                    record,
+                }],
+            })
+            .await?
+        {
+            CommitResult::Committed { .. } => Ok(()),
+            CommitResult::Conflict { .. } => Err(RuntimeError::invalid(
+                "fixture_conflict",
+                "external settlement unexpectedly conflicted",
             )),
         }
     }
@@ -443,6 +489,11 @@ impl TaskStorageProvider for Proxy {
             self.control.continuation_commit_started.set(true);
             self.control.released.cancelled().await;
         }
+        let continued_owner = transaction
+            .writes
+            .iter()
+            .find(|write| write.provenance == Some(CONTINUATION))
+            .and_then(|write| write.record.parent.clone());
         let writes = transaction.writes.clone();
         let owner = transaction.owner.clone();
         let result = self.control.backend.commit(transaction).await?;
@@ -450,6 +501,11 @@ impl TaskStorageProvider for Proxy {
             self.control.committed.borrow_mut().extend(writes);
             if continuation && self.control.cancel_after_continuation.replace(false) {
                 self.control.request_cancellation("parent", &owner).await?;
+            }
+            if let Some(ancestor) = continued_owner
+                && self.control.cancel_owner_after_continuation.replace(false)
+            {
+                self.control.request_cancellation(&ancestor, &owner).await?;
             }
         }
         Ok(result)
@@ -546,6 +602,21 @@ impl ConcurrentHandlerProvider for Handler {
                 phase: "illegal".into(),
             });
         }
+        // Continues through `chain` effect-free phases that each settle synchronously, then
+        // completes.
+        if let Some(total) = task.input["chain"].as_u64() {
+            let step = task.checkpoint["step"].as_u64().unwrap_or(0);
+            return Ok(if step < total {
+                TaskTransition::Continue {
+                    checkpoint: serde_json::json!({"step":step + 1}),
+                    phase: format!("chain-{}", step + 1),
+                }
+            } else {
+                TaskTransition::Complete {
+                    value: serde_json::json!({"steps":step}),
+                }
+            });
+        }
         if task.input["continue"] == true {
             return Ok(TaskTransition::Continue {
                 checkpoint: serde_json::json!({"effect_performed":true}),
@@ -553,8 +624,15 @@ impl ConcurrentHandlerProvider for Handler {
             });
         }
         if task.input["collision"] == true {
+            // An oversized checkpoint makes the waiting parent record exceed its byte budget
+            // while the whole transaction, created child included, still fits a payload.
+            let checkpoint = if task.input["oversized_checkpoint"] == true {
+                serde_json::json!({"effect_performed":true,"data":"x".repeat(780_000)})
+            } else {
+                serde_json::json!({"effect_performed":true})
+            };
             Ok(TaskTransition::Wait {
-                checkpoint: serde_json::json!({"effect_performed":true}),
+                checkpoint,
                 phase: "complete".into(),
                 children: vec![TaskSpec {
                     id: "collision".into(),

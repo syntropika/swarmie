@@ -159,7 +159,8 @@ pub enum TaskLifecycleEvent {
         previous_status: Option<TaskStatus>,
         current_status: TaskStatus,
         origin: TaskLifecycleOrigin,
-        /// An accepted Checkpoint, Sleep, Wait or Migrate payload was committed, even unchanged.
+        /// An accepted Checkpoint, Continue, Sleep, Wait or Migrate payload was committed,
+        /// even unchanged.
         checkpoint_committed: bool,
         /// Cancellation intent changed from false to true in this confirmed write.
         cancellation_requested: bool,

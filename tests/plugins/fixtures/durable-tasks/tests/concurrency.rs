@@ -4,8 +4,9 @@ use std::{cell::RefCell, future::Future, rc::Rc, time::Duration};
 
 use futures::future::LocalBoxFuture;
 use serde_json::json;
-use swarmie_durable_tasks_fixture::concurrency::{
-    CONTINUATION, StorageControl, handler_facet, storage_facet,
+use swarmie_durable_tasks_fixture::{
+    concurrency::{CONTINUATION, StorageControl, handler_facet, storage_facet},
+    outbox_consumer::{self, Consumer},
 };
 use swarmie_task_contracts::*;
 use tembra::{core, prelude::*};
@@ -42,6 +43,46 @@ async fn open(
     records: Vec<TaskRecord>,
     configure: impl FnOnce(&StorageControl),
 ) -> Result<Rig> {
+    open_with(
+        driver,
+        records,
+        Default::default(),
+        swarmie_durable_tasks::Configuration {
+            poll_interval_ms: 2,
+            max_parallel: 1,
+            ..Default::default()
+        },
+        configure,
+    )
+    .await
+}
+
+async fn open_with(
+    driver: Rc<TokioDriver>,
+    records: Vec<TaskRecord>,
+    outbox: swarmie_task_storage_sqlite::TaskOutboxLimits,
+    scheduler: swarmie_durable_tasks::Configuration,
+    configure: impl FnOnce(&StorageControl),
+) -> Result<Rig> {
+    open_driven(
+        driver.clone(),
+        driver,
+        records,
+        outbox,
+        scheduler,
+        configure,
+    )
+    .await
+}
+
+async fn open_driven(
+    driver: Rc<TokioDriver>,
+    scheduler_driver: Rc<dyn core::Driver>,
+    records: Vec<TaskRecord>,
+    outbox: swarmie_task_storage_sqlite::TaskOutboxLimits,
+    scheduler: swarmie_durable_tasks::Configuration,
+    configure: impl FnOnce(&StorageControl),
+) -> Result<Rig> {
     let directory = tempfile::tempdir().unwrap();
     let backend = Host::with_driver("concurrency-backend", "application", driver.clone())?;
     backend
@@ -49,7 +90,7 @@ async fn open(
             swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
                 outbox_legacy_owners: Default::default(),
                 database: directory.path().join("tasks.sqlite"),
-                outbox: Default::default(),
+                outbox,
             })?,
             core::LoadOptions::default(),
         )?
@@ -96,14 +137,7 @@ async fn open(
     )?
     .await?;
     host.install(
-        swarmie_durable_tasks::facet(
-            &swarmie_durable_tasks::Configuration {
-                poll_interval_ms: 2,
-                max_parallel: 1,
-                ..Default::default()
-            },
-            driver,
-        )?,
+        swarmie_durable_tasks::facet(&scheduler, scheduler_driver)?,
         core::LoadOptions::default(),
     )?
     .await?;
@@ -171,6 +205,53 @@ fn existing_child_identity_parks_once_without_replaying_an_external_phase() {
             1,
             "a known atomic conflict must not replay the external phase"
         );
+        let original = rig
+            .tasks
+            .get(TaskLookup {
+                id: "collision".into(),
+            })
+            .await?
+            .unwrap();
+        assert!(original.parent.is_none());
+        rig.host.close().await?;
+        rig.backend.close().await
+    });
+}
+
+#[test]
+fn an_oversized_waiting_record_faults_even_when_its_child_identity_collides() {
+    run(|driver| async move {
+        let rig = open(driver, vec![], |_| {}).await?;
+        let mut existing = spec("collision");
+        existing.kind = "fixture.missing".into();
+        rig.tasks.create(existing).await?;
+        let mut parent = spec("parent");
+        parent.input = json!({"collision":true,"oversized_checkpoint":true});
+        let checkpoint = parent.checkpoint.clone();
+        rig.tasks.create(parent).await?;
+        // Storage would report the colliding child create before it validates the later parent
+        // write. A record over its budget is an invalid decision, so it faults rather than
+        // parking on that conflict for an explicit retry that can only fail again.
+        let faulted = rig
+            .tasks
+            .wait(TaskLookup {
+                id: "parent".into(),
+            })
+            .await?;
+        let TaskOutcome::Faulted { error } = faulted else {
+            panic!("expected a faulted oversized decision, got {faulted:?}");
+        };
+        assert!(error.contains("task record"), "{error}");
+        let record = rig
+            .tasks
+            .get(TaskLookup {
+                id: "parent".into(),
+            })
+            .await?
+            .unwrap();
+        assert_eq!(record.checkpoint, checkpoint);
+        assert_eq!(record.status, TaskStatus::Terminal);
+        assert_eq!(rig.control.effects("parent"), 1);
         let original = rig
             .tasks
             .get(TaskLookup {
@@ -560,6 +641,66 @@ fn a_child_inserted_during_complete_retains_the_settled_completion_decision() {
 }
 
 #[test]
+fn a_waiter_observes_a_terminal_write_that_bypassed_the_scheduler() {
+    run(|driver| async move {
+        let mut sleeper = TaskRecord::new(spec("sleeper"), None);
+        sleeper.status = TaskStatus::Sleeping;
+        sleeper.wake_at_ms = Some(9_000_000_000_000_000);
+        let poll = Duration::from_millis(20);
+        // Keep global discovery's monotonic probe deadline in the future while retaining
+        // real timer scheduling. Only the waiter's configured fallback can observe this write.
+        let scheduler_driver = Rc::new(FrozenProbeClock {
+            inner: driver.clone(),
+        });
+        let rig = open_driven(
+            driver,
+            scheduler_driver,
+            vec![sleeper],
+            Default::default(),
+            swarmie_durable_tasks::Configuration {
+                poll_interval_ms: 20,
+                max_parallel: 1,
+                ..Default::default()
+            },
+            |_| {},
+        )
+        .await?;
+        let waiting = rig.tasks.wait(TaskLookup {
+            id: "sleeper".into(),
+        });
+        tokio::pin!(waiting);
+        tokio::select! {
+            result = &mut waiting => panic!("a sleeping task cannot be terminal: {result:?}"),
+            () = tokio::time::sleep(poll * 2) => {}
+        }
+        rig.control.reset_counts();
+        let value = json!({"settled_outside":true});
+        rig.control
+            .external_settle(
+                "sleeper",
+                TaskOutcome::Completed {
+                    value: value.clone(),
+                },
+            )
+            .await?;
+        // No commit of this scheduler names the task. Its global sequence probe is not due
+        // yet, so the waiter must use its poll-interval fallback instead of waiting a second.
+        let outcome = tokio::time::timeout(poll * 3, &mut waiting)
+            .await
+            .expect("a terminal write that bypassed the scheduler was never observed")?;
+        assert_eq!(outcome, TaskOutcome::Completed { value });
+        assert!(
+            rig.control.gets.get() <= 4,
+            "the waiter polled storage {} times instead of sleeping",
+            rig.control.gets.get()
+        );
+        assert_eq!(rig.control.effects("sleeper"), 0);
+        rig.host.close().await?;
+        rig.backend.close().await
+    });
+}
+
+#[test]
 fn a_root_phase_reads_its_family_only_for_admission_and_decision() {
     run(|driver| async move {
         let rig = open(driver, vec![], |_| {}).await?;
@@ -592,6 +733,181 @@ fn a_root_phase_reads_its_family_only_for_admission_and_decision() {
         rig.host.close().await?;
         rig.backend.close().await
     });
+}
+
+/// Acknowledges and compacts every retained outbox event, freeing the store's capacity.
+async fn drain_outbox(consumer: &Consumer, storage: &TaskStorageRef) -> Result<()> {
+    let page = consumer
+        .read_outbox(TaskOutboxQuery {
+            consumer_id: "publisher".into(),
+            after: None,
+            limit: 64,
+        })
+        .await?;
+    if let Some(last) = page.events.last() {
+        consumer
+            .acknowledge_outbox(TaskOutboxAcknowledgement {
+                consumer_id: "publisher".into(),
+                through: last.id.clone(),
+            })
+            .await?;
+        storage
+            .compact_outbox(TaskOutboxCompaction { limit: 64 })
+            .await?;
+    }
+    Ok(())
+}
+
+#[test]
+fn a_reservation_refused_for_outbox_capacity_retries_at_the_poll_interval() {
+    run(|driver| async move {
+        let poll = Duration::from_millis(20);
+        let rig = open_with(
+            driver,
+            vec![],
+            swarmie_task_storage_sqlite::TaskOutboxLimits {
+                max_events: 1,
+                max_bytes: 1024 * 1024,
+                max_consumers: 1,
+            },
+            swarmie_durable_tasks::Configuration {
+                poll_interval_ms: 20,
+                max_parallel: 1,
+                ..Default::default()
+            },
+            |_| {},
+        )
+        .await?;
+        let storage = rig.backend.get(TaskStorage, TaskStorageInput {}).await?;
+        let consumer =
+            outbox_consumer::install(&rig.backend, "fixture.capacity-publisher", storage.clone())
+                .await?;
+        consumer
+            .register_outbox_consumer(TaskOutboxConsumer {
+                id: "publisher".into(),
+            })
+            .await?;
+        // Creation retains the only event the outbox admits, so every reservation of this
+        // Pending root is refused until the consumer acknowledges and compacts.
+        rig.tasks.create(spec("refused")).await?;
+        tokio::time::sleep(poll * 2).await;
+        rig.control.reset_counts();
+        let window = Duration::from_millis(200);
+        let started = tokio::time::Instant::now();
+        tokio::time::sleep(window).await;
+        let late = started.elapsed().saturating_sub(window);
+        let attempts = rig.control.commits.get();
+        let reads = rig.control.gets.get();
+        // Each retry waits one poll interval after its refusal: one read and one refused
+        // reservation per interval, and an idle executor that polls Host timers on time.
+        let bound = usize::try_from(window.as_millis() / poll.as_millis()).unwrap() + 2;
+        assert!(
+            (1..=bound).contains(&attempts),
+            "{attempts} reservation attempts in {window:?}; at most {bound} expected"
+        );
+        assert!(
+            reads <= bound + 2,
+            "{reads} task reads in {window:?}; at most {} expected",
+            bound + 2
+        );
+        assert!(
+            late < Duration::from_millis(50),
+            "a Host timer fired {late:?} late while refused reservations were retried"
+        );
+        let record = rig
+            .tasks
+            .get(TaskLookup {
+                id: "refused".into(),
+            })
+            .await?
+            .unwrap();
+        assert_eq!(record.status, TaskStatus::Pending);
+        assert_eq!(record.attempts, 0);
+        assert_eq!(rig.control.effects("refused"), 0);
+        // Freed capacity admits the task. Its settled decision is retained across the next
+        // refusal and committed once capacity returns again, without replaying the phase.
+        let settled = loop {
+            drain_outbox(&consumer, &storage).await?;
+            let record = rig
+                .tasks
+                .get(TaskLookup {
+                    id: "refused".into(),
+                })
+                .await?
+                .unwrap();
+            if record.is_terminal() {
+                break record;
+            }
+            tokio::time::sleep(poll).await;
+        };
+        assert!(matches!(
+            settled.outcome,
+            Some(TaskOutcome::Completed { .. })
+        ));
+        assert_eq!(settled.attempts, 1);
+        assert_eq!(rig.control.effects("refused"), 1);
+        rig.host.close().await?;
+        rig.backend.close().await
+    });
+}
+
+#[test]
+fn closing_interrupts_a_capacity_retry_without_waiting_for_the_poll_timer() {
+    run(|driver| async move {
+        let rig = open_with(
+            driver,
+            vec![],
+            swarmie_task_storage_sqlite::TaskOutboxLimits {
+                max_events: 1,
+                max_bytes: 1024 * 1024,
+                max_consumers: 1,
+            },
+            swarmie_durable_tasks::Configuration {
+                poll_interval_ms: 60_000,
+                max_parallel: 1,
+                ..Default::default()
+            },
+            |_| {},
+        )
+        .await?;
+        rig.tasks.create(spec("refused-close")).await?;
+        while rig.control.commits.get() < 2 {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        assert_eq!(rig.control.effects("refused-close"), 0);
+        tokio::time::timeout(Duration::from_millis(250), rig.host.close())
+            .await
+            .expect("capacity retry ignored scheduler cancellation")?;
+        let storage = rig.backend.get(TaskStorage, TaskStorageInput {}).await?;
+        let record = storage
+            .get(TaskLookup {
+                id: "refused-close".into(),
+            })
+            .await?
+            .unwrap();
+        assert_eq!(record.status, TaskStatus::Pending);
+        assert_eq!(record.attempts, 0);
+        rig.backend.close().await
+    });
+}
+
+/// Freezes sequence-probe time, while preserving actual scheduling and timer wakeups.
+struct FrozenProbeClock {
+    inner: Rc<TokioDriver>,
+}
+
+impl core::Driver for FrozenProbeClock {
+    fn spawn(&self, future: LocalBoxFuture<'static, ()>) {
+        core::Driver::spawn(self.inner.as_ref(), future);
+    }
+
+    fn sleep(&self, duration: Duration) -> LocalBoxFuture<'static, ()> {
+        core::Driver::sleep(self.inner.as_ref(), duration)
+    }
+
+    fn now(&self) -> Duration {
+        Duration::ZERO
+    }
 }
 
 /// Records requested timer durations while the Host's actual driver performs scheduling.
@@ -928,6 +1244,106 @@ fn a_continuation_commits_pending_while_other_work_waits_for_a_full_slot() {
         assert_eq!(rig.control.effects("a-continued"), 1);
         assert_eq!(rig.control.completions("a-continued"), 1);
         assert_eq!(rig.control.effects("b-waiting"), 1);
+        rig.host.close().await?;
+        rig.backend.close().await
+    });
+}
+
+#[test]
+fn an_exhausted_continuation_preserves_progress_without_wrapping_attempts() {
+    run(|driver| async move {
+        let mut record = TaskRecord::new(continued("parent"), None);
+        record.attempts = u32::MAX - 1;
+        let rig = open(driver, vec![record], |_| {}).await?;
+        let outcome = rig
+            .tasks
+            .wait(TaskLookup {
+                id: "parent".into(),
+            })
+            .await?;
+        assert!(
+            matches!(outcome, TaskOutcome::Faulted { .. }),
+            "{outcome:?}"
+        );
+        let record = rig
+            .tasks
+            .get(TaskLookup {
+                id: "parent".into(),
+            })
+            .await?
+            .unwrap();
+        assert_eq!(record.attempts, u32::MAX);
+        assert_eq!(record.phase, "complete");
+        assert_eq!(record.checkpoint, json!({"effect_performed":true}));
+        assert!(writes(&rig.control, "parent").iter().any(|write| {
+            write.0 == TaskStatus::Pending && write.1 == "complete" && write.2 == u32::MAX
+        }));
+        assert!(
+            writes(&rig.control, "parent")
+                .iter()
+                .all(|write| write.3 != Some(CONTINUATION))
+        );
+        assert_eq!(rig.control.effects("parent"), 1);
+        assert_eq!(rig.control.completions("parent"), 0);
+        rig.host.close().await?;
+        rig.backend.close().await
+    });
+}
+
+#[test]
+fn ancestor_cancellation_after_a_continued_reservation_blocks_the_child() {
+    run(|driver| async move {
+        let mut owner = TaskRecord::new(spec("owner"), None);
+        owner.status = TaskStatus::Sleeping;
+        owner.wake_at_ms = Some(9_000_000_000_000_000);
+        let child = TaskRecord::new(continued("child"), Some("owner".into()));
+        let rig = open(driver, vec![owner, child], |control| {
+            control.cancel_owner_after_continuation.set(true)
+        })
+        .await?;
+        assert!(matches!(
+            rig.tasks.wait(TaskLookup { id: "child".into() }).await?,
+            TaskOutcome::Aborted { .. }
+        ));
+        assert!(!rig.control.cancel_owner_after_continuation.get());
+        let record = rig
+            .tasks
+            .get(TaskLookup { id: "child".into() })
+            .await?
+            .unwrap();
+        assert_eq!(record.phase, "complete");
+        assert_eq!(record.checkpoint, json!({"effect_performed":true}));
+        assert_eq!(record.attempts, 2);
+        assert_eq!(rig.control.effects("child"), 1);
+        assert_eq!(rig.control.completions("child"), 0);
+        rig.host.close().await?;
+        rig.backend.close().await
+    });
+}
+
+#[test]
+fn synchronous_continuations_yield_to_unrelated_cancellation_work() {
+    run(|driver| async move {
+        let rig = open(driver, vec![], |_| {}).await?;
+        let mut chain = spec("chain");
+        chain.input = json!({"chain":200});
+        rig.tasks.create(chain).await?;
+        // Timer progress and a separate managed cancellation must be serviced between phases,
+        // even though every handler in the chain returns a ready continuation immediately.
+        while rig.control.effects("chain") == 0 {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        assert!(
+            rig.control.effects("chain") < 201,
+            "the chain starved unrelated Host work"
+        );
+        let intent = rig.tasks.cancel(TaskLookup { id: "chain".into() }).await?;
+        assert!(intent.cancellation_requested);
+        assert!(matches!(
+            rig.tasks.wait(TaskLookup { id: "chain".into() }).await?,
+            TaskOutcome::Aborted { .. }
+        ));
+        assert!(rig.control.effects("chain") < 201);
         rig.host.close().await?;
         rig.backend.close().await
     });
