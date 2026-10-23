@@ -1,13 +1,16 @@
 //! Required store-scoped association checks over the selected admission authority.
 //!
 //! A root is one turn-handler phase invocation, one model-terminal invocation, one cleanup root
-//! or one AgentLoop control call. Each root confirms its routed association once through
-//! [`Admission::confirm`] and lends the resulting [`Admitted`] proof to its Session reads and
-//! appends. Within a root nothing that confirmation proves can change: native providers and
-//! stores are fixed for the Host lifetime and the root keeps its admitted implementation
-//! version, store identities are immutable, bindings only move from Pending to Active without
-//! changing their route, and sessions are never deleted. Every Session page and receipt is still
-//! compared with the proof's destination. Effects confirm again immediately before they start.
+//! or one AgentLoop control call. Each root that performs Session I/O confirms its routed
+//! association once through [`Admission::confirm`], before its first Session read or append,
+//! and lends the resulting [`Admitted`] proof to its Session reads and appends. Source
+//! cancellation performs no Session I/O: it uses [`Admission::require_source`], which neither
+//! confirms the association nor yields a proof. Within a root nothing that confirmation proves
+//! can change: native providers and stores are fixed for the Host lifetime and the root keeps
+//! its admitted implementation version, store identities are immutable, bindings only move from
+//! Pending to Active without changing their route, and sessions are never deleted. Every
+//! Session page and receipt is still compared with the proof's destination. Effects confirm
+//! again immediately before they start.
 
 use swarmie_agent_contracts::{StartTurn, TurnContext};
 use swarmie_session_contracts::{SessionLookup, SessionStoreRef};

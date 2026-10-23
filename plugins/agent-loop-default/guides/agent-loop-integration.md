@@ -151,19 +151,23 @@ before the original admission call returns. Revision-one checks include initial 
 phase; later phases preserve immutable task input, identity, lineage and supported definition
 version while allowing checkpoint progress. The consumer additionally compares the retained
 Agent scope with the selected stores' authoritative IDs, then reads the durable task once and
-requires it to equal the invocation. Historical `lookup` alone is not an execution grant.
+requires it to equal the invocation. Confirmation, including activation of matching Pending
+intent, therefore precedes that comparison: a stale or cancelled invocation is refused only
+after confirming, and a confirmation failure is reported instead of the invocation mismatch.
+Cancellation still decides the durable outcome. Historical `lookup` alone is not an execution
+grant.
 
 Session receipt reads and Agent event appends, including post-effect recovery and cleanup,
 require confirmed routing. They use the confirmation of their root: a turn-handler phase
-invocation, a model-terminal invocation, a cleanup root or an AgentLoop control call confirms
-once, before its first Session read or append. Providers and the code version are pinned for a
-root, store identities are immutable, routing only moves from Pending to Active and sessions are
-never deleted, so that confirmation holds for the whole root. Every Session page and append
-receipt is still compared with the confirmed destination store, session and selector.
-Control-surface Session reconciliation has the same requirement, so a replacement store
-containing the same session name cannot receive a terminal event for another store. A phase
-reads the current turn's receipts at most once and extends that view with its own appends,
-recorded in the canonical form a fresh read returns.
+invocation, a model-terminal invocation, a cleanup root or an AgentLoop control call that
+performs Session I/O confirms once, before its first Session read or append. Providers and the
+code version are pinned for a root, store identities are immutable, routing only moves from
+Pending to Active and sessions are never deleted, so that confirmation holds for the whole
+root. Every Session page and append receipt is still compared with the confirmed destination
+store, session and selector. Control-surface Session reconciliation has the same requirement,
+so a replacement store containing the same session name cannot receive a terminal event for
+another store. A phase reads the current turn's receipts at most once and extends that view
+with its own appends, recorded in the canonical form a fresh read returns.
 
 Model and tool terminals still confirm again immediately before each effect, after asynchronous
 preparation, middleware and policy awaits, together with a fresh durable task read and the

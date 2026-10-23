@@ -189,6 +189,8 @@ impl TurnHandlerProvider for Engine {
         let checkpoint: Checkpoint = decode(task.checkpoint.clone())?;
         checkpoint.validate_identity(&request)?;
         // This phase root confirms its routing once; its Session reads and appends use the proof.
+        // Confirmation, which can activate matching Pending routing, precedes the invocation
+        // comparison below, so its failures are reported before a stale or cancelled invocation.
         let admitted = self
             .admission
             .confirm(&checkpoint.turn(&request), &context)
