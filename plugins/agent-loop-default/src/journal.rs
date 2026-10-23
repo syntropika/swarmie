@@ -41,21 +41,30 @@ impl HistoryView {
         Ok(&self.events)
     }
 
-    /// Adds one receipted append of this root at its committed sequence. An exact retry that the
-    /// store answered with its original receipt is already present and is not added twice.
-    fn record(&mut self, event: SessionEvent) -> Result<()> {
+    /// Adds one receipted append of this root at its committed sequence, in the canonical form
+    /// a fresh read returns: the store keeps canonical JSON, so an integral number submitted as
+    /// `2.0` reads back as `2`. An exact retry that the store answered with its original receipt
+    /// is already present and is not added twice.
+    fn record(&mut self, session_id: &str, sequence: u64, event: NewEvent) -> Result<()> {
         if self
             .events
             .iter()
-            .any(|known| known.event.event_id == event.event.event_id)
+            .any(|known| known.event.event_id == event.event_id)
         {
             return Ok(());
         }
-        self.bytes += swarmie_session_contracts::wire_bytes(&event)?;
+        let encoded = swarmie_session_contracts::canonical(&SessionEvent {
+            session_id: session_id.into(),
+            sequence,
+            event,
+        })?;
+        let stored: SessionEvent = serde_json::from_str(&encoded)
+            .map_err(|_| crate::state::invalid("appended event has no canonical stored form"))?;
+        self.bytes += encoded.len();
         let position = self
             .events
-            .partition_point(|known| known.sequence < event.sequence);
-        self.events.insert(position, event);
+            .partition_point(|known| known.sequence < stored.sequence);
+        self.events.insert(position, stored);
         Ok(())
     }
 }
@@ -92,7 +101,8 @@ impl Journal {
         view.events()
     }
 
-    /// Appends through this root's proof and extends its history view with the stored event.
+    /// Appends through this root's proof. A loaded history view is extended with the event at
+    /// its receipted sequence, in the canonical form a fresh read of the store returns.
     pub(crate) async fn append(
         &mut self,
         store: &SessionStoreRef,
@@ -104,17 +114,11 @@ impl Journal {
     ) -> Result<String> {
         let event = event(turn, suffix, kind, payload);
         let id = event.event_id.clone();
-        if self.history.is_none() {
-            commit(store, &self.admitted, turn, event, context).await?;
-            return Ok(id);
-        }
-        let sequence = commit(store, &self.admitted, turn, event.clone(), context).await?;
-        if let Some(view) = &mut self.history {
-            view.record(SessionEvent {
-                session_id: turn.session_id.clone(),
-                sequence,
-                event,
-            })?;
+        // Only a loaded view keeps a copy; a root that has not read history reads it later.
+        let recorded = self.history.is_some().then(|| event.clone());
+        let sequence = commit(store, &self.admitted, turn, event, context).await?;
+        if let (Some(view), Some(event)) = (&mut self.history, recorded) {
+            view.record(&turn.session_id, sequence, event)?;
         }
         Ok(id)
     }
@@ -316,22 +320,26 @@ pub(crate) fn own_event<'a>(
 mod tests {
     use super::*;
 
+    fn new_event(id: &str, payload: serde_json::Value) -> NewEvent {
+        NewEvent {
+            event_id: id.into(),
+            kind: "swarmie.agent.turn-started".into(),
+            version: 2,
+            correlation: Correlation {
+                conversation_id: Some("conversation".into()),
+                turn_id: Some("turn".into()),
+                ..Default::default()
+            },
+            occurred_at_ms: None,
+            payload,
+        }
+    }
+
     fn stored(id: &str, sequence: u64) -> SessionEvent {
         SessionEvent {
             session_id: "session".into(),
             sequence,
-            event: NewEvent {
-                event_id: id.into(),
-                kind: "swarmie.agent.turn-started".into(),
-                version: 2,
-                correlation: Correlation {
-                    conversation_id: Some("conversation".into()),
-                    turn_id: Some("turn".into()),
-                    ..Default::default()
-                },
-                occurred_at_ms: None,
-                payload: serde_json::json!({"value":sequence}),
-            },
+            event: new_event(id, serde_json::json!({"value":sequence})),
         }
     }
 
@@ -343,27 +351,70 @@ mod tests {
         HistoryView { events, bytes }
     }
 
+    fn record(history: &mut HistoryView, id: &str, sequence: u64) {
+        history
+            .record(
+                "session",
+                sequence,
+                new_event(id, serde_json::json!({"value":sequence})),
+            )
+            .unwrap();
+    }
+
     #[test]
     fn own_appends_extend_the_view_once_in_sequence_order() {
         let mut history = view(vec![stored("first", 1), stored("third", 3)]);
-        history.record(stored("fourth", 4)).unwrap();
-        history.record(stored("second", 2)).unwrap();
+        record(&mut history, "fourth", 4);
+        record(&mut history, "second", 2);
         // An exact retry answered with its original receipt is already part of the prefix.
-        history.record(stored("third", 3)).unwrap();
+        record(&mut history, "third", 3);
         let events = history.events().unwrap();
         assert_eq!(
             events
                 .iter()
-                .map(|event| event.event.event_id.as_str())
+                .map(|event| (event.event.event_id.as_str(), event.sequence))
                 .collect::<Vec<_>>(),
-            ["first", "second", "third", "fourth"]
+            [("first", 1), ("second", 2), ("third", 3), ("fourth", 4)]
         );
+        assert_eq!(events[1], stored("second", 2));
         let expected: usize = events
             .iter()
             .map(|event| swarmie_session_contracts::wire_bytes(event).unwrap())
             .sum();
         assert_eq!(history.bytes, expected);
-        assert!(find(events, "second").is_some());
+        assert_eq!(find(events, "second"), Some(&stored("second", 2).event));
+    }
+
+    #[test]
+    fn own_appends_are_recorded_as_a_fresh_read_returns_them() {
+        let mut history = view(vec![]);
+        let payload = serde_json::json!({"whole":2.0,"fraction":0.5,"nested":[3.0,-4.0]});
+        history
+            .record("session", 7, new_event("numbers", payload.clone()))
+            .unwrap();
+        let recorded = &history.events().unwrap()[0];
+        // The store persists canonical JSON, so a fresh read decodes integral numbers as integers.
+        let fresh: SessionEvent = serde_json::from_str(
+            &swarmie_session_contracts::canonical(&SessionEvent {
+                session_id: "session".into(),
+                sequence: 7,
+                event: new_event("numbers", payload.clone()),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(recorded, &fresh);
+        assert!(recorded.event.payload["whole"].is_u64());
+        assert!(recorded.event.payload["nested"][1].is_i64());
+        assert_ne!(recorded.event.payload, payload);
+        assert_eq!(
+            recorded.event.payload,
+            serde_json::json!({"whole":2,"fraction":0.5,"nested":[3,-4]})
+        );
+        assert_eq!(
+            history.bytes,
+            swarmie_session_contracts::wire_bytes(recorded).unwrap()
+        );
     }
 
     #[test]
@@ -374,9 +425,7 @@ mod tests {
                 .collect(),
         );
         assert!(history.events().is_ok());
-        history
-            .record(stored("over", MAX_HISTORY_EVENTS as u64 + 1))
-            .unwrap();
+        record(&mut history, "over", MAX_HISTORY_EVENTS as u64 + 1);
         assert_eq!(history.events().unwrap_err().reason, "agent_history_limit");
         let oversized = HistoryView {
             events: vec![stored("large", 1)],

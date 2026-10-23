@@ -162,7 +162,8 @@ never deleted, so that confirmation holds for the whole root. Every Session page
 receipt is still compared with the confirmed destination store, session and selector.
 Control-surface Session reconciliation has the same requirement, so a replacement store
 containing the same session name cannot receive a terminal event for another store. A phase
-reads the current turn's receipts at most once and extends that view with its own appends.
+reads the current turn's receipts at most once and extends that view with its own appends,
+recorded in the canonical form a fresh read returns.
 
 Model and tool terminals still confirm again immediately before each effect, after asynchronous
 preparation, middleware and policy awaits, together with a fresh durable task read and the
