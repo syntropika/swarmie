@@ -275,3 +275,72 @@ fn canonical(value: &impl serde::Serialize) -> Result<String> {
     tembra::contracts::canonical_json(&portable)
         .map_err(|_| refused("source proof cannot be represented as canonical JSON"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use swarmie_task_contracts::TaskSpec;
+
+    fn turn() -> TurnContext {
+        TurnContext {
+            turn_id: "turn".into(),
+            session_id: "session".into(),
+            conversation_id: "conversation".into(),
+            task_id: "task".into(),
+            step: 0,
+        }
+    }
+
+    fn admitted() -> Admitted {
+        let turn = turn();
+        Admitted {
+            binding: TaskSessionBinding {
+                key: BindingKey {
+                    task_store_id: "task-store".into(),
+                    task_id: turn.task_id.clone(),
+                },
+                destination: SessionDestination {
+                    session_store_id: "session-store".into(),
+                    session_id: turn.session_id.clone(),
+                    conversation_id: turn.conversation_id.clone(),
+                    turn_id: turn.turn_id.clone(),
+                },
+                root_task_id: turn.task_id.clone(),
+                parent_task_id: None,
+                routing_version: 1,
+                task: TaskSpec {
+                    id: turn.task_id.clone(),
+                    kind: TURN_KIND.into(),
+                    definition_version: 2,
+                    input: serde_json::json!({}),
+                    checkpoint: serde_json::json!({}),
+                    phase: "start".into(),
+                },
+                admission: BindingAdmission::Active,
+            },
+            turn,
+        }
+    }
+
+    #[test]
+    fn a_proof_covers_every_step_of_its_turn_and_no_other_turn() {
+        let admitted = admitted();
+        assert!(admitted.check_turn(&turn()).is_ok());
+        let mut later_step = turn();
+        later_step.step = 3;
+        assert!(admitted.check_turn(&later_step).is_ok());
+        let changes: [fn(&mut TurnContext); 4] = [
+            |turn| turn.session_id = "other-session".into(),
+            |turn| turn.conversation_id = "other-conversation".into(),
+            |turn| turn.turn_id = "other-turn".into(),
+            |turn| turn.task_id = "other-task".into(),
+        ];
+        for change in changes {
+            let mut other = turn();
+            change(&mut other);
+            let error = admitted.check_turn(&other).unwrap_err();
+            assert_eq!(error.reason, "agent_binding");
+            assert_eq!(error.message, "admission proof belongs to another turn");
+        }
+    }
+}

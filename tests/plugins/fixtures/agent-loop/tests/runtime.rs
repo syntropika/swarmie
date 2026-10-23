@@ -392,3 +392,137 @@ fn maximal_turn_identity_keeps_generated_session_correlation_within_limits() {
         fixture.host.close().await
     });
 }
+
+/// Never selected: a connection claimed by more than one registration is refused first.
+struct CompetingProvider;
+
+impl swarmie_model_contracts::ModelProviderSchemaProvider for CompetingProvider {
+    async fn capabilities(
+        &self,
+        _model: swarmie_model_contracts::ModelIdentity,
+        _context: tembra::Context,
+    ) -> tembra::Result<swarmie_model_contracts::Capabilities> {
+        Err(unselected())
+    }
+
+    async fn models(
+        &self,
+        _connection: String,
+        _context: tembra::Context,
+    ) -> tembra::Result<swarmie_model_contracts::ModelList> {
+        Err(unselected())
+    }
+
+    async fn generate(
+        &self,
+        _request: swarmie_model_contracts::ModelRequest,
+        _context: tembra::Context,
+    ) -> tembra::Result<swarmie_model_contracts::GenerateResult> {
+        Err(unselected())
+    }
+}
+
+fn unselected() -> tembra::RuntimeError {
+    tembra::RuntimeError::invalid(
+        "fixture_competing_provider",
+        "an ambiguous connection must not select a provider",
+    )
+}
+
+/// A later registration that claims the fixture connection under other contract names.
+fn competing_provider() -> tembra::Result<tembra::NativeFacet> {
+    use swarmie_model_contracts::{ModelEndpoint, ProviderRegistration, model_providers};
+    tembra::NativeFacet::new("fixture.competing-model", vec![], |_, setup| {
+        setup.serve_with_options(
+            ModelEndpoint::new("swarmie.acceptance-competing-model")?,
+            |_, _, declaration| {
+                declaration.core_mut().register_method(
+                    &model_providers()?,
+                    "competing",
+                    serde_json::to_value(ProviderRegistration {
+                        provider: "competing".into(),
+                        version: 1,
+                        provider_contract: "swarmie.acceptance-competing-model".into(),
+                        generation_contract: "swarmie.acceptance-competing-generation".into(),
+                        connections: vec!["fixture".into()],
+                    })
+                    .map_err(|error| {
+                        tembra::RuntimeError::invalid(
+                            "fixture_competing_metadata",
+                            error.to_string(),
+                        )
+                    })?,
+                    "generate",
+                )?;
+                Ok(CompetingProvider)
+            },
+            core::ServeOptions {
+                lifetime: core::Lifetime::Host,
+                ..Default::default()
+            },
+        )
+    })
+}
+
+#[test]
+fn model_selection_reads_the_current_registry_table_after_tokens_are_retained() {
+    run(|driver| async move {
+        let directory = tempfile::tempdir().unwrap();
+        let fixture = open(
+            driver,
+            directory.path(),
+            vec![Reply::text("selected"), Reply::text("never generated")],
+            Default::default(),
+            true,
+        )
+        .await?;
+        fixture.start("selected", Default::default()).await?;
+        let selected = fixture.terminal("selected").await?;
+        assert!(
+            matches!(selected.task.outcome, Some(TaskOutcome::Completed { .. })),
+            "{selected:?}"
+        );
+        assert_eq!(fixture.model.requests.borrow().len(), 1);
+        // The terminal now retains endpoint tokens for the first provider's names. A later
+        // registration claiming the same connection must still make selection ambiguous.
+        fixture
+            .host
+            .install(competing_provider()?, core::LoadOptions::default())?
+            .await?;
+        fixture.start("ambiguous", Default::default()).await?;
+        let parked = loop {
+            let record = fixture
+                .agent
+                .inspect(Harness::lookup("ambiguous"))
+                .await?
+                .unwrap();
+            if record.task.status == TaskStatus::Parked {
+                break record;
+            }
+            assert!(!record.task.is_terminal(), "{record:?}");
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        };
+        assert_eq!(parked.task.phase, "model");
+        assert!(
+            matches!(
+                &parked.task.blocking_reason,
+                Some(swarmie_task_contracts::BlockingReason::HandlerFailure { detail })
+                    if detail.contains("multiple model providers claim the connection")
+            ),
+            "{parked:?}"
+        );
+        assert_eq!(
+            fixture.model.requests.borrow().len(),
+            1,
+            "an ambiguous connection never reaches a provider"
+        );
+        let events = fixture.events("ambiguous").await?;
+        assert!(
+            !events
+                .iter()
+                .any(|entry| entry.event.kind == "swarmie.agent.model-actual"),
+            "selection is refused before the actual request is recorded"
+        );
+        fixture.host.close().await
+    });
+}

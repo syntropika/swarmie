@@ -165,10 +165,25 @@ pub async fn open_with_session_provider(
     root: &Path,
     session_provider: NativeFacet,
 ) -> Result<Harness> {
+    open_with_session_provider_replies(
+        driver,
+        root,
+        session_provider,
+        vec![Reply::text("verified destination")],
+    )
+    .await
+}
+
+pub async fn open_with_session_provider_replies(
+    driver: Rc<TokioDriver>,
+    root: &Path,
+    session_provider: NativeFacet,
+    replies: Vec<Reply>,
+) -> Result<Harness> {
     open_with_loop(
         driver,
         root,
-        vec![Reply::text("verified destination")],
+        replies,
         Default::default(),
         Some(true),
         true,
