@@ -139,6 +139,14 @@ impl AdversarialTaskProvider for Handler {
                     checkpoint: task.checkpoint.clone(),
                     phase: task.phase.clone(),
                 }),
+                "continue-invalid-phase" => Ok(TaskTransition::Continue {
+                    checkpoint: serde_json::json!({"invalid_progress":true}),
+                    phase: "!".into(),
+                }),
+                "continue-no-progress" => Ok(TaskTransition::Continue {
+                    checkpoint: task.checkpoint.clone(),
+                    phase: task.phase.clone(),
+                }),
                 _ => Err(RuntimeError::invalid(
                     "fixture_phase",
                     "unknown adversarial phase",

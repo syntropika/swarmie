@@ -15,6 +15,7 @@ use tembra::{Context, Resource, Result, RuntimeError, core};
 
 use crate::{
     Configuration,
+    execution::Next,
     mutation::{Change, Mutation},
     reads::is_contention,
     waiters::Waiters,
@@ -235,6 +236,46 @@ impl Engine {
         .await
     }
 
+    /// One task's managed execution: a reconciled phase, then each next phase that its handler
+    /// continues in place. Every phase decision and invocation runs in a fresh root Context, so
+    /// it resolves the task definition at the Host's current code epoch.
+    async fn drive(self: Rc<Self>, scope: core::TaskScope, candidate: TaskRecord) -> Result<()> {
+        let engine = self.clone();
+        let mut next = scope
+            .root(move |context| {
+                async move { engine.execute(candidate, Context::from_core(context)).await }
+                    .boxed_local()
+            })
+            .await?;
+        while let Next::Continue(continuation) = next {
+            // Phases can settle synchronously. Let the scheduling loop and other Host work run
+            // between continued phases, as they would between separately admitted phases.
+            yield_now().await;
+            let engine = self.clone();
+            let entered = Rc::new(Cell::new(false));
+            let admitted = entered.clone();
+            let result = scope
+                .root(move |context| {
+                    admitted.set(true);
+                    async move {
+                        engine
+                            .continue_phase(continuation, Context::from_core(context))
+                            .await
+                    }
+                    .boxed_local()
+                })
+                .await;
+            next = match result {
+                // A refused root means the activity is stopping. Like any stopping scheduler,
+                // drop the settled decision: graceful close restores the reservation to Pending
+                // and crash recovery counts a restart, so the phase runs again later.
+                Err(_) if !entered.get() => return Ok(()),
+                result => result?,
+            };
+        }
+        Ok(())
+    }
+
     pub async fn run(self: Rc<Self>, scope: core::TaskScope) -> Result<()> {
         self.failure.borrow_mut().take();
         let observed = self.clone();
@@ -277,13 +318,9 @@ impl Engine {
                     if !self.inflight.borrow_mut().insert(candidate.id.clone()) {
                         continue;
                     }
-                    let engine = self.clone();
                     let cleanup = self.clone();
                     let cleanup_id = candidate.id.clone();
-                    let phase = scope.root(move |context| {
-                        async move { engine.execute(candidate, Context::from_core(context)).await }
-                            .boxed_local()
-                    });
+                    let phase = self.clone().drive(scope.clone(), candidate);
                     phases.push(
                         async move {
                             let result = phase.await;

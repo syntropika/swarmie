@@ -12,7 +12,7 @@ use crate::{
     mutation::{Change, Mutation},
     ownership,
     reads::{TaskFamily, is_contention},
-    registry,
+    registry::{self, Definition},
     scheduler::Engine,
 };
 
@@ -22,6 +22,22 @@ enum Decision {
     Park(String),
     Fault(String),
     RejectMigration(u32, String),
+}
+
+/// What a task's managed execution does after one phase settles.
+pub(crate) enum Next {
+    /// The phase decision was committed or deliberately dropped; the execution ends.
+    Done,
+    /// The handler asked to continue in place. The settled decision is committed from a fresh
+    /// root Context, whose code epoch also selects the definition for the next phase.
+    Continue(Box<Continuation>),
+}
+
+/// A physically settled continuation decision that is not committed yet.
+pub(crate) struct Continuation {
+    admitted: TaskRecord,
+    checkpoint: serde_json::Value,
+    phase: String,
 }
 
 fn diagnostic(mut detail: String) -> String {
@@ -48,6 +64,13 @@ fn invalid_decision(error: &RuntimeError) -> bool {
     error.reason.starts_with("task_storage_invalid")
         || error.reason == "task_storage_too_large"
         || error.reason == "durable_tasks_transition"
+}
+
+fn without_progress() -> RuntimeError {
+    RuntimeError::invalid(
+        "durable_tasks_transition",
+        "checkpoint transition must describe durable progress",
+    )
 }
 
 impl Engine {
@@ -80,7 +103,7 @@ impl Engine {
     /// intent, changes the revision and makes the reservation conflict and reschedule. An owned
     /// task still reads its coherent family first, because ancestor cancellation does not change
     /// the task's own revision.
-    pub async fn execute(self: Rc<Self>, candidate: TaskRecord, context: Context) -> Result<()> {
+    pub async fn execute(self: Rc<Self>, candidate: TaskRecord, context: Context) -> Result<Next> {
         let id = candidate.id.clone();
         let (mut record, cancelled) = if candidate.parent.is_none() {
             let cancelled = candidate.cancellation_requested;
@@ -89,7 +112,7 @@ impl Engine {
             let family = match self.family(&context, &id).await {
                 Err(error) if is_contention(&error) => {
                     self.schedule(&id);
-                    return Ok(());
+                    return Ok(Next::Done);
                 }
                 result => result?,
             };
@@ -97,12 +120,12 @@ impl Engine {
             (family.task, cancelled)
         };
         if record.status != TaskStatus::Pending {
-            return Ok(());
+            return Ok(Next::Done);
         }
         // Cancellation is judged on a coherent family before reserving execution.
         if cancelled {
             self.schedule(&id);
-            return Ok(());
+            return Ok(Next::Done);
         }
         let definition = match registry::definition(&self.registry, &record, context.core()) {
             Ok(definition) => definition,
@@ -116,7 +139,7 @@ impl Engine {
                 ) {
                     self.schedule(&id);
                 }
-                return Ok(());
+                return Ok(Next::Done);
             }
         };
         let migrating = record.definition_version != definition.metadata.version;
@@ -126,14 +149,14 @@ impl Engine {
                 .insert(id.clone(), definition.operation.clone());
         }
         let Some(attempts) = record.attempts.checked_add(1) else {
-            return self
-                .finish_decision(
-                    &context,
-                    &record,
-                    Decision::Fault("attempt count exhausted before handler admission".into()),
-                    None,
-                )
-                .await;
+            self.finish_decision(
+                &context,
+                &record,
+                Decision::Fault("attempt count exhausted before handler admission".into()),
+                None,
+            )
+            .await?;
+            return Ok(Next::Done);
         };
         let change = Change::from_record(&record, TaskLifecycleOrigin::Reservation);
         record.status = TaskStatus::Running;
@@ -145,34 +168,70 @@ impl Engine {
             Ok(CommitResult::Conflict { .. }) => {
                 self.reservations.borrow_mut().remove(&id);
                 self.schedule(&id);
-                return Ok(());
+                return Ok(Next::Done);
             }
             Err(error) if error.reason == "task_storage_outbox_full" => {
                 // Capacity rejection is definite: no Running reservation was committed.
                 self.reservations.borrow_mut().remove(&id);
                 self.schedule(&id);
-                return Ok(());
+                return Ok(Next::Done);
             }
             Err(error) => return Err(error),
         }
+        self.invoke(&context, &id, definition, migrating).await
+    }
+
+    /// Commits a settled continuation decision from this fresh root Context. When the commit
+    /// also reserved the next phase, the same managed execution invokes the handler for it.
+    pub async fn continue_phase(
+        self: Rc<Self>,
+        continuation: Box<Continuation>,
+        context: Context,
+    ) -> Result<Next> {
+        let Continuation {
+            admitted,
+            checkpoint,
+            phase,
+        } = *continuation;
+        let decision = Decision::Transition(TaskTransition::Continue { checkpoint, phase });
+        match self
+            .finish_decision(&context, &admitted, decision, None)
+            .await?
+        {
+            Some((reserved, definition)) => {
+                self.invoke(&context, &reserved.id, definition, false).await
+            }
+            None => Ok(Next::Done),
+        }
+    }
+
+    /// Admits and invokes the handler for this owner's committed Running reservation, then
+    /// commits the settled decision or hands a continuation back to the managed execution.
+    async fn invoke(
+        &self,
+        context: &Context,
+        id: &str,
+        definition: Definition,
+        migrating: bool,
+    ) -> Result<Next> {
         let (handler_context, handler_guard) = context.child_call(context.principal().clone())?;
         self.active
             .borrow_mut()
-            .insert(id.clone(), handler_context.cancellation().clone());
-        let admission = self.settled_family(&context, &id).await?;
+            .insert(id.to_owned(), handler_context.cancellation().clone());
+        let admission = self.settled_family(context, id).await?;
         let admitted = admission.task.clone();
         if admitted.status != TaskStatus::Running {
-            return Ok(());
+            return Ok(Next::Done);
         }
         if self.cancelled(&admission) {
-            return self
-                .finish_decision(
-                    &context,
-                    &admitted,
-                    Decision::Park("cancellation before handler admission".into()),
-                    migrating.then_some(definition.metadata.version),
-                )
-                .await;
+            self.finish_decision(
+                context,
+                &admitted,
+                Decision::Park("cancellation before handler admission".into()),
+                migrating.then_some(definition.metadata.version),
+            )
+            .await?;
+            return Ok(Next::Done);
         }
         let invocation = if migrating {
             TaskInvocation::Migrate {
@@ -186,14 +245,9 @@ impl Engine {
             }
         };
         if let Err(error) = validate_task_payload_size(&invocation) {
-            return self
-                .finish_decision(
-                    &context,
-                    &admitted,
-                    Decision::Fault(error.to_string()),
-                    None,
-                )
-                .await;
+            self.finish_decision(context, &admitted, Decision::Fault(error.to_string()), None)
+                .await?;
+            return Ok(Next::Done);
         }
         let call = definition.operation.call_json_tracked(
             &handler_context,
@@ -221,9 +275,9 @@ impl Engine {
             },
         });
         drop(handler_guard);
-        self.active.borrow_mut().remove(&id);
+        self.active.borrow_mut().remove(id);
         if context.check(context.host_id()).is_err() || self.failure.borrow().is_some() {
-            return Ok(());
+            return Ok(Next::Done);
         }
         let result = result.and_then(|value| {
             tembra::contracts::from_portable_value::<TaskTransition>(&value.ok_or_else(|| {
@@ -235,6 +289,14 @@ impl Engine {
             .map_err(|error| RuntimeError::invalid("durable_tasks_transition", error.to_string()))
         });
         let decision = match result {
+            // Only a run invocation can continue. A migration must accept or reject explicitly.
+            Ok(TaskTransition::Continue { checkpoint, phase }) if !migrating => {
+                return Ok(Next::Continue(Box::new(Continuation {
+                    admitted,
+                    checkpoint,
+                    phase,
+                })));
+            }
             Ok(transition) => Decision::Transition(transition),
             Err(error) if migrating => {
                 Decision::RejectMigration(definition.metadata.version, error.to_string())
@@ -247,30 +309,79 @@ impl Engine {
             Err(error) => Decision::Park(error.to_string()),
         };
         self.finish_decision(
-            &context,
+            context,
             &admitted,
             decision,
             migrating.then_some(definition.metadata.version),
         )
-        .await
+        .await?;
+        Ok(Next::Done)
     }
 
+    /// Selects the definition and attempt for reserving a continuation's next phase in place.
+    ///
+    /// Returns None, meaning an ordinary Pending checkpoint, when the attempt counter is
+    /// exhausted, when another runnable task waits while every execution slot is occupied, or
+    /// when the definition resolved at this fresh Context is unavailable or has another version.
+    /// Blocking and migration then run through ordinary admission before the next phase.
+    fn continuation(&self, context: &Context, task: &TaskRecord) -> Option<(Definition, u32)> {
+        let attempts = task.attempts.checked_add(1)?;
+        {
+            let inflight = self.inflight.borrow();
+            if inflight.len() >= self.configuration.max_parallel as usize
+                && self.work.borrow().runnable_waiting(&inflight)
+            {
+                return None;
+            }
+        }
+        let definition = registry::definition(&self.registry, task, context.core()).ok()?;
+        (definition.metadata.version == task.definition_version).then_some((definition, attempts))
+    }
+
+    /// Commits a continuation decision and the next phase's reservation as one Running write.
+    /// Its provenance is a reservation that also accepted a checkpoint, so the revision reports
+    /// a phase start followed by a checkpoint.
+    async fn reserve_continuation(
+        &self,
+        context: &Context,
+        mut task: TaskRecord,
+        checkpoint: serde_json::Value,
+        phase: String,
+        attempts: u32,
+    ) -> Result<CommitResult> {
+        if checkpoint == task.checkpoint && phase == task.phase {
+            return Err(without_progress());
+        }
+        let mut change = Change::from_record(&task, TaskLifecycleOrigin::Reservation);
+        change.checkpoint_committed = true;
+        task.checkpoint = checkpoint;
+        task.phase = phase;
+        task.status = TaskStatus::Running;
+        task.attempts = attempts;
+        task.restarts = 0;
+        task.blocking_reason = None;
+        self.update(context, task, change).await
+    }
+
+    /// Commits a physically settled decision without invoking its handler again. Returns the
+    /// committed Running record and its definition only when a continuation reserved its next
+    /// phase in place; every other outcome ends the managed execution.
     async fn finish_decision(
         &self,
         context: &Context,
         admitted: &TaskRecord,
         mut decision: Decision,
         migration: Option<u32>,
-    ) -> Result<()> {
+    ) -> Result<Option<(TaskRecord, Definition)>> {
         loop {
             if context.check(context.host_id()).is_err() || self.failure.borrow().is_some() {
-                return Ok(());
+                return Ok(None);
             }
             let family = self.settled_family(context, &admitted.id).await?;
             let mut latest = family.task.clone();
             let mut change = Change::from_record(&latest, TaskLifecycleOrigin::Handler);
             if matches!(latest.status, TaskStatus::Terminal | TaskStatus::Completing) {
-                return Ok(());
+                return Ok(None);
             }
             let cancelled = self.cancelled(&family);
             if !cancelled
@@ -279,6 +390,7 @@ impl Engine {
             {
                 decision = Decision::Park("settled phase conflicts with a newer committed record; explicit retry required; external effect may have occurred".into());
             }
+            let mut continued = None;
             let outcome = if cancelled {
                 change.origin = TaskLifecycleOrigin::Cancellation;
                 latest.cancellation_requested = true;
@@ -344,6 +456,24 @@ impl Engine {
                                     continue;
                                 }
                             }
+                        } else if let TaskTransition::Continue { checkpoint, phase } = transition {
+                            if let Some((definition, attempts)) =
+                                self.continuation(context, &latest)
+                            {
+                                continued = Some(definition);
+                                self.reserve_continuation(
+                                    context, latest, checkpoint, phase, attempts,
+                                )
+                                .await
+                            } else {
+                                self.apply_transition(
+                                    context,
+                                    latest,
+                                    TaskTransition::Continue { checkpoint, phase },
+                                    &family.children,
+                                )
+                                .await
+                            }
                         } else {
                             self.apply_transition(context, latest, transition, &family.children)
                                 .await
@@ -352,7 +482,21 @@ impl Engine {
                 }
             };
             match outcome {
-                Ok(CommitResult::Committed { .. }) => return Ok(()),
+                Ok(CommitResult::Committed { records, .. }) => {
+                    let Some(definition) = continued else {
+                        return Ok(None);
+                    };
+                    let reserved = records
+                        .into_iter()
+                        .find(|record| record.id == admitted.id)
+                        .ok_or_else(|| {
+                            RuntimeError::invalid(
+                                "durable_tasks_storage_receipt",
+                                "storage commit did not return the continued task",
+                            )
+                        })?;
+                    return Ok(Some((reserved, definition)));
+                }
                 Ok(CommitResult::Conflict { .. }) => {
                     // A known atomic refusal cannot justify replaying an external effect.
                     decision = Decision::Park("settled phase transaction conflicted; checkpoint preserved; explicit retry required; external effect may have occurred".into());
@@ -399,17 +543,18 @@ impl Engine {
         change.checkpoint_committed = matches!(
             &transition,
             TaskTransition::Checkpoint { .. }
+                | TaskTransition::Continue { .. }
                 | TaskTransition::Sleep { .. }
                 | TaskTransition::Wait { .. }
         );
         task.restarts = 0;
         match transition {
-            TaskTransition::Checkpoint { checkpoint, phase } => {
+            // A continuation that cannot reserve its next phase in place is an ordinary
+            // checkpoint: the next phase is admitted by a later reconciliation pass.
+            TaskTransition::Checkpoint { checkpoint, phase }
+            | TaskTransition::Continue { checkpoint, phase } => {
                 if checkpoint == task.checkpoint && phase == task.phase {
-                    return Err(RuntimeError::invalid(
-                        "durable_tasks_transition",
-                        "checkpoint transition must describe durable progress",
-                    ));
+                    return Err(without_progress());
                 }
                 task.checkpoint = checkpoint;
                 task.phase = phase;

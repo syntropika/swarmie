@@ -4,7 +4,9 @@ use std::{cell::RefCell, future::Future, rc::Rc, time::Duration};
 
 use futures::future::LocalBoxFuture;
 use serde_json::json;
-use swarmie_durable_tasks_fixture::concurrency::{StorageControl, handler_facet, storage_facet};
+use swarmie_durable_tasks_fixture::concurrency::{
+    CONTINUATION, StorageControl, handler_facet, storage_facet,
+};
 use swarmie_task_contracts::*;
 use tembra::{core, prelude::*};
 use tembra_native::TokioDriver;
@@ -686,5 +688,247 @@ fn scheduling_and_paged_reads_request_no_fixed_pacing_timers() {
         );
         host.close().await?;
         backend.close().await
+    });
+}
+
+fn continued(id: &str) -> TaskSpec {
+    let mut task = spec(id);
+    task.input = json!({"continue":true});
+    task
+}
+
+/// The confirmed writes of one task, as (status, phase, attempts, provenance).
+fn writes(
+    control: &StorageControl,
+    id: &str,
+) -> Vec<(TaskStatus, String, u32, Option<TaskTransitionProvenance>)> {
+    control
+        .committed
+        .borrow()
+        .iter()
+        .filter(|write| write.record.id == id)
+        .map(|write| {
+            (
+                write.record.status,
+                write.record.phase.clone(),
+                write.record.attempts,
+                write.provenance,
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn a_continuation_commits_its_decision_and_next_reservation_in_one_write() {
+    run(|driver| async move {
+        let rig = open(driver, vec![], |_| {}).await?;
+        rig.tasks.create(continued("parent")).await?;
+        assert_eq!(
+            rig.tasks
+                .wait(TaskLookup {
+                    id: "parent".into()
+                })
+                .await?,
+            TaskOutcome::Completed {
+                value: json!({"completed_after_continuation":true})
+            }
+        );
+        let handler = |checkpoint_committed| {
+            Some(TaskTransitionProvenance {
+                origin: TaskLifecycleOrigin::Handler,
+                checkpoint_committed,
+            })
+        };
+        assert_eq!(
+            writes(&rig.control, "parent"),
+            [
+                (
+                    TaskStatus::Pending,
+                    "effect".into(),
+                    0,
+                    Some(TaskTransitionProvenance {
+                        origin: TaskLifecycleOrigin::Creation,
+                        checkpoint_committed: false
+                    })
+                ),
+                (
+                    TaskStatus::Running,
+                    "effect".into(),
+                    1,
+                    Some(TaskTransitionProvenance {
+                        origin: TaskLifecycleOrigin::Reservation,
+                        checkpoint_committed: false
+                    })
+                ),
+                (
+                    TaskStatus::Running,
+                    "complete".into(),
+                    2,
+                    Some(CONTINUATION)
+                ),
+                (TaskStatus::Terminal, "complete".into(), 2, handler(false)),
+            ],
+            "the effect decision and the next reservation share one revision"
+        );
+        let record = rig
+            .tasks
+            .get(TaskLookup {
+                id: "parent".into(),
+            })
+            .await?
+            .unwrap();
+        assert_eq!(record.revision, 4);
+        assert_eq!(record.restarts, 0);
+        assert_eq!(record.checkpoint, json!({"effect_performed":true}));
+        assert_eq!(rig.control.effects("parent"), 1);
+        assert_eq!(rig.control.completions("parent"), 1);
+        rig.host.close().await?;
+        rig.backend.close().await
+    });
+}
+
+#[test]
+fn concurrent_cancellation_wins_over_a_settled_continuation() {
+    run(|driver| async move {
+        let rig = open(driver, vec![], |control| {
+            control.pause_continuation_commit.set(true)
+        })
+        .await?;
+        let parent = continued("parent");
+        let checkpoint = parent.checkpoint.clone();
+        rig.tasks.create(parent).await?;
+        while !rig.control.continuation_commit_started.get() {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        let intent = rig
+            .tasks
+            .cancel(TaskLookup {
+                id: "parent".into(),
+            })
+            .await?;
+        assert!(intent.cancellation_requested);
+        rig.control.release_commit();
+        assert!(matches!(
+            rig.tasks
+                .wait(TaskLookup {
+                    id: "parent".into()
+                })
+                .await?,
+            TaskOutcome::Aborted { .. }
+        ));
+        let record = rig
+            .tasks
+            .get(TaskLookup {
+                id: "parent".into(),
+            })
+            .await?
+            .unwrap();
+        assert_eq!(
+            record.checkpoint, checkpoint,
+            "the conflicting continuation never committed"
+        );
+        assert_eq!(record.phase, "effect");
+        assert_eq!(rig.control.effects("parent"), 1);
+        assert_eq!(rig.control.completions("parent"), 0);
+        rig.host.close().await?;
+        rig.backend.close().await
+    });
+}
+
+#[test]
+fn cancellation_after_a_continued_reservation_blocks_the_next_invocation() {
+    run(|driver| async move {
+        let rig = open(driver, vec![], |control| {
+            control.cancel_after_continuation.set(true)
+        })
+        .await?;
+        rig.tasks.create(continued("parent")).await?;
+        assert!(matches!(
+            rig.tasks
+                .wait(TaskLookup {
+                    id: "parent".into()
+                })
+                .await?,
+            TaskOutcome::Aborted { .. }
+        ));
+        assert!(!rig.control.cancel_after_continuation.get());
+        let record = rig
+            .tasks
+            .get(TaskLookup {
+                id: "parent".into(),
+            })
+            .await?
+            .unwrap();
+        // The continuation committed the decision and the reservation; admission then saw the
+        // later intent and settled the task without entering the continued phase.
+        assert_eq!(record.checkpoint, json!({"effect_performed":true}));
+        assert_eq!(record.phase, "complete");
+        assert_eq!(record.attempts, 2);
+        assert_eq!(rig.control.effects("parent"), 1);
+        assert_eq!(rig.control.completions("parent"), 0);
+        rig.host.close().await?;
+        rig.backend.close().await
+    });
+}
+
+#[test]
+fn a_continuation_commits_pending_while_other_work_waits_for_a_full_slot() {
+    run(|driver| async move {
+        // Both roots exist before the single-slot scheduler starts, so the second waits while
+        // the first runs and asks to continue.
+        let records = vec![
+            TaskRecord::new(continued("a-continued"), None),
+            TaskRecord::new(spec("b-waiting"), None),
+        ];
+        let rig = open(driver, records, |_| {}).await?;
+        for id in ["a-continued", "b-waiting"] {
+            assert!(matches!(
+                rig.tasks.wait(TaskLookup { id: id.into() }).await?,
+                TaskOutcome::Completed { .. }
+            ));
+        }
+        let handler = Some(TaskTransitionProvenance {
+            origin: TaskLifecycleOrigin::Handler,
+            checkpoint_committed: true,
+        });
+        let continued = writes(&rig.control, "a-continued");
+        assert_eq!(
+            continued[1],
+            (TaskStatus::Pending, "complete".into(), 1, handler),
+            "with every slot occupied and work waiting, the decision is an ordinary checkpoint"
+        );
+        assert!(continued.iter().all(|write| write.3 != Some(CONTINUATION)));
+        let order: Vec<_> = rig
+            .control
+            .committed
+            .borrow()
+            .iter()
+            .map(|write| {
+                (
+                    write.record.id.clone(),
+                    write.record.status,
+                    write.record.phase.clone(),
+                )
+            })
+            .collect();
+        let waiting_done = order
+            .iter()
+            .position(|write| write.0 == "b-waiting" && write.1 == TaskStatus::Terminal)
+            .unwrap();
+        let next_phase = order
+            .iter()
+            .position(|write| {
+                write.0 == "a-continued" && write.1 == TaskStatus::Running && write.2 == "complete"
+            })
+            .unwrap();
+        assert!(
+            waiting_done < next_phase,
+            "the waiting task runs before the next phase: {order:?}"
+        );
+        assert_eq!(rig.control.effects("a-continued"), 1);
+        assert_eq!(rig.control.completions("a-continued"), 1);
+        assert_eq!(rig.control.effects("b-waiting"), 1);
+        rig.host.close().await?;
+        rig.backend.close().await
     });
 }

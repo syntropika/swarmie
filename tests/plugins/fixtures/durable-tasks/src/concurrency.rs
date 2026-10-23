@@ -28,9 +28,23 @@ pub struct StorageControl {
     pub insert_child_during_complete: Cell<bool>,
     pub pause_final_commit: Cell<bool>,
     pub final_commit_started: Cell<bool>,
+    /// Holds the parent's next continuation write until [`StorageControl::release_commit`].
+    pub pause_continuation_commit: Cell<bool>,
+    pub continuation_commit_started: Cell<bool>,
+    /// Commits the parent's cancellation intent right after its next continuation write.
+    pub cancel_after_continuation: Cell<bool>,
+    /// Every write confirmed through this proxy, in commit order.
+    pub committed: RefCell<Vec<TaskWrite>>,
     released: core::CancellationToken,
     effects: RefCell<BTreeMap<String, usize>>,
+    completions: RefCell<BTreeMap<String, usize>>,
 }
+
+/// Provenance of a write that commits a continuation and reserves its next phase.
+pub const CONTINUATION: TaskTransitionProvenance = TaskTransitionProvenance {
+    origin: TaskLifecycleOrigin::Reservation,
+    checkpoint_committed: true,
+};
 
 impl StorageControl {
     pub fn new(backend: TaskStorageRef) -> Rc<Self> {
@@ -52,8 +66,13 @@ impl StorageControl {
             insert_child_during_complete: Cell::new(false),
             pause_final_commit: Cell::new(false),
             final_commit_started: Cell::new(false),
+            pause_continuation_commit: Cell::new(false),
+            continuation_commit_started: Cell::new(false),
+            cancel_after_continuation: Cell::new(false),
+            committed: RefCell::new(Vec::new()),
             released: core::CancellationToken::new(),
             effects: RefCell::new(BTreeMap::new()),
+            completions: RefCell::new(BTreeMap::new()),
         })
     }
 
@@ -75,6 +94,43 @@ impl StorageControl {
 
     pub fn effects(&self, id: &str) -> usize {
         *self.effects.borrow().get(id).unwrap_or(&0)
+    }
+
+    /// Invocations of the effect-free `complete` phase that follows a continuation.
+    pub fn completions(&self, id: &str) -> usize {
+        *self.completions.borrow().get(id).unwrap_or(&0)
+    }
+
+    /// Writes durable cancellation intent through the backend, bypassing the scheduler.
+    async fn request_cancellation(&self, id: &str, owner: &str) -> Result<()> {
+        let mut record = self
+            .backend
+            .get(TaskLookup { id: id.into() })
+            .await?
+            .ok_or_else(|| {
+                RuntimeError::invalid("fixture_missing", "cancellation requires a committed task")
+            })?;
+        let revision = record.revision;
+        record.revision += 1;
+        record.cancellation_requested = true;
+        match self
+            .backend
+            .commit(TaskTransaction {
+                owner: owner.into(),
+                writes: vec![TaskWrite {
+                    provenance: None,
+                    expected_revision: Some(revision),
+                    record,
+                }],
+            })
+            .await?
+        {
+            CommitResult::Committed { .. } => Ok(()),
+            CommitResult::Conflict { .. } => Err(RuntimeError::invalid(
+                "fixture_conflict",
+                "controlled cancellation unexpectedly conflicted",
+            )),
+        }
     }
 
     pub async fn external_create(&self, spec: TaskSpec) -> Result<()> {
@@ -379,7 +435,24 @@ impl TaskStorageProvider for Proxy {
                 .set(self.control.metadata_conflicts.get() - 1);
             self.control.bump("parent", &transaction.owner).await?;
         }
-        self.control.backend.commit(transaction).await
+        let continuation = transaction
+            .writes
+            .iter()
+            .any(|write| write.record.id == "parent" && write.provenance == Some(CONTINUATION));
+        if continuation && self.control.pause_continuation_commit.replace(false) {
+            self.control.continuation_commit_started.set(true);
+            self.control.released.cancelled().await;
+        }
+        let writes = transaction.writes.clone();
+        let owner = transaction.owner.clone();
+        let result = self.control.backend.commit(transaction).await?;
+        if matches!(result, CommitResult::Committed { .. }) {
+            self.control.committed.borrow_mut().extend(writes);
+            if continuation && self.control.cancel_after_continuation.replace(false) {
+                self.control.request_cancellation("parent", &owner).await?;
+            }
+        }
+        Ok(result)
     }
 }
 
@@ -424,6 +497,17 @@ impl ConcurrentHandlerProvider for Handler {
                 reason: "no migration needed".into(),
             });
         };
+        if task.phase == "complete" {
+            *self
+                .control
+                .completions
+                .borrow_mut()
+                .entry(task.id.clone())
+                .or_default() += 1;
+            return Ok(TaskTransition::Complete {
+                value: serde_json::json!({"completed_after_continuation":true}),
+            });
+        }
         *self
             .control
             .effects
@@ -460,6 +544,12 @@ impl ConcurrentHandlerProvider for Handler {
             return Ok(TaskTransition::Migrate {
                 checkpoint: serde_json::Value::Null,
                 phase: "illegal".into(),
+            });
+        }
+        if task.input["continue"] == true {
+            return Ok(TaskTransition::Continue {
+                checkpoint: serde_json::json!({"effect_performed":true}),
+                phase: "complete".into(),
             });
         }
         if task.input["collision"] == true {

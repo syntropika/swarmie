@@ -156,6 +156,14 @@ impl Work {
         true
     }
 
+    /// Whether a task last observed as Pending, other than the given in-flight executions,
+    /// waits for an execution slot.
+    pub fn runnable_waiting(&self, inflight: &BTreeSet<String>) -> bool {
+        self.hints
+            .iter()
+            .any(|(id, hint)| hint.status == TaskStatus::Pending && !inflight.contains(id))
+    }
+
     pub fn definitions_changed(&mut self) {
         let ids: Vec<_> = self
             .hints

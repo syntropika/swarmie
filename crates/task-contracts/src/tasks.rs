@@ -47,6 +47,22 @@ pub enum TaskTransition {
         checkpoint: serde_json::Value,
         phase: String,
     },
+    /// Opt-in continuation of the same managed execution. One Running write commits this
+    /// checkpoint and phase and reserves that phase as a new attempt, with restarts reset and
+    /// no blocking reason; the handler is then invoked again for it. The write reports a phase
+    /// start followed by a checkpoint.
+    ///
+    /// The scheduler commits ordinary `checkpoint` semantics instead, leaving the task Pending,
+    /// when the definition resolved at the next phase's fresh Context is unavailable or has
+    /// another version (blocking or migration then runs first), when another runnable task waits
+    /// while every execution slot is occupied, or when the attempt counter is exhausted.
+    /// Cancellation intent and newer records still take precedence over the settled decision.
+    /// The checkpoint must describe durable progress, and a crash during the continued phase
+    /// recovers it like any other interrupted reservation.
+    Continue {
+        checkpoint: serde_json::Value,
+        phase: String,
+    },
     Sleep {
         checkpoint: serde_json::Value,
         phase: String,

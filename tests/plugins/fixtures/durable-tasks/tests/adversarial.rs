@@ -119,7 +119,13 @@ fn logical_cancellation_waits_for_actual_physical_settlement() {
 fn invalid_handler_transitions_fault_without_claiming_checkpoint_progress() {
     run(|driver| async move {
         let (host, tasks, _control, _directory) = open(driver, 1).await?;
-        for phase in ["wrong-mode", "invalid-phase", "no-progress"] {
+        for phase in [
+            "wrong-mode",
+            "invalid-phase",
+            "no-progress",
+            "continue-invalid-phase",
+            "continue-no-progress",
+        ] {
             tasks.create(spec(phase, phase)).await?;
             let parked = status(&tasks, phase, TaskStatus::Terminal).await?;
             assert!(matches!(parked.outcome, Some(TaskOutcome::Faulted { .. })));
