@@ -167,7 +167,10 @@ reads the current turn's receipts at most once and extends that view with its ow
 Model and tool terminals still confirm again immediately before each effect, after asynchronous
 preparation, middleware and policy awaits, together with a fresh durable task read and the
 current cancellation, argument and permission checks. Optional hooks cannot bypass this
-requirement. Confirmation is not a transaction spanning stores
+requirement. The model terminal also reads the durable task after its started receipt and
+before activating the generation object, so a cancellation committed while its receipts are
+appended ends the attempt without a generation or a provider receipt. Confirmation is not a
+transaction spanning stores
 or a promise of exactly-once external effects. Logical cancellation validates the actual source
 and retained historical binding without depending on destination availability. It commits through
 Durable Tasks first and performs no destination I/O on that control path. The integration publisher

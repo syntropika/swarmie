@@ -24,8 +24,8 @@ use swarmie_model_contracts::{
 };
 use swarmie_session_contracts::{SessionStore, SessionStoreInput, SessionStoreRef};
 use swarmie_task_contracts::{
-    DurableTasks, DurableTasksInput, DurableTasksRef, TaskLookup, TaskStatus, TaskStorage,
-    TaskStorageInput,
+    DurableTasks, DurableTasksInput, DurableTasksRef, TaskLookup, TaskRecord, TaskStatus,
+    TaskStorage, TaskStorageInput,
 };
 use swarmie_task_session_contracts::{TaskSessionBindings, TaskSessionBindingsInput};
 use tembra::{core, prelude::*};
@@ -409,6 +409,18 @@ impl ModelExecutor {
             &context,
         )
         .await?;
+        // Cancellation can commit while the receipts above are appended and be signalled only
+        // later. Reading the task again before activation ends such an attempt without a
+        // generation object, so it never acquires a cancelled provider receipt.
+        let latest = self
+            .tasks
+            .with_context(&context)
+            .get(TaskLookup {
+                id: call.turn.task_id.clone(),
+            })
+            .await?
+            .ok_or_else(|| invalid("model task disappeared before generation admission"))?;
+        unchanged_since_gate(&task, &latest)?;
         let generation = context
             .get(
                 generation_endpoint,
@@ -710,6 +722,23 @@ impl ModelExecutor {
     }
 }
 
+/// Generation admission requires the durable task to be unchanged since the terminal's gate
+/// read. Requested cancellation, another status or phase, or another checkpoint aborts the
+/// attempt before a generation object is activated.
+fn unchanged_since_gate(gate: &TaskRecord, latest: &TaskRecord) -> Result<()> {
+    if latest.cancellation_requested
+        || latest.status != TaskStatus::Running
+        || latest.phase != "model"
+        || latest.checkpoint != gate.checkpoint
+    {
+        return Err(RuntimeError::aborted(
+            "agent_model_admission",
+            "turn changed before generation admission",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_result(call: &ModelCall, result: &GenerateResult) -> Result<()> {
     if let GenerateResult::Response { response } = result
         && (response.request_id != call.request.request_id
@@ -830,5 +859,42 @@ mod tests {
         assert!(endpoints.tokens(names("", "fixture.generation")).is_err());
         assert!(endpoints.tokens(names("fixture.model", "")).is_err());
         assert!(endpoints.retained.borrow().is_empty());
+    }
+
+    fn running_model_task() -> TaskRecord {
+        let mut task = TaskRecord::new(
+            swarmie_task_contracts::TaskSpec {
+                id: "task".into(),
+                kind: TURN_KIND.into(),
+                definition_version: 2,
+                input: serde_json::json!({"turn":"input"}),
+                checkpoint: serde_json::json!({"step":0}),
+                phase: "model".into(),
+            },
+            None,
+        );
+        task.status = TaskStatus::Running;
+        task.revision = 4;
+        task.attempts = 1;
+        task
+    }
+
+    #[test]
+    fn generation_admission_aborts_when_the_task_changed_after_the_gate_read() {
+        let gate = running_model_task();
+        assert!(unchanged_since_gate(&gate, &gate.clone()).is_ok());
+        let changes: [fn(&mut TaskRecord); 4] = [
+            |task| task.cancellation_requested = true,
+            |task| task.status = TaskStatus::Parked,
+            |task| task.phase = "model-result".into(),
+            |task| task.checkpoint = serde_json::json!({"step":1}),
+        ];
+        for change in changes {
+            let mut latest = gate.clone();
+            change(&mut latest);
+            let error = unchanged_since_gate(&gate, &latest).unwrap_err();
+            assert_eq!(error.code, core::ErrorCode::Aborted);
+            assert_eq!(error.reason, "agent_model_admission");
+        }
     }
 }
