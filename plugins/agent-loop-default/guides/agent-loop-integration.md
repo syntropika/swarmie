@@ -152,8 +152,9 @@ phase; later phases preserve immutable task input, identity, lineage and support
 version while allowing checkpoint progress. The consumer additionally compares the retained
 Agent scope with the selected stores' authoritative IDs, then reads the durable task once and
 requires it to equal the invocation. Confirmation, including activation of matching Pending
-intent, therefore precedes that comparison: a stale or cancelled invocation is refused only
-after confirming, and a confirmation failure is reported instead of the invocation mismatch.
+intent, therefore precedes that comparison: an invocation that the durable task no longer
+matches, for example because cancellation was requested after its reservation, is refused
+only after confirming, and a confirmation failure is reported instead of that mismatch.
 Cancellation still decides the durable outcome. Historical `lookup` alone is not an execution
 grant.
 
