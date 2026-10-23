@@ -210,7 +210,7 @@ fn validate_route(
         || !valid_lineage(binding)
         || binding.task.id != turn.task_id
         || binding.task.kind != TURN_KIND
-        || binding.task.definition_version != 2
+        || binding.task.definition_version != 3
     {
         return Err(refused(
             "routed association does not describe this agent task",
@@ -311,7 +311,7 @@ mod tests {
                 task: TaskSpec {
                     id: turn.task_id.clone(),
                     kind: TURN_KIND.into(),
-                    definition_version: 2,
+                    definition_version: 3,
                     input: serde_json::json!({}),
                     checkpoint: serde_json::json!({}),
                     phase: "start".into(),

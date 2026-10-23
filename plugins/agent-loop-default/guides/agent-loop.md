@@ -22,12 +22,18 @@ status, cancellation and durable transitions. Neither State, hooks nor a success
 substitutes for a storage commit. A turn checkpoint contains counters, deadline origin, source
 position, explicit version, persisted session/conversation/turn identity and event references. It does not copy messages, model bodies or tool output.
 
-The default loop runs resumable phases for turn start, context/request preparation, generation,
-response processing, tool preparation, tool execution, result processing, step end and finalization.
-The current implementation uses one durable turn task: each phase is a scheduler checkpoint,
-not a second executor or an independent task per token. A future independently managed long-running
+The default loop uses one durable turn task with `start`, `model`, `tool` and `finish` recovery
+phases. Context/request preparation, response processing, tool preparation and step bookkeeping
+run as bounded internal substeps. Each invocation performs at most one model or tool effect;
+Durable Tasks commits and admits the next effect through `Continue`. Ordinary Session evidence
+is confirmed before observations are admitted. A future independently managed long-running
 tool can own child tasks through the existing Durable Tasks Contract. No child-task scheduler is
 introduced by this capability.
+
+If a completion receipt was committed but its reply or task transition was lost, duration
+exhaustion does not replace it with a different ending. The loop validates the saved decision
+under a fresh, one-second cooperative reconciliation grace after joining expired work. Unresolved
+evidence leaves the original effect checkpoint recoverable; it does not authorize another effect.
 
 ## Native lifecycle hooks
 

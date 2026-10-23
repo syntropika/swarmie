@@ -175,6 +175,9 @@ impl Engine {
                     },
                 )
                 .await?;
+            // The terminal is a separate root and may persist the effective request.
+            // Refresh once so folded result interpretation observes its committed receipts.
+            journal.refresh();
             crate::model::redact_reasoning(&mut result);
             check_model_result(&result, &call)?;
             // Middleware may supply a complete replacement without entering the terminal.

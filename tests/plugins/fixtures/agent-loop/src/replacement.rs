@@ -1,5 +1,5 @@
 //! A distinct fixture-only AgentLoop implementation that completes confirmed final answers.
-//! It shares only public Contracts and explicitly admits version-two finalization checkpoints
+//! It shares only public Contracts and explicitly admits version-three finalization checkpoints
 //! or a model-phase checkpoint with a complete correlated provider receipt. It does not invoke
 //! models, tools or lifecycle contributions; unsupported or uncertain phases remain refused.
 
@@ -50,7 +50,7 @@ pub fn facet() -> Result<NativeFacet> {
                 declaration.core_mut().register_method(
                     &task_definitions()?,
                     KIND,
-                    serde_json::json!({"kind":KIND,"version":2}),
+                    serde_json::json!({"kind":KIND,"version":3}),
                     "step",
                 )?;
                 Ok(Finalizer {
@@ -316,14 +316,14 @@ impl ReplacementHandlerProvider for Finalizer {
                 task,
                 target_version,
             } => {
-                return if target_version == 2 && task.definition_version == 2 {
+                return if target_version == 3 && task.definition_version == 3 {
                     Ok(TaskTransition::Migrate {
                         checkpoint: task.checkpoint,
                         phase: task.phase,
                     })
                 } else {
                     Ok(TaskTransition::RejectMigration {
-                        reason: "replacement supports only checkpoint version two".into(),
+                        reason: "replacement supports only checkpoint version three".into(),
                     })
                 };
             }
@@ -337,7 +337,7 @@ impl ReplacementHandlerProvider for Finalizer {
             .await?
             .ok_or_else(|| RuntimeError::invalid("fixture_replacement_task", "task is absent"))?;
         if admitted != task
-            || task.definition_version != 2
+            || task.definition_version != 3
             || task.kind != KIND
             || task.status != TaskStatus::Running
             || task.cancellation_requested
@@ -348,10 +348,7 @@ impl ReplacementHandlerProvider for Finalizer {
             ));
         }
         self.route.require(&task, &context).await?;
-        if !matches!(
-            task.phase.as_str(),
-            "model" | "model-result" | "step-end" | "finish"
-        ) {
+        if !matches!(task.phase.as_str(), "model" | "finish") {
             return Err(RuntimeError::invalid(
                 "fixture_replacement_scope",
                 "checkpoint is outside confirmed final-answer scope",
@@ -360,7 +357,7 @@ impl ReplacementHandlerProvider for Finalizer {
         let request: StartTurn = serde_json::from_value(task.input.clone()).map_err(|error| {
             RuntimeError::invalid("fixture_replacement_input", error.to_string())
         })?;
-        if task.checkpoint["version"] != 2
+        if task.checkpoint["version"] != 3
             || task.checkpoint["session_id"] != request.session_id
             || task.checkpoint["conversation_id"] != request.conversation_id
             || task.checkpoint["turn_id"] != request.turn_id

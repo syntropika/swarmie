@@ -47,7 +47,7 @@ pub(crate) fn declare(
                 TURN_KIND,
                 encode(&TaskDefinition {
                     kind: TURN_KIND.into(),
-                    version: 2,
+                    version: 3,
                 })?,
                 "step",
             )?;
@@ -121,8 +121,14 @@ pub(crate) struct Engine {
     _monitor: AgentObservationsRef,
     pub(crate) tools: core::RegistryView,
     pub(crate) terminals: core::RegistryView,
-    driver: Rc<dyn core::Driver>,
+    pub(crate) driver: Rc<dyn core::Driver>,
     active: RefCell<BTreeSet<String>>,
+}
+
+/// Latest fully recorded internal substep; speculative hook work never advances this view.
+struct Bookkeeping {
+    checkpoint: Checkpoint,
+    phase: String,
 }
 
 struct PhaseGuard<'a> {
@@ -143,7 +149,7 @@ impl TurnHandlerProvider for Engine {
                 task,
                 target_version,
             } => {
-                return if target_version == 2 && task.definition_version == 2 {
+                return if target_version == 3 && task.definition_version == 3 {
                     let request: StartTurn = decode(task.input.clone())?;
                     let checkpoint: Checkpoint = decode(task.checkpoint.clone())?;
                     checkpoint.validate_identity(&request)?;
@@ -156,7 +162,7 @@ impl TurnHandlerProvider for Engine {
                     })
                 } else {
                     Ok(TaskTransition::RejectMigration {
-                        reason: "agent checkpoint v1 has no conversation identity; migration requires explicit evidence and is not automatic".into(),
+                        reason: "agent checkpoint version has different conversation or phase boundaries; migration requires explicit evidence and is not automatic".into(),
                     })
                 };
             }
@@ -173,9 +179,10 @@ impl TurnHandlerProvider for Engine {
             id: task.id.clone(),
         };
         if task.kind != TURN_KIND
-            || task.definition_version != 2
+            || task.definition_version != 3
             || task.status != TaskStatus::Running
             || task.cancellation_requested
+            || !matches!(task.phase.as_str(), "start" | "model" | "tool" | "finish")
         {
             return Err(invalid(
                 "turn invocation differs from the admitted durable task",
@@ -216,13 +223,30 @@ impl TurnHandlerProvider for Engine {
             .saturating_add(request.limits.max_duration_ms)
             .saturating_sub(now_ms()?);
         if remaining == 0 && task.phase != "finish" {
+            if let Some(decision) = self
+                .recover_terminal_decision(&task, &request, &checkpoint, &context)
+                .await?
+            {
+                return Ok(decision);
+            }
             return self.end_checkpoint(checkpoint, "duration limit reached");
         }
         let (child, guard) = context.child_call(context.principal().clone())?;
         let child = Context::from_core(child);
         let mut journal = Journal::new(admitted);
+        let progress = RefCell::new(Bookkeeping {
+            checkpoint: checkpoint.clone(),
+            phase: task.phase.clone(),
+        });
         let result = {
-            let work = self.phase(&task, &request, checkpoint.clone(), &mut journal, &child);
+            let work = self.phase(
+                &task,
+                &request,
+                checkpoint.clone(),
+                &progress,
+                &mut journal,
+                &child,
+            );
             let timer = self
                 .driver
                 .sleep(Duration::from_millis(if task.phase == "finish" {
@@ -240,7 +264,12 @@ impl TurnHandlerProvider for Engine {
                     ));
                     // Cooperative cancellation still awaits physical invocation ownership.
                     let _ = work.await;
-                    if task.phase == "finish" {
+                    if let Some(decision) = self
+                        .recover_terminal_decision(&task, &request, &checkpoint, &context)
+                        .await?
+                    {
+                        Ok(decision)
+                    } else if task.phase == "finish" {
                         Ok(TaskTransition::Fail {
                             error: checkpoint
                                 .ending
@@ -248,22 +277,27 @@ impl TurnHandlerProvider for Engine {
                                 .unwrap_or_else(|| "turn finalization deadline reached".into()),
                         })
                     } else {
-                        self.end_checkpoint(checkpoint.clone(), "duration limit reached")
+                        self.end_checkpoint(
+                            progress.borrow().checkpoint.clone(),
+                            "duration limit reached",
+                        )
                     }
                 }
             }
         };
         drop(guard);
         if let Err(error) = &result
+            && error.reason != crate::terminal_recovery::UNRESOLVED
             && context.check(context.host_id()).is_ok()
         {
+            let failed_phase = progress.borrow().phase.clone();
             journal
                 .append(
                     &self.sessions,
                     &checkpoint.turn(&request),
-                    &format!("error:{}:{}", task.phase, task.attempts),
+                    &format!("error:{}:{}", failed_phase, task.attempts),
                     "swarmie.agent.phase-error",
-                    serde_json::json!({"phase":task.phase,"reason":error.reason}),
+                    serde_json::json!({"phase":failed_phase,"reason":error.reason}),
                     &context,
                 )
                 .await?;
@@ -271,23 +305,24 @@ impl TurnHandlerProvider for Engine {
         let duration_exhausted =
             now_ms()?.saturating_sub(checkpoint.started_at_ms) >= request.limits.max_duration_ms;
         match result {
-            Err(_) if duration_exhausted && context.check(context.host_id()).is_ok() => {
+            Err(error)
+                if error.reason != crate::terminal_recovery::UNRESOLVED
+                    && duration_exhausted
+                    && context.check(context.host_id()).is_ok() =>
+            {
                 // A phase's own deadline can settle just before the enclosing timer fires.
                 // Its physical work is already joined; do not park an exhausted turn.
-                self.end_checkpoint(checkpoint, "duration limit reached")
-            }
-            Err(error)
-                if matches!(
-                    task.phase.as_str(),
-                    "start" | "prepare-model" | "prepare-tool"
-                ) && matches!(
-                    error.code,
-                    core::ErrorCode::Invalid
-                        | core::ErrorCode::Forbidden
-                        | core::ErrorCode::ContractMismatch
-                ) && context.check(context.host_id()).is_ok() =>
-            {
-                self.end_checkpoint(checkpoint, &format!("phase refused: {}", error.reason))
+                if let Some(decision) = self
+                    .recover_terminal_decision(&task, &request, &checkpoint, &context)
+                    .await?
+                {
+                    Ok(decision)
+                } else {
+                    self.end_checkpoint(
+                        progress.borrow().checkpoint.clone(),
+                        "duration limit reached",
+                    )
+                }
             }
             other => other,
         }
@@ -295,9 +330,70 @@ impl TurnHandlerProvider for Engine {
 }
 
 impl Engine {
+    /// Runs bounded deterministic bookkeeping inside one scheduler-owned invocation. Only
+    /// the next effect's committed intent, a forced ending, or a terminal outcome escapes.
     async fn phase(
         &self,
         task: &TaskRecord,
+        request: &StartTurn,
+        mut cp: Checkpoint,
+        progress: &RefCell<Bookkeeping>,
+        journal: &mut Journal,
+        context: &Context,
+    ) -> Result<TaskTransition> {
+        let mut phase = task.phase.clone();
+        for _ in 0..8 {
+            context.check(context.host_id())?;
+            progress.borrow_mut().phase = phase.clone();
+            let result = self
+                .subphase(&phase, request, cp.clone(), journal, context)
+                .await;
+            let transition = match result {
+                Err(error)
+                    if matches!(phase.as_str(), "start" | "prepare-model" | "prepare-tool")
+                        && matches!(
+                            error.code,
+                            core::ErrorCode::Invalid
+                                | core::ErrorCode::Forbidden
+                                | core::ErrorCode::ContractMismatch
+                        )
+                        && context.check(context.host_id()).is_ok() =>
+                {
+                    self.end_checkpoint(cp.clone(), &format!("phase refused: {}", error.reason))?
+                }
+                other => other?,
+            };
+            match transition {
+                TaskTransition::Continue {
+                    checkpoint,
+                    phase: next_phase,
+                } => {
+                    let next_cp: Checkpoint = decode(checkpoint.clone())?;
+                    // A substep returns only after its Session evidence commits. Timeout
+                    // finalization may retain these counters and references, never speculative work.
+                    progress.borrow_mut().checkpoint = next_cp.clone();
+                    if matches!(next_phase.as_str(), "model" | "tool")
+                        || (next_phase == "finish" && next_cp.ending.is_some())
+                    {
+                        return Ok(TaskTransition::Continue {
+                            checkpoint,
+                            phase: next_phase,
+                        });
+                    }
+                    cp = next_cp;
+                    phase = next_phase;
+                }
+                terminal => {
+                    return Ok(terminal);
+                }
+            }
+        }
+        Err(invalid("agent bookkeeping exceeded its bounded phase path"))
+    }
+
+    async fn subphase(
+        &self,
+        phase: &str,
         request: &StartTurn,
         mut cp: Checkpoint,
         journal: &mut Journal,
@@ -305,7 +401,7 @@ impl Engine {
     ) -> Result<TaskTransition> {
         context.check(context.host_id())?;
         let turn = cp.turn(request);
-        match task.phase.as_str() {
+        match phase {
             "start" => {
                 journal
                     .append(
@@ -362,7 +458,7 @@ impl Engine {
                     }
                 } else {
                     TaskOutcome::Completed {
-                        value: serde_json::json!({"session_id":request.session_id,"conversation_id":request.conversation_id,"turn_id":request.turn_id,"response_event_id":cp.response_event,"steps":cp.step+1,"tool_calls":cp.tool_calls,"output_tokens":cp.output_tokens}),
+                        value: completion_value(request, &cp),
                     }
                 };
                 journal
@@ -396,8 +492,13 @@ impl Engine {
 }
 
 pub(crate) fn next(cp: Checkpoint, phase: &str) -> Result<TaskTransition> {
-    Ok(TaskTransition::Checkpoint {
+    Ok(TaskTransition::Continue {
         checkpoint: encode(&cp)?,
         phase: phase.into(),
     })
+}
+
+/// Exact successful turn payload shared by normal completion and evidence recovery.
+pub(crate) fn completion_value(request: &StartTurn, cp: &Checkpoint) -> serde_json::Value {
+    serde_json::json!({"session_id":request.session_id,"conversation_id":request.conversation_id,"turn_id":request.turn_id,"response_event_id":cp.response_event,"steps":cp.step+1,"tool_calls":cp.tool_calls,"output_tokens":cp.output_tokens})
 }

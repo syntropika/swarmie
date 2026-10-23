@@ -101,6 +101,12 @@ impl Journal {
         view.events()
     }
 
+    /// Reloads committed evidence after the nested model terminal writes its effective request.
+    /// Root-owned appends are already durable and are included in the next checked read.
+    pub(crate) fn refresh(&mut self) {
+        self.history = None;
+    }
+
     /// Appends through this root's proof. A loaded history view is extended with the event at
     /// its receipted sequence, in the canonical form a fresh read of the store returns.
     pub(crate) async fn append(
@@ -260,7 +266,7 @@ fn event(turn: &TurnContext, suffix: &str, kind: &str, payload: serde_json::Valu
     }
 }
 
-/// Commits one single-event batch whose identity is the event's, returning its sequence.
+/// Commits one event with its exact immutable identity.
 async fn commit(
     store: &SessionStoreRef,
     admitted: &Admitted,
@@ -268,23 +274,83 @@ async fn commit(
     event: NewEvent,
     context: &Context,
 ) -> Result<u64> {
+    commit_batch(store, admitted, turn, vec![event], context).await
+}
+
+/// Commits the model terminal's actual-request and started receipts at their shared
+/// pre-effect fence. Validate both requests before any write if the pair needs splitting.
+pub(crate) async fn append_pair(
+    store: &SessionStoreRef,
+    admitted: &Admitted,
+    turn: &TurnContext,
+    entries: [(&str, &str, serde_json::Value); 2],
+    context: &Context,
+) -> Result<()> {
+    let events = entries
+        .into_iter()
+        .map(|(suffix, kind, payload)| event(turn, suffix, kind, payload))
+        .collect::<Vec<_>>();
+    let request = AppendEvents {
+        session_id: turn.session_id.clone(),
+        batch_id: events[0].event_id.clone(),
+        expected_head: None,
+        events: events.clone(),
+    };
+    match swarmie_session_contracts::validate_append(&request) {
+        Ok(()) => {
+            commit_batch(store, admitted, turn, events, context).await?;
+        }
+        Err(error) if error.reason == "session_store_too_large" => {
+            // Each piece keeps its first stable event id. Refuse an invalid singleton before
+            // writing either piece; no independent size/depth policy is recreated here.
+            for event in &events {
+                swarmie_session_contracts::validate_append(&AppendEvents {
+                    session_id: turn.session_id.clone(),
+                    batch_id: event.event_id.clone(),
+                    expected_head: None,
+                    events: vec![event.clone()],
+                })?;
+            }
+            for event in events {
+                commit(store, admitted, turn, event, context).await?;
+            }
+        }
+        Err(error) => return Err(error),
+    }
+    Ok(())
+}
+
+async fn commit_batch(
+    store: &SessionStoreRef,
+    admitted: &Admitted,
+    turn: &TurnContext,
+    events: Vec<NewEvent>,
+    context: &Context,
+) -> Result<u64> {
     admitted.check_turn(turn)?;
-    let batch_id = event.event_id.clone();
+    let count = events.len() as u64;
+    let batch_id = events
+        .first()
+        .ok_or_else(|| crate::state::invalid("empty session fence"))?
+        .event_id
+        .clone();
     let receipt = store
         .with_context(context)
         .append(AppendEvents {
             session_id: turn.session_id.clone(),
             batch_id: batch_id.clone(),
             expected_head: None,
-            events: vec![event],
+            events,
         })
         .await?;
     if receipt.store_id != admitted.destination().session_store_id
         || receipt.session_id != turn.session_id
         || receipt.batch_id != batch_id
+        || receipt.first_sequence == 0
+        || receipt.first_sequence.checked_add(count - 1) != Some(receipt.last_sequence)
     {
         return Err(crate::state::invalid(
-            "session append receipt differs from the routed batch identity",
+            "session append receipt differs from the routed batch identity or sequence range",
         ));
     }
     Ok(receipt.first_sequence)

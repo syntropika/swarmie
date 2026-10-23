@@ -49,15 +49,15 @@ carry conversation, turn, task and step correlation; confirmed operation payload
 operation ID. Cancellation request identity is independent of the current step. Append retries
 keep the complete original payload, version, correlation and expected-head policy unchanged.
 
-## Default checkpoint version two
+## Default checkpoint version three
 
-A replacement handler registers task kind `swarmie.agent-turn`, definition version two, only if it
+A replacement handler registers task kind `swarmie.agent-turn`, definition version three, only if it
 understands the persisted format and phase being resumed. The input is the public StartTurn DTO.
 The checkpoint object has these exact fields:
 
 | Field | Type and purpose |
 | --- | --- |
-| `version` | Required value 2 |
+| `version` | Required value 3 |
 | `session_id`, `conversation_id`, `turn_id` | Persisted immutable causal identity, validated against task input |
 | `step` | u32 model-step index, starting at zero |
 | `tool_index` | u32 index within the confirmed model response |
@@ -70,10 +70,29 @@ The checkpoint object has these exact fields:
 | `tool_event` | Optional tool-intent event ID |
 | `ending` | Optional controlled failure reason for finalization |
 
-Phases are `start`, `prepare-model`, `model`, `model-result`, `prepare-tool`, `tool`, `tool-result`,
-`step-end` and `finish`. Version, identity and counter fields are required. The serializer emits explicit null for absent
+Durable phases are `start`, `model`, `tool` and `finish`. Context preparation, result processing,
+tool preparation and step bookkeeping run as bounded internal substeps of the current invocation.
+Each invocation performs at most one model or tool effect. Before another effect, the handler
+returns `Continue` so Durable Tasks commits the next intent checkpoint and admits that invocation.
+The handler does not own a separate scheduler. Version, identity and counter fields are required. The serializer emits explicit null for absent
 receipt references and `ending`; a reader also accepts an omitted optional field as None, and
 phases requiring a receipt reject its absence explicitly.
+Successful inline completion keeps the last effect-entry checkpoint; its authoritative terminal
+outcome references the confirmed response and final counters. The checkpoint is a recovery point,
+not a duplicate of the final outcome. Controlled failure first commits `finish` with the latest
+fully recorded progress. Ordinary Session receipts commit immediately, before their observations.
+The effective model request and its started receipt share one immutable batch when the public
+append budget admits the pair; provider confirmation remains a separate post-effect commit.
+After nested model execution, the loop refreshes its checked history before interpreting the
+effective request and result. This preserves middleware-adjusted limits and causal identity.
+
+On duration exhaustion or a timed-out invocation, a committed terminal decision is reconciled
+before constructing a new ending. A fresh child of the live parent has a one-second cooperative
+grace after expired work is joined. Recovery verifies the exact task and routing, terminal receipt,
+confirmed final model result, effective output cap and completion counters. It performs no model
+or tool effect and emits no replacement observations. Missing evidence permits normal controlled
+failure; invalid or unavailable evidence preserves the original checkpoint for explicit recovery.
+
 No content, arguments, model response or tool result is copied into this checkpoint. A compatible
 replacement may support a narrower set of phases and explicitly refuse others. Different formats
 must select a new definition version and implement the Durable Tasks migration contract, with
@@ -84,7 +103,8 @@ conversation fields. Version-two contracts have new fingerprints and generated b
 is no default conversation and no format guessing. A version-one persisted task is explicitly
 rejected through `TaskTransition::RejectMigration`; Durable Tasks preserves its input/checkpoint
 and marks unsupported recovery instead of running effects. Mapping it to a conversation requires
-independent evidence and an explicitly designed migration. The alternate implementation fixture supports version-two confirmed finalization checkpoints and
+independent evidence and an explicitly designed migration. Definition and checkpoint versions one
+and two are not accepted by the version-three default handler. The alternate implementation fixture supports version-three confirmed finalization checkpoints and
 the exact `model` checkpoint with a correlated confirmed provider receipt for a final answer without
 tool calls. It validates the admitted task, input, request and receipt before completing. It refuses
 unknown effects and other phases. Default-loop recovery instead reenters the currently installed

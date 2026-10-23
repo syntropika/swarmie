@@ -141,7 +141,7 @@ fn agent_child_process() {
             let record = &page.records[0];
             assert_eq!(record.status, TaskStatus::Running);
             assert_eq!(record.phase, "model");
-            assert_eq!(record.checkpoint["version"], 2);
+            assert_eq!(record.checkpoint["version"], 3);
             assert_eq!(record.checkpoint["conversation_id"], "conversation");
             assert!(record.checkpoint["request_event"].is_string());
             assert!(record.checkpoint["response_event"].is_null());
@@ -269,7 +269,12 @@ fn agent_child_process() {
             );
             assert!(record.task.attempts > saved.attempts);
             assert!(fixture.tool.calls.borrow().is_empty());
-            assert!(record.task.checkpoint["response_event"].is_string());
+            // Completion keeps the last effect-admission checkpoint. The terminal outcome
+            // references the confirmed response produced while that model root was owned.
+            let Some(TaskOutcome::Completed { value }) = &record.task.outcome else {
+                unreachable!()
+            };
+            assert!(value["response_event_id"].is_string());
             let events = fixture.events("process-turn").await?;
             assert_eq!(
                 events

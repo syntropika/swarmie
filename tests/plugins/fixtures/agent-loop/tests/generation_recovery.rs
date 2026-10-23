@@ -59,7 +59,21 @@ fn rejected_terminal_publication_recovers_success_and_provider_error_without_res
                 confirmed.event.payload["result"]["type"],
                 if failure { "error" } else { "response" }
             );
-            assert!(completed.task.checkpoint["response_event"].is_string());
+            // Successful inline completion retains the effect-entry checkpoint; failures
+            // first reserve finish. Both routes retain a durable effective response reference.
+            let effective = match &completed.task.outcome {
+                Some(TaskOutcome::Completed { value }) => &value["response_event_id"],
+                Some(TaskOutcome::Failed { .. }) => &completed.task.checkpoint["response_event"],
+                other => panic!("unexpected recovered outcome: {other:?}"),
+            };
+            assert!(
+                events
+                    .iter()
+                    .any(
+                        |event| Some(event.event.event_id.as_str()) == effective.as_str()
+                            && event.event.kind == "swarmie.agent.model-confirmed"
+                    )
+            );
             fixture.host.close().await?;
             assert!(fixture.model.dropped.get() > 0);
             assert_eq!(fixture.model.premature_drop.get(), 0);

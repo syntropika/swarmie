@@ -25,7 +25,7 @@ pub(crate) struct Checkpoint {
 
 impl Checkpoint {
     pub fn validate_identity(&self, request: &StartTurn) -> Result<()> {
-        if self.version != 2
+        if self.version != 3
             || self.session_id != request.session_id
             || self.conversation_id != request.conversation_id
             || self.turn_id != request.turn_id

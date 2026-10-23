@@ -14,6 +14,7 @@ mod model_steps;
 mod observers;
 mod service;
 mod state;
+mod terminal_recovery;
 mod tool_steps;
 mod tools;
 mod workflow;

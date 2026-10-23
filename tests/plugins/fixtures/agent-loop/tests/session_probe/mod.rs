@@ -29,6 +29,13 @@ pub struct Probe {
     /// Whether the requested cancellation was committed, once it was attempted.
     pub cancelled: Rc<RefCell<Option<Result<bool>>>>,
     pub armed: Rc<Cell<bool>>,
+    /// Successful append requests, retaining exact stable batch composition.
+    pub batches: Rc<RefCell<Vec<AppendEvents>>>,
+    /// Return one lost-response error after this kind was durably appended.
+    pub fail_after: Rc<RefCell<Option<String>>>,
+    pub repeat_effect_fences: Rc<Cell<bool>>,
+    /// Hold one durable append reply until the owning phase deadline cancels it.
+    pub pause_after: Rc<RefCell<Option<String>>>,
 }
 
 impl Probe {
@@ -88,13 +95,38 @@ impl SessionStoreProvider for Proxy {
         self.backend.open(request).await
     }
 
-    async fn append(&self, request: AppendEvents, _context: Context) -> Result<AppendReceipt> {
+    async fn append(&self, request: AppendEvents, context: Context) -> Result<AppendReceipt> {
         let kinds = request
             .events
             .iter()
             .map(|event| event.kind.clone())
             .collect::<Vec<_>>();
-        let receipt = self.backend.append(request).await?;
+        let receipt = self.backend.append(request.clone()).await?;
+        if self.probe.repeat_effect_fences.get()
+            && kinds
+                .iter()
+                .any(|kind| kind == "swarmie.agent.model-started")
+        {
+            assert_eq!(
+                self.backend.append(request.clone()).await?,
+                receipt,
+                "an identical fence retry retains its original sequence range"
+            );
+        }
+        self.probe.batches.borrow_mut().push(request);
+        let pause = self.probe.pause_after.borrow().clone();
+        if pause.as_ref().is_some_and(|kind| kinds.contains(kind)) {
+            self.probe.pause_after.borrow_mut().take();
+            return Err(context.cancellation().cancelled().await);
+        }
+        let fail = self.probe.fail_after.borrow().clone();
+        if fail.as_ref().is_some_and(|kind| kinds.contains(kind)) {
+            self.probe.fail_after.borrow_mut().take();
+            return Err(RuntimeError::unavailable(
+                "fixture_lost_append_response",
+                "receipt committed but its reply was lost",
+            ));
+        }
         let cancellation = self.probe.cancel_after.borrow().clone();
         if let Some(cancellation) = cancellation
             && kinds.contains(&cancellation.kind)

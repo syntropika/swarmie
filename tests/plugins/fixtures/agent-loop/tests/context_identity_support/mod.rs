@@ -109,14 +109,14 @@ impl SessionStoreProvider for Proxy {
         {
             let storage = self.probe.storage.borrow().clone();
             if let Some(storage) = storage {
-                // The final current-turn history read precedes context open in prepare-model.
+                // The final current-turn history read precedes context open inside the start phase.
                 // Inspect actual durable phase rather than relying on call counts or timing.
                 if storage
                     .scan(TaskQuery::default())
                     .await?
                     .records
                     .iter()
-                    .any(|task| task.phase == "prepare-model")
+                    .any(|task| task.phase == "start")
                 {
                     self.probe.armed.set(true);
                 }

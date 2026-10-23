@@ -231,7 +231,7 @@ impl Engine {
         let cp: crate::state::Checkpoint = decode(task.checkpoint.clone())?;
         cp.validate_identity(&start)?;
         if task.kind != crate::TURN_KIND
-            || task.definition_version != 2
+            || task.definition_version != 3
             || task.status != TaskStatus::Running
             || task.phase != "tool"
             || task.cancellation_requested

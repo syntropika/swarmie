@@ -418,29 +418,28 @@ impl ModelExecutor {
                 "model endpoint does not support the effective request",
             ));
         }
-        journal::append(
-            &self.sessions,
-            &admitted,
-            &call.turn,
-            &format!("{suffix}:actual"),
-            "swarmie.agent.model-actual",
-            encode(&call)?,
-            &context,
-        )
-        .await?;
         if journal::find(events, &stable(&start, &format!("{suffix}:started"))).is_some() {
             return Err(RuntimeError::unavailable(
                 "agent_model_uncertain",
                 "interrupted model request requires confirmed result reconciliation",
             ));
         }
-        journal::append(
+        journal::append_pair(
             &self.sessions,
             &admitted,
             &call.turn,
-            &format!("{suffix}:started"),
-            "swarmie.agent.model-started",
-            serde_json::json!({"operation_id":call.request.request_id}),
+            [
+                (
+                    &format!("{suffix}:actual"),
+                    "swarmie.agent.model-actual",
+                    encode(&call)?,
+                ),
+                (
+                    &format!("{suffix}:started"),
+                    "swarmie.agent.model-started",
+                    serde_json::json!({"operation_id":call.request.request_id}),
+                ),
+            ],
             &context,
         )
         .await?;
@@ -555,7 +554,7 @@ impl ModelExecutor {
             .max_output_tokens
             .saturating_sub(checkpoint.output_tokens);
         if task.kind != TURN_KIND
-            || task.definition_version != 2
+            || task.definition_version != 3
             || task.status != TaskStatus::Running
             || task.cancellation_requested
             || task.phase != "model"
@@ -975,7 +974,7 @@ mod tests {
             swarmie_task_contracts::TaskSpec {
                 id: "task".into(),
                 kind: TURN_KIND.into(),
-                definition_version: 2,
+                definition_version: 3,
                 input: serde_json::json!({"turn":"input"}),
                 checkpoint: serde_json::json!({"step":0}),
                 phase: "model".into(),

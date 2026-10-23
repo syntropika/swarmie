@@ -117,7 +117,7 @@ fn validate_submission(
         || binding.parent_task_id.is_some()
         || binding.task.id != key.task_id
         || binding.task.kind != TURN_KIND
-        || binding.task.definition_version != 2
+        || binding.task.definition_version != 3
         || binding.task.input != encode(request)?
         || binding.task.phase != "start"
         || initial.input_sequence != input_sequence
@@ -152,7 +152,7 @@ impl Service {
             })
             .await?
             .ok_or_else(|| invalid("turn does not exist"))?;
-        if task.kind != TURN_KIND || task.definition_version != 2 {
+        if task.kind != TURN_KIND || task.definition_version != 3 {
             return Err(invalid("task is not an agent turn"));
         }
         let request: StartTurn = decode(task.input.clone())?;
@@ -294,7 +294,7 @@ impl AgentLoopProvider for Service {
             turn_id: request.turn_id.clone(),
         };
         let checkpoint = Checkpoint {
-            version: 2,
+            version: 3,
             session_id: request.session_id.clone(),
             conversation_id: request.conversation_id.clone(),
             turn_id: request.turn_id.clone(),
@@ -305,7 +305,7 @@ impl AgentLoopProvider for Service {
         let specification = TaskSpec {
             id: lookup.id.clone(),
             kind: TURN_KIND.into(),
-            definition_version: 2,
+            definition_version: 3,
             input: encode(&request)?,
             checkpoint: encode(&checkpoint)?,
             phase: "start".into(),
