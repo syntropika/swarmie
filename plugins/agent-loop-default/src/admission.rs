@@ -49,7 +49,7 @@ impl Admission {
 
     /// Derives identity from the current durable source, never a provider label or State hint.
     pub(crate) async fn key(&self, task: &str, context: &Context) -> Result<BindingKey> {
-        let source = self.storage.with_context(context).outbox_status().await?;
+        let source = self.storage.with_context(context).identity().await?;
         Ok(BindingKey {
             task_store_id: source.store_id,
             task_id: task.into(),

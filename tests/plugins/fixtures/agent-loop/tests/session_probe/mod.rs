@@ -64,6 +64,10 @@ struct Proxy {
 }
 
 impl SessionStoreProvider for Proxy {
+    async fn identity(&self, _context: Context) -> Result<SessionStoreIdentity> {
+        self.backend.identity().await
+    }
+
     fn committed(&self) -> Readable<StoreHead> {
         self.committed.clone()
     }
