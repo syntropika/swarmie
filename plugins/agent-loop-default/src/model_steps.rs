@@ -9,7 +9,7 @@ use tembra::prelude::*;
 
 use crate::{
     context::append_message,
-    journal,
+    journal::{self, Journal},
     observers::Observation,
     state::{Checkpoint, decode, encode, invalid, stable},
     tools,
@@ -21,6 +21,7 @@ impl Engine {
         &self,
         request: &StartTurn,
         mut cp: Checkpoint,
+        journal: &mut Journal,
         context: &Context,
     ) -> Result<TaskTransition> {
         let turn = cp.turn(request);
@@ -32,10 +33,12 @@ impl Engine {
         }
         let suffix = format!("model:{}:request", cp.step);
         let id = stable(request, &suffix);
-        let events = journal::history(&self.sessions, request, context).await?;
-        if journal::find(&events, &id).is_none() {
+        let prepared =
+            journal::find(journal.history(&self.sessions, context).await?, &id).is_some();
+        if !prepared {
             let messages = crate::context::select_messages(
                 &self.sessions,
+                journal.admitted(),
                 &self.select_context,
                 request,
                 &cp,
@@ -111,15 +114,16 @@ impl Engine {
                     .unwrap_or(maximum)
                     .min(maximum),
             );
-            journal::append(
-                &self.sessions,
-                &turn,
-                &suffix,
-                "swarmie.agent.model-request",
-                encode(&transformed)?,
-                context,
-            )
-            .await?;
+            journal
+                .append(
+                    &self.sessions,
+                    &turn,
+                    &suffix,
+                    "swarmie.agent.model-request",
+                    encode(&transformed)?,
+                    context,
+                )
+                .await?;
         }
         cp.request_event = Some(id);
         cp.response_event = None;
@@ -131,13 +135,14 @@ impl Engine {
         &self,
         request: &StartTurn,
         mut cp: Checkpoint,
+        journal: &mut Journal,
         context: &Context,
     ) -> Result<TaskTransition> {
         let turn = cp.turn(request);
-        let events = journal::history(&self.sessions, request, context).await?;
+        let events = journal.history(&self.sessions, context).await?;
         let call: ModelCall = decode(
             journal::own_event(
-                &events,
+                events,
                 cp.request_event
                     .as_deref()
                     .ok_or_else(|| invalid("request reference absent"))?,
@@ -149,7 +154,7 @@ impl Engine {
         )?;
         let suffix = format!("model:{}:confirmed", cp.step);
         let id = stable(request, &suffix);
-        if journal::find(&events, &id).is_none() {
+        if journal::find(events, &id).is_none() {
             let operation = {
                 let table = self.terminals.table(Some(context.core()))?;
                 table
@@ -173,15 +178,16 @@ impl Engine {
             crate::model::redact_reasoning(&mut result);
             check_model_result(&result, &call)?;
             // Middleware may supply a complete replacement without entering the terminal.
-            journal::append(
-                &self.sessions,
-                &turn,
-                &suffix,
-                "swarmie.agent.model-confirmed",
-                serde_json::json!({"operation_id":call.request.request_id,"result":result}),
-                context,
-            )
-            .await?;
+            journal
+                .append(
+                    &self.sessions,
+                    &turn,
+                    &suffix,
+                    "swarmie.agent.model-confirmed",
+                    serde_json::json!({"operation_id":call.request.request_id,"result":result}),
+                    context,
+                )
+                .await?;
         }
         cp.response_event = Some(id);
         next(cp, "model-result")
@@ -191,10 +197,13 @@ impl Engine {
         &self,
         request: &StartTurn,
         mut cp: Checkpoint,
+        journal: &mut Journal,
         context: &Context,
     ) -> Result<TaskTransition> {
         let turn = cp.turn(request);
-        let (call, result) = self.model_observation(request, &cp, context).await?;
+        let (call, result) = self
+            .model_observation(request, &cp, journal, context)
+            .await?;
         self.observers.enqueue(Observation::Model(ModelObservation {
             call: call.clone(),
             result: result.clone(),
@@ -219,6 +228,7 @@ impl Engine {
                 }
                 append_message(
                     &self.sessions,
+                    journal,
                     &turn,
                     &format!("model:{}:message", cp.step),
                     response.message.clone(),
@@ -254,13 +264,14 @@ impl Engine {
         &self,
         request: &StartTurn,
         cp: &Checkpoint,
+        journal: &mut Journal,
         context: &Context,
     ) -> Result<(ModelCall, GenerateResult)> {
-        let events = journal::history(&self.sessions, request, context).await?;
+        let events = journal.history(&self.sessions, context).await?;
         let turn = cp.turn(request);
         let call: ModelCall = decode(
             journal::own_event(
-                &events,
+                events,
                 cp.request_event
                     .as_deref()
                     .ok_or_else(|| invalid("missing request reference"))?,
@@ -271,9 +282,9 @@ impl Engine {
             .clone(),
         )?;
         let actual_id = stable(request, &format!("model:{}:actual", cp.step));
-        let call = if journal::find(&events, &actual_id).is_some() {
+        let call = if journal::find(events, &actual_id).is_some() {
             decode(
-                journal::own_event(&events, &actual_id, &turn, "swarmie.agent.model-actual")?
+                journal::own_event(events, &actual_id, &turn, "swarmie.agent.model-actual")?
                     .payload
                     .clone(),
             )?
@@ -281,7 +292,7 @@ impl Engine {
             call
         };
         let event = journal::own_event(
-            &events,
+            events,
             cp.response_event
                 .as_deref()
                 .ok_or_else(|| invalid("missing response reference"))?,

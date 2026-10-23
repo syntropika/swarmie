@@ -4,8 +4,9 @@ use swarmie_agent_contracts::*;
 use swarmie_model_contracts::{FinishReason, GenerateResult};
 use swarmie_session_contracts::{SessionStore, SessionStoreInput, SessionStoreRef};
 use swarmie_task_contracts::{
-    TaskDefinition, TaskInvocation, TaskOutcome, TaskRecord, TaskStorage, TaskStorageInput,
-    TaskTransition, task_definitions,
+    DurableTasks, DurableTasksInput, DurableTasksRef, TaskDefinition, TaskInvocation, TaskLookup,
+    TaskOutcome, TaskRecord, TaskStatus, TaskStorage, TaskStorageInput, TaskTransition,
+    task_definitions,
 };
 use swarmie_task_session_contracts::{TaskSessionBindings, TaskSessionBindingsInput};
 use tembra::{core, prelude::*};
@@ -16,7 +17,7 @@ use tembra_hooks::{
 use crate::{
     TURN_KIND,
     admission::Admission,
-    journal,
+    journal::Journal,
     observers::{Observation, ObserverDispatcher},
     state::{Checkpoint, decode, encode, invalid, now_ms},
 };
@@ -59,6 +60,7 @@ pub(crate) fn declare(
             Ok(Engine {
                 sessions,
                 admission,
+                tasks: declaration.get(DurableTasks, DurableTasksInput {})?,
                 select_context: hooks.declare_waterfall(
                     declaration.core_mut(),
                     "select-context",
@@ -108,6 +110,7 @@ pub(crate) fn declare(
 pub(crate) struct Engine {
     pub(crate) sessions: SessionStoreRef,
     pub(crate) admission: Admission,
+    pub(crate) tasks: DurableTasksRef,
     pub(crate) select_context: PreparedWaterfall<ContextSelection>,
     pub(crate) prepare_context: PreparedWaterfall<PreparedContext>,
     pub(crate) before_model: PreparedWaterfall<ModelCall>,
@@ -145,7 +148,7 @@ impl TurnHandlerProvider for Engine {
                     let checkpoint: Checkpoint = decode(task.checkpoint.clone())?;
                     checkpoint.validate_identity(&request)?;
                     self.admission
-                        .require(&checkpoint.turn(&request), &context)
+                        .confirm(&checkpoint.turn(&request), &context)
                         .await?;
                     Ok(TaskTransition::Migrate {
                         checkpoint: task.checkpoint,
@@ -169,23 +172,9 @@ impl TurnHandlerProvider for Engine {
             active: &self.active,
             id: task.id.clone(),
         };
-        let tasks = context
-            .get(
-                swarmie_task_contracts::DurableTasks,
-                swarmie_task_contracts::DurableTasksInput {},
-            )
-            .await?;
-        let admitted = tasks
-            .with_context(&context)
-            .get(swarmie_task_contracts::TaskLookup {
-                id: task.id.clone(),
-            })
-            .await?
-            .ok_or_else(|| invalid("turn task is absent"))?;
-        if admitted != task
-            || task.kind != TURN_KIND
+        if task.kind != TURN_KIND
             || task.definition_version != 2
-            || task.status != swarmie_task_contracts::TaskStatus::Running
+            || task.status != TaskStatus::Running
             || task.cancellation_requested
         {
             return Err(invalid(
@@ -199,18 +188,27 @@ impl TurnHandlerProvider for Engine {
         }
         let checkpoint: Checkpoint = decode(task.checkpoint.clone())?;
         checkpoint.validate_identity(&request)?;
-        self.admission
-            .require(&checkpoint.turn(&request), &context)
+        // This phase root confirms its routing once; its Session reads and appends use the proof.
+        // Confirmation, which can activate matching Pending routing, precedes the comparison
+        // with the durable task below, so its failures are reported before that mismatch.
+        let admitted = self
+            .admission
+            .confirm(&checkpoint.turn(&request), &context)
             .await?;
-        let latest = tasks
+        // One durable read after the confirmation's awaits binds the invocation to the current
+        // record, so a stale or foreign invocation cannot write Session receipts.
+        let current = self
+            .tasks
             .with_context(&context)
-            .get(swarmie_task_contracts::TaskLookup {
+            .get(TaskLookup {
                 id: task.id.clone(),
             })
             .await?
-            .ok_or_else(|| invalid("turn task disappeared during binding admission"))?;
-        if latest != task {
-            return Err(invalid("turn changed during binding admission"));
+            .ok_or_else(|| invalid("turn task is absent"))?;
+        if current != task {
+            return Err(invalid(
+                "turn invocation differs from the admitted durable task",
+            ));
         }
         context.check(context.host_id())?;
         let remaining = checkpoint
@@ -222,33 +220,36 @@ impl TurnHandlerProvider for Engine {
         }
         let (child, guard) = context.child_call(context.principal().clone())?;
         let child = Context::from_core(child);
-        let work = self.phase(&task, &request, checkpoint.clone(), &child);
-        let timer = self
-            .driver
-            .sleep(Duration::from_millis(if task.phase == "finish" {
-                1_000
-            } else {
-                remaining.max(1)
-            }));
-        futures::pin_mut!(work, timer);
-        let result = match futures::future::select(work, timer).await {
-            futures::future::Either::Left((result, _)) => result,
-            futures::future::Either::Right(((), work)) => {
-                child.cancellation().cancel(RuntimeError::aborted(
-                    "agent_deadline",
-                    "turn duration limit reached",
-                ));
-                // Cooperative cancellation still awaits physical invocation ownership.
-                let _ = work.await;
-                if task.phase == "finish" {
-                    Ok(TaskTransition::Fail {
-                        error: checkpoint
-                            .ending
-                            .clone()
-                            .unwrap_or_else(|| "turn finalization deadline reached".into()),
-                    })
+        let mut journal = Journal::new(admitted);
+        let result = {
+            let work = self.phase(&task, &request, checkpoint.clone(), &mut journal, &child);
+            let timer = self
+                .driver
+                .sleep(Duration::from_millis(if task.phase == "finish" {
+                    1_000
                 } else {
-                    self.end_checkpoint(checkpoint.clone(), "duration limit reached")
+                    remaining.max(1)
+                }));
+            futures::pin_mut!(work, timer);
+            match futures::future::select(work, timer).await {
+                futures::future::Either::Left((result, _)) => result,
+                futures::future::Either::Right(((), work)) => {
+                    child.cancellation().cancel(RuntimeError::aborted(
+                        "agent_deadline",
+                        "turn duration limit reached",
+                    ));
+                    // Cooperative cancellation still awaits physical invocation ownership.
+                    let _ = work.await;
+                    if task.phase == "finish" {
+                        Ok(TaskTransition::Fail {
+                            error: checkpoint
+                                .ending
+                                .clone()
+                                .unwrap_or_else(|| "turn finalization deadline reached".into()),
+                        })
+                    } else {
+                        self.end_checkpoint(checkpoint.clone(), "duration limit reached")
+                    }
                 }
             }
         };
@@ -256,15 +257,16 @@ impl TurnHandlerProvider for Engine {
         if let Err(error) = &result
             && context.check(context.host_id()).is_ok()
         {
-            journal::append(
-                &self.sessions,
-                &checkpoint.turn(&request),
-                &format!("error:{}:{}", task.phase, task.attempts),
-                "swarmie.agent.phase-error",
-                serde_json::json!({"phase":task.phase,"reason":error.reason}),
-                &context,
-            )
-            .await?;
+            journal
+                .append(
+                    &self.sessions,
+                    &checkpoint.turn(&request),
+                    &format!("error:{}:{}", task.phase, task.attempts),
+                    "swarmie.agent.phase-error",
+                    serde_json::json!({"phase":task.phase,"reason":error.reason}),
+                    &context,
+                )
+                .await?;
         }
         let duration_exhausted =
             now_ms()?.saturating_sub(checkpoint.started_at_ms) >= request.limits.max_duration_ms;
@@ -298,36 +300,40 @@ impl Engine {
         task: &TaskRecord,
         request: &StartTurn,
         mut cp: Checkpoint,
+        journal: &mut Journal,
         context: &Context,
     ) -> Result<TaskTransition> {
         context.check(context.host_id())?;
         let turn = cp.turn(request);
         match task.phase.as_str() {
             "start" => {
-                journal::append(
-                    &self.sessions,
-                    &turn,
-                    "turn-started",
-                    "swarmie.agent.turn-started",
-                    encode(request)?,
-                    context,
-                )
-                .await?;
+                journal
+                    .append(
+                        &self.sessions,
+                        &turn,
+                        "turn-started",
+                        "swarmie.agent.turn-started",
+                        encode(request)?,
+                        context,
+                    )
+                    .await?;
                 self.observers.enqueue(Observation::TurnStart(turn));
                 next(cp, "prepare-model")
             }
-            "prepare-model" => self.prepare_model(request, cp, context).await,
-            "model" => self.model(request, cp, context).await,
-            "model-result" => self.model_result(request, cp, context).await,
-            "prepare-tool" => self.prepare_tool(request, cp, context).await,
-            "tool" => self.tool(request, cp, context).await,
-            "tool-result" => self.tool_result(request, cp, context).await,
+            "prepare-model" => self.prepare_model(request, cp, journal, context).await,
+            "model" => self.model(request, cp, journal, context).await,
+            "model-result" => self.model_result(request, cp, journal, context).await,
+            "prepare-tool" => self.prepare_tool(request, cp, journal, context).await,
+            "tool" => self.tool(request, cp, journal, context).await,
+            "tool-result" => self.tool_result(request, cp, journal, context).await,
             "step-end" => {
-                let (_, result) = self.model_observation(request, &cp, context).await?;
+                let (_, result) = self
+                    .model_observation(request, &cp, journal, context)
+                    .await?;
                 let GenerateResult::Response { response } = result else {
                     return Err(invalid("missing model response"));
                 };
-                journal::append(&self.sessions,&turn,&format!("step:{}:end",cp.step),"swarmie.agent.step-ended",serde_json::json!({"finish_reason":response.finish_reason,"tool_calls":cp.tool_index,"output_tokens":cp.output_tokens}),context).await?;
+                journal.append(&self.sessions,&turn,&format!("step:{}:end",cp.step),"swarmie.agent.step-ended",serde_json::json!({"finish_reason":response.finish_reason,"tool_calls":cp.tool_index,"output_tokens":cp.output_tokens}),context).await?;
                 self.observers.enqueue(Observation::Step(StepEnd {
                     turn: turn.clone(),
                     finish_reason: response.finish_reason,
@@ -359,15 +365,16 @@ impl Engine {
                         value: serde_json::json!({"session_id":request.session_id,"conversation_id":request.conversation_id,"turn_id":request.turn_id,"response_event_id":cp.response_event,"steps":cp.step+1,"tool_calls":cp.tool_calls,"output_tokens":cp.output_tokens}),
                     }
                 };
-                journal::append(
-                    &self.sessions,
-                    &turn,
-                    "turn-decision",
-                    "swarmie.agent.turn-ended",
-                    encode(&outcome)?,
-                    context,
-                )
-                .await?;
+                journal
+                    .append(
+                        &self.sessions,
+                        &turn,
+                        "turn-decision",
+                        "swarmie.agent.turn-ended",
+                        encode(&outcome)?,
+                        context,
+                    )
+                    .await?;
                 self.observers.enqueue(Observation::Turn(TurnEnd {
                     turn,
                     outcome: outcome.clone(),

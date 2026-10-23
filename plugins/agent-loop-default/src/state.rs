@@ -71,6 +71,17 @@ pub(crate) fn task_id(turn: &impl TurnIdentity) -> String {
     stable(turn, "task")
 }
 
+/// Turn scope whose task is derived from the turn identity, never taken from a caller's value.
+pub(crate) fn turn_scope(turn: &impl TurnIdentity) -> TurnContext {
+    TurnContext {
+        session_id: turn.session_id().into(),
+        conversation_id: turn.conversation_id().into(),
+        turn_id: turn.turn_id().into(),
+        task_id: task_id(turn),
+        step: 0,
+    }
+}
+
 pub(crate) fn stable(turn: &impl TurnIdentity, suffix: &str) -> String {
     let mut hash = Sha256::new();
     hash.update(b"swarmie.agent.v2");

@@ -40,8 +40,12 @@ pub fn facet_with_credentials(
         let secrets = credentials.clone();
         let provider_driver = driver.clone();
         let provider_configuration = configuration.clone();
+        // One immutable token for this registration: generation objects declare the served
+        // provider through it, so their binding proof matches the served contract identity.
+        let provider_endpoint = ModelEndpoint::new(PROVIDER_CONTRACT)?;
+        let generation_provider = provider_endpoint.clone();
         setup.serve_with_options(
-            ModelEndpoint::new(PROVIDER_CONTRACT)?,
+            provider_endpoint,
             move |_, _, declaration| {
                 let config = config.clone();
                 let secrets = secrets.clone();
@@ -85,10 +89,8 @@ pub fn facet_with_credentials(
         setup.serve(
             GenerationEndpoint::new(GENERATION_CONTRACT)?,
             move |input, _, declaration| {
-                let provider = declaration.get(
-                    ModelEndpoint::new(PROVIDER_CONTRACT)?,
-                    ModelProviderSchemaInput {},
-                )?;
+                let provider =
+                    declaration.get(generation_provider.clone(), ModelProviderSchemaInput {})?;
                 let backend_resource = resource.borrow().as_ref().cloned().ok_or_else(|| {
                     RuntimeError::unavailable(
                         "model_not_ready",

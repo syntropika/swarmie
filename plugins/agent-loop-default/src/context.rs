@@ -6,7 +6,8 @@ use swarmie_session_contracts::{INSTRUCTIONS, MESSAGE, SessionStoreRef};
 use tembra::{Context, Result};
 
 use crate::{
-    journal,
+    admission::Admitted,
+    journal::Journal,
     state::{Checkpoint, decode, encode},
 };
 
@@ -47,6 +48,7 @@ pub(crate) fn context_messages(
 
 pub(crate) async fn append_message(
     store: &SessionStoreRef,
+    journal: &mut Journal,
     turn: &TurnContext,
     suffix: &str,
     message: Message,
@@ -60,27 +62,30 @@ pub(crate) async fn append_message(
         Role::Assistant => "assistant",
         Role::Tool => "tool",
     };
-    journal::append(
-        store,
-        turn,
-        suffix,
-        MESSAGE,
-        encode(&swarmie_session_contracts::Message {
-            role: role.into(),
-            content: encode(&message.content)?,
-            reply_to: None,
-            tool_call_id,
-        })?,
-        context,
-    )
-    .await?;
+    journal
+        .append(
+            store,
+            turn,
+            suffix,
+            MESSAGE,
+            encode(&swarmie_session_contracts::Message {
+                role: role.into(),
+                content: encode(&message.content)?,
+                reply_to: None,
+                tool_call_id,
+            })?,
+            context,
+        )
+        .await?;
     Ok(())
 }
 
 /// Runs bounded policy selection before allocating source history. Selection sees a frozen
 /// durable head, not a materialized transcript. Session cursors preserve that immutable prefix.
+/// The root's confirmation names the destination; the opened session and every page must match it.
 pub(crate) async fn select_messages(
     store: &SessionStoreRef,
+    admitted: &Admitted,
     selection: &tembra_hooks::PreparedWaterfall<swarmie_agent_contracts::ContextSelection>,
     request: &StartTurn,
     cp: &Checkpoint,
@@ -89,7 +94,9 @@ pub(crate) async fn select_messages(
     use swarmie_agent_contracts::{ContextBudget, ContextRange, ContextSelection};
     use swarmie_session_contracts::{EventQuery, SessionLookup};
 
-    let binding = journal::guard(store, &cp.turn(request), context).await?;
+    let turn = cp.turn(request);
+    admitted.check_turn(&turn)?;
+    let destination = admitted.destination();
     let record = store
         .with_context(context)
         .open(SessionLookup {
@@ -97,8 +104,8 @@ pub(crate) async fn select_messages(
         })
         .await?
         .ok_or_else(|| crate::state::invalid("context session is absent"))?;
-    if record.store_id != binding.destination.session_store_id
-        || record.session_id != binding.destination.session_id
+    if record.store_id != destination.session_store_id
+        || record.session_id != destination.session_id
     {
         return Err(crate::state::invalid(
             "context session differs from the confirmed destination",
@@ -117,7 +124,7 @@ pub(crate) async fn select_messages(
         });
     }
     let original = ContextSelection {
-        turn: cp.turn(request),
+        turn,
         input_sequence: cp.input_sequence,
         through_sequence: record.head,
         ranges,
@@ -141,8 +148,8 @@ pub(crate) async fn select_messages(
         loop {
             context.check(context.host_id())?;
             let page = store.with_context(context).events(query.clone()).await?;
-            if page.store_id != binding.destination.session_store_id
-                || page.session_id != binding.destination.session_id
+            if page.store_id != destination.session_store_id
+                || page.session_id != destination.session_id
             {
                 return Err(crate::state::invalid(
                     "selected context belongs to a different routed destination",

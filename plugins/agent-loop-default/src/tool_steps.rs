@@ -8,7 +8,7 @@ use tembra_hooks::BailOutcome;
 
 use crate::{
     context::append_message,
-    journal,
+    journal::{self, Journal},
     observers::Observation,
     state::{Checkpoint, decode, encode, invalid, stable},
     tools::{self, ToolIntent},
@@ -20,13 +20,16 @@ impl Engine {
         &self,
         request: &StartTurn,
         mut cp: Checkpoint,
+        journal: &mut Journal,
         context: &Context,
     ) -> Result<TaskTransition> {
         let turn = cp.turn(request);
         if cp.tool_calls >= request.limits.max_tool_calls {
             return self.end_checkpoint(cp, "tool call limit reached");
         }
-        let (_, result) = self.model_observation(request, &cp, context).await?;
+        let (_, result) = self
+            .model_observation(request, &cp, journal, context)
+            .await?;
         let GenerateResult::Response { response } = result else {
             return Err(invalid("tools require a confirmed model response"));
         };
@@ -50,8 +53,9 @@ impl Engine {
         }
         let suffix = format!("tool:{}:{}:intent", cp.step, cp.tool_index);
         let id = stable(request, &suffix);
-        let events = journal::history(&self.sessions, request, context).await?;
-        if journal::find(&events, &id).is_none() {
+        let prepared =
+            journal::find(journal.history(&self.sessions, context).await?, &id).is_some();
+        if !prepared {
             let invocation = ToolCall {
                 turn: turn.clone(),
                 operation_id: stable(request, &format!("tool:{}:{}", cp.step, cp.tool_index)),
@@ -85,15 +89,16 @@ impl Engine {
                 replay: definition.metadata.replay,
                 denial,
             };
-            journal::append(
-                &self.sessions,
-                &turn,
-                &suffix,
-                "swarmie.agent.tool-intent",
-                encode(&intent)?,
-                context,
-            )
-            .await?;
+            journal
+                .append(
+                    &self.sessions,
+                    &turn,
+                    &suffix,
+                    "swarmie.agent.tool-intent",
+                    encode(&intent)?,
+                    context,
+                )
+                .await?;
         }
         cp.tool_event = Some(id);
         cp.tool_calls += 1;
@@ -104,10 +109,12 @@ impl Engine {
         &self,
         request: &StartTurn,
         cp: Checkpoint,
+        journal: &mut Journal,
         context: &Context,
     ) -> Result<TaskTransition> {
-        let intent = self.tool_intent(request, &cp, context).await?;
-        self.execute_tool(intent, cp.tool_index, context).await?;
+        let intent = self.tool_intent(request, &cp, journal, context).await?;
+        self.execute_tool(intent, cp.tool_index, journal, context)
+            .await?;
         next(cp, "tool-result")
     }
 
@@ -115,15 +122,17 @@ impl Engine {
         &self,
         request: &StartTurn,
         mut cp: Checkpoint,
+        journal: &mut Journal,
         context: &Context,
     ) -> Result<TaskTransition> {
         let turn = cp.turn(request);
-        let intent = self.tool_intent(request, &cp, context).await?;
+        let intent = self.tool_intent(request, &cp, journal, context).await?;
         let result = self
-            .execute_tool(intent.clone(), cp.tool_index, context)
+            .execute_tool(intent.clone(), cp.tool_index, journal, context)
             .await?;
         append_message(
             &self.sessions,
+            journal,
             &turn,
             &format!("tool:{}:{}:message", cp.step, cp.tool_index),
             Message {
@@ -143,7 +152,9 @@ impl Engine {
             result: result.clone(),
         }));
         cp.tool_index += 1;
-        let (_, result) = self.model_observation(request, &cp, context).await?;
+        let (_, result) = self
+            .model_observation(request, &cp, journal, context)
+            .await?;
         let GenerateResult::Response { response } = result else {
             return Err(invalid("missing model response"));
         };
@@ -164,12 +175,13 @@ impl Engine {
         &self,
         request: &StartTurn,
         cp: &Checkpoint,
+        journal: &mut Journal,
         context: &Context,
     ) -> Result<ToolIntent> {
-        let events = journal::history(&self.sessions, request, context).await?;
+        let events = journal.history(&self.sessions, context).await?;
         let intent: ToolIntent = decode(
             journal::own_event(
-                &events,
+                events,
                 cp.tool_event
                     .as_deref()
                     .ok_or_else(|| invalid("missing tool reference"))?,
@@ -179,7 +191,9 @@ impl Engine {
             .payload
             .clone(),
         )?;
-        let (_, result) = self.model_observation(request, cp, context).await?;
+        let (_, result) = self
+            .model_observation(request, cp, journal, context)
+            .await?;
         let GenerateResult::Response { response } = result else {
             return Err(invalid("tool requires confirmed model request"));
         };

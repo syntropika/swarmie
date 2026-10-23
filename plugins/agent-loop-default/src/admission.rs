@@ -1,16 +1,29 @@
 //! Required store-scoped association checks over the selected admission authority.
+//!
+//! A root is one turn-handler phase invocation, one model-terminal invocation, one cleanup root
+//! or one AgentLoop control call. Each root that performs Session I/O confirms its routed
+//! association once through [`Admission::confirm`], before its first Session read or append,
+//! and lends the resulting [`Admitted`] proof to its Session reads and appends. Source
+//! cancellation performs no Session I/O: it uses [`Admission::require_source`], which neither
+//! confirms the association nor yields a proof. Within a root nothing that confirmation proves
+//! can change: native providers and stores are fixed for the Host lifetime and the root keeps
+//! its admitted implementation version, store identities are immutable, bindings only move from
+//! Pending to Active without changing their route, and sessions are never deleted. Every
+//! Session page and receipt is still compared with the proof's destination. Effects confirm
+//! again immediately before they start.
 
 use swarmie_agent_contracts::{StartTurn, TurnContext};
 use swarmie_session_contracts::{SessionLookup, SessionStoreRef};
 use swarmie_task_contracts::{TaskLookup, TaskRecord, TaskStorageRef};
 use swarmie_task_session_contracts::{
-    BindingAdmission, BindingDisposition, BindingKey, TaskSessionBinding, TaskSessionBindingsRef,
+    BindingAdmission, BindingDisposition, BindingKey, SessionDestination, TaskSessionBinding,
+    TaskSessionBindingsRef,
 };
 use tembra::{Context, Result, RuntimeError};
 
 use crate::{
     TURN_KIND,
-    state::{Checkpoint, task_id},
+    state::{Checkpoint, TurnIdentity, task_id},
 };
 
 /// Holds ordinary Tembra References; there is no local binding cache or admission store.
@@ -45,11 +58,8 @@ impl Admission {
 
     /// Requires the authoritative task and both selected stores to agree with immutable routing.
     /// A pending, excluded, absent, foreign or unavailable association never grants admission.
-    pub(crate) async fn require(
-        &self,
-        turn: &TurnContext,
-        context: &Context,
-    ) -> Result<TaskSessionBinding> {
+    /// The returned proof covers only the calling root; another root confirms again.
+    pub(crate) async fn confirm(&self, turn: &TurnContext, context: &Context) -> Result<Admitted> {
         let key = self.key(&turn.task_id, context).await?;
         let binding = self
             .bindings
@@ -79,7 +89,10 @@ impl Admission {
             ));
         }
         context.check(context.host_id())?;
-        Ok(binding)
+        Ok(Admitted {
+            binding,
+            turn: turn.clone(),
+        })
     }
 
     /// Verifies an existing route against only its selected durable source. This read-only
@@ -125,6 +138,49 @@ impl Admission {
         }
         context.check(context.host_id())?;
         Ok(binding)
+    }
+}
+
+/// Confirmed routed association of one root for one turn.
+///
+/// Only [`Admission::confirm`] constructs it, and it is neither `Clone` nor `Default`: a root
+/// lends it to the Session I/O it performs and never hands it to another root or keeps it
+/// beyond its own call. It carries no grant for an external effect, which confirms again.
+pub(crate) struct Admitted {
+    binding: TaskSessionBinding,
+    turn: TurnContext,
+}
+
+impl Admitted {
+    /// Destination that every Session page and receipt of this root must match.
+    pub(crate) fn destination(&self) -> &SessionDestination {
+        &self.binding.destination
+    }
+
+    /// Refuses Session I/O for any turn other than the one this root confirmed.
+    pub(crate) fn check_turn(&self, turn: &TurnContext) -> Result<()> {
+        if turn.session_id != self.turn.session_id
+            || turn.conversation_id != self.turn.conversation_id
+            || turn.turn_id != self.turn.turn_id
+            || turn.task_id != self.turn.task_id
+        {
+            return Err(refused("admission proof belongs to another turn"));
+        }
+        Ok(())
+    }
+}
+
+impl TurnIdentity for Admitted {
+    fn session_id(&self) -> &str {
+        &self.turn.session_id
+    }
+
+    fn conversation_id(&self) -> &str {
+        &self.turn.conversation_id
+    }
+
+    fn turn_id(&self) -> &str {
+        &self.turn.turn_id
     }
 }
 
@@ -218,4 +274,73 @@ fn canonical(value: &impl serde::Serialize) -> Result<String> {
         .map_err(|_| refused("source proof cannot be represented as a portable value"))?;
     tembra::contracts::canonical_json(&portable)
         .map_err(|_| refused("source proof cannot be represented as canonical JSON"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use swarmie_task_contracts::TaskSpec;
+
+    fn turn() -> TurnContext {
+        TurnContext {
+            turn_id: "turn".into(),
+            session_id: "session".into(),
+            conversation_id: "conversation".into(),
+            task_id: "task".into(),
+            step: 0,
+        }
+    }
+
+    fn admitted() -> Admitted {
+        let turn = turn();
+        Admitted {
+            binding: TaskSessionBinding {
+                key: BindingKey {
+                    task_store_id: "task-store".into(),
+                    task_id: turn.task_id.clone(),
+                },
+                destination: SessionDestination {
+                    session_store_id: "session-store".into(),
+                    session_id: turn.session_id.clone(),
+                    conversation_id: turn.conversation_id.clone(),
+                    turn_id: turn.turn_id.clone(),
+                },
+                root_task_id: turn.task_id.clone(),
+                parent_task_id: None,
+                routing_version: 1,
+                task: TaskSpec {
+                    id: turn.task_id.clone(),
+                    kind: TURN_KIND.into(),
+                    definition_version: 2,
+                    input: serde_json::json!({}),
+                    checkpoint: serde_json::json!({}),
+                    phase: "start".into(),
+                },
+                admission: BindingAdmission::Active,
+            },
+            turn,
+        }
+    }
+
+    #[test]
+    fn a_proof_covers_every_step_of_its_turn_and_no_other_turn() {
+        let admitted = admitted();
+        assert!(admitted.check_turn(&turn()).is_ok());
+        let mut later_step = turn();
+        later_step.step = 3;
+        assert!(admitted.check_turn(&later_step).is_ok());
+        let changes: [fn(&mut TurnContext); 4] = [
+            |turn| turn.session_id = "other-session".into(),
+            |turn| turn.conversation_id = "other-conversation".into(),
+            |turn| turn.turn_id = "other-turn".into(),
+            |turn| turn.task_id = "other-task".into(),
+        ];
+        for change in changes {
+            let mut other = turn();
+            change(&mut other);
+            let error = admitted.check_turn(&other).unwrap_err();
+            assert_eq!(error.reason, "agent_binding");
+            assert_eq!(error.message, "admission proof belongs to another turn");
+        }
+    }
 }
