@@ -150,15 +150,24 @@ That authority can confirm matching Pending intent even when the scheduler enter
 before the original admission call returns. Revision-one checks include initial checkpoint and
 phase; later phases preserve immutable task input, identity, lineage and supported definition
 version while allowing checkpoint progress. The consumer additionally compares the retained
-Agent scope with the selected stores' authoritative IDs. Historical `lookup` alone is not an
-execution grant.
+Agent scope with the selected stores' authoritative IDs, then reads the durable task once and
+requires it to equal the invocation. Historical `lookup` alone is not an execution grant.
 
-Model and tool terminals repeat confirmation after asynchronous preparation at their effective
-execution boundaries, alongside current task, cancellation, argument and permission checks.
-Optional hooks cannot bypass this requirement. Session receipt reads and Agent event appends, including post-effect recovery and cleanup,
-require confirmed routing. Control-surface Session reconciliation has the same requirement, so
-a replacement store containing the same session name cannot receive a terminal event for another
-store. Confirmation is not a transaction spanning stores
+Session receipt reads and Agent event appends, including post-effect recovery and cleanup,
+require confirmed routing. They use the confirmation of their root: a turn-handler phase
+invocation, a model-terminal invocation, a cleanup root or an AgentLoop control call confirms
+once, before its first Session read or append. Providers and the code version are pinned for a
+root, store identities are immutable, routing only moves from Pending to Active and sessions are
+never deleted, so that confirmation holds for the whole root. Every Session page and append
+receipt is still compared with the confirmed destination store, session and selector.
+Control-surface Session reconciliation has the same requirement, so a replacement store
+containing the same session name cannot receive a terminal event for another store. A phase
+reads the current turn's receipts at most once and extends that view with its own appends.
+
+Model and tool terminals still confirm again immediately before each effect, after asynchronous
+preparation, middleware and policy awaits, together with a fresh durable task read and the
+current cancellation, argument and permission checks. Optional hooks cannot bypass this
+requirement. Confirmation is not a transaction spanning stores
 or a promise of exactly-once external effects. Logical cancellation validates the actual source
 and retained historical binding without depending on destination availability. It commits through
 Durable Tasks first and performs no destination I/O on that control path. The integration publisher

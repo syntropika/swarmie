@@ -1,16 +1,26 @@
 //! Required store-scoped association checks over the selected admission authority.
+//!
+//! A root is one turn-handler phase invocation, one model-terminal invocation, one cleanup root
+//! or one AgentLoop control call. Each root confirms its routed association once through
+//! [`Admission::confirm`] and lends the resulting [`Admitted`] proof to its Session reads and
+//! appends. Within a root nothing that confirmation proves can change: native providers and
+//! stores are fixed for the Host lifetime and the root keeps its admitted implementation
+//! version, store identities are immutable, bindings only move from Pending to Active without
+//! changing their route, and sessions are never deleted. Every Session page and receipt is still
+//! compared with the proof's destination. Effects confirm again immediately before they start.
 
 use swarmie_agent_contracts::{StartTurn, TurnContext};
 use swarmie_session_contracts::{SessionLookup, SessionStoreRef};
 use swarmie_task_contracts::{TaskLookup, TaskRecord, TaskStorageRef};
 use swarmie_task_session_contracts::{
-    BindingAdmission, BindingDisposition, BindingKey, TaskSessionBinding, TaskSessionBindingsRef,
+    BindingAdmission, BindingDisposition, BindingKey, SessionDestination, TaskSessionBinding,
+    TaskSessionBindingsRef,
 };
 use tembra::{Context, Result, RuntimeError};
 
 use crate::{
     TURN_KIND,
-    state::{Checkpoint, task_id},
+    state::{Checkpoint, TurnIdentity, task_id},
 };
 
 /// Holds ordinary Tembra References; there is no local binding cache or admission store.
@@ -45,11 +55,8 @@ impl Admission {
 
     /// Requires the authoritative task and both selected stores to agree with immutable routing.
     /// A pending, excluded, absent, foreign or unavailable association never grants admission.
-    pub(crate) async fn require(
-        &self,
-        turn: &TurnContext,
-        context: &Context,
-    ) -> Result<TaskSessionBinding> {
+    /// The returned proof covers only the calling root; another root confirms again.
+    pub(crate) async fn confirm(&self, turn: &TurnContext, context: &Context) -> Result<Admitted> {
         let key = self.key(&turn.task_id, context).await?;
         let binding = self
             .bindings
@@ -79,7 +86,10 @@ impl Admission {
             ));
         }
         context.check(context.host_id())?;
-        Ok(binding)
+        Ok(Admitted {
+            binding,
+            turn: turn.clone(),
+        })
     }
 
     /// Verifies an existing route against only its selected durable source. This read-only
@@ -125,6 +135,49 @@ impl Admission {
         }
         context.check(context.host_id())?;
         Ok(binding)
+    }
+}
+
+/// Confirmed routed association of one root for one turn.
+///
+/// Only [`Admission::confirm`] constructs it, and it is neither `Clone` nor `Default`: a root
+/// lends it to the Session I/O it performs and never hands it to another root or keeps it
+/// beyond its own call. It carries no grant for an external effect, which confirms again.
+pub(crate) struct Admitted {
+    binding: TaskSessionBinding,
+    turn: TurnContext,
+}
+
+impl Admitted {
+    /// Destination that every Session page and receipt of this root must match.
+    pub(crate) fn destination(&self) -> &SessionDestination {
+        &self.binding.destination
+    }
+
+    /// Refuses Session I/O for any turn other than the one this root confirmed.
+    pub(crate) fn check_turn(&self, turn: &TurnContext) -> Result<()> {
+        if turn.session_id != self.turn.session_id
+            || turn.conversation_id != self.turn.conversation_id
+            || turn.turn_id != self.turn.turn_id
+            || turn.task_id != self.turn.task_id
+        {
+            return Err(refused("admission proof belongs to another turn"));
+        }
+        Ok(())
+    }
+}
+
+impl TurnIdentity for Admitted {
+    fn session_id(&self) -> &str {
+        &self.turn.session_id
+    }
+
+    fn conversation_id(&self) -> &str {
+        &self.turn.conversation_id
+    }
+
+    fn turn_id(&self) -> &str {
+        &self.turn.turn_id
     }
 }
 

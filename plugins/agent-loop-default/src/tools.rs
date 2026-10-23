@@ -3,11 +3,11 @@ use swarmie_agent_contracts::{
     ReplayPolicy, ToolAuthorization, ToolCall, ToolDefinition, ToolHandler, ToolPolicy,
     ToolPolicyInput, ToolResult,
 };
-use swarmie_task_contracts::{DurableTasks, DurableTasksInput, TaskLookup, TaskStatus};
+use swarmie_task_contracts::{TaskLookup, TaskStatus};
 use tembra::{core, prelude::*};
 
 use crate::{
-    journal,
+    journal::{self, Journal},
     state::{decode, encode, invalid, stable},
     workflow::Engine,
 };
@@ -72,15 +72,16 @@ impl Engine {
         &self,
         intent: ToolIntent,
         index: u32,
+        journal: &mut Journal,
         context: &Context,
     ) -> Result<ToolResult> {
         let call = &intent.call;
         let suffix = format!("tool:{}:{}", call.turn.step, index);
-        let events = journal::history(&self.sessions, &call.turn, context).await?;
+        let events = journal.history(&self.sessions, context).await?;
         let confirmed_id = stable(&call.turn, &format!("{suffix}:confirmed"));
-        if let Some(event) = journal::find(&events, &confirmed_id) {
+        if let Some(event) = journal::find(events, &confirmed_id) {
             let event = journal::own_event(
-                &events,
+                events,
                 &event.event_id,
                 &call.turn,
                 "swarmie.agent.tool-confirmed",
@@ -88,26 +89,30 @@ impl Engine {
             return confirmed_tool(event.payload.clone(), call);
         }
         let resolution_id = stable(&call.turn, &format!("resolution:{}", call.operation_id));
-        if let Some(event) = journal::find(&events, &resolution_id) {
+        if let Some(event) = journal::find(events, &resolution_id) {
             let resolution: swarmie_agent_contracts::KnownResult = decode(event.payload.clone())?;
             let confirmed = journal::own_event(
-                &events,
+                events,
                 &resolution.result_event_id,
                 &call.turn,
                 "swarmie.agent.tool-confirmed",
             )?;
             let result = confirmed_tool(confirmed.payload.clone(), call)?;
-            journal::append(
-                &self.sessions,
-                &call.turn,
-                &format!("{suffix}:confirmed"),
-                "swarmie.agent.tool-confirmed",
-                serde_json::json!({"operation_id":call.operation_id,"result":result}),
-                context,
-            )
-            .await?;
+            journal
+                .append(
+                    &self.sessions,
+                    &call.turn,
+                    &format!("{suffix}:confirmed"),
+                    "swarmie.agent.tool-confirmed",
+                    serde_json::json!({"operation_id":call.operation_id,"result":result}),
+                    context,
+                )
+                .await?;
             return Ok(result);
         }
+        // Decided on the prefix read before this root appends its own started receipt.
+        let started =
+            journal::find(events, &stable(&call.turn, &format!("{suffix}:started"))).is_some();
         if let Some(reason) = intent.denial {
             let result = ToolResult {
                 operation_id: call.operation_id.clone(),
@@ -115,22 +120,22 @@ impl Engine {
                 output: serde_json::json!({"denied":reason}),
                 is_error: true,
             };
-            journal::append(
-                &self.sessions,
-                &call.turn,
-                &format!("{suffix}:confirmed"),
-                "swarmie.agent.tool-confirmed",
-                serde_json::json!({"operation_id":call.operation_id,"result":result}),
-                context,
-            )
-            .await?;
+            journal
+                .append(
+                    &self.sessions,
+                    &call.turn,
+                    &format!("{suffix}:confirmed"),
+                    "swarmie.agent.tool-confirmed",
+                    serde_json::json!({"operation_id":call.operation_id,"result":result}),
+                    context,
+                )
+                .await?;
             return Ok(result);
         }
-        self.admit_tool(call, index, context).await?;
+        self.admit_tool(call, index, journal, context).await?;
         let definition = definition(&self.tools, &call.tool, context)?;
         validate_arguments(&definition.metadata, call)?;
-        let started_id = stable(&call.turn, &format!("{suffix}:started"));
-        if journal::find(&events, &started_id).is_some()
+        if started
             && (intent.replay != ReplayPolicy::Safe
                 || definition.metadata.replay != ReplayPolicy::Safe)
         {
@@ -151,28 +156,32 @@ impl Engine {
                 output: serde_json::json!({"denied":reason}),
                 is_error: true,
             };
-            journal::append(
+            journal
+                .append(
+                    &self.sessions,
+                    &call.turn,
+                    &format!("{suffix}:confirmed"),
+                    "swarmie.agent.tool-confirmed",
+                    serde_json::json!({"operation_id":call.operation_id,"result":result}),
+                    context,
+                )
+                .await?;
+            return Ok(result);
+        }
+        journal
+            .append(
                 &self.sessions,
                 &call.turn,
-                &format!("{suffix}:confirmed"),
-                "swarmie.agent.tool-confirmed",
-                serde_json::json!({"operation_id":call.operation_id,"result":result}),
+                &format!("{suffix}:started"),
+                "swarmie.agent.tool-started",
+                serde_json::json!({"operation_id":call.operation_id,"replay":intent.replay}),
                 context,
             )
             .await?;
-            return Ok(result);
-        }
-        journal::append(
-            &self.sessions,
-            &call.turn,
-            &format!("{suffix}:started"),
-            "swarmie.agent.tool-started",
-            serde_json::json!({"operation_id":call.operation_id,"replay":intent.replay}),
-            context,
-        )
-        .await?;
-        self.admission.require(&call.turn, context).await?;
-        self.admit_tool(call, index, context).await?;
+        // The effect boundary confirms routing again after the policy and receipt awaits; the
+        // durable read in admit_tool then remains the last await before the managed call.
+        self.admission.confirm(&call.turn, context).await?;
+        self.admit_tool(call, index, journal, context).await?;
         context.check(context.host_id())?;
         // This managed operation is the effect boundary. Its provider independently checks
         // authority; optional lifecycle handlers never receive an execution grant.
@@ -186,23 +195,32 @@ impl Engine {
         let result: ToolResult = tembra::contracts::from_portable_value(&value)
             .map_err(|error| invalid(error.to_string()))?;
         check_result(&result, call)?;
-        journal::append(
-            &self.sessions,
-            &call.turn,
-            &format!("{suffix}:confirmed"),
-            "swarmie.agent.tool-confirmed",
-            serde_json::json!({"operation_id":call.operation_id,"result":result}),
-            context,
-        )
-        .await?;
+        journal
+            .append(
+                &self.sessions,
+                &call.turn,
+                &format!("{suffix}:confirmed"),
+                "swarmie.agent.tool-confirmed",
+                serde_json::json!({"operation_id":call.operation_id,"result":result}),
+                context,
+            )
+            .await?;
         Ok(result)
     }
-    async fn admit_tool(&self, call: &ToolCall, index: u32, context: &Context) -> Result<()> {
-        // Read immutable intent before the task admission snapshot so no Session await
-        // can conceal a cancellation or phase change after the final durable task read.
-        let events = journal::history(&self.sessions, &call.turn, context).await?;
-        let tasks = context.get(DurableTasks, DurableTasksInput {}).await?;
-        let task = tasks
+
+    async fn admit_tool(
+        &self,
+        call: &ToolCall,
+        index: u32,
+        journal: &mut Journal,
+        context: &Context,
+    ) -> Result<()> {
+        // Take immutable intent from this root's history before the task admission snapshot
+        // so no Session await can conceal a cancellation or phase change after the final
+        // durable task read.
+        let events = journal.history(&self.sessions, context).await?;
+        let task = self
+            .tasks
             .with_context(context)
             .get(TaskLookup {
                 id: call.turn.task_id.clone(),
@@ -233,7 +251,7 @@ impl Engine {
             ));
         }
         let intent_event = journal::own_event(
-            &events,
+            events,
             cp.tool_event
                 .as_deref()
                 .ok_or_else(|| invalid("tool intent reference absent"))?,

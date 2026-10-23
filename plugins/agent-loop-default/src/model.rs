@@ -8,7 +8,12 @@
 //! that result. Recovery can replay the first receipt through middleware without another
 //! provider request, including a crash between these independent Session commits.
 
-use std::{cell::RefCell, collections::BTreeSet, rc::Rc, time::Duration};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+    rc::Rc,
+    time::Duration,
+};
 
 use futures::FutureExt;
 use swarmie_agent_contracts::{KnownResult, ModelCall, ModelStreamObservation, StartTurn};
@@ -19,17 +24,18 @@ use swarmie_model_contracts::{
 };
 use swarmie_session_contracts::{SessionStore, SessionStoreInput, SessionStoreRef};
 use swarmie_task_contracts::{
-    DurableTasks, DurableTasksInput, TaskLookup, TaskStatus, TaskStorage, TaskStorageInput,
+    DurableTasks, DurableTasksInput, DurableTasksRef, TaskLookup, TaskStatus, TaskStorage,
+    TaskStorageInput,
 };
 use swarmie_task_session_contracts::{TaskSessionBindings, TaskSessionBindingsInput};
 use tembra::{core, prelude::*};
 
 use crate::{
     TURN_KIND,
-    admission::Admission,
+    admission::{Admission, Admitted},
     journal,
     observers::{Observation, ObserverDispatcher},
-    state::{Checkpoint, decode, encode, invalid, now_ms, stable, task_id},
+    state::{Checkpoint, decode, encode, invalid, now_ms, stable, task_id, turn_scope},
 };
 
 #[tembra::contract(local, name = "swarmie.agent-model-terminal", version = 1)]
@@ -68,7 +74,9 @@ pub(crate) fn declare(
             Ok(ModelExecutor {
                 sessions,
                 admission,
+                tasks: declaration.get(DurableTasks, DurableTasksInput {})?,
                 providers: scope.registry(&model_providers()?)?,
+                endpoints: EndpointTokens::default(),
                 observers: observers.clone(),
                 driver: driver.clone(),
                 scope: scope.clone(),
@@ -82,10 +90,47 @@ pub(crate) fn declare(
     )
 }
 
+/// Provider and generation contract names published by one provider registration.
+type EndpointNames = (String, String);
+
+/// Endpoint tokens retained per registered pair of contract names.
+///
+/// A token derives only from its contract name, so it is immutable per registration. Retaining
+/// it lets the provider's binding proof recognize this consumer by identity. It caches no
+/// provider selection, authority or validation result: selection still reads the current
+/// registry table on every call. Names absent from the latest complete table are dropped, and a
+/// token that cannot be constructed is never retained.
+#[derive(Default)]
+struct EndpointTokens {
+    retained: RefCell<BTreeMap<EndpointNames, (ModelEndpoint, GenerationEndpoint)>>,
+}
+
+impl EndpointTokens {
+    fn retain_registered(&self, registered: &BTreeSet<EndpointNames>) {
+        self.retained
+            .borrow_mut()
+            .retain(|names, _| registered.contains(names));
+    }
+
+    fn tokens(&self, names: EndpointNames) -> Result<(ModelEndpoint, GenerationEndpoint)> {
+        if let Some(tokens) = self.retained.borrow().get(&names) {
+            return Ok(tokens.clone());
+        }
+        let tokens = (
+            ModelEndpoint::new(&names.0)?,
+            GenerationEndpoint::new(&names.1)?,
+        );
+        self.retained.borrow_mut().insert(names, tokens.clone());
+        Ok(tokens)
+    }
+}
+
 pub(crate) struct ModelExecutor {
     sessions: SessionStoreRef,
     admission: Admission,
+    tasks: DurableTasksRef,
     providers: core::RegistryView,
+    endpoints: EndpointTokens,
     driver: Rc<dyn core::Driver>,
     observers: Rc<ObserverDispatcher>,
     scope: core::FacetScope,
@@ -132,10 +177,17 @@ impl ModelExecutor {
             requests: self.active.clone(),
             id: incoming.request.request_id.clone(),
         };
-        let events = journal::history(&self.sessions, &incoming.turn, &context).await?;
+        // This invocation is its own root: one confirmation covers its Session reads and
+        // appends, and the effect boundary below confirms again before start().
+        let admitted = self
+            .admission
+            .confirm(&turn_scope(&incoming.turn), &context)
+            .await?;
+        let history = journal::history(&self.sessions, &admitted, &context).await?;
+        let events = history.events()?;
         let start: StartTurn = decode(
             journal::own_event(
-                &events,
+                events,
                 &stable(&incoming.turn, "turn-started"),
                 &incoming.turn,
                 "swarmie.agent.turn-started",
@@ -157,11 +209,11 @@ impl ModelExecutor {
         }
         let suffix = format!("model:{}", incoming.turn.step);
         if let Some(event) = journal::find(
-            &events,
+            events,
             &stable(&start, &format!("{suffix}:provider-confirmed")),
         ) {
             journal::own_event(
-                &events,
+                events,
                 &event.event_id,
                 &incoming.turn,
                 "swarmie.agent.model-provider-confirmed",
@@ -173,10 +225,10 @@ impl ModelExecutor {
             validate_result(&incoming, &result)?;
             return Ok(result);
         }
-        let call = match journal::find(&events, &stable(&start, &format!("{suffix}:actual"))) {
+        let call = match journal::find(events, &stable(&start, &format!("{suffix}:actual"))) {
             Some(event) => {
                 journal::own_event(
-                    &events,
+                    events,
                     &event.event_id,
                     &incoming.turn,
                     "swarmie.agent.model-actual",
@@ -191,8 +243,9 @@ impl ModelExecutor {
             }
             None => incoming,
         };
-        let tasks = context.get(DurableTasks, DurableTasksInput {}).await?;
-        let task = tasks
+        // Gates model-actual and model-started on a durable model phase for this step.
+        let task = self
+            .tasks
             .with_context(&context)
             .get(TaskLookup {
                 id: call.turn.task_id.clone(),
@@ -212,7 +265,6 @@ impl ModelExecutor {
                 "model terminal turn is no longer admitted for this step",
             ));
         }
-        self.admission.require(&call.turn, &context).await?;
         let deadline = checkpoint
             .started_at_ms
             .checked_add(start.limits.max_duration_ms)
@@ -250,11 +302,11 @@ impl ModelExecutor {
             ));
         }
         if let Some(resolution) = journal::find(
-            &events,
+            events,
             &stable(&start, &format!("resolution:{}", call.request.request_id)),
         ) {
             journal::own_event(
-                &events,
+                events,
                 &resolution.event_id,
                 &call.turn,
                 "swarmie.agent.operation-resolution",
@@ -264,7 +316,7 @@ impl ModelExecutor {
                 return Err(invalid("model resolution operation differs"));
             }
             let evidence = journal::own_event(
-                &events,
+                events,
                 &resolution.result_event_id,
                 &call.turn,
                 "swarmie.agent.model-provider-confirmed",
@@ -277,6 +329,7 @@ impl ModelExecutor {
             redact_reasoning(&mut result);
             journal::append(
                 &self.sessions,
+                &admitted,
                 &call.turn,
                 &format!("{suffix}:provider-confirmed"),
                 "swarmie.agent.model-provider-confirmed",
@@ -286,12 +339,9 @@ impl ModelExecutor {
             .await?;
             return Ok(result);
         }
-        let registration = self.resolve(&call, &context)?;
+        let (model_endpoint, generation_endpoint) = self.resolve(&call, &context)?;
         let provider = context
-            .get(
-                ModelEndpoint::new(&registration.provider_contract)?,
-                ModelProviderSchemaInput {},
-            )
+            .get(model_endpoint, ModelProviderSchemaInput {})
             .await?;
         let capabilities = provider
             .with_context(&context)
@@ -335,6 +385,7 @@ impl ModelExecutor {
         }
         journal::append(
             &self.sessions,
+            &admitted,
             &call.turn,
             &format!("{suffix}:actual"),
             "swarmie.agent.model-actual",
@@ -342,7 +393,7 @@ impl ModelExecutor {
             &context,
         )
         .await?;
-        if journal::find(&events, &stable(&start, &format!("{suffix}:started"))).is_some() {
+        if journal::find(events, &stable(&start, &format!("{suffix}:started"))).is_some() {
             return Err(RuntimeError::unavailable(
                 "agent_model_uncertain",
                 "interrupted model request requires confirmed result reconciliation",
@@ -350,6 +401,7 @@ impl ModelExecutor {
         }
         journal::append(
             &self.sessions,
+            &admitted,
             &call.turn,
             &format!("{suffix}:started"),
             "swarmie.agent.model-started",
@@ -357,33 +409,16 @@ impl ModelExecutor {
             &context,
         )
         .await?;
-        let latest = tasks
-            .with_context(&context)
-            .get(TaskLookup {
-                id: call.turn.task_id.clone(),
-            })
-            .await?
-            .ok_or_else(|| invalid("model task disappeared before generation admission"))?;
-        if latest.cancellation_requested
-            || latest.status != TaskStatus::Running
-            || latest.phase != "model"
-            || latest.checkpoint != task.checkpoint
-        {
-            return Err(RuntimeError::aborted(
-                "agent_model_admission",
-                "turn changed before generation admission",
-            ));
-        }
         let generation = context
             .get(
-                GenerationEndpoint::new(&registration.generation_contract)?,
+                generation_endpoint,
                 GenerationInput {
                     request: call.request.clone(),
                 },
             )
             .await?;
         let consumed = self
-            .consume(&generation, &call, deadline, &context)
+            .consume(&generation, &call, &task.checkpoint, deadline, &context)
             .boxed_local();
         let timer = self
             .driver
@@ -409,7 +444,7 @@ impl ModelExecutor {
                 return Err(error);
             }
         };
-        match persist_provider_result(&self.sessions, &call, result, &context).await {
+        match persist_provider_result(&self.sessions, &admitted, &call, result, &context).await {
             Ok(result) => Ok(result),
             Err(error) => {
                 // The caller may have expired between stream completion and publication.
@@ -421,14 +456,25 @@ impl ModelExecutor {
         }
     }
 
-    fn resolve(&self, call: &ModelCall, context: &Context) -> Result<ProviderRegistration> {
+    /// Selects the unique provider claiming the connection from the current Context's registry
+    /// table on every call and returns the retained endpoint tokens for its registered names.
+    fn resolve(
+        &self,
+        call: &ModelCall,
+        context: &Context,
+    ) -> Result<(ModelEndpoint, GenerationEndpoint)> {
         let table = self.providers.table(Some(context.core()))?;
         let mut selected = None;
+        let mut registered = BTreeSet::new();
         for (_, entry) in table.entries() {
             let registration: ProviderRegistration = decode(entry.data().clone())?;
             if registration.version != 1 {
                 continue;
             }
+            registered.insert((
+                registration.provider_contract.clone(),
+                registration.generation_contract.clone(),
+            ));
             if registration
                 .connections
                 .contains(&call.request.model.connection)
@@ -439,18 +485,30 @@ impl ModelExecutor {
                 selected = Some(registration);
             }
         }
-        selected.ok_or_else(|| {
+        self.endpoints.retain_registered(&registered);
+        let registration = selected.ok_or_else(|| {
             RuntimeError::unavailable(
                 "agent_model_missing",
                 "no model provider claims the requested connection",
             )
-        })
+        })?;
+        self.endpoints.tokens((
+            registration.provider_contract,
+            registration.generation_contract,
+        ))
     }
 
-    async fn require_generation(&self, call: &ModelCall, context: &Context) -> Result<()> {
-        self.admission.require(&call.turn, context).await?;
-        let tasks = context.get(DurableTasks, DurableTasksInput {}).await?;
-        let task = tasks
+    /// Final generation boundary: confirms routing again and reads the durable task as the last
+    /// await before start(). The checkpoint must still equal the one this invocation admitted.
+    async fn require_generation(
+        &self,
+        call: &ModelCall,
+        admitted_checkpoint: &serde_json::Value,
+        context: &Context,
+    ) -> Result<()> {
+        self.admission.confirm(&call.turn, context).await?;
+        let task = self
+            .tasks
             .with_context(context)
             .get(TaskLookup {
                 id: call.turn.task_id.clone(),
@@ -469,6 +527,7 @@ impl ModelExecutor {
             || task.status != TaskStatus::Running
             || task.cancellation_requested
             || task.phase != "model"
+            || task.checkpoint != *admitted_checkpoint
             || checkpoint.turn(&request) != call.turn
             || task.id != task_id(&request)
             || call.request.model != request.model
@@ -495,10 +554,12 @@ impl ModelExecutor {
         &self,
         generation: &GenerationReference,
         call: &ModelCall,
+        admitted_checkpoint: &serde_json::Value,
         deadline: u64,
         context: &Context,
     ) -> Result<GenerateResult> {
-        self.require_generation(call, context).await?;
+        self.require_generation(call, admitted_checkpoint, context)
+            .await?;
         // start is attempted exactly once. A failed reactive publication can follow
         // physical completion; recovery reads this same live object and never submits I/O.
         if let Err(error) = generation.with_context(context).start().await {
@@ -579,6 +640,7 @@ impl ModelExecutor {
     ) -> Result<()> {
         let driver = self.driver.clone();
         let sessions = self.sessions.clone();
+        let admission = self.admission.clone();
         // Cancellation expires the caller's authority. The owning Facet admits a fresh
         // cleanup root, retaining the generation claim through local physical settlement
         // and its durable provider receipt. Failed State publication cannot prevent cleanup.
@@ -632,7 +694,10 @@ impl ModelExecutor {
                             }
                         }
                     };
-                    persist_provider_result(&sessions, &call, result, &cleanup).await?;
+                    // The cleanup root confirms its own routing once, after settlement, for
+                    // the receipt append; the caller's confirmation expired with its root.
+                    let admitted = admission.confirm(&call.turn, &cleanup).await?;
+                    persist_provider_result(&sessions, &admitted, &call, result, &cleanup).await?;
                     // Local settlement is confirmed before releasing this claim. A refused
                     // receipt append returns an error and cannot advance the task checkpoint;
                     // the existing started receipt keeps later retries from resubmitting I/O.
@@ -687,6 +752,7 @@ fn terminal_result(call: &ModelCall, state: GenerationState) -> Result<GenerateR
 
 async fn persist_provider_result(
     sessions: &SessionStoreRef,
+    admitted: &Admitted,
     call: &ModelCall,
     mut result: GenerateResult,
     context: &Context,
@@ -695,6 +761,7 @@ async fn persist_provider_result(
     redact_reasoning(&mut result);
     journal::append(
         sessions,
+        admitted,
         &call.turn,
         &format!("model:{}:provider-confirmed", call.turn.step),
         "swarmie.agent.model-provider-confirmed",
@@ -703,4 +770,65 @@ async fn persist_provider_result(
     )
     .await?;
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tembra::ContractToken;
+
+    fn names(provider: &str, generation: &str) -> EndpointNames {
+        (provider.into(), generation.into())
+    }
+
+    fn same(
+        left: &(ModelEndpoint, GenerationEndpoint),
+        right: &(ModelEndpoint, GenerationEndpoint),
+    ) -> bool {
+        Rc::ptr_eq(
+            &left.0.descriptor().unwrap(),
+            &right.0.descriptor().unwrap(),
+        ) && Rc::ptr_eq(
+            &left.1.descriptor().unwrap(),
+            &right.1.descriptor().unwrap(),
+        )
+    }
+
+    #[test]
+    fn retained_tokens_keep_identity_only_while_their_names_are_registered() {
+        let endpoints = EndpointTokens::default();
+        let first = endpoints
+            .tokens(names("fixture.model", "fixture.generation"))
+            .unwrap();
+        let again = endpoints
+            .tokens(names("fixture.model", "fixture.generation"))
+            .unwrap();
+        assert!(same(&first, &again));
+        assert_eq!(first.0.descriptor().unwrap().name(), "fixture.model");
+        assert_eq!(first.1.descriptor().unwrap().name(), "fixture.generation");
+
+        let other = endpoints
+            .tokens(names("other.model", "other.generation"))
+            .unwrap();
+        endpoints.retain_registered(&BTreeSet::from([names("other.model", "other.generation")]));
+        assert_eq!(endpoints.retained.borrow().len(), 1);
+        assert!(same(
+            &other,
+            &endpoints
+                .tokens(names("other.model", "other.generation"))
+                .unwrap()
+        ));
+        let rebuilt = endpoints
+            .tokens(names("fixture.model", "fixture.generation"))
+            .unwrap();
+        assert!(!same(&first, &rebuilt));
+    }
+
+    #[test]
+    fn tokens_that_cannot_be_constructed_are_not_retained() {
+        let endpoints = EndpointTokens::default();
+        assert!(endpoints.tokens(names("", "fixture.generation")).is_err());
+        assert!(endpoints.tokens(names("fixture.model", "")).is_err());
+        assert!(endpoints.retained.borrow().is_empty());
+    }
 }

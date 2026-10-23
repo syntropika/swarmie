@@ -20,7 +20,7 @@ use tembra::{core, prelude::*};
 
 use crate::{
     TURN_KIND,
-    admission::Admission,
+    admission::{Admission, Admitted},
     journal,
     observers::{Monitor, Observation, ObserverDispatcher},
     state::{Checkpoint, TurnIdentity, decode, encode, invalid, now_ms, task_id},
@@ -172,23 +172,41 @@ impl Service {
         })
     }
 
-    async fn require(&self, identity: &impl TurnIdentity, context: &Context) -> Result<TurnRecord> {
+    /// Reads the turn and confirms its routed association once for this control call.
+    async fn confirm(
+        &self,
+        identity: &impl TurnIdentity,
+        context: &Context,
+    ) -> Result<(TurnRecord, Admitted)> {
         let record = self.require_task(identity, context).await?;
         let request: StartTurn = decode(record.task.input.clone())?;
         let checkpoint: Checkpoint = decode(record.task.checkpoint.clone())?;
-        self.admission
-            .require(&checkpoint.turn(&request), context)
+        let admitted = self
+            .admission
+            .confirm(&checkpoint.turn(&request), context)
             .await?;
-        Ok(record)
+        Ok((record, admitted))
     }
 
-    async fn reconcile_terminal(&self, record: &TurnRecord, context: &Context) -> Result<()> {
+    /// Records the authoritative terminal outcome through this control call's confirmation.
+    /// History is read here, after any transition this call requested.
+    async fn reconcile_terminal(
+        &self,
+        record: &TurnRecord,
+        admitted: &Admitted,
+        context: &Context,
+    ) -> Result<()> {
         if record.task.is_terminal() {
             let request: StartTurn = decode(record.task.input.clone())?;
             let checkpoint: Checkpoint = decode(record.task.checkpoint.clone())?;
             let turn = checkpoint.turn(&request);
-            let events = journal::history(&self.sessions, &request, context).await?;
-            if journal::find(&events, &crate::state::stable(&request, "turn-decision")).is_none() {
+            let history = journal::history(&self.sessions, admitted, context).await?;
+            if journal::find(
+                history.events()?,
+                &crate::state::stable(&request, "turn-decision"),
+            )
+            .is_none()
+            {
                 let outcome = record
                     .task
                     .outcome
@@ -196,6 +214,7 @@ impl Service {
                     .ok_or_else(|| invalid("terminal task lacks outcome"))?;
                 journal::append(
                     &self.sessions,
+                    admitted,
                     &turn,
                     "turn-decision",
                     "swarmie.agent.turn-ended",
@@ -210,6 +229,7 @@ impl Service {
             }
             journal::append(
                 &self.sessions,
+                admitted,
                 &turn,
                 "task-settled",
                 "swarmie.agent.task-settled",
@@ -240,7 +260,7 @@ impl AgentLoopProvider for Service {
             if task.kind != TURN_KIND || task.input != encode(&request)? {
                 return Err(invalid("turn identity already has different submission"));
             }
-            return self.require(&request, &context).await;
+            return Ok(self.confirm(&request, &context).await?.0);
         }
         let session = self
             .sessions
@@ -347,9 +367,9 @@ impl AgentLoopProvider for Service {
         {
             return Err(error);
         }
-        // A committed task may already be advancing. require() confirms its binding
+        // A committed task may already be advancing. confirm() confirms its binding
         // and compares immutable input; mutable phase/checkpoint are not guessed.
-        self.require(&request, &context).await
+        Ok(self.confirm(&request, &context).await?.0)
     }
 
     async fn inspect(&self, request: TurnLookup, context: Context) -> Result<Option<TurnRecord>> {
@@ -364,8 +384,9 @@ impl AgentLoopProvider for Service {
         {
             return Ok(None);
         }
-        let record = self.require(&request, &context).await?;
-        self.reconcile_terminal(&record, &context).await?;
+        let (record, admitted) = self.confirm(&request, &context).await?;
+        self.reconcile_terminal(&record, &admitted, &context)
+            .await?;
         Ok(Some(record))
     }
 
@@ -389,7 +410,7 @@ impl AgentLoopProvider for Service {
     }
 
     async fn continue_turn(&self, request: ContinueTurn, context: Context) -> Result<TurnRecord> {
-        let record = self.require(&request, &context).await?;
+        let (record, admitted) = self.confirm(&request, &context).await?;
         let start: StartTurn = decode(record.task.input.clone())?;
         let checkpoint: Checkpoint = decode(record.task.checkpoint.clone())?;
         if let Some(resolution) = &request.resolution {
@@ -418,8 +439,8 @@ impl AgentLoopProvider for Service {
             if resolution.operation_id != operation {
                 return Err(invalid("resolution refers to a different operation"));
             }
-            let events = journal::history(&self.sessions, &start, &context).await?;
-            let result = journal::find(&events, &resolution.result_event_id)
+            let history = journal::history(&self.sessions, &admitted, &context).await?;
+            let result = journal::find(history.events()?, &resolution.result_event_id)
                 .ok_or_else(|| invalid("resolution event is absent"))?;
             if result.version != 2
                 || result.correlation.conversation_id.as_deref() != Some(&start.conversation_id)
@@ -433,6 +454,7 @@ impl AgentLoopProvider for Service {
             let suffix = format!("resolution:{}", resolution.operation_id);
             journal::append(
                 &self.sessions,
+                &admitted,
                 &turn,
                 &suffix,
                 "swarmie.agent.operation-resolution",
@@ -449,8 +471,11 @@ impl AgentLoopProvider for Service {
         } else {
             self.tasks.with_context(&context).resume().await?;
         }
-        let record = self.require(&request, &context).await?;
-        self.reconcile_terminal(&record, &context).await?;
+        // The transition above may advance the turn, so read it again; this call's
+        // confirmation still covers the terminal reconciliation of the same turn.
+        let record = self.require_task(&request, &context).await?;
+        self.reconcile_terminal(&record, &admitted, &context)
+            .await?;
         Ok(record)
     }
 }
