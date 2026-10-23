@@ -19,23 +19,19 @@ pub fn facet(configuration: &Configuration) -> Result<NativeFacet> {
         .validate()
         .map_err(|error| RuntimeError::invalid("task_storage_configuration", error.to_string()))?;
     let outbox_limits = configuration.outbox;
-    let legacy_owners = configuration.outbox_legacy_owners.clone();
     let database = configuration.database.clone();
     NativeFacet::new(FACET_ID, vec![], move |_, setup| {
         let database = database.clone();
-        let legacy_owners = legacy_owners.clone();
         setup.serve_with_options(
             TaskStorage,
             move |_, _, declaration| {
                 let database = database.clone();
-                let legacy_owners = legacy_owners.clone();
                 let resource = declaration.core_mut().resource(
                     "sqlite",
                     ResourceDeclaration::new(move |_| {
                         let database = database.clone();
-                        let legacy_owners = legacy_owners.clone();
                         async move {
-                            Store::open_with_outbox_limits(&database, outbox_limits, &legacy_owners)
+                            Store::open_with_outbox_limits(&database, outbox_limits)
                                 .map_err(crate::store::Error::into_runtime)
                         }
                         .boxed_local()

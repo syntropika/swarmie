@@ -31,7 +31,7 @@ fn main() -> Result<()> {
                 let host=Host::with_driver("agent-example","application",driver.clone())?;
                 let replies=if with_tool {vec![Reply::double(21),Reply::text("The answer is 42.")]} else {vec![Reply::text("Hello from the extensible agent loop.")]};
                 for facet in [
-                    swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {database:directory.path().join("tasks.sqlite"),outbox:Default::default(),outbox_legacy_owners:Default::default()})?,
+                    swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {database:directory.path().join("tasks.sqlite"),outbox:Default::default(),})?,
                     swarmie_session_store_sqlite::facet(&swarmie_session_store_sqlite::Configuration {database:directory.path().join("sessions.sqlite")},driver.clone())?,
                     model::facet(replies,ModelProbe::default())?,
                     tool::facet(Default::default(),ToolProbe::default())?,

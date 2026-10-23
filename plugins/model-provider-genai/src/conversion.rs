@@ -210,9 +210,6 @@ pub(crate) fn request(
                         Some("thought_signature") => g::ContentPart::ThoughtSignature(
                             ext.value["value"].as_str().ok_or_else(invalid)?.into(),
                         ),
-                        Some("custom_content") => {
-                            g::ContentPart::from_custom(ext.value["value"].clone(), None)
-                        }
                         _ => return Err(unsupported()),
                     }
                 }

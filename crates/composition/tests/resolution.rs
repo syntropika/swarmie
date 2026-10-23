@@ -202,9 +202,9 @@ fn bundle_cycles_and_unknown_edits_are_refused_without_mutation() {
 }
 
 #[test]
-fn input_validation_rejects_legacy_graph_fields_and_malformed_release_metadata() {
-    let legacy = json!({"id":"one","plugin":"one","version":"1.0.0","requires":[]});
-    assert!(serde_json::from_value::<Selection>(legacy).is_err());
+fn input_validation_rejects_unknown_graph_fields_and_malformed_release_metadata() {
+    let unknown_fields = json!({"id":"one","plugin":"one","version":"1.0.0","requires":[]});
+    assert!(serde_json::from_value::<Selection>(unknown_fields).is_err());
     let mut input = composition(vec![selection("one", "one")]);
     input.profile.plugins[0].version = "^1.0".into();
     assert!(matches!(

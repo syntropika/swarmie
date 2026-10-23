@@ -21,7 +21,6 @@ async fn open(host: &Host, database: &Path) -> Result<common::Consumer> {
         swarmie_task_storage_sqlite::facet(&Configuration {
             database: database.into(),
             outbox: Default::default(),
-            outbox_legacy_owners: Default::default(),
         })?,
         core::LoadOptions::default(),
     )?

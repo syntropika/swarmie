@@ -153,9 +153,9 @@ pub struct StorageOwner {
 /// pending events; consumers must deduplicate by the complete stable event identity.
 /// Consumer mutation/read authority comes only from Tembra's bounded immediate caller Facet,
 /// using [`crate::task_outbox_consumer_owner`]. Registration durably binds that stable name;
-/// foreign owners and unattributed roots are refused without mutation. Legacy unowned rows
-/// protect retention and fail closed until an explicit operator migration adopts them. Status
-/// inspection reveals positions and owner names without granting consumption authority.
+/// foreign owners and unattributed roots are refused without mutation. Every durable consumer
+/// has a required owner. Status inspection reveals positions and owner names without granting
+/// consumption authority.
 #[tembra::contract(local, name = "swarmie.task-storage", version = 1)]
 pub trait TaskStorage {
     #[portable]

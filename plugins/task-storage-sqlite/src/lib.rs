@@ -5,8 +5,8 @@
 //! both ownership boundaries without deleting committed tasks.
 
 mod configuration;
-mod migrations;
 mod outbox;
+mod schema;
 mod service;
 mod store;
 

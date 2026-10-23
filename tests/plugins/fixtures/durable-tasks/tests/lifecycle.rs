@@ -76,7 +76,6 @@ async fn open(
     let host = Host::with_driver("durable-acceptance", "application", driver.clone())?;
     host.install(
         swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
-            outbox_legacy_owners: Default::default(),
             database: database.into(),
             outbox: Default::default(),
         })?,
@@ -339,7 +338,6 @@ fn host_replacement_preserves_sleeping_work_and_releases_storage_claim() {
         inspection
             .install(
                 swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
-                    outbox_legacy_owners: Default::default(),
                     database: database.clone(),
                     outbox: Default::default(),
                 })?,
@@ -409,7 +407,6 @@ fn completing_outcome_waits_for_recovered_owned_work_without_reinvoking_parent()
         let seed = Host::with_driver("seed-committed-recovery", "application", driver.clone())?;
         seed.install(
             swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
-                outbox_legacy_owners: Default::default(),
                 database: database.clone(),
                 outbox: Default::default(),
             })?,

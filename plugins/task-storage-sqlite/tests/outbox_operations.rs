@@ -109,21 +109,6 @@ fn limits_json_defaults_partial_values_and_validation_are_explicit() {
             .is_err()
         );
     }
-    for mapping in [
-        serde_json::json!({"consumer":""}),
-        serde_json::json!({"consumer":"x".repeat(257)}),
-        serde_json::json!({"bad consumer":"owner"}),
-        serde_json::json!({"consumer":"bad\nowner"}),
-    ] {
-        let parsed: Configuration = serde_json::from_value(
-            serde_json::json!({"database":"tasks.sqlite","outbox_legacy_owners":mapping}),
-        )
-        .unwrap();
-        assert_eq!(
-            parsed.validate(),
-            Err(ConfigurationError::OutboxLegacyOwners)
-        );
-    }
     assert!(
         serde_json::from_value::<TaskOutboxConsumer>(
             serde_json::json!({"id":"publisher","owner_facet":"forged"})

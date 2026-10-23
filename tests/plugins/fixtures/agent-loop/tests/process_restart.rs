@@ -130,7 +130,6 @@ fn agent_child_process() {
                 swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
                     database: root.join("tasks.sqlite"),
                     outbox: Default::default(),
-                    outbox_legacy_owners: Default::default(),
                 })?,
                 core::LoadOptions::default(),
             )?

@@ -26,9 +26,8 @@ The default loop uses one durable turn task with `start`, `model`, `tool` and `f
 phases. Context/request preparation, response processing, tool preparation and step bookkeeping
 run as bounded internal substeps. Each invocation performs at most one model or tool effect;
 Durable Tasks commits and admits the next effect through `Continue`. Ordinary Session evidence
-is confirmed before observations are admitted. A future independently managed long-running
-tool can own child tasks through the existing Durable Tasks Contract. No child-task scheduler is
-introduced by this capability.
+is confirmed before observations are admitted. Durable Tasks owns task scheduling and child-task
+execution; the loop introduces no additional scheduler.
 
 If a completion receipt was committed but its reply or task transition was lost, duration
 exhaustion does not replace it with a different ending. The loop validates the saved decision

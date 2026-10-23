@@ -212,3 +212,41 @@ fn lifecycle_schema_is_bounded_and_distinguishes_commits_from_physical_settlemen
     assert!(validate(schema, &value).is_err());
     Ok(())
 }
+
+#[test]
+fn outbox_consumer_results_require_an_explicit_owner() -> Result<(), Box<dyn std::error::Error>> {
+    use tembra::contracts::{Member, ValueSchema, validate};
+
+    let contract = TaskStorage.descriptor()?;
+    let Some(Member::Method {
+        result: Some(ValueSchema::Portable(schema)),
+        ..
+    }) = contract
+        .members("")
+        .and_then(|members| members.get("register_outbox_consumer"))
+    else {
+        panic!("consumer registration must export a portable result");
+    };
+    let value = serde_json::json!({
+        "owner_facet": "fixture.publisher",
+        "consumer_id": "history",
+        "store_id": "source",
+        "acknowledged": null,
+        "delivered": null,
+        "retained_after": null,
+    });
+    validate(schema, &value)?;
+    for owner in [
+        serde_json::Value::Null,
+        serde_json::json!(""),
+        serde_json::json!(7),
+    ] {
+        let mut invalid = value.clone();
+        invalid["owner_facet"] = owner;
+        assert!(validate(schema, &invalid).is_err());
+    }
+    let mut missing = value;
+    missing.as_object_mut().unwrap().remove("owner_facet");
+    assert!(validate(schema, &missing).is_err());
+    Ok(())
+}

@@ -136,7 +136,6 @@ async fn open(driver: Rc<TokioDriver>, events: u64) -> Result<Rig> {
     let host = Host::with_driver("capacity-cancellation", "test", driver.clone())?;
     host.install(
         swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
-            outbox_legacy_owners: Default::default(),
             database: directory.path().join("tasks.sqlite"),
             outbox: swarmie_task_storage_sqlite::TaskOutboxLimits {
                 max_events: events,

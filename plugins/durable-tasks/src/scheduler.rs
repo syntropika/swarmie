@@ -501,7 +501,6 @@ mod tests {
                         &swarmie_task_storage_sqlite::Configuration {
                             database: directory.path().join("tasks.sqlite"),
                             outbox: Default::default(),
-                            outbox_legacy_owners: Default::default(),
                         },
                     )
                     .unwrap(),

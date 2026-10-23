@@ -219,7 +219,6 @@ async fn open_with_loop(
         swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
             database: root.join("tasks.sqlite"),
             outbox: Default::default(),
-            outbox_legacy_owners: Default::default(),
         })?,
         match session_provider {
             Some(provider) => provider,

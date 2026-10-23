@@ -157,7 +157,7 @@ impl Store {
         connection
             .pragma_update(None, "foreign_keys", "ON")
             .map_err(io)?;
-        crate::schema::migrate(&mut connection)?;
+        crate::schema::initialize(&mut connection)?;
         let head = metadata(&connection)?;
         connection.set_prepared_statement_cache_capacity(STATEMENT_CACHE_CAPACITY);
         Ok(Self {
@@ -219,13 +219,6 @@ pub(crate) fn commit_sequence(connection: &Connection) -> Result<u64> {
         return Err(corrupt("invalid store metadata"));
     }
     Ok(sequence)
-}
-
-/// Strictly re-validates rows of an older schema while migrating them. Refuses duplicate object
-/// fields, unsafe numeric values and unsupported portable structure.
-pub(crate) fn decode<T: tembra::serde::de::DeserializeOwned>(encoded: &str) -> Result<T> {
-    let value = tembra::contracts::parse_json(encoded).map_err(corrupt)?;
-    serde_json::from_value(value).map_err(corrupt)
 }
 
 /// Decodes a row that this provider admitted and stored as canonical text with one typed parse.

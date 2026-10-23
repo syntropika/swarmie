@@ -162,7 +162,7 @@ impl TurnHandlerProvider for Engine {
                     })
                 } else {
                     Ok(TaskTransition::RejectMigration {
-                        reason: "agent checkpoint version has different conversation or phase boundaries; migration requires explicit evidence and is not automatic".into(),
+                        reason: "unsupported agent checkpoint format; definition and checkpoint version 3 are required".into(),
                     })
                 };
             }

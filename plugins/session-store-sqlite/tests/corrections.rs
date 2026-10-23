@@ -140,8 +140,7 @@ fn incompatible_database_is_rejected_before_journal_mode_changes() -> Result<()>
 }
 
 #[test]
-fn existing_history_backfills_conversation_indexes_without_rewriting_events_or_receipts()
--> Result<()> {
+fn reopened_history_keeps_conversation_indexes_and_immutable_receipts() -> Result<()> {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("sessions.sqlite");
     let database = &database;
@@ -169,8 +168,6 @@ fn existing_history_backfills_conversation_indexes_without_rewriting_events_or_r
     let receipt: String = raw
         .query_row("SELECT receipt FROM session_batches", [], |row| row.get(0))
         .unwrap();
-    // Reconstruct the exact previous physical layout while retaining its immutable data.
-    raw.execute_batch("DROP TRIGGER immutable_events_update; DROP INDEX session_events_conversation; DROP INDEX session_events_conversation_turn; ALTER TABLE session_events DROP COLUMN conversation_id; CREATE TRIGGER immutable_events_update BEFORE UPDATE ON session_events BEGIN SELECT RAISE(ABORT,'immutable event'); END; PRAGMA user_version=1;").unwrap();
     drop(raw);
     run(|host, driver| async move {
         let store = open(&host, database, driver).await?;
@@ -201,4 +198,55 @@ fn existing_history_backfills_conversation_indexes_without_rewriting_events_or_r
         );
         host.close().await
     })
+}
+
+#[test]
+fn unsupported_schema_version_preserves_history_and_journal_mode() -> Result<()> {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("sessions.sqlite");
+    run(|host, driver| {
+        let database = &database;
+        async move {
+            let store = open(&host, database, driver).await?;
+            create(&store, "retained").await?;
+            store
+                .append(batch(
+                    "retained",
+                    "input",
+                    vec![message("input", "user", "Keep this history")],
+                ))
+                .await?;
+            host.close().await
+        }
+    })?;
+    let raw = rusqlite::Connection::open(&database).unwrap();
+    raw.execute_batch("PRAGMA journal_mode=DELETE; PRAGMA user_version=1;")
+        .unwrap();
+    drop(raw);
+    let before = std::fs::read(&database).unwrap();
+    run(|host, driver| {
+        let database = &database;
+        async move {
+            let error = match open(&host, database, driver).await {
+                Ok(_) => panic!("unsupported storage format was admitted"),
+                Err(error) => error,
+            };
+            assert_eq!(error.reason, "session_store_schema");
+            host.close().await
+        }
+    })?;
+    assert_eq!(std::fs::read(&database).unwrap(), before);
+    let raw = rusqlite::Connection::open(&database).unwrap();
+    assert_eq!(
+        raw.pragma_query_value(None, "journal_mode", |row| row.get::<_, String>(0))
+            .unwrap(),
+        "delete"
+    );
+    assert_eq!(
+        raw.query_row("SELECT count(*) FROM session_events", [], |row| row
+            .get::<_, u32>(0))
+            .unwrap(),
+        1
+    );
+    Ok(())
 }

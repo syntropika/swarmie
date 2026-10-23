@@ -139,10 +139,10 @@ and append explicitly labeled reconciliation observations. Such snapshots recove
 they cannot reconstruct lost intermediate transitions or physical-settlement notifications.
 
 The independently implemented TaskStorage outbox commits selected task facts atomically with
-their record revisions. Its version-one event carries source store/commit sequence/ordinal,
+their record revisions. Its current event carries source store/commit sequence/ordinal,
 transaction size, task identity and parent, but no session identity. It exposes bounded scanning,
-per-consumer acknowledgement and retention boundaries. This implementation remains a separate
-branch; this SessionStore branch does not contain or qualify an outbox consumer.
+per-consumer acknowledgement and retention boundaries. Task/session integration owns the
+outbox consumer and its delivery policy.
 
 The integration consumer resolves each fact through the durable binding above, freezes a
 versioned deterministic mapping, then appends one fact per Session batch using stable batch and

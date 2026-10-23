@@ -161,7 +161,6 @@ fn actual_genai_streaming_tool_turn_preserves_http_calls_and_session_transcript(
             swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
                 database: directory.path().join("tasks.sqlite"),
                 outbox: Default::default(),
-                outbox_legacy_owners: Default::default(),
             })?,
             swarmie_session_store_sqlite::facet(
                 &swarmie_session_store_sqlite::Configuration {

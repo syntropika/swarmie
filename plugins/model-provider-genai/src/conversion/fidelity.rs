@@ -108,7 +108,7 @@ pub(super) fn prepare_replay(
                     ));
                 }
                 g::ContentPart::ToolCall(mut call) => {
-                    // Old genai mirrored the complete turn's signatures on the first call.
+                    // Tool-call signature mirrors must match the preceding native blocks.
                     // Positional native blocks are authoritative; inconsistent mirrors fail.
                     if let Some(signatures) = call.thought_signatures.take() {
                         let expected: Vec<_> = result

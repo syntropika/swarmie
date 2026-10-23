@@ -70,7 +70,7 @@ impl MemoryOutbox {
                 .iter()
                 .map(
                     |(consumer_id, (ack, delivered, owner))| TaskOutboxConsumerState {
-                        owner_facet: Some(owner.clone()),
+                        owner_facet: owner.clone(),
                         consumer_id: consumer_id.clone(),
                         store_id: store_id.into(),
                         acknowledged: id(*ack, store_id),
@@ -188,7 +188,7 @@ impl MemoryOutbox {
         }
         let (acknowledged, delivered) = self.owned_consumer(&consumer.id, owner)?;
         Ok(TaskOutboxConsumerState {
-            owner_facet: Some(owner.into()),
+            owner_facet: owner.into(),
             consumer_id: consumer.id,
             store_id: store_id.into(),
             acknowledged: id(acknowledged, store_id),

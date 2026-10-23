@@ -80,7 +80,6 @@ async fn open_scripts(
         swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
             database: root.join("tasks.sqlite"),
             outbox: Default::default(),
-            outbox_legacy_owners: Default::default(),
         })?,
         swarmie_session_store_sqlite::facet(
             &swarmie_session_store_sqlite::Configuration {

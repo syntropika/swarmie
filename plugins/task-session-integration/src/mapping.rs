@@ -8,7 +8,7 @@ use crate::{admission::invalid, store::canonical};
 
 /// Mapping v1 is frozen: no clock, current task snapshot, head, random ID or admission state.
 pub(crate) fn append(binding: &TaskSessionBinding, fact: &TaskOutboxEvent) -> Result<AppendEvents> {
-    if binding.routing_version != 1 || !(1..=2).contains(&fact.version) {
+    if binding.routing_version != 1 || fact.version != 2 {
         return Err(invalid(
             "binding_version",
             "unsupported fact or routing mapping version",
@@ -131,11 +131,13 @@ mod tests {
         binding.key.task_store_id = "replacement".into();
         fact.id.store_id = "replacement".into();
         assert_ne!(append(&binding, &fact).unwrap().batch_id, first.batch_id);
-        fact.version = 3;
-        assert_eq!(
-            append(&binding, &fact).unwrap_err().reason,
-            "binding_version"
-        );
+        for version in [0, 1, 3] {
+            fact.version = version;
+            assert_eq!(
+                append(&binding, &fact).unwrap_err().reason,
+                "binding_version"
+            );
+        }
     }
 
     #[test]

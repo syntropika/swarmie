@@ -98,8 +98,6 @@ pub(crate) enum Error {
     OutboxFull,
     #[error("the caller does not own this outbox consumer")]
     OutboxOwnerMismatch,
-    #[error("this legacy outbox consumer requires explicit operator ownership adoption")]
-    OutboxOwnerUnassigned,
     #[error("task database is already owned")]
     Owned,
     #[error("the caller does not own task scheduling for this provider")]
@@ -121,7 +119,6 @@ impl Error {
             Self::TooLarge(_) => "task_storage_too_large",
             Self::OutboxFull => "task_storage_outbox_full",
             Self::OutboxOwnerMismatch => "task_storage_outbox_owner_mismatch",
-            Self::OutboxOwnerUnassigned => "task_storage_outbox_owner_unassigned",
             Self::Owned => "task_storage_owned",
             Self::OwnerMismatch => "task_storage_owner_mismatch",
             Self::Closed => "task_storage_closed",
@@ -133,7 +130,7 @@ impl Error {
                 ErrorCode::Invalid
             }
             Self::OutboxOwnerMismatch => ErrorCode::Forbidden,
-            Self::Unsupported(_) | Self::OutboxOwnerUnassigned => ErrorCode::UpgradeRequired,
+            Self::Unsupported(_) => ErrorCode::UpgradeRequired,
             Self::Closed => ErrorCode::Released,
             _ => ErrorCode::Unavailable,
         };
@@ -144,13 +141,12 @@ impl Error {
 impl Store {
     #[cfg(test)]
     pub(crate) fn open(path: &Path) -> Result<Self> {
-        Self::open_with_outbox_limits(path, crate::TaskOutboxLimits::default(), &BTreeMap::new())
+        Self::open_with_outbox_limits(path, crate::TaskOutboxLimits::default())
     }
 
     pub(crate) fn open_with_outbox_limits(
         path: &Path,
         outbox_limits: crate::TaskOutboxLimits,
-        legacy_owners: &BTreeMap<String, String>,
     ) -> Result<Self> {
         outbox_limits
             .validate()
@@ -186,6 +182,7 @@ impl Store {
         )?;
         // Calls run on Tembra's local executor: refuse contention without blocking the Host.
         connection.busy_timeout(Duration::ZERO)?;
+        crate::schema::admit(&connection)?;
         let mode: String =
             connection.query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))?;
         if !mode.eq_ignore_ascii_case("wal") {
@@ -199,7 +196,7 @@ impl Store {
                 "SQLite refused FULL synchronization".into(),
             ));
         }
-        let (sequence, store_id) = crate::migrations::apply(&mut connection, legacy_owners)?;
+        let (sequence, store_id) = crate::schema::initialize(&mut connection)?;
         connection.set_prepared_statement_cache_capacity(STATEMENT_CACHE_CAPACITY);
         Ok(Self {
             connection: RefCell::new(Some(connection)),
@@ -855,19 +852,19 @@ mod tests {
     }
 
     #[test]
-    fn legacy_oversized_record_is_explicitly_refused_without_deletion() -> Result<()> {
+    fn oversized_stored_record_is_explicitly_refused_without_deletion() -> Result<()> {
         let directory = tempfile::tempdir()?;
         let store = Store::open(&directory.path().join("tasks.sqlite"))?;
-        let mut record = pending("legacy").record;
+        let mut record = pending("oversized").record;
         record.checkpoint = serde_json::json!("x".repeat(800_000));
         let encoded = serde_json::to_string(&record).expect("fixture encoding");
         store.with(|connection| {
-            connection.execute("INSERT INTO task_records(id, revision, status, parent, record) VALUES('legacy', 1, 'pending', NULL, ?1)", [&encoded])?;
+            connection.execute("INSERT INTO task_records(id, revision, status, parent, record) VALUES('oversized', 1, 'pending', NULL, ?1)", [&encoded])?;
             Ok(())
         })?;
         assert!(matches!(
             store.get(TaskLookup {
-                id: "legacy".into()
+                id: "oversized".into()
             }),
             Err(Error::TooLarge(_))
         ));
@@ -878,7 +875,7 @@ mod tests {
         store.with(|connection| {
             assert_eq!(
                 connection.query_row(
-                    "SELECT record FROM task_records WHERE id='legacy'",
+                    "SELECT record FROM task_records WHERE id='oversized'",
                     [],
                     |row| row.get::<_, String>(0)
                 )?,

@@ -35,7 +35,6 @@ async fn open(
     let control = Rc::new(Control::default());
     host.install(
         swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
-            outbox_legacy_owners: Default::default(),
             database: directory.path().join("tasks.sqlite"),
             outbox: Default::default(),
         })?,
@@ -244,7 +243,6 @@ fn graceful_close_joins_physical_work_and_retries_without_counting_a_crash() {
         reopened
             .install(
                 swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
-                    outbox_legacy_owners: Default::default(),
                     database: directory.path().join("tasks.sqlite"),
                     outbox: Default::default(),
                 })?,
@@ -329,7 +327,6 @@ fn cancellation_of_a_large_tree_blocks_all_descendant_handler_admission() {
         backend_host
             .install(
                 swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
-                    outbox_legacy_owners: Default::default(),
                     database: directory.path().join("tasks.sqlite"),
                     outbox: Default::default(),
                 })?,
@@ -518,7 +515,6 @@ fn terminal_notifications_wake_waiters_before_the_fallback_interval() {
         backend_host
             .install(
                 swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
-                    outbox_legacy_owners: Default::default(),
                     database: directory.path().join("tasks.sqlite"),
                     outbox: Default::default(),
                 })?,

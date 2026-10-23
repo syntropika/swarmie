@@ -55,7 +55,6 @@ async fn open_config(
     let host = Host::with_driver("lifecycle-hooks", "application", driver.clone())?;
     host.install(
         swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
-            outbox_legacy_owners: Default::default(),
             database: directory.path().join("tasks.sqlite"),
             outbox: Default::default(),
         })?,
@@ -539,7 +538,6 @@ fn cas_conflict_after_effect_never_publishes_fictitious_completion() {
         backend
             .install(
                 swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
-                    outbox_legacy_owners: Default::default(),
                     database: directory.path().join("tasks.sqlite"),
                     outbox: Default::default(),
                 })?,
@@ -868,7 +866,6 @@ fn full_outbox_retains_settled_handler_decision_until_acknowledgement_frees_capa
         let host = Host::with_driver("outbox-capacity", "application", driver.clone())?;
         host.install(
             swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
-                outbox_legacy_owners: Default::default(),
                 database: directory.path().join("tasks.sqlite"),
                 outbox: swarmie_task_storage_sqlite::TaskOutboxLimits {
                     max_events: 2,

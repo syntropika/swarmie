@@ -186,7 +186,7 @@ fn child_process() -> Result<()> {
                 host.install(
                     swarmie_task_storage_sqlite::facet(
                         &swarmie_task_storage_sqlite::Configuration {
- outbox_legacy_owners: Default::default(), database, outbox: Default::default(), },
+ database, outbox: Default::default(), },
                     )?,
                     core::LoadOptions::default(),
                 )?

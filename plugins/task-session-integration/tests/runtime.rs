@@ -252,8 +252,8 @@ fn managed_activity_reconciles_history_after_restart_without_manual_publish() ->
         );
         let owner = h.storage.outbox_status().await?.consumers;
         assert_eq!(
-            owner[0].owner_facet.as_deref(),
-            Some(swarmie_task_session_integration::FACET_ID)
+            owner[0].owner_facet,
+            swarmie_task_session_integration::FACET_ID
         );
         h.host.close().await
     })

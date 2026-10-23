@@ -261,29 +261,20 @@ across bounded pages. Failed CAS, validation or capacity admission produces no e
 phase settlement is not an atomic task-state event. Record snapshots cannot reconstruct lost
 intermediate revisions, so use the outbox for reliable publication rather than Hook delivery.
 
-New event version two can also retain optional `TaskTransitionProvenance`: the committing
+Outbox event version two can retain optional `TaskTransitionProvenance`: the committing
 writer's operation origin and whether it accepted a checkpoint. `checkpoint_changed` remains
 an actual value comparison; acceptance can be true when equality is unchanged. Provenance is
 writer-reported committed metadata, not independent verification that a handler executed.
-Direct writes may omit it. Version-one history remains readable with unknown provenance;
-existing event identities and canonical content are not backfilled or rewritten.
+Direct writes may omit it. Only the current event format is supported.
 
 A durable consumer must run under its own Tembra Facet identity and retain that identity across
 restart or compatible reload. Reading, acknowledging and retiring another Facet's consumer is
 refused; knowing a consumer ID is insufficient. Unattributed roots cannot claim a consumer.
-`owner_facet` reports the durable owner; it is `null` only for unassigned historical consumers.
+`owner_facet` reports the required durable owner.
 Use ordinary owned References and managed Facet/activity contexts for publisher operations.
 This is local component attribution, not remote authentication or a sandbox against native code
 that holds the Host or another live Context. Uninstalling a Facet does not relinquish its
 consumer's retention protection. Preserve the installed Facet name across publisher versions.
-
-Unassigned historical consumers refuse consumption and protect their unacknowledged prefix.
-Existing durable acknowledgements remain authoritative. An operator can
-explicitly adopt them while opening the Resource using the SQLite plugin's JSON
-`outbox_legacy_owners` map, for example `{ "session-history": "app.session-publisher" }`.
-The map is bounded to 64 entries and owner names to 256 UTF-8 bytes. Adoption applies only to
-unassigned rows; a missing consumer or an existing different owner refuses opening. It never
-silently claims a consumer, overwrites an owner, acknowledges history or deletes events.
 
 Register required consumers before starting task production; late registration starts at the
 retained boundary and cannot recover already compacted history.

@@ -160,10 +160,7 @@ async fn verify(driver: Rc<TokioDriver>) {
         );
     }
     let before = storage.outbox_status().await.unwrap();
-    assert_eq!(
-        before.consumers[0].owner_facet.as_deref(),
-        Some("fixture.session-publisher")
-    );
+    assert_eq!(before.consumers[0].owner_facet, "fixture.session-publisher");
     assert_eq!(before.consumers[0].delivered.as_ref(), Some(&through));
     assert_eq!(before.consumers[0].acknowledged, None);
 

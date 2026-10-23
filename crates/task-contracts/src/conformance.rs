@@ -710,7 +710,7 @@ async fn outbox(storage: &TaskStorageRef, identity: &crate::TaskStorageIdentity)
         .await?;
     assert_eq!(state.store_id, other.store_id);
     assert_eq!(state.store_id, identity.store_id);
-    let owner = state.owner_facet.as_ref().expect("managed consumer owner");
+    let owner = &state.owner_facet;
     crate::validate_task_outbox_owner_facet(owner)?;
     assert_eq!(state.owner_facet, other.owner_facet);
     let registered = storage.outbox_status().await?;

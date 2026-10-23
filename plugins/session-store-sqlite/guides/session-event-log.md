@@ -91,20 +91,14 @@ still depends on correct filesystem/device synchronization; process-kill tests a
 power-loss qualification. Synchronous admission bounds work per request but does not promise
 a latency deadline for an unhealthy filesystem.
 
-Schema ownership and supported structure are checked in a read-only transaction before
-changing journal mode. Foreign, nonempty unrelated and newer schemas are refused without
-adopting WAL or deleting data. Installation and upgrades use an immediate transaction that
-revalidates admission. Schema version two indexes conversation identity; the version-one upgrade
-backfills this column one envelope at a time without changing event JSON, heads or batch receipts.
-The update trigger is restored within the same transaction. This migration scans every event
-and holds the SQLite writer lock until commit. Its WAL and elapsed time grow with the stored
-history; bounded row decoding does not imply a bounded total migration or WAL size. Opening an
-existing large database therefore requires an embedding-owned maintenance window and enough
-free disk for the additional indexes and transient WAL. No online or resumable migration is
-claimed. Process death before commit rolls back schema, backfill and trigger changes together;
-reopening retries the migration from the original version. Future upgrades require an explicit
-atomic migration or refusal. Resource closure releases the connection and ownership lock without
-deleting sessions, events, SQLite sidecars or receipts.
+Schema ownership and the current supported structure are checked in a read-only transaction
+before changing journal mode. Foreign, unrelated and unsupported schemas are refused without
+adopting WAL, rewriting rows or deleting data. A fresh empty database is initialized atomically
+in an immediate transaction that revalidates admission. The current schema indexes session,
+conversation and turn identity. Reopening this schema preserves event JSON, heads, immutable
+triggers and batch receipts. No prior storage format is interpreted or converted. Resource
+closure releases the connection and ownership lock without deleting sessions, events, SQLite
+sidecars or receipts.
 
 ## Bounded historical reads and reactive recovery
 
@@ -208,7 +202,6 @@ bun install --frozen-lockfile
 just tembra-plugins
 just session-test
 just session-benchmark
-just session-migration-benchmark
 just rust-check
 ```
 
@@ -217,13 +210,3 @@ produced from the Rust descriptor by the existing Tembra generator. The JavaScri
 fixture calls the real generated binding against Rust SQLite through Tembra's executor.
 The separate remote gateway in tests is a fixture for uncertain RPC outcomes, not an exposed
 production service or authentication policy.
-
-The explicit release migration benchmark builds a version-one database with one million events
-and exact append receipts, opens it through the real Tembra provider, measures migration time,
-database growth and peak observed WAL bytes, and verifies a competing writer is excluded.
-Fixture generation is timed separately and keeps one batch in memory. It checks SQLite integrity,
-retained envelope byte counts/receipts and filtered base-context reads. Results describe the
-measured workload and filesystem; they are not latency or free-space guarantees. Default tests
-also kill a separate process after a fixture SQL trigger proves actual backfill progress and WAL
-spill, then verify rollback to v1, immutable triggers, full deterministic replay and successful
-migration on reopening. Fault injection remains entirely inside the temporary test database.

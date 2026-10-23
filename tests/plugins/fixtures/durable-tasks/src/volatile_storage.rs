@@ -636,9 +636,8 @@ mod tests {
                     a.register_outbox_consumer(request())
                         .await
                         .unwrap()
-                        .owner_facet
-                        .as_deref(),
-                    Some("fixture.consumer.a")
+                        .owner_facet,
+                    "fixture.consumer.a"
                 );
                 let page = a.read_outbox(query()).await.unwrap();
                 let acknowledgement = TaskOutboxAcknowledgement {

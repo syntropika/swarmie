@@ -145,15 +145,15 @@ pub struct TaskTransitionProvenance {
 /// One confirmed record revision, persisted in the same transaction as that revision.
 /// Structural metadata is derived from actual pre/post records. Optional provenance records
 /// the claimed writer's operation annotation, without independently verifying execution.
-/// Version 1 has no provenance; version 2 may omit it when the operation is unknown. Historical
-/// events retain their original version, identity and canonical payload; readers never backfill.
+/// Version 2 may omit provenance when the operation is unknown. Event identity and canonical
+/// payload are immutable; unsupported versions are refused rather than converted.
 /// No input, checkpoint, output or free diagnostic text is copied here, and physical handler
 /// settlement is never represented.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
 pub struct TaskOutboxEvent {
-    #[schemars(range(min = 1, max = 2))]
+    #[schemars(range(min = 2, max = 2))]
     pub version: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provenance: Option<TaskTransitionProvenance>,
@@ -230,16 +230,14 @@ pub struct TaskOutboxConsumer {
 
 /// Durable consumer position and explicit compacted history boundary. An empty store still
 /// exposes its identity. New consumers start at `retained_after`; earlier history is unavailable.
-/// The boundary may also describe historical commits predating outbox installation; ordinal 255
-/// denotes the end of such an unavailable commit sequence, without inventing past events.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
 pub struct TaskOutboxConsumerState {
-    /// Informational installed Facet name, never consumption authority. None marks a legacy
-    /// unowned row, which retains history and refuses use until explicit operator adoption.
+    /// Required installed Facet name, retained across restart. It reports ownership without
+    /// granting consumption authority to a caller that only knows this name.
     #[schemars(length(min = 1, max = 256))]
-    pub owner_facet: Option<String>,
+    pub owner_facet: String,
     #[schemars(length(min = 1, max = 128))]
     pub consumer_id: String,
     #[schemars(length(min = 1, max = 128))]

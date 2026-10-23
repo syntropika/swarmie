@@ -35,7 +35,7 @@ projections remain policy-free; context transformation belongs to the loop and c
 | `swarmie.agent.operation-resolution` | Validated reference to evidence resolving an uncertain operation |
 
 Agent event kinds use payload version two; the independent `swarmie.message` envelope retains
-Session payload version one. Agent payloads include the new conversation scope where applicable. A provider receipt and effective middleware receipt
+Session payload version one. Agent payloads include conversation scope where applicable. A provider receipt and effective middleware receipt
 have separate immutable identities. If middleware fails after the provider result commits, a retry
 can reenter the middleware while the model terminal reuses the physical receipt. The external
 request is not repeated. A middleware result that bypasses the terminal still passes correlation,
@@ -98,13 +98,12 @@ replacement may support a narrower set of phases and explicitly refuse others. D
 must select a new definition version and implement the Durable Tasks migration contract, with
 explicit acceptance or rejection. Native code replacement uses a fresh Host and preserved stores.
 
-Version-one AgentLoop, Hook, tool-schema and policy descriptors are incompatible with the required
-conversation fields. Version-two contracts have new fingerprints and generated bindings. There
-is no default conversation and no format guessing. A version-one persisted task is explicitly
-rejected through `TaskTransition::RejectMigration`; Durable Tasks preserves its input/checkpoint
-and marks unsupported recovery instead of running effects. Mapping it to a conversation requires
-independent evidence and an explicitly designed migration. Definition and checkpoint versions one
-and two are not accepted by the version-three default handler. The alternate implementation fixture supports version-three confirmed finalization checkpoints and
+The default handler accepts definition and checkpoint version three with the required
+conversation fields. It does not infer a conversation or reinterpret another checkpoint format.
+Durable Tasks refuses unsupported definitions, and the handler explicitly rejects unsupported
+checkpoint migration through `TaskTransition::RejectMigration`. Submitted input, checkpoint and
+phase remain preserved with the recorded refusal. The alternate
+implementation fixture supports version-three confirmed finalization checkpoints and
 the exact `model` checkpoint with a correlated confirmed provider receipt for a final answer without
 tool calls. It validates the admitted task, input, request and receipt before completing. It refuses
 unknown effects and other phases. Default-loop recovery instead reenters the currently installed

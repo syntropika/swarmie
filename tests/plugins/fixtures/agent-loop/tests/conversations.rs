@@ -3,8 +3,8 @@
 use serde_json::json;
 use std::{path::Path, time::Duration};
 use swarmie_agent_loop_fixture::{model::Reply, tool::ToolConfiguration};
-use swarmie_session_contracts::{AppendEvents, CreateSession, EventQuery};
-use swarmie_task_contracts::{TaskOutcome, TaskSpec, TaskStatus};
+use swarmie_session_contracts::{AppendEvents, CreateSession, EventQuery, SessionLookup};
+use swarmie_task_contracts::{BlockingReason, TaskOutcome, TaskSpec, TaskStatus};
 use tembra::Result;
 
 pub mod conversation_support;
@@ -114,47 +114,6 @@ fn interleaved_conversations_keep_repeated_turn_ids_and_paged_context_separate()
                 .await?
                 .is_none()
         );
-        fixture.host.close().await
-    });
-}
-
-#[test]
-fn legacy_checkpoint_without_conversation_is_explicitly_rejected_and_preserved() {
-    run(|driver| async move {
-        let directory = tempfile::tempdir().unwrap();
-        let fixture = open(driver, directory.path(), vec![], Default::default(), true).await?;
-        let input = json!({"turn_id":"legacy","session_id":"legacy-session","input_event_id":"legacy-input","model":{"connection":"fixture","model":"scripted"},"limits":{"max_steps":2,"max_tool_calls":2,"max_duration_ms":1000,"max_output_tokens":100}});
-        let checkpoint = json!({"step":0,"tool_index":0,"tool_calls":0,"output_tokens":0,"started_at_ms":1,"input_sequence":1,"request_event":null,"response_event":null,"tool_event":null,"ending":null});
-        let record = fixture
-            .tasks
-            .create(TaskSpec {
-                id: "legacy-agent-v1".into(),
-                kind: swarmie_agent_loop_default::TURN_KIND.into(),
-                definition_version: 1,
-                input: input.clone(),
-                checkpoint: checkpoint.clone(),
-                phase: "start".into(),
-            })
-            .await?;
-        loop {
-            let saved = fixture
-                .tasks
-                .get(swarmie_task_contracts::TaskLookup {
-                    id: record.id.clone(),
-                })
-                .await?
-                .unwrap();
-            if saved.status == TaskStatus::Blocked {
-                assert_eq!(saved.definition_version, 1);
-                assert_eq!(saved.input, input);
-                assert_eq!(saved.checkpoint, checkpoint);
-                assert!(format!("{:?}", saved.blocking_reason).contains("conversation"));
-                break;
-            }
-            assert!(!saved.is_terminal());
-            tokio::time::sleep(Duration::from_millis(2)).await;
-        }
-        assert!(fixture.model.requests.borrow().is_empty());
         fixture.host.close().await
     });
 }
@@ -279,27 +238,38 @@ fn conversation_crash_child() -> Result<()> {
 }
 
 #[test]
-fn version_two_phase_checkpoints_are_rejected_without_rewriting_saved_evidence() {
+fn unsupported_newer_definition_preserves_current_checkpoint_without_running_effects() {
     run(|driver| async move {
         let directory = tempfile::tempdir().unwrap();
         let fixture = open(driver, directory.path(), vec![], Default::default(), true).await?;
-        let input = serde_json::to_value(request(
-            "old-session",
-            "old-conversation",
-            "old-turn",
-            "old-input",
-        ))
-        .unwrap();
-        let checkpoint = json!({"version":2,"session_id":"old-session","conversation_id":"old-conversation","turn_id":"old-turn","step":0,"tool_index":0,"tool_calls":0,"output_tokens":0,"started_at_ms":1,"input_sequence":1,"request_event":null,"response_event":null,"tool_event":null,"ending":null});
+        let request = request("session", "conversation", "turn", "input");
+        let input = serde_json::to_value(&request).unwrap();
+        let checkpoint = json!({
+            "version": 3,
+            "session_id": request.session_id,
+            "conversation_id": request.conversation_id,
+            "turn_id": request.turn_id,
+            "step": 0,
+            "tool_index": 0,
+            "tool_calls": 0,
+            "output_tokens": 0,
+            "started_at_ms": 1,
+            "input_sequence": 1,
+            "request_event": null,
+            "response_event": null,
+            "tool_event": null,
+            "ending": null,
+        });
+        let unsupported_version = 99;
         let record = fixture
             .tasks
             .create(TaskSpec {
-                id: "old-phase-v2".into(),
+                id: "unsupported-agent-format".into(),
                 kind: swarmie_agent_loop_default::TURN_KIND.into(),
-                definition_version: 2,
+                definition_version: unsupported_version,
                 input: input.clone(),
                 checkpoint: checkpoint.clone(),
-                phase: "prepare-model".into(),
+                phase: "start".into(),
             })
             .await?;
         tokio::time::timeout(Duration::from_secs(3), async {
@@ -312,11 +282,17 @@ fn version_two_phase_checkpoints_are_rejected_without_rewriting_saved_evidence()
                     .await?
                     .unwrap();
                 if saved.status == TaskStatus::Blocked {
-                    assert_eq!(saved.definition_version, 2);
+                    assert_eq!(saved.definition_version, unsupported_version);
                     assert_eq!(saved.input, input);
                     assert_eq!(saved.checkpoint, checkpoint);
-                    assert_eq!(saved.phase, "prepare-model");
-                    assert!(format!("{:?}", saved.blocking_reason).contains("phase boundaries"));
+                    assert_eq!(saved.phase, "start");
+                    assert!(matches!(
+                        saved.blocking_reason,
+                        Some(BlockingReason::IncompatibleDefinition { target_version: 3, detail })
+                            if detail.contains("registered definition is older")
+                    ));
+                    assert!(saved.outcome.is_none());
+                    assert!(!saved.cancellation_requested);
                     return Ok::<_, tembra::RuntimeError>(());
                 }
                 assert!(!saved.is_terminal());
@@ -324,8 +300,18 @@ fn version_two_phase_checkpoints_are_rejected_without_rewriting_saved_evidence()
             }
         })
         .await
-        .expect("incompatible phases are rejected explicitly")?;
+        .expect("unsupported formats are refused without rewriting task data")?;
         assert!(fixture.model.requests.borrow().is_empty());
+        assert!(fixture.tool.calls.borrow().is_empty());
+        assert!(
+            fixture
+                .sessions
+                .open(SessionLookup {
+                    session_id: request.session_id
+                })
+                .await?
+                .is_none()
+        );
         fixture.host.close().await
     });
 }

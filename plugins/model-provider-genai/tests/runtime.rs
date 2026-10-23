@@ -461,6 +461,18 @@ fn payload_limits_and_unsupported_features_refuse_before_http() {
             schema: json!({"type":"object"}),
         });
         cases.push((req, ProviderErrorKind::Unsupported));
+        let mut req = request("unsupported-continuation-format");
+        req.messages.push(Message {
+            role: Role::Assistant,
+            content: vec![ContentPart::Extension {
+                extension: Extension {
+                    namespace: "swarmie.continuation.ollama".into(),
+                    version: 1,
+                    value: json!({"kind":"custom_content","value":{"type":"text","text":"opaque"}}),
+                },
+            }],
+        });
+        cases.push((req, ProviderErrorKind::Unsupported));
         for (req, kind) in cases {
             let GenerateResult::Error { error } = p.generate(req).await.unwrap() else {
                 panic!("expected refusal");
