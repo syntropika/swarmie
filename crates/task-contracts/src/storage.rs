@@ -108,6 +108,20 @@ pub enum CommitResult {
     },
 }
 
+/// Immutable identity of the database served by the selected TaskStorage provider.
+///
+/// It equals the `store_id` carried by outbox status, outbox events, consumer states and scan
+/// cursors. The identity names the store that the live provider serves at the time of the call;
+/// it is not a durability, ownership or liveness proof. Consumers that detect store replacement
+/// must ask the current provider again instead of reusing an earlier answer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct TaskStorageIdentity {
+    #[schemars(length(min = 1, max = 128))]
+    pub store_id: String,
+}
+
 /// Ephemeral exclusive scheduler admission. This is neither a lease nor an execution generation.
 /// A provider permits one claimed owner until release or Resource closure. Claiming the same ID
 /// is idempotent; a different live owner, stale release or unclaimed commit is refused.
@@ -159,8 +173,16 @@ pub trait TaskStorage {
     #[portable]
     async fn commit(&self, transaction: TaskTransaction) -> Result<CommitResult>;
 
+    /// Returns the immutable store identity loaded when the provider's storage opened. It reads
+    /// no task or outbox data, never changes state, and is available while the outbox is full
+    /// and without claiming scheduler ownership. A closed provider refuses instead of answering.
+    /// Use it for identity checks; `outbox_status` remains a monitoring snapshot.
+    #[portable]
+    async fn identity(&self) -> Result<TaskStorageIdentity>;
+
     /// Inspects capacity, retained usage, durable consumer progress, and pending history without
     /// changing them. Available while the outbox is full and without claiming scheduler ownership.
+    /// Its `store_id` equals `identity`; prefer that cheaper method for identity checks.
     #[portable]
     async fn outbox_status(&self) -> Result<TaskOutboxStatus>;
 

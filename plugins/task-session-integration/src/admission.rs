@@ -28,18 +28,14 @@ pub(crate) fn validate_key(key: &BindingKey) -> Result<()> {
     validate_identity(&key.task_id)
 }
 
+/// Asks the live selected TaskStorage provider for its store identity on every call. A label,
+/// State hint or earlier answer never substitutes for this read.
 pub(crate) async fn source_identity(
     storage: &TaskStorageRef,
     context: &Context,
     expected: &str,
 ) -> Result<()> {
-    if storage
-        .with_context(context)
-        .outbox_status()
-        .await?
-        .store_id
-        != expected
-    {
+    if storage.with_context(context).identity().await?.store_id != expected {
         return Err(invalid(
             "binding_store_mismatch",
             "selected TaskStorage identity differs from the admitted source",
@@ -48,19 +44,14 @@ pub(crate) async fn source_identity(
     Ok(())
 }
 
+/// Asks the live selected SessionStore provider for its store identity on every call. A label,
+/// State hint or earlier answer never substitutes for this read.
 pub(crate) async fn destination_identity(
     sessions: &SessionStoreRef,
     context: &Context,
     expected: &str,
 ) -> Result<()> {
-    if sessions
-        .with_context(context)
-        .publication_status()
-        .await?
-        .durable
-        .store_id
-        != expected
-    {
+    if sessions.with_context(context).identity().await?.store_id != expected {
         return Err(invalid(
             "binding_store_mismatch",
             "selected SessionStore identity differs from the admitted destination",

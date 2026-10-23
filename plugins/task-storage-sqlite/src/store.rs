@@ -1,26 +1,83 @@
 use std::{
-    cell::RefCell,
+    borrow::Cow,
+    cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
     fs::{File, OpenOptions, TryLockError},
     path::Path,
     time::Duration,
 };
 
-use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use swarmie_task_contracts::{
-    CommitResult, MAX_PORTABLE_INTEGER, MAX_TASK_PAGE_BYTES, StorageOwner, TaskCursor, TaskLookup,
-    TaskPage, TaskQuery, TaskRecord, TaskStatus, TaskTransaction, task_wire_bytes,
-    validate_identity, validate_task_payload_size, validate_task_record_size,
+    CommitResult, EncodedTaskRecord, MAX_PORTABLE_INTEGER, MAX_TASK_PAGE_BYTES,
+    MAX_TASK_RECORD_BYTES, StorageOwner, TaskCursor, TaskLookup, TaskPage, TaskQuery, TaskRecord,
+    TaskStatus, TaskStorageIdentity, TaskTransaction, committed_receipt_bytes,
+    encode_task_transaction, task_wire_bytes, validate_identity, validate_task_payload_bytes,
+    validate_task_record_encoding,
 };
 use tembra::{RuntimeError, core::ErrorCode};
 
 pub(crate) type Result<T> = std::result::Result<T, Error>;
 
-type Metadata = (u64, String);
+/// Holds every fixed and transaction-control statement plus the eighteen filtered scan shapes.
+const STATEMENT_CACHE_CAPACITY: usize = 64;
+
+/// A transaction whose control statements come from the connection's statement cache.
+///
+/// It keeps the rollback semantics of rusqlite's default guard: dropping it without a successful
+/// COMMIT rolls back, including after a COMMIT that failed while SQLite still holds the
+/// transaction. Statements borrowing it always end before it drops.
+pub(crate) struct Transaction<'c> {
+    connection: &'c Connection,
+}
+
+impl<'c> Transaction<'c> {
+    /// Takes the database write lock immediately; contention fails at once (zero busy timeout).
+    pub(crate) fn immediate(connection: &'c Connection) -> rusqlite::Result<Self> {
+        control(connection, "BEGIN IMMEDIATE")?;
+        Ok(Self { connection })
+    }
+
+    /// Reads one consistent snapshot without taking the write lock.
+    pub(crate) fn deferred(connection: &'c Connection) -> rusqlite::Result<Self> {
+        control(connection, "BEGIN DEFERRED")?;
+        Ok(Self { connection })
+    }
+
+    pub(crate) fn commit(self) -> rusqlite::Result<()> {
+        control(self.connection, "COMMIT")
+    }
+}
+
+impl std::ops::Deref for Transaction<'_> {
+    type Target = Connection;
+
+    fn deref(&self) -> &Connection {
+        self.connection
+    }
+}
+
+impl Drop for Transaction<'_> {
+    fn drop(&mut self) {
+        if !self.connection.is_autocommit() {
+            // Drop cannot report failure; closing the connection also discards the transaction.
+            let _ = control(self.connection, "ROLLBACK");
+        }
+    }
+}
+
+fn control(connection: &Connection, sql: &str) -> rusqlite::Result<()> {
+    connection.prepare_cached(sql)?.execute([]).map(|_| ())
+}
 
 pub(crate) struct Store {
     pub(crate) connection: RefCell<Option<Connection>>,
     pub(crate) outbox_limits: crate::TaskOutboxLimits,
+    /// Immutable database identity, read while opening. No operation updates it.
+    pub(crate) store_id: String,
+    /// Last committed sequence. Only this provider's commits advance it while the ownership
+    /// lock is held. `None` follows a failed COMMIT whose outcome could not be re-read.
+    sequence: Cell<Option<u64>>,
     lock: RefCell<Option<File>>,
     owner: RefCell<Option<String>>,
 }
@@ -142,10 +199,13 @@ impl Store {
                 "SQLite refused FULL synchronization".into(),
             ));
         }
-        crate::migrations::apply(&mut connection, legacy_owners)?;
+        let (sequence, store_id) = crate::migrations::apply(&mut connection, legacy_owners)?;
+        connection.set_prepared_statement_cache_capacity(STATEMENT_CACHE_CAPACITY);
         Ok(Self {
             connection: RefCell::new(Some(connection)),
             outbox_limits,
+            store_id,
+            sequence: Cell::new(Some(sequence)),
             lock: RefCell::new(Some(lock)),
             owner: RefCell::new(None),
         })
@@ -154,6 +214,25 @@ impl Store {
     pub(crate) fn with<T>(&self, action: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
         let connection = self.connection.borrow();
         action(connection.as_ref().ok_or(Error::Closed)?)
+    }
+
+    /// Answers from the identity read while opening, without SQL, ownership or capacity checks.
+    pub(crate) fn store_identity(&self) -> Result<TaskStorageIdentity> {
+        self.with(|_| {
+            Ok(TaskStorageIdentity {
+                store_id: self.store_id.clone(),
+            })
+        })
+    }
+
+    /// Returns the committed sequence. SQLite is consulted only after an uncertain COMMIT.
+    fn committed_sequence(&self, connection: &Connection) -> Result<u64> {
+        if let Some(sequence) = self.sequence.get() {
+            return Ok(sequence);
+        }
+        let sequence = read_sequence(connection)?;
+        self.sequence.set(Some(sequence));
+        Ok(sequence)
     }
 
     pub(crate) fn claim_owner(&self, request: StorageOwner) -> Result<()> {
@@ -182,11 +261,9 @@ impl Store {
 
     pub(crate) fn get(&self, request: TaskLookup) -> Result<Option<TaskRecord>> {
         identity(&request.id)?;
-        self.with(|connection| {
-            let record = read_record(connection, &request.id)?;
-            validate_task_payload_size(&record).map_err(size_error)?;
-            Ok(record)
-        })
+        // A readable record never exceeds MAX_TASK_RECORD_BYTES, which is below the page budget,
+        // and `Some(record)` encodes exactly as the record. No second measurement is needed.
+        self.with(|connection| Ok(read_record(connection, &request.id)?.map(|(record, _)| record)))
     }
 
     pub(crate) fn scan(&self, query: TaskQuery) -> Result<TaskPage> {
@@ -204,11 +281,11 @@ impl Store {
         }
         self.with(|connection| {
             // The provider is the sole writer and this synchronous method cannot interleave
-            // another Contract call between metadata and record reads.
-            let (sequence, store_id) = metadata(connection)?;
+            // another Contract call between the committed sequence and record reads.
+            let sequence = self.committed_sequence(connection)?;
             if query.cursor.as_ref().is_some_and(|cursor| {
                 cursor.sequence != sequence
-                    || cursor.store_id != store_id
+                    || cursor.store_id != self.store_id
                     || cursor.statuses != query.statuses
                     || cursor.parent != query.parent
             }) {
@@ -219,41 +296,55 @@ impl Store {
                 .as_ref()
                 .map_or("", |cursor| cursor.after.as_str());
             let (sql, values) = scan_sql(&query, after);
-            let mut statement = connection.prepare(&sql)?;
-            let ids = statement
+            let ids = connection
+                .prepare_cached(&sql)?
                 .query_map(rusqlite::params_from_iter(values), |row| {
                     row.get::<_, String>(0)
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
+            let cursor = |after: String| TaskCursor {
+                store_id: self.store_id.clone(),
+                sequence,
+                after,
+                statuses: query.statuses.clone(),
+                parent: query.parent.clone(),
+            };
             let mut page = TaskPage {
                 sequence,
                 records: vec![],
                 next: None,
+            };
+            // Measure both small envelopes once. A cursor naming a validated identity adds
+            // exactly that many unescaped bytes to the envelope measured with an empty one.
+            let (final_envelope, cursor_envelope) = if ids.is_empty() {
+                (0, 0)
+            } else {
+                (
+                    task_wire_bytes(&page).map_err(size_error)?,
+                    task_wire_bytes(&TaskPage {
+                        sequence,
+                        records: vec![],
+                        next: Some(cursor(String::new())),
+                    })
+                    .map_err(size_error)?,
+                )
             };
             let mut records_bytes = 0;
             for (index, id) in ids.iter().enumerate() {
                 if page.records.len() == query.limit as usize {
                     break;
                 }
-                let record = read_record(connection, id)?
+                // The stored canonical text length is the record's exact wire size.
+                let (record, record_bytes) = read_record(connection, id)?
                     .ok_or_else(|| Error::Corrupt("task disappeared during scan".into()))?;
-                let record_bytes = task_wire_bytes(&record).map_err(size_error)?;
-                let next = (index + 1 < ids.len()).then(|| TaskCursor {
-                    store_id: store_id.clone(),
-                    sequence,
-                    after: id.clone(),
-                    statuses: query.statuses.clone(),
-                    parent: query.parent.clone(),
-                });
+                let next = (index + 1 < ids.len()).then(|| cursor(id.clone()));
+                let envelope_bytes = if next.is_some() {
+                    cursor_envelope + id.len()
+                } else {
+                    final_envelope
+                };
                 // An empty records array already contributes its brackets. Add each
-                // canonical record and exactly one comma per prior element. Only the
-                // small envelope/cursor is serialized per candidate, never the prefix.
-                let envelope_bytes = task_wire_bytes(&TaskPage {
-                    sequence,
-                    records: vec![],
-                    next: next.clone(),
-                })
-                .map_err(size_error)?;
+                // canonical record and exactly one comma per prior element.
                 let candidate_bytes = envelope_bytes
                     + records_bytes
                     + record_bytes
@@ -270,7 +361,6 @@ impl Store {
                 page.records.push(record);
                 page.next = next;
             }
-            validate_task_payload_size(&page).map_err(size_error)?;
             Ok(page)
         })
     }
@@ -282,32 +372,30 @@ impl Store {
         if batch.writes.is_empty() || batch.writes.len() > 256 {
             return Err(invalid("transactions require 1..=256 task writes"));
         }
-        validate_task_payload_size(&batch).map_err(size_error)?;
-        // Use the same mathematical JSON number representation for immutable comparisons,
-        // persisted bytes and returned receipts, including native typed fast paths.
-        let portable = tembra::contracts::to_portable_value(&batch)
-            .map_err(|error| invalid(error.to_string()))?;
-        let batch: TaskTransaction = tembra::contracts::from_portable_value(&portable)
-            .map_err(|error| invalid(error.to_string()))?;
-        let mut connection = self.connection.borrow_mut();
-        let connection = connection.as_mut().ok_or(Error::Closed)?;
-        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let (sequence, store_id) = metadata(&transaction)?;
+        // Encode each record exactly once. That canonical text is the stored row and the exact
+        // basis of the record, control reserve, request and receipt budgets; the reserve comes
+        // from the same member encodings, so a large outcome is never encoded again. Arguments
+        // reach this provider only through Tembra's portable decoding, which already
+        // represents every integral number as an integer, so immutable comparisons below
+        // observe canonical portable numbers.
+        let encoded = encode_task_transaction(&batch).map_err(size_error)?;
+        validate_task_payload_bytes(encoded.bytes).map_err(size_error)?;
+        let connection = self.connection.borrow();
+        let connection = connection.as_ref().ok_or(Error::Closed)?;
+        let transaction = Transaction::immediate(connection)?;
+        let sequence = self.committed_sequence(&transaction)?;
         if sequence >= MAX_PORTABLE_INTEGER {
             return Err(invalid("commit sequence exhausted"));
         }
         let mut candidates = BTreeMap::new();
         let mut previous = BTreeMap::new();
-        for write in &batch.writes {
-            validate_record(&write.record)?;
+        for (index, write) in batch.writes.iter().enumerate() {
+            validate_record(&write.record, &encoded.records[index])?;
             let record = &write.record;
-            if candidates
-                .insert(record.id.clone(), record.clone())
-                .is_some()
-            {
+            if candidates.insert(record.id.as_str(), index).is_some() {
                 return Err(invalid("duplicate task write"));
             }
-            let existing = read_record(&transaction, &record.id)?;
+            let existing = read_record(&transaction, &record.id)?.map(|(record, _)| record);
             let actual_revision = existing.as_ref().map(|record| record.revision);
             if actual_revision != write.expected_revision {
                 return Ok(CommitResult::Conflict {
@@ -347,43 +435,55 @@ impl Store {
             }
             previous.insert(record.id.clone(), existing);
         }
-        validate_relationships(&transaction, &candidates, &previous)?;
-        let committed = CommitResult::Committed {
-            sequence: sequence + 1,
-            records: batch
-                .writes
-                .iter()
-                .map(|write| write.record.clone())
-                .collect(),
-        };
-        validate_task_payload_size(&committed).map_err(size_error)?;
+        validate_relationships(&transaction, &batch, &candidates, &previous)?;
+        validate_task_payload_bytes(
+            committed_receipt_bytes(
+                sequence + 1,
+                encoded.records.iter().map(|record| record.text().len()),
+            )
+            .map_err(size_error)?,
+        )
+        .map_err(size_error)?;
         let events = crate::outbox::prepare_events(
             &transaction,
             &batch,
             &previous,
-            &store_id,
+            &self.store_id,
             sequence + 1,
             self.outbox_limits,
         )?;
-        for record in candidates.values() {
-            let portable = tembra::contracts::to_portable_value(record)
-                .map_err(|error| invalid(error.to_string()))?;
-            let encoded = tembra::contracts::canonical_json(&portable)
-                .map_err(|error| invalid(error.to_string()))?;
-            transaction.execute(
+        {
+            let mut upsert = transaction.prepare_cached(
                 "INSERT INTO task_records(id, revision, status, parent, record) VALUES(?1, ?2, ?3, ?4, ?5)
                  ON CONFLICT(id) DO UPDATE SET revision = excluded.revision, status = excluded.status, parent = excluded.parent, record = excluded.record",
-                params![record.id, record.revision, status_name(record.status), record.parent, encoded],
             )?;
+            for &index in candidates.values() {
+                let record = &batch.writes[index].record;
+                upsert.execute(params![
+                    record.id,
+                    record.revision,
+                    status_name(record.status),
+                    record.parent,
+                    encoded.records[index].text()
+                ])?;
+            }
         }
         crate::outbox::append_events(&transaction, &events)?;
         let sequence = sequence + 1;
-        transaction.execute(
-            "UPDATE task_storage_metadata SET sequence = ?1 WHERE singleton = 1",
-            [sequence],
-        )?;
-        transaction.commit()?;
-        Ok(committed)
+        transaction
+            .prepare_cached("UPDATE task_storage_metadata SET sequence = ?1 WHERE singleton = 1")?
+            .execute([sequence])?;
+        if let Err(error) = transaction.commit() {
+            // A failed COMMIT has an unknown outcome. Adopt what SQLite now reports, or force
+            // the next caller to read it again when even that read fails.
+            self.sequence.set(read_sequence(connection).ok());
+            return Err(error.into());
+        }
+        self.sequence.set(Some(sequence));
+        Ok(CommitResult::Committed {
+            sequence,
+            records: batch.writes.into_iter().map(|write| write.record).collect(),
+        })
     }
 
     pub(crate) fn close(&self) -> Result<()> {
@@ -449,42 +549,41 @@ fn identity(value: &str) -> Result<()> {
     validate_identity(value).map_err(|error| invalid(error.to_string()))
 }
 
-pub(crate) fn metadata(connection: &Connection) -> Result<Metadata> {
-    connection
-        .query_row(
-            "SELECT sequence, store_id FROM task_storage_metadata WHERE singleton = 1",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .map_err(Error::from)
+fn read_sequence(connection: &Connection) -> Result<u64> {
+    Ok(connection
+        .prepare_cached("SELECT sequence FROM task_storage_metadata WHERE singleton = 1")?
+        .query_row([], |row| row.get(0))?)
 }
 
+/// Decodes a row that this provider admitted and stored as canonical text. That text length is
+/// the record's exact wire size, so only the record ceiling is checked. One typed parse refuses
+/// malformed JSON, duplicate, unknown or mistyped fields, and the structural checks refuse
+/// impossible records. Refused rows remain stored for explicit operator repair.
+///
+/// The parse keeps serde_json's default recursion limit, which accepts 127 nested containers
+/// and bounds recursion on tampered rows. Admission keeps every stored record within it: a
+/// transaction nests each record within three containers of Tembra's 128, so a stored record
+/// holds at most 125.
 fn decode(encoded: &str) -> Result<TaskRecord> {
-    // The strict parser validates duplicate keys, safe numbers and depth, and
-    // normalizes mathematical integers exactly as the portable Contract boundary does.
-    let value = tembra::contracts::parse_json(encoded).map_err(|error| {
-        if error.reason == "json_size" {
-            Error::TooLarge(error.to_string())
-        } else {
-            Error::Corrupt(error.to_string())
-        }
-    })?;
+    if encoded.len() > MAX_TASK_RECORD_BYTES {
+        return Err(Error::TooLarge(format!(
+            "stored task record contains {} bytes; maximum is {MAX_TASK_RECORD_BYTES}",
+            encoded.len()
+        )));
+    }
     let record: TaskRecord =
-        serde_json::from_value(value).map_err(|error| Error::Corrupt(error.to_string()))?;
-    validate_record(&record).map_err(|error| match error {
-        Error::TooLarge(_) => error,
-        other => Error::Corrupt(other.to_string()),
-    })?;
+        serde_json::from_str(encoded).map_err(|error| Error::Corrupt(error.to_string()))?;
+    check_record(&record).map_err(|error| Error::Corrupt(error.to_string()))?;
     Ok(record)
 }
 
-fn read_record(connection: &Connection, id: &str) -> Result<Option<TaskRecord>> {
+/// Reads one record and its canonical stored length, cross-checking the indexed columns.
+fn read_record(connection: &Connection, id: &str) -> Result<Option<(TaskRecord, usize)>> {
     let row: Option<(String, u64, String, Option<String>)> = connection
-        .query_row(
-            "SELECT record, revision, status, parent FROM task_records WHERE id = ?1",
-            [id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
+        .prepare_cached("SELECT record, revision, status, parent FROM task_records WHERE id = ?1")?
+        .query_row([id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
         .optional()?;
     row.map(|(encoded, revision, status, parent)| {
         let record = decode(&encoded)?;
@@ -497,13 +596,19 @@ fn read_record(connection: &Connection, id: &str) -> Result<Option<TaskRecord>> 
                 "task record and indexed identity disagree".into(),
             ));
         }
-        Ok(record)
+        Ok((record, encoded.len()))
     })
     .transpose()
 }
 
-fn validate_record(record: &TaskRecord) -> Result<()> {
-    validate_task_record_size(record).map_err(size_error)?;
+/// Admits a replacement record from its single canonical encoding.
+fn validate_record(record: &TaskRecord, encoded: &EncodedTaskRecord) -> Result<()> {
+    validate_task_record_encoding(encoded).map_err(size_error)?;
+    check_record(record)
+}
+
+/// Structural record rules shared by admission and trusted reads.
+fn check_record(record: &TaskRecord) -> Result<()> {
     identity(&record.id)?;
     identity(&record.kind)?;
     identity(&record.phase)?;
@@ -548,25 +653,29 @@ fn validate_record(record: &TaskRecord) -> Result<()> {
     Ok(())
 }
 
-fn candidate(
+/// Prefers the transaction's replacement, borrowed without copying, over the stored record.
+fn candidate<'a>(
     connection: &Connection,
-    candidates: &BTreeMap<String, TaskRecord>,
+    batch: &'a TaskTransaction,
+    candidates: &BTreeMap<&str, usize>,
     id: &str,
-) -> Result<Option<TaskRecord>> {
+) -> Result<Option<Cow<'a, TaskRecord>>> {
     match candidates.get(id) {
-        Some(record) => Ok(Some(record.clone())),
-        None => read_record(connection, id),
+        Some(&index) => Ok(Some(Cow::Borrowed(&batch.writes[index].record))),
+        None => Ok(read_record(connection, id)?.map(|(record, _)| Cow::Owned(record))),
     }
 }
 
 fn validate_relationships(
     connection: &Connection,
-    candidates: &BTreeMap<String, TaskRecord>,
+    batch: &TaskTransaction,
+    candidates: &BTreeMap<&str, usize>,
     previous: &BTreeMap<String, Option<TaskRecord>>,
 ) -> Result<()> {
-    for record in candidates.values() {
+    for &index in candidates.values() {
+        let record = &batch.writes[index].record;
         if let Some(parent) = &record.parent {
-            let owner = candidate(connection, candidates, parent)?
+            let owner = candidate(connection, batch, candidates, parent)?
                 .ok_or_else(|| invalid("task parent does not exist"))?;
             if previous.get(&record.id).is_some_and(Option::is_none)
                 && (owner.cancellation_requested
@@ -583,15 +692,15 @@ fn validate_relationships(
                     return Err(invalid("task ownership contains a cycle"));
                 }
                 current = match ancestor.parent.as_deref() {
-                    Some(id) => Some(candidate(connection, candidates, id)?.ok_or_else(|| {
-                        Error::Corrupt("an ownership ancestor does not exist".into())
-                    })?),
+                    Some(id) => Some(candidate(connection, batch, candidates, id)?.ok_or_else(
+                        || Error::Corrupt("an ownership ancestor does not exist".into()),
+                    )?),
                     None => None,
                 };
             }
         }
         for id in &record.wait_for {
-            let child = candidate(connection, candidates, id)?
+            let child = candidate(connection, batch, candidates, id)?
                 .ok_or_else(|| invalid("wait target does not exist"))?;
             if child.parent.as_deref() != Some(record.id.as_str()) {
                 return Err(invalid("durable waits may name direct owned children only"));
@@ -600,19 +709,20 @@ fn validate_relationships(
         if record.is_terminal() {
             let mut children = BTreeMap::new();
             let mut statement =
-                connection.prepare("SELECT record FROM task_records WHERE parent = ?1")?;
+                connection.prepare_cached("SELECT record FROM task_records WHERE parent = ?1")?;
             let mut rows = statement.query([&record.id])?;
             while let Some(row) = rows.next()? {
                 let child = decode(&row.get::<_, String>(0)?)?;
-                children.insert(child.id.clone(), child);
+                children.insert(child.id.clone(), child.is_terminal());
             }
             for child in candidates
                 .values()
+                .map(|&index| &batch.writes[index].record)
                 .filter(|child| child.parent.as_deref() == Some(record.id.as_str()))
             {
-                children.insert(child.id.clone(), child.clone());
+                children.insert(child.id.clone(), child.is_terminal());
             }
-            if children.values().any(|child| !child.is_terminal()) {
+            if children.values().any(|terminal| !terminal) {
                 return Err(invalid(
                     "terminal completion requires all owned children to settle",
                 ));
@@ -797,7 +907,14 @@ mod tests {
             Err(Error::Database(_))
         ));
         assert_eq!(store.scan(TaskQuery::default())?, before);
+        assert_eq!(
+            store.sequence.get(),
+            Some(before.sequence),
+            "a statement failure before COMMIT keeps the cached sequence"
+        );
+        let identity = store.store_identity()?;
         store.close()?;
+        assert!(matches!(store.store_identity(), Err(Error::Closed)));
         assert!(matches!(
             store.get(TaskLookup {
                 id: "a-first".into()
@@ -807,6 +924,196 @@ mod tests {
         store.close()?;
         let reopened = Store::open(&database)?;
         assert_eq!(reopened.scan(TaskQuery::default())?, before);
+        assert_eq!(reopened.store_identity()?, identity);
+        Ok(())
+    }
+
+    #[test]
+    fn cached_metadata_matches_sqlite_and_is_reread_after_an_uncertain_commit() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let database = directory.path().join("tasks.sqlite");
+        let store = Store::open(&database)?;
+        let raw = Connection::open(&database)?;
+        let (sequence, store_id): (u64, String) = raw.query_row(
+            "SELECT sequence, store_id FROM task_storage_metadata WHERE singleton = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        assert_eq!(store.store_identity()?.store_id, store_id);
+        assert_eq!(store.sequence.get(), Some(sequence));
+        // Identity needs neither scheduler ownership nor a database read.
+        store.claim_owner(StorageOwner {
+            id: "unit-owner".into(),
+        })?;
+        assert!(matches!(
+            store.commit(TaskTransaction {
+                owner: "unit-owner".into(),
+                writes: vec![pending("a")]
+            })?,
+            CommitResult::Committed { sequence: 1, .. }
+        ));
+        assert_eq!(store.sequence.get(), Some(1));
+        // A failed COMMIT leaves an unknown outcome and forgets the cached sequence; the next
+        // call adopts whatever SQLite reports before validating cursors or committing.
+        store.sequence.set(None);
+        let page = store.scan(TaskQuery {
+            limit: 1,
+            ..Default::default()
+        })?;
+        assert_eq!(page.sequence, 1);
+        assert_eq!(store.sequence.get(), Some(1));
+        store.sequence.set(None);
+        assert!(matches!(
+            store.commit(TaskTransaction {
+                owner: "unit-owner".into(),
+                writes: vec![pending("b")]
+            })?,
+            CommitResult::Committed { sequence: 2, .. }
+        ));
+        assert_eq!(store.sequence.get(), Some(2));
+        let persisted: u64 = raw.query_row(
+            "SELECT sequence FROM task_storage_metadata WHERE singleton = 1",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(persisted, 2);
+        assert_eq!(store.store_identity()?.store_id, store_id);
+        Ok(())
+    }
+
+    #[test]
+    fn a_failed_commit_rolls_back_before_the_sequence_is_reread() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let store = Store::open(&directory.path().join("tasks.sqlite"))?;
+        store.claim_owner(StorageOwner {
+            id: "unit-owner".into(),
+        })?;
+        let commit = |id: &str| {
+            store.commit(TaskTransaction {
+                owner: "unit-owner".into(),
+                writes: vec![pending(id)],
+            })
+        };
+        assert!(matches!(
+            commit("a")?,
+            CommitResult::Committed { sequence: 1, .. }
+        ));
+        // A deferred foreign key violation fails COMMIT itself. SQLite then keeps the
+        // transaction open, so a sequence read before the guard rolls back would observe the
+        // uncommitted value.
+        store.with(|connection| {
+            connection.execute_batch(
+                "PRAGMA foreign_keys = ON;
+                 CREATE TABLE fk_parent(id INTEGER PRIMARY KEY);
+                 CREATE TABLE fk_child(parent INTEGER REFERENCES fk_parent(id) DEFERRABLE INITIALLY DEFERRED);
+                 CREATE TRIGGER fk_commit_failure AFTER INSERT ON task_records WHEN NEW.id = 'z-commit'
+                 BEGIN INSERT INTO fk_child VALUES(42); END;",
+            )?;
+            Ok(())
+        })?;
+        let durable = || {
+            store.with(|connection| {
+                Ok(connection.query_row(
+                    "SELECT (SELECT sequence FROM task_storage_metadata WHERE singleton = 1),
+                            (SELECT count(*) FROM task_outbox),
+                            (SELECT retained_events FROM task_outbox_metadata WHERE singleton = 1)",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, u64>(0)?,
+                            row.get::<_, u64>(1)?,
+                            row.get::<_, u64>(2)?,
+                        ))
+                    },
+                )?)
+            })
+        };
+        let before = durable()?;
+        assert_eq!(before.0, 1);
+        match commit("z-commit") {
+            Err(Error::Database(error)) => {
+                assert!(error.to_string().contains("FOREIGN KEY"), "{error}");
+            }
+            other => panic!("COMMIT must fail on the deferred violation: {other:?}"),
+        }
+        assert!(store.with(|connection| Ok(connection.is_autocommit()))?);
+        assert_eq!(
+            store.sequence.get(),
+            Some(1),
+            "the cache adopts the sequence that survived the rollback"
+        );
+        assert_eq!(
+            durable()?,
+            before,
+            "record, outbox and sequence roll back together"
+        );
+        assert!(
+            store
+                .get(TaskLookup {
+                    id: "z-commit".into()
+                })?
+                .is_none()
+        );
+        assert_eq!(store.scan(TaskQuery::default())?.sequence, 1);
+        assert!(matches!(
+            commit("b")?,
+            CommitResult::Committed { sequence: 2, .. }
+        ));
+        assert_eq!(durable()?.0, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn records_at_the_admitted_nesting_limit_remain_readable() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let store = Store::open(&directory.path().join("tasks.sqlite"))?;
+        store.claim_owner(StorageOwner {
+            id: "unit-owner".into(),
+        })?;
+        let nested = |depth| {
+            let mut value = serde_json::Value::Null;
+            for _ in 0..depth {
+                value = serde_json::json!([value]);
+            }
+            value
+        };
+        // A transaction nests input and checkpoint within four containers and a completed
+        // value within five, so these are the deepest admitted values. Each stored record then
+        // holds 125 containers, within the 127 that the trusted typed decode accepts.
+        let mut deep = pending("deep");
+        deep.record.input = nested(124);
+        deep.record.checkpoint = nested(124);
+        let mut completing = pending("completing");
+        completing.record.status = TaskStatus::Completing;
+        completing.record.outcome =
+            Some(swarmie_task_contracts::TaskOutcome::Completed { value: nested(123) });
+        let writes = vec![deep, completing];
+        store.commit(TaskTransaction {
+            owner: "unit-owner".into(),
+            writes: writes.clone(),
+        })?;
+        let mut records: Vec<_> = writes.into_iter().map(|write| write.record).collect();
+        records.sort_by(|left, right| left.id.cmp(&right.id));
+        for record in &records {
+            assert_eq!(
+                store
+                    .get(TaskLookup {
+                        id: record.id.clone()
+                    })?
+                    .as_ref(),
+                Some(record)
+            );
+        }
+        assert_eq!(store.scan(TaskQuery::default())?.records, records);
+        let mut deeper = pending("deeper");
+        deeper.record.input = nested(125);
+        assert!(matches!(
+            store.commit(TaskTransaction {
+                owner: "unit-owner".into(),
+                writes: vec![deeper],
+            }),
+            Err(Error::Invalid(_))
+        ));
         Ok(())
     }
 

@@ -173,6 +173,8 @@ fn no_consumers_full_capacity_remains_visible_and_larger_json_limits_resume_writ
             .unwrap();
         assert_eq!(storage.outbox_status().await?, full);
         assert_eq!(storage.outbox_status().await?, full);
+        // Identity answers while the outbox is full and no scheduler owns the provider.
+        assert_eq!(storage.identity().await?.store_id, full.store_id);
         let after: u64 = raw
             .pragma_query_value(None, "data_version", |row| row.get(0))
             .unwrap();
@@ -189,6 +191,7 @@ fn no_consumers_full_capacity_remains_visible_and_larger_json_limits_resume_writ
         let storage = open(&larger, configuration(&database, 4)).await?;
         let resumed = storage.outbox_status().await?;
         assert_eq!(resumed.store_id, full.store_id);
+        assert_eq!(storage.identity().await?.store_id, full.store_id);
         assert_eq!(resumed.retained_events, full.retained_events);
         assert_eq!(resumed.retained_bytes, full.retained_bytes);
         assert_eq!(resumed.limits.max_events, 4);

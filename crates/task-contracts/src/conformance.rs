@@ -70,11 +70,16 @@ async fn read(storage: &TaskStorageRef, id: &str) -> Result<TaskRecord> {
 }
 
 /// Exercises atomicity, revision checks, ownership, complete replacements, status persistence,
-/// bounded consistent pagination and explicit owner admission using only public References.
+/// bounded consistent pagination, explicit owner admission and stable store identity using only
+/// public References.
 ///
 /// # Errors
 /// Propagates unexpected provider errors. A failed guarantee panics with the invariant violated.
 pub async fn run(storage: &TaskStorageRef) -> Result<()> {
+    // Identity is answered before any scheduler owner exists and never changes afterwards.
+    let identity = storage.identity().await?;
+    assert!(!identity.store_id.is_empty());
+    assert_eq!(storage.identity().await?, identity, "identity is stable");
     assert!(
         storage
             .get(TaskLookup {
@@ -368,6 +373,7 @@ pub async fn run(storage: &TaskStorageRef) -> Result<()> {
         .await?;
     assert_eq!(first.records.len(), 1);
     let cursor = first.next.clone().expect("more records");
+    assert_eq!(cursor.store_id, identity.store_id);
     let second = storage
         .scan(TaskQuery {
             limit: 1,
@@ -530,10 +536,15 @@ pub async fn run(storage: &TaskStorageRef) -> Result<()> {
         .await?;
     assert_eq!(terminal_page.records.len(), 3);
     large_payloads(storage).await?;
-    outbox(storage).await?;
+    outbox(storage, &identity).await?;
     storage
         .release_owner(StorageOwner { id: OWNER.into() })
         .await?;
+    assert_eq!(
+        storage.identity().await?,
+        identity,
+        "identity remains available after ownership is released"
+    );
     storage
         .claim_owner(StorageOwner {
             id: "successor-owner".into(),
@@ -544,7 +555,9 @@ pub async fn run(storage: &TaskStorageRef) -> Result<()> {
         .release_owner(StorageOwner {
             id: "successor-owner".into(),
         })
-        .await
+        .await?;
+    assert_eq!(storage.identity().await?, identity);
+    Ok(())
 }
 
 async fn large_payloads(storage: &TaskStorageRef) -> Result<()> {
@@ -669,12 +682,14 @@ async fn large_payloads(storage: &TaskStorageRef) -> Result<()> {
 }
 
 /// Reusable provider requirements for structural atomic outbox, append-stable pagination,
-/// delivered-prefix acknowledgement, multi-consumer retention, and CAS absence.
-async fn outbox(storage: &TaskStorageRef) -> Result<()> {
+/// delivered-prefix acknowledgement, multi-consumer retention, and CAS absence. Every reported
+/// outbox identity equals the provider's store identity.
+async fn outbox(storage: &TaskStorageRef, identity: &crate::TaskStorageIdentity) -> Result<()> {
     use crate::{
         TaskOutboxAcknowledgement, TaskOutboxCompaction, TaskOutboxConsumer, TaskOutboxQuery,
     };
     let initial = storage.outbox_status().await?;
+    assert_eq!(initial.store_id, identity.store_id);
     initial.limits.validate()?;
     assert!(initial.consumers.is_empty());
     assert_eq!(initial.compactable_events, 0);
@@ -694,6 +709,7 @@ async fn outbox(storage: &TaskStorageRef) -> Result<()> {
         .register_outbox_consumer(TaskOutboxConsumer { id: slow.into() })
         .await?;
     assert_eq!(state.store_id, other.store_id);
+    assert_eq!(state.store_id, identity.store_id);
     let owner = state.owner_facet.as_ref().expect("managed consumer owner");
     crate::validate_task_outbox_owner_facet(owner)?;
     assert_eq!(state.owner_facet, other.owner_facet);
@@ -725,6 +741,10 @@ async fn outbox(storage: &TaskStorageRef) -> Result<()> {
         all.extend(page.events);
     }
     assert!(!all.is_empty());
+    assert!(
+        all.iter()
+            .all(|event| event.id.store_id == identity.store_id)
+    );
     for pair in all.windows(2) {
         assert!(
             (pair[0].id.sequence, pair[0].id.ordinal) < (pair[1].id.sequence, pair[1].id.ordinal)

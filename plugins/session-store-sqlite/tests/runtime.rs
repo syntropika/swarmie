@@ -12,10 +12,13 @@ fn canonical_create_append_retry_restart_and_resource_closure() -> Result<()> {
     let directory = tempfile::tempdir().unwrap();
     let database = directory.path().join("sessions.sqlite");
     let mut expected = None;
+    let mut identity = None;
     let database = &database;
     let expected_ref = &mut expected;
+    let identity_ref = &mut identity;
     run(|host, driver| async move {
         let store = open(&host, database.as_path(), driver.clone()).await?;
+        let store_identity = store.identity().await?;
         assert!(
             store
                 .open(SessionLookup {
@@ -31,13 +34,34 @@ fn canonical_create_append_retry_restart_and_resource_closure() -> Result<()> {
         let before = store.committed().value()?;
         assert_eq!(store.append(request).await?, receipt);
         assert_eq!(store.committed().value()?, before);
-        *expected_ref = Some(store.events(EventQuery::new("chat")).await?);
+        // Every reported identity names the store that `identity` answers.
+        for store_id in [
+            &created.store_id,
+            &receipt.store_id,
+            &before.store_id,
+            &store.publication_status().await?.durable.store_id,
+        ] {
+            assert_eq!(store_id, &store_identity.store_id);
+        }
+        let page = store.events(EventQuery::new("chat")).await?;
+        assert_eq!(page.store_id, store_identity.store_id);
+        *expected_ref = Some(page);
+        *identity_ref = Some(store_identity);
         host.close().await?;
         assert!(store.events(EventQuery::new("chat")).await.is_err());
+        assert!(
+            store.identity().await.is_err(),
+            "a closed provider never answers identity"
+        );
         Ok(())
     })?;
     run(|host, driver| async move {
         let store = open(&host, database.as_path(), driver.clone()).await?;
+        assert_eq!(
+            store.identity().await?,
+            identity.unwrap(),
+            "the same database keeps its identity"
+        );
         assert_eq!(
             store.events(EventQuery::new("chat")).await?,
             expected.unwrap()
@@ -885,6 +909,39 @@ fn invalid_batches_and_corrupted_rows_never_become_valid_history() -> Result<()>
             .append(batch("chat", "valid", vec![message("m1", "user", "A")]))
             .await?;
         let raw = rusqlite::Connection::open(&database).unwrap();
+        // A session whose stored record cannot be opened also refuses appends; no event row
+        // or receipt is added to it.
+        raw.execute("INSERT INTO sessions VALUES('tampered',0,'not-json')", [])
+            .unwrap();
+        let before = store.committed().value()?;
+        assert_eq!(
+            store
+                .open(SessionLookup {
+                    session_id: "tampered".into()
+                })
+                .await
+                .unwrap_err()
+                .reason,
+            "session_store_corrupt"
+        );
+        assert_eq!(
+            store
+                .append(batch("tampered", "after", vec![message("t1", "user", "A")]))
+                .await
+                .unwrap_err()
+                .reason,
+            "session_store_corrupt"
+        );
+        assert_eq!(store.committed().value()?, before);
+        let rows: i64 = raw
+            .query_row(
+                "SELECT (SELECT count(*) FROM session_events WHERE session_id='tampered')
+                      + (SELECT count(*) FROM session_batches WHERE session_id='tampered')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(rows, 0);
         raw.execute_batch(
             "DROP TRIGGER immutable_events_update; UPDATE session_events SET event='not-json';",
         )

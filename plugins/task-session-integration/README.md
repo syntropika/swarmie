@@ -18,13 +18,14 @@ Durable Tasks and SessionStore; it is not enabled by the default profile.
 }
 ```
 
-Obtain source identity from `TaskStorage.outbox_status()` and destination identity from
-`SessionStore.publication_status().durable` or an authoritative session open receipt. The
-binding database pins both store identities and the consumer ID. Keep the same database,
-consumer ID and installed Facet identity across restarts. A different store pair requires
-explicit configuration and a separate binding database; replacing a database with a same-named
-session cannot adopt historical routes. Renaming, unlinking or replacing an open database or
-its lock file is unsupported. Use a local filesystem supporting OS locks and SQLite WAL.
+Obtain source identity from `TaskStorage.identity()` and destination identity from
+`SessionStore.identity()` or an authoritative session open receipt; the `outbox_status` and
+`publication_status` diagnostics report the same identities. The binding database pins both
+store identities and the consumer ID. Keep the same database, consumer ID and installed Facet
+identity across restarts. A different store pair requires explicit configuration and a separate
+binding database; replacing a database with a same-named session cannot adopt historical routes.
+Renaming, unlinking or replacing an open database or its lock file is unsupported. Use a local
+filesystem supporting OS locks and SQLite WAL.
 
 The public factory is `facet(&Configuration, Rc<dyn tembra::core::Driver>)`. It returns an
 ordinary compiled Facet serving `TaskSessionBindings` and `TaskSessionPublisher`. Contracts
@@ -48,6 +49,10 @@ Driver; there is no additional scheduler, event bus or hook infrastructure.
    unavailable and mismatched associations refuse effects. Retain the task owner's independent
    cancellation, authorization and operation-idempotency checks.
 
+Every confirmation, admission and publication pass asks the currently selected TaskStorage and
+SessionStore providers for their `identity()` and compares both with the configured pins; an
+earlier answer, label or State hint never substitutes for that read. Destination checks then open
+the routed session and compare the receipt's store and session identity with the route.
 Confirmation compares immutable task ID, kind, input and parent plus its supported definition
 version. At revision one it also compares the original phase and checkpoint. Later checkpoints
 may advance before admission returns. A task definition migration fails closed; this routing

@@ -82,10 +82,18 @@ impl Harness {
         let storage = host.get(TaskStorage, TaskStorageInput {}).await?;
         let sessions = host.get(SessionStore, SessionStoreInput {}).await?;
         let tasks = host.get(DurableTasks, DurableTasksInput {}).await?;
+        let source = storage.identity().await?.store_id;
+        let destination = sessions.identity().await?.store_id;
+        // The cheap identity probes and the diagnostics describe the same live stores.
+        assert_eq!(source, storage.outbox_status().await?.store_id);
+        assert_eq!(
+            destination,
+            sessions.publication_status().await?.durable.store_id
+        );
         let configuration = pins.unwrap_or(swarmie_task_session_integration::Configuration {
             database: path.join("bindings.sqlite"),
-            task_store_id: storage.outbox_status().await?.store_id,
-            session_store_id: sessions.publication_status().await?.durable.store_id,
+            task_store_id: source,
+            session_store_id: destination,
             consumer_id: "session-history-v1".into(),
             auto_publish,
             poll_interval_ms: 5,

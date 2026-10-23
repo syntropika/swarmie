@@ -57,43 +57,48 @@ struct Service {
     publication: Rc<Publication>,
 }
 
+/// Only write attempts reconcile publication: reads never move the durable watermark, and the
+/// managed activity repairs any lag left by a failed adoption without another call.
 impl SessionStoreProvider for Service {
+    async fn identity(&self, _context: Context) -> Result<SessionStoreIdentity> {
+        self.resource.value()?.identity()
+    }
+
     async fn publication_status(&self, _context: Context) -> Result<PublicationStatus> {
         self.publication.status()
     }
+
     fn committed(&self) -> Readable<StoreHead> {
         self.committed.readable()
     }
 
     async fn create(&self, request: CreateSession, context: Context) -> Result<SessionRecord> {
-        let record = self.resource.value()?.create(request)?;
+        let result = self.resource.value()?.create(request);
+        // A refused or failed write may still follow an unknown commit outcome.
         self.publication.reconcile(&context);
-        Ok(record)
+        result
     }
 
     async fn open(
         &self,
         request: SessionLookup,
-        context: Context,
+        _context: Context,
     ) -> Result<Option<SessionRecord>> {
-        let record = self.resource.value()?.get(request)?;
-        self.publication.reconcile(&context);
-        Ok(record)
+        self.resource.value()?.get(request)
     }
 
     async fn append(&self, request: AppendEvents, context: Context) -> Result<AppendReceipt> {
-        let receipt = self.resource.value()?.append(request)?;
+        let result = self.resource.value()?.append(request);
+        // A refused or failed write may still follow an unknown commit outcome.
         self.publication.reconcile(&context);
-        Ok(receipt)
+        result
     }
 
-    async fn events(&self, query: EventQuery, context: Context) -> Result<EventPage> {
-        let page = self.resource.value()?.events(query)?;
-        self.publication.reconcile(&context);
-        Ok(page)
+    async fn events(&self, query: EventQuery, _context: Context) -> Result<EventPage> {
+        self.resource.value()?.events(query)
     }
 
-    async fn project(&self, query: ProjectionQuery, context: Context) -> Result<ProjectionPage> {
+    async fn project(&self, query: ProjectionQuery, _context: Context) -> Result<ProjectionPage> {
         // Projection wrappers are slightly larger than source wrappers. Reserve 1 KiB before
         // source admission so a returned projection always fits the original requested budget.
         let budget = query.source.max_bytes as usize;
@@ -107,7 +112,6 @@ impl SessionStoreProvider for Service {
         source.max_bytes -= 1024;
         let page = project(self.resource.value()?.events(source)?, query.kind);
         bounded(&page, budget)?;
-        self.publication.reconcile(&context);
         Ok(page)
     }
 }
@@ -115,7 +119,8 @@ impl SessionStoreProvider for Service {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{cell::Cell as Flag, rc::Rc};
+    use std::{cell::Cell as Flag, path::PathBuf, rc::Rc};
+    use tembra::core::Driver as _;
 
     #[tembra::contract(local, name = "fixture.session-publication-admission", version = 1)]
     trait AdmissionProbe {
@@ -125,6 +130,10 @@ mod tests {
         fn projected(&self) -> u64;
         #[portable]
         async fn write(&self) -> Result<()>;
+        #[portable]
+        async fn create_session(&self, request: CreateSession) -> Result<SessionRecord>;
+        #[portable]
+        async fn append_events(&self, request: AppendEvents) -> Result<AppendReceipt>;
         #[portable]
         async fn read_open(&self) -> Result<SessionRecord>;
         #[portable]
@@ -163,6 +172,20 @@ mod tests {
             self.service.append(AppendEvents { session_id: "chat".into(), batch_id: "committed".into(), expected_head: None, events: vec![NewEvent { event_id: "m1".into(), kind: MESSAGE.into(), version: 1, correlation: Correlation::default(), occurred_at_ms: None, payload: serde_json::json!({"role":"user","content":"Durable content","reply_to":null,"tool_call_id":null}) }] }, context).await?;
             Ok(())
         }
+        async fn create_session(
+            &self,
+            request: CreateSession,
+            context: Context,
+        ) -> Result<SessionRecord> {
+            self.service.create(request, context).await
+        }
+        async fn append_events(
+            &self,
+            request: AppendEvents,
+            context: Context,
+        ) -> Result<AppendReceipt> {
+            self.service.append(request, context).await
+        }
         async fn read_open(&self, context: Context) -> Result<SessionRecord> {
             self.service
                 .open(
@@ -190,6 +213,175 @@ mod tests {
         }
     }
 
+    /// Serves the probe over a SQLite store. While `reject` is set, a State derived from the
+    /// published head refuses every commit sequence above one, so adopting it fails.
+    fn probe_facet(
+        database: PathBuf,
+        reject: Rc<Flag<bool>>,
+        driver: Rc<dyn core::Driver>,
+    ) -> Result<NativeFacet> {
+        NativeFacet::new(
+            "fixture.session-publication-admission",
+            vec![],
+            move |_, setup| {
+                let database = database.clone();
+                let reject = reject.clone();
+                let driver = driver.clone();
+                let committed_definition = setup.state("committed")?;
+                let commit_projection_definition = setup.state("commit-projection")?;
+                setup.serve_with_options(
+                    AdmissionProbe,
+                    move |_, _, declaration| {
+                        let database = database.clone();
+                        let resource = declaration.core_mut().resource(
+                            "sqlite",
+                            ResourceDeclaration::new(move |_| {
+                                let database = database.clone();
+                                async move { Store::open(&database) }.boxed_local()
+                            })
+                            .with_close(|store| async move { store.close() }.boxed_local()),
+                        )?;
+                        let committed =
+                            declaration.state(committed_definition.value(StoreHead {
+                                store_id: "initializer".into(),
+                                commit_sequence: 0,
+                            })?)?;
+                        let reject = reject.clone();
+                        let projected = declaration.derive(
+                            &commit_projection_definition,
+                            (committed.readable(),),
+                            move |(head,)| {
+                                if head.commit_sequence > 1 && reject.get() {
+                                    return Err(RuntimeError::invalid(
+                                        "fixture_reactive_refusal",
+                                        "reject State before adoption",
+                                    ));
+                                }
+                                Ok(head.commit_sequence)
+                            },
+                        )?;
+                        let publication =
+                            Publication::new(resource.clone(), committed.clone(), driver.clone());
+                        publication.attach(declaration)?;
+                        Ok(Probe {
+                            service: Service {
+                                resource,
+                                committed,
+                                publication,
+                            },
+                            projected,
+                        })
+                    },
+                    core::ServeOptions {
+                        lifetime: core::Lifetime::Host,
+                        ..Default::default()
+                    },
+                )
+            },
+        )
+    }
+
+    fn follow_up(id: &str, expected_head: Option<u64>) -> AppendEvents {
+        AppendEvents {
+            session_id: "chat".into(),
+            batch_id: id.into(),
+            expected_head,
+            events: vec![NewEvent {
+                event_id: id.into(),
+                kind: MESSAGE.into(),
+                version: 1,
+                correlation: Correlation::default(),
+                occurred_at_ms: None,
+                payload: serde_json::json!({"role":"user","content":"More","reply_to":null,"tool_call_id":null}),
+            }],
+        }
+    }
+
+    #[test]
+    fn only_write_attempts_reconcile_publication() {
+        let directory = tempfile::tempdir().unwrap();
+        // Manual time moves only while every task waits for a timer, which this test never
+        // does, so the 50 ms managed repair cannot run. Each adoption below therefore comes
+        // from the call that has just returned.
+        let driver = core::ManualDriver::new();
+        let host = Host::with_driver("reconcile-test", "application", driver.clone()).unwrap();
+        let reject = Rc::new(Flag::new(true));
+        driver.run_until(async {
+            host.install(
+                probe_facet(
+                    directory.path().join("sessions.sqlite"),
+                    reject.clone(),
+                    driver.clone(),
+                )
+                .unwrap(),
+                core::LoadOptions::default(),
+            )
+            .unwrap()
+            .await
+            .unwrap();
+            let probe = host
+                .get(AdmissionProbe, AdmissionProbeInput {})
+                .await
+                .unwrap();
+            let start = driver.now();
+            let published = || probe.committed().value().unwrap().commit_sequence;
+            probe.write().await.unwrap();
+            assert_eq!(published(), 1, "the derived refusal prevents adoption");
+            let refused = probe.publication_status().await.unwrap();
+            assert!(refused.pending);
+            assert_eq!(refused.durable.commit_sequence, 2);
+            assert_eq!(
+                refused.failures, 1,
+                "only the append attempted the refused adoption"
+            );
+            assert!(probe.read_open().await.is_ok());
+            assert!(probe.read_events().await.is_ok());
+            assert!(probe.read_projection().await.is_ok());
+            let read = probe.publication_status().await.unwrap();
+            assert_eq!(read.failures, refused.failures, "reads never reconcile");
+            assert_eq!(read.last_error, refused.last_error);
+            assert_eq!(published(), 1);
+            reject.set(false);
+            let duplicate = probe
+                .create_session(CreateSession {
+                    session_id: "chat".into(),
+                    metadata: serde_json::json!({"different": true}),
+                })
+                .await
+                .unwrap_err();
+            assert_eq!(duplicate.reason, "session_store_duplicate");
+            assert_eq!(
+                published(),
+                2,
+                "a refused create reconciles before it returns"
+            );
+            reject.set(true);
+            probe
+                .append_events(follow_up("m2", None))
+                .await
+                .expect("the append commits although its adoption is refused");
+            assert_eq!(published(), 2);
+            assert_eq!(probe.publication_status().await.unwrap().failures, 2);
+            reject.set(false);
+            let conflict = probe
+                .append_events(follow_up("m3", Some(0)))
+                .await
+                .unwrap_err();
+            assert_eq!(conflict.reason, "session_store_conflict");
+            assert_eq!(
+                published(),
+                3,
+                "a refused append reconciles before it returns"
+            );
+            let status = probe.publication_status().await.unwrap();
+            assert!(!status.pending);
+            assert_eq!(status.durable, status.published);
+            assert_eq!(status.failures, 2);
+            assert_eq!(driver.now(), start, "managed repair never ran");
+            host.close().await.unwrap();
+        });
+    }
+
     #[test]
     fn authoritative_reads_survive_state_admission_failure() {
         publication_probe(true);
@@ -212,75 +404,8 @@ mod tests {
                 let host =
                     Host::with_driver("admission-test", "application", driver.clone()).unwrap();
                 let reject = Rc::new(Flag::new(true));
-                let rejected = reject.clone();
-                let factory_driver = driver.clone();
                 host.install(
-                    NativeFacet::new(
-                        "fixture.session-publication-admission",
-                        vec![],
-                        move |_, setup| {
-                            let database = database.clone();
-                            let reject = rejected.clone();
-                            let driver = factory_driver.clone();
-                            let committed_definition = setup.state("committed")?;
-                            let commit_projection_definition = setup.state("commit-projection")?;
-                            setup.serve_with_options(
-                                AdmissionProbe,
-                                move |_, _, declaration| {
-                                    let database = database.clone();
-                                    let resource = declaration.core_mut().resource(
-                                        "sqlite",
-                                        ResourceDeclaration::new(move |_| {
-                                            let database = database.clone();
-                                            async move { Store::open(&database) }.boxed_local()
-                                        })
-                                        .with_close(
-                                            |store| async move { store.close() }.boxed_local(),
-                                        ),
-                                    )?;
-                                    let committed = declaration.state(
-                                        committed_definition.value(StoreHead {
-                                            store_id: "initializer".into(),
-                                            commit_sequence: 0,
-                                        })?,
-                                    )?;
-                                    let reject = reject.clone();
-                                    let projected = declaration.derive(
-                                        &commit_projection_definition,
-                                        (committed.readable(),),
-                                        move |(head,)| {
-                                            if head.commit_sequence > 1 && reject.get() {
-                                                return Err(RuntimeError::invalid(
-                                                    "fixture_reactive_refusal",
-                                                    "reject State before adoption",
-                                                ));
-                                            }
-                                            Ok(head.commit_sequence)
-                                        },
-                                    )?;
-                                    let publication = Publication::new(
-                                        resource.clone(),
-                                        committed.clone(),
-                                        driver.clone(),
-                                    );
-                                    publication.attach(declaration)?;
-                                    Ok(Probe {
-                                        service: Service {
-                                            resource,
-                                            committed,
-                                            publication,
-                                        },
-                                        projected,
-                                    })
-                                },
-                                core::ServeOptions {
-                                    lifetime: core::Lifetime::Host,
-                                    ..Default::default()
-                                },
-                            )
-                        },
-                    )
-                    .unwrap(),
+                    probe_facet(database.clone(), reject.clone(), driver.clone()).unwrap(),
                     core::LoadOptions::default(),
                 )
                 .unwrap()
@@ -327,7 +452,8 @@ mod tests {
                 );
                 let status = probe.publication_status().await.unwrap();
                 assert!(status.pending);
-                assert!(status.failures >= 4);
+                // Only the refused append adoption counts; reads never attempt publication.
+                assert!(status.failures >= 1);
                 assert!(
                     status
                         .last_error

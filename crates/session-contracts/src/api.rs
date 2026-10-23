@@ -41,6 +41,19 @@ pub struct StoreHead {
     pub commit_sequence: u64,
 }
 
+/// Immutable identity of the database served by the selected SessionStore provider.
+///
+/// It equals the `store_id` of session records, event pages, cursors, append receipts and
+/// committed watermarks. It names the store that the live provider serves at the time of the
+/// call; it is not a durability or liveness proof. Consumers that detect store replacement must
+/// ask the current provider again instead of reusing an earlier answer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct SessionStoreIdentity {
+    pub store_id: String,
+}
+
 /// Bounded observation of reactive repair. SQLite results remain authoritative while pending.
 /// The last error retains only its category; failures include repeated managed repair attempts.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -58,6 +71,8 @@ pub struct PublicationStatus {
 /// An exact retry returns the original receipt before evaluating expected_head. Changed events,
 /// order, or expected_head under the same batch ID are refused. Duplicate event IDs under a new
 /// batch ID are refused, including exact duplicates; retry the original batch after uncertainty.
+/// Payload depth reserves the complete event-page and projection envelopes, so every admitted
+/// event remains portable when read back. A deeper payload is refused before any mutation.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]
@@ -93,7 +108,15 @@ pub trait SessionStore {
     #[state]
     fn committed(&self) -> StoreHead;
 
+    /// Returns the immutable store identity loaded when the provider's storage opened. It reads
+    /// no history, never reconciles publication and never changes state. A closed provider
+    /// refuses instead of answering. Use it for identity checks; `publication_status` remains
+    /// a diagnostic.
+    #[portable]
+    async fn identity(&self) -> Result<SessionStoreIdentity>;
+
     /// Reads publication lag and bounded failure categories without requiring State adoption.
+    /// Its durable `store_id` equals `identity`; prefer that cheaper method for identity checks.
     #[portable]
     async fn publication_status(&self) -> Result<PublicationStatus>;
 
