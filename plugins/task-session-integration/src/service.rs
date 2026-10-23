@@ -10,7 +10,7 @@ use swarmie_task_session_contracts::*;
 use tembra::{core, prelude::*};
 
 use crate::{
-    Configuration, FACET_ID,
+    Configuration, FACET_ID, SharedConfiguration,
     admission::{Bindings, destination_identity, source_identity},
     publisher::Publisher,
     store::Store,
@@ -26,22 +26,86 @@ use crate::{
 /// Closing cancels publication and closes SQLite while preserving intent, history and ACKs.
 pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Result<NativeFacet> {
     configuration.validate()?;
+    facet_impl(
+        &configuration.shared(),
+        driver,
+        DatabaseSelection::Standalone(configuration.clone()),
+    )
+}
+
+/// Uses the selected physical SQLite owner for bindings while preserving ordinary admission,
+/// consumer ownership and ordered publication. Register [`crate::sqlite_schema`] on that owner.
+/// Store identities and the consumer remain pinned; file selection belongs to the owner.
+///
+/// # Errors
+/// Invalid configuration fails before installation. Missing owner/schema, mismatched pins or
+/// selected stores and consumer conflicts reject readiness. Closing this Facet revokes its
+/// binding Resource; Tembra closes the physical database after its dependent Resources.
+pub fn facet_with_database(
+    database: &swarmie_sqlite_local::DatabaseHandle,
+    configuration: &SharedConfiguration,
+    driver: Rc<dyn core::Driver>,
+) -> Result<NativeFacet> {
+    facet_impl(
+        configuration,
+        driver,
+        DatabaseSelection::Shared(database.clone()),
+    )
+}
+
+#[derive(Clone)]
+enum DatabaseSelection {
+    Standalone(Configuration),
+    Shared(swarmie_sqlite_local::DatabaseHandle),
+}
+
+fn binding_resource(
+    declaration: &mut Declaration<'_>,
+    selection: &DatabaseSelection,
+    configuration: &SharedConfiguration,
+) -> Result<Resource<Store>> {
+    let opening = match selection {
+        DatabaseSelection::Standalone(configuration) => {
+            let configuration = configuration.clone();
+            ResourceDeclaration::new(move |_| {
+                let configuration = configuration.clone();
+                async move { Store::open(&configuration) }.boxed_local()
+            })
+        }
+        DatabaseSelection::Shared(handle) => {
+            let database = handle.declare(declaration)?;
+            let dependency = database.dependency();
+            let configuration = configuration.clone();
+            let mut opening = ResourceDeclaration::new(move |_| {
+                let configuration = configuration.clone();
+                let database = database.clone();
+                async move {
+                    Store::open_shared(database.value()?.as_ref().clone(), &configuration)
+                }.boxed_local()
+            });
+            opening.deps.push(dependency);
+            opening
+        }
+    }
+    .with_close(|store| async move { store.close() }.boxed_local());
+    declaration.core_mut().resource("bindings", opening)
+}
+
+fn facet_impl(
+    configuration: &SharedConfiguration,
+    driver: Rc<dyn core::Driver>,
+    database: DatabaseSelection,
+) -> Result<NativeFacet> {
+    configuration.validate()?;
     let configuration = configuration.clone();
     NativeFacet::new(FACET_ID, vec![], move |scope, setup| {
         let binding_configuration = configuration.clone();
+        let binding_database = database.clone();
         setup.serve_with_options(
             TaskSessionBindings,
             move |_, _, declaration| {
                 let configuration = binding_configuration.clone();
-                let opening = configuration.clone();
-                let resource = declaration.core_mut().resource(
-                    "bindings",
-                    ResourceDeclaration::new(move |_| {
-                        let configuration = opening.clone();
-                        async move { Store::open(&configuration) }.boxed_local()
-                    })
-                    .with_close(|store| async move { store.close() }.boxed_local()),
-                )?;
+                let resource = binding_resource(declaration, &binding_database, &configuration)?;
                 Ok(BindingService {
                     bindings: Bindings {
                         configuration,

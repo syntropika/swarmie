@@ -6,9 +6,12 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+swarmie-sqlite-local = { path = "../../crates/sqlite-local" }
 swarmie-task-contracts = { path = "../../crates/task-contracts" }
 swarmie-session-contracts = { path = "../../crates/session-contracts" }
 swarmie-task-session-contracts = { path = "../../crates/task-session-contracts" }
+swarmie-task-storage-sqlite = { path = "../task-storage-sqlite" }
+swarmie-session-store-sqlite = { path = "../session-store-sqlite" }
 tembra.workspace = true
 futures.workspace = true
 rusqlite.workspace = true
@@ -18,8 +21,6 @@ sha2.workspace = true
 hex.workspace = true
 
 [dev-dependencies]
-swarmie-task-storage-sqlite = { path = "../task-storage-sqlite" }
-swarmie-session-store-sqlite = { path = "../session-store-sqlite" }
 swarmie-durable-tasks = { path = "../durable-tasks" }
 tempfile.workspace = true
 tokio.workspace = true

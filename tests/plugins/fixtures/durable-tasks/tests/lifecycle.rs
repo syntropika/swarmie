@@ -16,13 +16,25 @@ use tembra_native::TokioDriver;
 #[tembra::contract(local, name = "swarmie.acceptance-duplicate-workflow", version = 1)]
 trait DuplicateWorkflow {
     #[portable]
-    async fn step(&self, invocation: TaskInvocation) -> Result<TaskTransition>;
+    async fn step(&self, invocation: TaskInvocation) -> Result<TaskDecision>;
 }
 
 struct Duplicate;
 
 impl DuplicateWorkflowProvider for Duplicate {
-    async fn step(&self, _invocation: TaskInvocation, _context: Context) -> Result<TaskTransition> {
+    async fn step(&self, _invocation: TaskInvocation, _context: Context) -> Result<TaskDecision> {
+        self.step_transition(_invocation, _context)
+            .await
+            .map(Into::into)
+    }
+}
+
+impl Duplicate {
+    async fn step_transition(
+        &self,
+        _invocation: TaskInvocation,
+        _context: Context,
+    ) -> Result<TaskTransition> {
         Ok(TaskTransition::Complete {
             value: json!("ambiguous provider"),
         })

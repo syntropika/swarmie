@@ -7,12 +7,12 @@ use swarmie_task_session_contracts::*;
 use tembra::{Context, Resource, Result, RuntimeError};
 
 use crate::{
-    Configuration,
+    SharedConfiguration,
     store::{Store, canonical},
 };
 
 pub(crate) struct Bindings {
-    pub configuration: Configuration,
+    pub configuration: SharedConfiguration,
     pub resource: Resource<Store>,
     pub storage: TaskStorageRef,
     pub sessions: SessionStoreRef,
@@ -296,27 +296,17 @@ impl Bindings {
                 )
             })?;
         check_task(&binding, &task)?;
-        if let Some(parent) = &binding.parent_task_id {
-            let parent = self.route(&BindingKey {
-                task_store_id: key.task_store_id.clone(),
-                task_id: parent.clone(),
-            })?;
-            if parent.root_task_id != binding.root_task_id
-                || parent.destination.session_store_id != binding.destination.session_store_id
-                || parent.destination.session_id != binding.destination.session_id
-                || parent.destination.turn_id != binding.destination.turn_id
-            {
-                return Err(invalid(
-                    "binding_lineage",
-                    "child lineage differs from its immutable parent route",
-                ));
-            }
-        } else if binding.root_task_id != key.task_id {
-            return Err(invalid(
-                "binding_lineage",
-                "root identity differs from its source task",
-            ));
-        }
+        let parent = binding
+            .parent_task_id
+            .as_ref()
+            .map(|parent| {
+                self.route(&BindingKey {
+                    task_store_id: key.task_store_id.clone(),
+                    task_id: parent.clone(),
+                })
+            })
+            .transpose()?;
+        check_lineage(&binding, parent.as_ref())?;
         if binding.admission == BindingAdmission::Active {
             Ok(binding)
         } else {
@@ -351,7 +341,7 @@ impl Bindings {
     }
 }
 
-fn check_task(binding: &TaskSessionBinding, task: &TaskRecord) -> Result<()> {
+pub(crate) fn check_task(binding: &TaskSessionBinding, task: &TaskRecord) -> Result<()> {
     let spec = &binding.task;
     if binding.routing_version != 1 {
         return Err(invalid(
@@ -373,6 +363,35 @@ fn check_task(binding: &TaskSessionBinding, task: &TaskRecord) -> Result<()> {
         return Err(invalid(
             "binding_task_mismatch",
             "committed task does not match the immutable admitted identity and submission",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn check_lineage(
+    binding: &TaskSessionBinding,
+    parent: Option<&TaskSessionBinding>,
+) -> Result<()> {
+    if let Some(parent) = parent {
+        if parent.root_task_id != binding.root_task_id
+            || parent.destination.session_store_id != binding.destination.session_store_id
+            || parent.destination.session_id != binding.destination.session_id
+            || parent.destination.turn_id != binding.destination.turn_id
+        {
+            return Err(invalid(
+                "binding_lineage",
+                "child lineage differs from its immutable parent route",
+            ));
+        }
+    } else if binding.parent_task_id.is_some() {
+        return Err(invalid(
+            "binding_missing",
+            "no durable parent routing intent exists",
+        ));
+    } else if binding.root_task_id != binding.key.task_id {
+        return Err(invalid(
+            "binding_lineage",
+            "root identity differs from its source task",
         ));
     }
     Ok(())

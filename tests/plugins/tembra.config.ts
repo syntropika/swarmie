@@ -4,6 +4,12 @@ const contracts = [
   ["model-provider", "ModelProviderSchema", "swarmie-model-contracts", "model-contract"],
   ["model-generation", "ModelGenerationSchema", "swarmie-model-contracts", "model-contract"],
   [
+    "task-session-commit",
+    "TaskSessionCommit",
+    "swarmie-task-session-contracts",
+    "task-session-contract",
+  ],
+  [
     "task-session-bindings",
     "TaskSessionBindings",
     "swarmie-task-session-contracts",

@@ -90,7 +90,7 @@ impl Engine {
                 denial,
             };
             journal
-                .append(
+                .append_intent(
                     &self.sessions,
                     &turn,
                     &suffix,

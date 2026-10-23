@@ -194,19 +194,26 @@ pub(crate) fn facet(manager: Weak<PluginManager>) -> Result<NativeFacet> {
                         "administrative supervisor is no longer retained",
                     )
                 })?;
-                let database = manager.database.clone();
-                let resource = declaration.core_mut().resource(
-                    "administration-sqlite",
-                    ResourceDeclaration::new(move |_| {
+                let mut domain = match manager.database.clone() {
+                    crate::manager::DatabaseSource::Standalone(database) => ResourceDeclaration::new(move |_| {
                         let database = database.clone();
-                        async move { Store::open(&database).map_err(ManagerError::into_runtime) }
-                            .boxed_local()
-                    })
-                    .with_close(|store| {
-                        async move { store.close().map_err(ManagerError::into_runtime) }
-                            .boxed_local()
+                        async move { Store::open(&database).map_err(ManagerError::into_runtime) }.boxed_local()
                     }),
-                )?;
+                    crate::manager::DatabaseSource::Shared(handle) => {
+                        let database = handle.declare(declaration)?;
+                        let opening = database.clone();
+                        let mut domain = ResourceDeclaration::new(move |_| {
+                            let database = opening.value().map(|database| (*database).clone());
+                            async move { Store::from_database(database?).map_err(ManagerError::into_runtime) }.boxed_local()
+                        });
+                        domain.deps.push(database.dependency());
+                        domain
+                    }
+                };
+                domain = domain.with_close(|store| {
+                    async move { store.close().map_err(ManagerError::into_runtime) }.boxed_local()
+                });
+                let resource = declaration.core_mut().resource("administration-sqlite", domain)?;
                 *manager.store.borrow_mut() = Some(resource.downgrade());
                 Ok(Administration {
                     manager: owner.clone(),

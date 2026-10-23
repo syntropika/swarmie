@@ -15,19 +15,24 @@ pub(crate) async fn start(
     let host = Host::with_driver("swarmie-runtime", "runtime-supervisor", driver.clone())?;
     let result = async {
         let executor = Executor::new(driver.clone(), ExecutorOptions::default())?;
-        let manager = PluginManager::start_with_executor(
-            host.clone(),
-            executor.clone(),
-            configuration.database.clone(),
-        )
-        .await?;
+        let database = crate::local_storage::install(&host, &configuration.database).await?;
+        let manager =
+            PluginManager::start_with_database(host.clone(), executor.clone(), database.clone())
+                .await?;
+        manager
+            .record_core_facets(
+                "swarmie.sqlite-local".into(),
+                env!("CARGO_PKG_VERSION").into(),
+                vec!["swarmie.sqlite-local.owner".into()],
+            )
+            .await?;
         let persisted = manager.composition()?;
         let application = match configuration.application {
             Some(application) => application,
             None => persisted
                 .map(serde_json::from_value)
                 .transpose()?
-                .unwrap_or_else(|| application::default_for(&configuration.database)),
+                .unwrap_or_default(),
         };
         let configured = manager.provider_configuration("local")?;
         let persist_source = configured.is_none();
@@ -36,7 +41,7 @@ pub(crate) async fn start(
             .transpose()?
             .unwrap_or_else(|| configuration.source.clone());
         let compiled = compiled.unwrap_or_else(|| application::compiled(source, driver.clone()));
-        let mut prepared = crate::preparation::prepare(&application, &compiled)?;
+        let mut prepared = crate::preparation::prepare(&application, &compiled, &database)?;
         // Register capability-owned language definitions before any source/application
         // installation or cached Dynamic activation. Administration startup evaluates no code.
         for plugin in &compiled {
@@ -110,6 +115,7 @@ pub(crate) async fn start(
             manager,
             effective: prepared.effective,
             applied,
+            database,
             desired: application,
             compiled,
             configuration_values,

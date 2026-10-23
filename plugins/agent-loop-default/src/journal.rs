@@ -9,9 +9,11 @@ use swarmie_agent_contracts::TurnContext;
 use swarmie_session_contracts::{
     AppendEvents, Correlation, EventQuery, NewEvent, SessionEvent, SessionStoreRef,
 };
+use swarmie_task_contracts::{TaskDecision, TaskSessionAppend, TaskTransition};
 use tembra::{Context, Result, RuntimeError};
 
 use crate::{
+    HistoryCommit,
     admission::Admitted,
     state::{TurnIdentity, stable},
 };
@@ -74,13 +76,22 @@ impl HistoryView {
 pub(crate) struct Journal {
     admitted: Admitted,
     history: Option<HistoryView>,
+    history_commit: HistoryCommit,
+    pending: Option<DeferredIntent>,
+}
+
+struct DeferredIntent {
+    phase: &'static str,
+    append: TaskSessionAppend,
 }
 
 impl Journal {
-    pub(crate) fn new(admitted: Admitted) -> Self {
+    pub(crate) fn new(admitted: Admitted, history_commit: HistoryCommit) -> Self {
         Self {
             admitted,
             history: None,
+            history_commit,
+            pending: None,
         }
     }
 
@@ -94,11 +105,110 @@ impl Journal {
         store: &SessionStoreRef,
         context: &Context,
     ) -> Result<&[SessionEvent]> {
+        self.require_committed()?;
         let view = match &mut self.history {
             Some(view) => view,
             empty @ None => empty.insert(history(store, &self.admitted, context).await?),
         };
         view.events()
+    }
+
+    /// Prepares the last intent of an invocation. In joint mode it is returned to the scheduler
+    /// without a sequence or visible history entry; independent mode commits it immediately.
+    pub(crate) async fn append_intent(
+        &mut self,
+        store: &SessionStoreRef,
+        turn: &TurnContext,
+        suffix: &str,
+        kind: &str,
+        payload: serde_json::Value,
+        context: &Context,
+    ) -> Result<String> {
+        self.require_committed()?;
+        context.check(context.host_id())?;
+        if self.history_commit == HistoryCommit::Independent {
+            return self
+                .append(store, turn, suffix, kind, payload, context)
+                .await;
+        }
+        self.admitted.check_turn(turn)?;
+        let phase = match kind {
+            "swarmie.agent.model-request" => "model",
+            "swarmie.agent.tool-intent" => "tool",
+            _ => {
+                return Err(crate::state::invalid(
+                    "only a final prepared effect intent can join task settlement",
+                ));
+            }
+        };
+        let event = event(turn, suffix, kind, payload);
+        let id = event.event_id.clone();
+        let append = AppendEvents {
+            session_id: turn.session_id.clone(),
+            batch_id: id.clone(),
+            expected_head: None,
+            events: vec![event],
+        };
+        swarmie_session_contracts::validate_append(&append)?;
+        self.pending = Some(DeferredIntent {
+            phase,
+            append: TaskSessionAppend {
+                session_store_id: self.admitted.destination().session_store_id.clone(),
+                append,
+            },
+        });
+        Ok(id)
+    }
+
+    /// Refuses any operation that could treat an uncommitted intent as history or run another
+    /// effect in this invocation. The only successful exit with pending data is its decision.
+    pub(crate) fn require_committed(&self) -> Result<()> {
+        if self.pending.is_some() {
+            return Err(crate::state::invalid(
+                "prepared intent awaits scheduler-owned task settlement",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn has_pending(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    pub(crate) fn discard_pending(&mut self) {
+        self.pending = None;
+    }
+
+    /// Moves one prepared intent into its matching Continue decision. Failure or cancellation
+    /// drops local pending data; it never flushes through a separate Session transaction.
+    pub(crate) fn into_decision(self, transition: TaskTransition) -> Result<TaskDecision> {
+        let Some(pending) = self.pending else {
+            return Ok(transition.into());
+        };
+        let TaskTransition::Continue { checkpoint, phase } = &transition else {
+            return Err(crate::state::invalid(
+                "prepared intent requires its matching effect checkpoint",
+            ));
+        };
+        let checkpoint: crate::state::Checkpoint = crate::state::decode(checkpoint.clone())?;
+        self.admitted
+            .check_turn(&crate::state::turn_scope(&checkpoint))?;
+        let reference = if pending.phase == "model" {
+            &checkpoint.request_event
+        } else {
+            &checkpoint.tool_event
+        };
+        if phase != pending.phase
+            || reference.as_deref() != Some(pending.append.append.batch_id.as_str())
+        {
+            return Err(crate::state::invalid(
+                "prepared intent differs from the returned effect checkpoint",
+            ));
+        }
+        Ok(TaskDecision {
+            transition,
+            session_appends: vec![pending.append],
+        })
     }
 
     /// Reloads committed evidence after the nested model terminal writes its effective request.
@@ -118,6 +228,7 @@ impl Journal {
         payload: serde_json::Value,
         context: &Context,
     ) -> Result<String> {
+        self.require_committed()?;
         let event = event(turn, suffix, kind, payload);
         let id = event.event_id.clone();
         // Only a loaded view keeps a copy; a root that has not read history reads it later.

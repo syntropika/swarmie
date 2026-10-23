@@ -15,13 +15,13 @@ use swarmie_task_session_contracts::*;
 use tembra::{Context, Resource, Result, RuntimeError, core};
 
 use crate::{
-    Configuration,
+    SharedConfiguration,
     admission::{destination_identity, invalid, source_identity},
     mapping,
 };
 
 pub(crate) struct Publisher {
-    pub configuration: Configuration,
+    pub configuration: SharedConfiguration,
     pub storage: TaskStorageRef,
     pub sessions: SessionStoreRef,
     pub bindings: TaskSessionBindingsRef,

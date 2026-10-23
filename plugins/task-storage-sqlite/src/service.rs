@@ -51,8 +51,14 @@ pub fn facet(configuration: &Configuration) -> Result<NativeFacet> {
     })
 }
 
-struct Service {
+pub(crate) struct Service {
     resource: Resource<Store>,
+}
+
+impl Service {
+    pub(crate) fn from_resource(resource: Resource<Store>) -> Self {
+        Self { resource }
+    }
 }
 
 impl TaskStorageProvider for Service {

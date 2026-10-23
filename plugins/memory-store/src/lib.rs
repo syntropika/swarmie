@@ -13,7 +13,12 @@ pub use contract::{
     DeleteRequest, GetRequest, GetResult, ListRequest, MemoryStore, MemoryStoreInput,
     MemoryStoreProvider, MemoryStoreRef, PutRequest,
 };
-pub use service::facet;
+pub use service::{facet, facet_with_database};
+
+/// Declares the memory domain schema for the embedding's shared physical SQLite owner.
+pub fn sqlite_schema() -> swarmie_sqlite_local::Schema {
+    store::schema()
+}
 
 /// Logical identity of the compiled plugin package.
 pub const PLUGIN_ID: &str = "swarmie.memory-store";

@@ -8,8 +8,8 @@ use std::{
 
 use futures::{FutureExt, StreamExt, future::LocalBoxFuture, stream::FuturesUnordered};
 use swarmie_task_contracts::{
-    CommitResult, StorageOwner, TaskLifecycleOrigin, TaskLookup, TaskRecord, TaskStatus,
-    TaskStorageRef, TaskTransaction, TaskWrite, validate_task_payload_size,
+    CommitResult, StorageOwner, TaskLifecycleOrigin, TaskLookup, TaskRecord, TaskSessionAppend,
+    TaskStatus, TaskStorageRef, TaskTransaction, TaskWrite, validate_task_payload_size,
     validate_task_record_size,
 };
 use tembra::{Context, Resource, Result, RuntimeError, core};
@@ -70,6 +70,7 @@ pub(crate) async fn yield_now() {
 pub(crate) struct Engine {
     pub observations: Rc<crate::observation::Observations>,
     pub storage: TaskStorageRef,
+    pub committer: crate::commit::Committer,
     pub owner: Resource<StorageOwner>,
     pub registry: core::RegistryView,
     pub configuration: Configuration,
@@ -140,6 +141,17 @@ impl Engine {
         context: &Context,
         mutations: Vec<Mutation>,
     ) -> Result<CommitResult> {
+        self.commit_with_history(context, mutations, Vec::new())
+            .await
+    }
+
+    /// The scheduler chooses the accepted mutation before attaching any handler history.
+    pub async fn commit_with_history(
+        &self,
+        context: &Context,
+        mutations: Vec<Mutation>,
+        history: Vec<TaskSessionAppend>,
+    ) -> Result<CommitResult> {
         let mut changes = BTreeMap::new();
         let writes: Vec<_> = mutations
             .into_iter()
@@ -172,12 +184,15 @@ impl Engine {
         // The complete transaction must cross the portable boundary.
         let transaction = TaskTransaction { owner, writes };
         validate_task_payload_size(&transaction)?;
-        match self
-            .storage
-            .with_context(context)
-            .commit(transaction)
-            .await?
-        {
+        let committed = crate::commit::commit(
+            &self.storage,
+            context,
+            &self.committer,
+            transaction,
+            history,
+        )
+        .await?;
+        match committed {
             CommitResult::Committed { sequence, records } => {
                 // Admission is infallible and never awaits plugins. Failed commits never reach it.
                 let mut reserved = BTreeSet::new();
@@ -225,14 +240,25 @@ impl Engine {
     pub async fn update(
         &self,
         context: &Context,
+        record: TaskRecord,
+        change: Change,
+    ) -> Result<CommitResult> {
+        self.update_with_history(context, record, change, Vec::new())
+            .await
+    }
+
+    pub async fn update_with_history(
+        &self,
+        context: &Context,
         mut record: TaskRecord,
         change: Change,
+        history: Vec<TaskSessionAppend>,
     ) -> Result<CommitResult> {
         let revision = record.revision;
         record.revision = revision.checked_add(1).ok_or_else(|| {
             RuntimeError::invalid("durable_tasks_revision", "task revision is exhausted")
         })?;
-        self.commit(
+        self.commit_with_history(
             context,
             vec![Mutation {
                 write: TaskWrite {
@@ -242,6 +268,7 @@ impl Engine {
                 },
                 change,
             }],
+            history,
         )
         .await
     }
@@ -590,6 +617,7 @@ mod tests {
                                         driver.clone(),
                                     )?,
                                     storage,
+                                    committer: crate::commit::Committer::TaskStorage,
                                     owner,
                                     registry: scope.registry(&task_definitions()?)?,
                                     configuration: Configuration::default(),

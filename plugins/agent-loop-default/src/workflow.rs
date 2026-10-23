@@ -4,8 +4,8 @@ use swarmie_agent_contracts::*;
 use swarmie_model_contracts::{FinishReason, GenerateResult};
 use swarmie_session_contracts::{SessionStore, SessionStoreInput, SessionStoreRef};
 use swarmie_task_contracts::{
-    DurableTasks, DurableTasksInput, DurableTasksRef, TaskDefinition, TaskInvocation, TaskLookup,
-    TaskOutcome, TaskRecord, TaskStatus, TaskStorage, TaskStorageInput, TaskTransition,
+    DurableTasks, DurableTasksInput, DurableTasksRef, TaskDecision, TaskDefinition, TaskInvocation,
+    TaskLookup, TaskOutcome, TaskRecord, TaskStatus, TaskStorage, TaskStorageInput, TaskTransition,
     task_definitions,
 };
 use swarmie_task_session_contracts::{TaskSessionBindings, TaskSessionBindingsInput};
@@ -25,7 +25,7 @@ use crate::{
 #[tembra::contract(local, name = "swarmie.agent-loop-default.turn-handler", version = 1)]
 trait TurnHandler {
     #[portable]
-    async fn step(&self, invocation: TaskInvocation) -> Result<TaskTransition>;
+    async fn step(&self, invocation: TaskInvocation) -> Result<TaskDecision>;
 }
 
 pub(crate) fn declare(
@@ -33,6 +33,7 @@ pub(crate) fn declare(
     setup: &mut tembra::FacetDeclaration<'_, '_>,
     driver: Rc<dyn core::Driver>,
     observers: Rc<ObserverDispatcher>,
+    history_commit: crate::HistoryCommit,
 ) -> Result<()> {
     let tools = scope.registry(&tool_definitions()?)?;
     let terminals = scope.registry(&crate::model::terminals()?)?;
@@ -59,6 +60,7 @@ pub(crate) fn declare(
             );
             Ok(Engine {
                 sessions,
+                history_commit,
                 admission,
                 tasks: declaration.get(DurableTasks, DurableTasksInput {})?,
                 select_context: hooks.declare_waterfall(
@@ -108,6 +110,7 @@ pub(crate) fn declare(
 }
 
 pub(crate) struct Engine {
+    pub(crate) history_commit: crate::HistoryCommit,
     pub(crate) sessions: SessionStoreRef,
     pub(crate) admission: Admission,
     pub(crate) tasks: DurableTasksRef,
@@ -143,7 +146,7 @@ impl Drop for PhaseGuard<'_> {
 }
 
 impl TurnHandlerProvider for Engine {
-    async fn step(&self, invocation: TaskInvocation, context: Context) -> Result<TaskTransition> {
+    async fn step(&self, invocation: TaskInvocation, context: Context) -> Result<TaskDecision> {
         let task = match invocation {
             TaskInvocation::Migrate {
                 task,
@@ -159,11 +162,12 @@ impl TurnHandlerProvider for Engine {
                     Ok(TaskTransition::Migrate {
                         checkpoint: task.checkpoint,
                         phase: task.phase,
-                    })
+                    }
+                    .into())
                 } else {
                     Ok(TaskTransition::RejectMigration {
                         reason: "unsupported agent checkpoint format; definition and checkpoint version 3 are required".into(),
-                    })
+                    }.into())
                 };
             }
             TaskInvocation::Run { task, .. } => task,
@@ -227,17 +231,20 @@ impl TurnHandlerProvider for Engine {
                 .recover_terminal_decision(&task, &request, &checkpoint, &context)
                 .await?
             {
-                return Ok(decision);
+                return Ok(decision.into());
             }
-            return self.end_checkpoint(checkpoint, "duration limit reached");
+            return self
+                .end_checkpoint(checkpoint, "duration limit reached")
+                .map(Into::into);
         }
         let (child, guard) = context.child_call(context.principal().clone())?;
         let child = Context::from_core(child);
-        let mut journal = Journal::new(admitted);
+        let mut journal = Journal::new(admitted, self.history_commit);
         let progress = RefCell::new(Bookkeeping {
             checkpoint: checkpoint.clone(),
             phase: task.phase.clone(),
         });
+        let mut timed_out = false;
         let result = {
             let work = self.phase(
                 &task,
@@ -264,6 +271,7 @@ impl TurnHandlerProvider for Engine {
                     ));
                     // Cooperative cancellation still awaits physical invocation ownership.
                     let _ = work.await;
+                    timed_out = true;
                     if let Some(decision) = self
                         .recover_terminal_decision(&task, &request, &checkpoint, &context)
                         .await?
@@ -286,10 +294,14 @@ impl TurnHandlerProvider for Engine {
             }
         };
         drop(guard);
+        if timed_out {
+            journal.discard_pending();
+        }
         if let Err(error) = &result
             && error.reason != crate::terminal_recovery::UNRESOLVED
             && context.check(context.host_id()).is_ok()
         {
+            journal.discard_pending();
             let failed_phase = progress.borrow().phase.clone();
             journal
                 .append(
@@ -304,7 +316,7 @@ impl TurnHandlerProvider for Engine {
         }
         let duration_exhausted =
             now_ms()?.saturating_sub(checkpoint.started_at_ms) >= request.limits.max_duration_ms;
-        match result {
+        let transition = match result {
             Err(error)
                 if error.reason != crate::terminal_recovery::UNRESOLVED
                     && duration_exhausted
@@ -325,7 +337,9 @@ impl TurnHandlerProvider for Engine {
                 }
             }
             other => other,
-        }
+        }?;
+        context.check(context.host_id())?;
+        journal.into_decision(transition)
     }
 }
 
@@ -369,9 +383,11 @@ impl Engine {
                     phase: next_phase,
                 } => {
                     let next_cp: Checkpoint = decode(checkpoint.clone())?;
-                    // A substep returns only after its Session evidence commits. Timeout
-                    // finalization may retain these counters and references, never speculative work.
-                    progress.borrow_mut().checkpoint = next_cp.clone();
+                    // Only confirmed Session evidence advances timeout bookkeeping. A prepared
+                    // intent returned with the decision becomes authoritative at scheduler commit.
+                    if !journal.has_pending() {
+                        progress.borrow_mut().checkpoint = next_cp.clone();
+                    }
                     if matches!(next_phase.as_str(), "model" | "tool")
                         || (next_phase == "finish" && next_cp.ending.is_some())
                     {

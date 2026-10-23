@@ -1346,3 +1346,88 @@ fn synchronous_continuations_yield_to_unrelated_cancellation_work() {
         rig.backend.close().await
     });
 }
+
+#[test]
+fn task_storage_selection_refuses_staged_history_without_advancing_the_phase() {
+    run(|driver| async move {
+        let rig = open(driver, vec![], |_| {}).await?;
+        let mut parent = continued("parent");
+        parent.input["joint_intent"] = json!(true);
+        let checkpoint = parent.checkpoint.clone();
+        rig.tasks.create(parent).await?;
+        let outcome = rig
+            .tasks
+            .wait(TaskLookup {
+                id: "parent".into(),
+            })
+            .await?;
+        let TaskOutcome::Faulted { error } = outcome else {
+            panic!("independent task storage must refuse the staged decision: {outcome:?}");
+        };
+        assert!(error.contains("durable_tasks_joint_commit"), "{error}");
+        let record = rig
+            .tasks
+            .get(TaskLookup {
+                id: "parent".into(),
+            })
+            .await?
+            .unwrap();
+        assert_eq!(record.phase, "effect");
+        assert_eq!(record.checkpoint, checkpoint);
+        assert_eq!(rig.control.effects("parent"), 1);
+        assert_eq!(rig.control.completions("parent"), 0);
+        rig.host.close().await?;
+        rig.backend.close().await
+    });
+}
+
+#[test]
+fn a_newer_checkpoint_discards_staged_history_before_capability_resolution() {
+    run(|driver| async move {
+        let rig = open(driver, vec![], |_| {}).await?;
+        let mut parent = continued("parent");
+        parent.input["joint_intent"] = json!(true);
+        parent.input["mutate_before_result"] = json!(true);
+        rig.tasks.create(parent).await?;
+        let record = status(&rig.tasks, "parent", TaskStatus::Parked).await?;
+        assert_eq!(record.checkpoint, json!({"newer_checkpoint":true}));
+        let Some(BlockingReason::HandlerFailure { detail }) = record.blocking_reason else {
+            panic!("a superseded decision must park for explicit retry");
+        };
+        assert!(detail.contains("newer committed record"), "{detail}");
+        assert!(
+            !detail.contains("joint"),
+            "staged history leaked into the replacement decision"
+        );
+        assert_eq!(rig.control.effects("parent"), 1);
+        assert_eq!(rig.control.completions("parent"), 0);
+        rig.host.close().await?;
+        rig.backend.close().await
+    });
+}
+
+#[test]
+fn explicit_joint_selection_requires_its_capability_before_starting() {
+    run(|driver| async move {
+        let result = open_with(
+            driver,
+            vec![],
+            Default::default(),
+            swarmie_durable_tasks::Configuration {
+                commit: swarmie_durable_tasks::CommitStrategy::TaskSession,
+                ..Default::default()
+            },
+            |_| {},
+        )
+        .await;
+        match result {
+            Ok(rig) => {
+                rig.host.close().await?;
+                rig.backend.close().await?;
+                panic!("joint selection must refuse readiness without its selected capability");
+            }
+            Err(error) => assert!(error.to_string().contains("task-session-commit"), "{error}"),
+        }
+        Ok(())
+    });
+}

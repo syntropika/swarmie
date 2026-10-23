@@ -6,7 +6,8 @@ use std::{
 };
 
 use swarmie_task_contracts::{
-    TaskDefinition, TaskInvocation, TaskSpec, TaskTransition, WaitPolicy, task_definitions,
+    TaskDecision, TaskDefinition, TaskInvocation, TaskSpec, TaskTransition, WaitPolicy,
+    task_definitions,
 };
 use tembra::{core, prelude::*};
 
@@ -32,7 +33,7 @@ impl Control {
 #[tembra::contract(local, name = "swarmie.fixture.adversarial-task", version = 1)]
 trait AdversarialTask {
     #[portable]
-    async fn step(&self, invocation: TaskInvocation) -> Result<TaskTransition>;
+    async fn step(&self, invocation: TaskInvocation) -> Result<TaskDecision>;
 }
 
 /// Creates a genuinely managed application Facet with the canonical portable step schema.
@@ -75,7 +76,19 @@ struct Handler {
 }
 
 impl AdversarialTaskProvider for Handler {
-    async fn step(&self, invocation: TaskInvocation, context: Context) -> Result<TaskTransition> {
+    async fn step(&self, invocation: TaskInvocation, context: Context) -> Result<TaskDecision> {
+        self.step_transition(invocation, context)
+            .await
+            .map(Into::into)
+    }
+}
+
+impl Handler {
+    async fn step_transition(
+        &self,
+        invocation: TaskInvocation,
+        context: Context,
+    ) -> Result<TaskTransition> {
         match invocation {
             TaskInvocation::Migrate { .. } => Err(RuntimeError::invalid(
                 "fixture_migration",

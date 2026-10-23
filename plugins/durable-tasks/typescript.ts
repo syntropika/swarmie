@@ -3,15 +3,13 @@ import type { Completion, ManagedContext, ObjectDeclaration } from "@tembra/sdk"
 import type { TaskHandlerReference } from "../../target/generated/contracts/task-handler";
 
 export type TaskInvocation = Parameters<TaskHandlerReference["step"]>[0];
-export type TaskTransition = Awaited<ReturnType<TaskHandlerReference["step"]>>;
+export type TaskDecision = Awaited<ReturnType<TaskHandlerReference["step"]>>;
+export type TaskTransition = TaskDecision["transition"];
 
 export type TaskDefinition = {
   readonly kind: string;
   readonly version: number;
-  readonly step: (
-    context: ManagedContext,
-    invocation: TaskInvocation,
-  ) => Completion<TaskTransition>;
+  readonly step: (context: ManagedContext, invocation: TaskInvocation) => Completion<TaskDecision>;
 };
 
 /** Registers one application-owned operation in Tembra; it creates no execution runtime. */

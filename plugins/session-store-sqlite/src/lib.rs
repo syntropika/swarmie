@@ -20,3 +20,7 @@ pub const FACET_ID: &str = "swarmie.session-store-sqlite.provider";
 
 /// Compiled package version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Native shared-owner adapters and explicit transaction operations.
+pub mod backend;
+pub use backend::{SessionStoreHandle, facet_with_database, sqlite_schema};

@@ -25,7 +25,7 @@ impl Runtime {
         &self,
         application: &Application,
     ) -> Result<ReconciliationPlan, ReconciliationError> {
-        let prepared = crate::preparation::prepare(application, &self.compiled)
+        let prepared = crate::preparation::prepare(application, &self.compiled, &self.database)
             .map_err(ReconciliationError::Validation)?;
         if prepared
             .effective

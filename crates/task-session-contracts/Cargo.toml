@@ -6,6 +6,9 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+swarmie-session-contracts = { path = "../session-contracts" }
+sha2.workspace = true
+hex.workspace = true
 tembra.workspace = true
 serde_json.workspace = true
 swarmie-task-contracts = { path = "../task-contracts" }

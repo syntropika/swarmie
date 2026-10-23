@@ -21,8 +21,8 @@ impl Store {
         sessions.retain(|session| {
             retired.contains(&session.plugin_id) && session.observed != BrowserObservation::Inactive
         });
-        self.with(|connection| {
-            let transaction = connection.unchecked_transaction()?;
+        self.transaction(|connection| {
+            let transaction = connection;
             for plugin in plugins {
                 transaction.execute(
                     "INSERT INTO installed_plugins(plugin_id,version,desired,observed,error,activation_id)
@@ -53,7 +53,6 @@ impl Store {
                     params![serde_json::to_string(session)?, session.plugin_id, session.session_id, session.activation_id],
                 )?;
             }
-            transaction.commit()?;
             Ok(())
         })
     }

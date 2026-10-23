@@ -15,7 +15,8 @@ use swarmie_task_contracts::{
 use tembra::{core, prelude::*};
 
 use crate::{
-    Configuration, FACET_ID,
+    CommitStrategy, Configuration, FACET_ID,
+    commit::Committer,
     mutation::{Change, Mutation},
     observation::Observations,
     reads::is_contention,
@@ -59,6 +60,17 @@ pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Res
             DurableTasks,
             move |_, _, declaration| {
                 let storage = declaration.get(TaskStorage, TaskStorageInput {})?;
+                let committer = match configuration.commit {
+                    CommitStrategy::TaskStorage => Committer::TaskStorage,
+                    CommitStrategy::TaskSession => Committer::TaskSession(declaration.get(
+                        swarmie_task_session_contracts::TaskSessionCommit,
+                        swarmie_task_session_contracts::TaskSessionCommitInput {})
+                        .map_err(|error| RuntimeError::unavailable(
+                            "durable_tasks_joint_commit",
+                            format!("selected task-session-commit capability is unavailable: {error}"),
+                        ))?),
+                };
+                let closing_committer = committer.clone();
                 let opening = storage.clone();
                 let closing = storage.clone();
                 let opening_scope = scope.clone();
@@ -83,11 +95,12 @@ pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Res
                 })
                 .with_close(move |owner: Rc<StorageOwner>| {
                     let storage = closing.clone();
+                    let committer = closing_committer.clone();
                     let reservations = cleanup_reservations.borrow().iter().cloned().collect::<Vec<_>>();
                     closing_scope.root(move |context| {
                         async move {
                             let context = Context::from_core(context);
-                            let restored = restore_reservations(&storage, &context, &owner.id, reservations).await;
+                            let restored = restore_reservations(&storage, &context, &committer, &owner.id, reservations).await;
                             let released = storage.with_context(&context).release_owner(owner.as_ref().clone()).await;
                             match (restored, released) {
                                 (Ok(()), result) | (result, Ok(())) => result,
@@ -100,6 +113,9 @@ pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Res
                 resource
                     .deps
                     .push(core::ResourceDependency::Reference(storage.core().clone()));
+                if let Committer::TaskSession(joint) = &committer {
+                    resource.deps.push(core::ResourceDependency::Reference(joint.core().clone()));
+                }
                 let owner = declaration
                     .core_mut()
                     .resource("scheduler-owner", resource)?;
@@ -113,6 +129,7 @@ pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Res
                 let engine = Rc::new(Engine {
                     observations: observations.clone(),
                     storage,
+                    committer,
                     owner,
                     registry: registry.clone(),
                     configuration: configuration.clone(),
@@ -220,6 +237,7 @@ impl TaskLifecycleProvider for Monitor {
 async fn restore_reservations(
     storage: &TaskStorageRef,
     context: &Context,
+    committer: &Committer,
     owner: &str,
     reservations: Vec<String>,
 ) -> Result<()> {
@@ -242,17 +260,21 @@ async fn restore_reservations(
                 RuntimeError::invalid("durable_tasks_revision", "task revision exhausted")
             })?;
             record.status = TaskStatus::Pending;
-            match storage
-                .with_context(context)
-                .commit(TaskTransaction {
+            match crate::commit::commit(
+                storage,
+                context,
+                committer,
+                TaskTransaction {
                     owner: owner.to_owned(),
                     writes: vec![TaskWrite {
                         provenance: None,
                         expected_revision: Some(expected_revision),
                         record,
                     }],
-                })
-                .await?
+                },
+                Vec::new(),
+            )
+            .await?
             {
                 CommitResult::Committed { .. } => {
                     restored = true;

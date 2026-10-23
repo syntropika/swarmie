@@ -3,7 +3,8 @@
 The `swarmie.agent-loop` version-two Contract starts, inspects, cancels and continues bounded
 agent turns. `swarmie-agent-loop-default` supplies one compiled implementation. Other compatible
 implementations serve the same Contract and register the same task kind and checkpoint version.
-Tembra selects providers and owns actual execution. Durable Tasks is the only scheduler.
+Tembra selects providers and owns actual execution. Durable Tasks is the only scheduler. The default facet uses joint intent settlement; an explicit
+`HistoryCommit::Independent` selection supports independently owned storage providers.
 Native implementation replacement requires a fresh Host; dynamic hook contributors use Tembra
 JavaScript reload.
 
@@ -25,8 +26,13 @@ position, explicit version, persisted session/conversation/turn identity and eve
 The default loop uses one durable turn task with `start`, `model`, `tool` and `finish` recovery
 phases. Context/request preparation, response processing, tool preparation and step bookkeeping
 run as bounded internal substeps. Each invocation performs at most one model or tool effect;
-Durable Tasks commits and admits the next effect through `Continue`. Ordinary Session evidence
-is confirmed before observations are admitted. Durable Tasks owns task scheduling and child-task
+Durable Tasks commits and admits the next effect through `Continue`. In joint mode, the final
+prepared model request or tool intent is returned in `TaskDecision.session_appends` and committed
+with that checkpoint through the selected `TaskSessionCommit` capability. Pending intent has no
+Session sequence and cannot authorize an effect or appear in committed history. Missing joint
+support refuses progress; there is no sequential fallback. Independent mode commits the intent
+before returning the decision. Other Session evidence remains immediate and is confirmed before
+observations are admitted. Durable Tasks owns task scheduling and child-task
 execution; the loop introduces no additional scheduler.
 
 If a completion receipt was committed but its reply or task transition was lost, duration

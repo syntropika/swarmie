@@ -29,22 +29,101 @@ fn tagged_transitions_remain_disjoint_in_the_portable_schema()
     else {
         panic!("canonical step must have a portable result");
     };
-    for value in [
+    let decision = |transition| serde_json::json!({"transition":transition, "session_appends":[]});
+    for transition in [
         serde_json::json!({"type":"complete", "value":null}),
         serde_json::json!({"type":"checkpoint", "checkpoint":{"operation_id":"task:publish"}, "phase":"publish"}),
+        serde_json::json!({"type":"continue", "checkpoint":{"operation_id":"task:publish"}, "phase":"publish"}),
         serde_json::json!({"type":"reject_migration", "reason":"unsupported checkpoint"}),
     ] {
-        validate(schema, &value)?;
+        validate(schema, &decision(transition))?;
     }
-    for value in [
+    for transition in [
         serde_json::json!({"type":"unknown", "value":null}),
         serde_json::json!({"type":"complete"}),
         serde_json::json!({"type":"complete", "value":null, "reason":"ambiguous"}),
         serde_json::json!({"type":"checkpoint", "checkpoint":{}, "phase":5}),
     ] {
         assert!(
-            validate(schema, &value).is_err(),
-            "accepted invalid transition: {value}"
+            validate(schema, &decision(transition.clone())).is_err(),
+            "accepted invalid transition: {transition}"
+        );
+    }
+    for invalid in [
+        serde_json::json!({"type":"complete", "value":null}),
+        serde_json::json!({"transition":{"type":"complete", "value":null}}),
+        serde_json::json!({"session_appends":[]}),
+        serde_json::json!({"transition":{"type":"complete", "value":null}, "session_appends":null}),
+        serde_json::json!({"transition":{"type":"complete", "value":null}, "session_appends":[], "receipt":{}}),
+    ] {
+        assert!(
+            validate(schema, &invalid).is_err(),
+            "accepted malformed decision envelope: {invalid}"
+        );
+    }
+
+    let staged = serde_json::json!({
+        "transition":{"type":"continue", "checkpoint":{"operation_id":"task:publish"}, "phase":"publish"},
+        "session_appends":[{
+            "session_store_id":"history",
+            "append":{
+                "session_id":"chat", "batch_id":"task:intent", "expected_head":null,
+                "events":[{
+                    "event_id":"task:intent", "kind":"fixture.intent", "version":1,
+                    "correlation":{
+                        "conversation_id":null, "turn_id":null, "task_id":"task",
+                        "step_id":null, "attempt_id":null, "parent_event_id":null
+                    },
+                    "occurred_at_ms":null, "payload":{"operation_id":"task:publish"}
+                }]
+            }
+        }]
+    });
+    validate(schema, &staged)?;
+    for (pointer, invalid) in [
+        ("/session_appends/0/session_store_id", serde_json::json!(7)),
+        (
+            "/session_appends/0/append/expected_head",
+            serde_json::json!("zero"),
+        ),
+        ("/session_appends/0/append/events", serde_json::json!({})),
+        (
+            "/session_appends/0/append/events/0/version",
+            serde_json::json!("one"),
+        ),
+        (
+            "/session_appends/0/append/events/0/correlation/task_id",
+            serde_json::json!(false),
+        ),
+    ] {
+        let mut malformed = staged.clone();
+        *malformed.pointer_mut(pointer).unwrap() = invalid;
+        assert!(
+            validate(schema, &malformed).is_err(),
+            "accepted malformed staged history at {pointer}: {malformed}"
+        );
+    }
+    let mut missing_destination = staged.clone();
+    missing_destination["session_appends"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("session_store_id");
+    assert!(validate(schema, &missing_destination).is_err());
+    for pointer in [
+        "/session_appends/0",
+        "/session_appends/0/append",
+        "/session_appends/0/append/events/0",
+    ] {
+        let mut malformed = staged.clone();
+        malformed
+            .pointer_mut(pointer)
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .insert("receipt".into(), serde_json::json!({"committed":true}));
+        assert!(
+            validate(schema, &malformed).is_err(),
+            "accepted an unknown receipt field at {pointer}"
         );
     }
     Ok(())

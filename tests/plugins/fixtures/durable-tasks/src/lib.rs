@@ -3,7 +3,8 @@
 use std::{fs::OpenOptions, io::Write};
 
 use swarmie_task_contracts::{
-    TaskDefinition, TaskInvocation, TaskSpec, TaskTransition, WaitPolicy, task_definitions,
+    TaskDecision, TaskDefinition, TaskInvocation, TaskSpec, TaskTransition, WaitPolicy,
+    task_definitions,
 };
 use tembra::{core, prelude::*};
 
@@ -19,7 +20,7 @@ pub mod volatile_storage;
 #[tembra::contract(local, name = "swarmie.acceptance-durable-workflow", version = 1)]
 pub trait DurableWorkflow {
     #[portable]
-    async fn step(&self, invocation: TaskInvocation) -> Result<TaskTransition>;
+    async fn step(&self, invocation: TaskInvocation) -> Result<TaskDecision>;
 }
 
 /// Creates a workflow at the first resumable phase. An input `"continue": true` advances its
@@ -68,7 +69,19 @@ struct Workflow {
 }
 
 impl DurableWorkflowProvider for Workflow {
-    async fn step(&self, invocation: TaskInvocation, _context: Context) -> Result<TaskTransition> {
+    async fn step(&self, invocation: TaskInvocation, _context: Context) -> Result<TaskDecision> {
+        self.step_transition(invocation, _context)
+            .await
+            .map(Into::into)
+    }
+}
+
+impl Workflow {
+    async fn step_transition(
+        &self,
+        invocation: TaskInvocation,
+        _context: Context,
+    ) -> Result<TaskTransition> {
         let task = match invocation {
             TaskInvocation::Migrate { task, .. } => {
                 return if task.input["reject_migration"] == true {

@@ -105,8 +105,9 @@ fn native_storage_and_dynamic_override_share_the_contract_with_honest_restart_an
                 .is_file(),
             "build real plugin artifacts with just tembra-plugins"
         );
+        let database = directory.path().join("application.sqlite");
         let configuration = |application| Configuration {
-            database: directory.path().join("administration.sqlite"),
+            database: database.clone(),
             source: source.clone(),
             application,
         };
@@ -118,13 +119,13 @@ fn native_storage_and_dynamic_override_share_the_contract_with_honest_restart_an
         );
         assert!(native.recovery_error.is_none());
         let native_application = native.desired_application().clone();
-        let native_storage: swarmie_memory_store::Configuration = serde_json::from_value(
+        assert_eq!(
             native.applied[swarmie_memory_store::PLUGIN_ID]
                 .selection
-                .config
-                .clone(),
-        )
-        .unwrap();
+                .config,
+            json!({}),
+            "the default memory provider uses the node database owner"
+        );
         let original = native
             .host
             .get(MemoryStore, MemoryStoreInput {})
@@ -282,10 +283,7 @@ fn native_storage_and_dynamic_override_share_the_contract_with_honest_restart_an
                 .await
                 .is_err()
         );
-        assert!(
-            native_storage.database.is_file(),
-            "deactivation never deletes data"
-        );
+        assert!(database.is_file(), "deactivation never deletes data");
         let mut enabled_profile = disabled.desired_application().clone();
         enabled_profile
             .composition

@@ -18,10 +18,11 @@ use crate::{
 ///
 /// Administration is a local Tembra service for trusted in-Host callers. The transport
 /// embedding owns remote connection authority; this service exposes no remote administration.
-/// SQLite belongs to the actual administrative object's lifecycle.
+/// Administrative domain access follows the actual object lifecycle; a shared physical SQLite
+/// owner can outlive this domain and is never part of ordinary plugin invocation.
 pub struct PluginManager {
     pub(crate) host: Host,
-    pub(crate) database: PathBuf,
+    pub(crate) database: DatabaseSource,
     pub(crate) store: RefCell<Option<core::WeakResource<Store>>>,
     pub(crate) executor: Executor,
     pub(crate) busy: Flag<bool>,
@@ -37,6 +38,12 @@ pub struct PluginManager {
     pub(crate) trusted_sources: RefCell<BTreeSet<String>>,
     pub(crate) cores: RefCell<Vec<PluginRecord>>,
     pub(crate) uncertain: RefCell<BTreeMap<String, PluginRecord>>,
+}
+
+#[derive(Clone)]
+pub(crate) enum DatabaseSource {
+    Standalone(PathBuf),
+    Shared(swarmie_sqlite_local::DatabaseHandle),
 }
 
 pub(crate) struct OperationGuard<'a>(&'a Flag<bool>);
@@ -95,10 +102,38 @@ impl PluginManager {
         executor: Executor,
         database: impl Into<PathBuf>,
     ) -> Result<Rc<Self>> {
+        Self::start_with_source(host, executor, DatabaseSource::Standalone(database.into())).await
+    }
+
+    /// Starts administration over an already declared physical SQLite owner.
+    ///
+    /// Register [`crate::sqlite_schema`] with that owner and await its startup first. The
+    /// administrative Resource depends on its actual Tembra Resource; closing this domain
+    /// revokes administration without closing other domains or erasing retained evidence.
+    /// This constructor installs no application plugins and adds no manager invocation to
+    /// their ordinary capability calls.
+    ///
+    /// # Errors
+    /// Missing owner readiness, incompatible domain schema and Tembra startup errors refuse
+    /// initialization. A failed administrative recovery can follow earlier durable changes.
+    pub async fn start_with_database(
+        host: Host,
+        executor: Executor,
+        database: swarmie_sqlite_local::DatabaseHandle,
+    ) -> Result<Rc<Self>> {
+        database.database()?;
+        Self::start_with_source(host, executor, DatabaseSource::Shared(database)).await
+    }
+
+    async fn start_with_source(
+        host: Host,
+        executor: Executor,
+        database: DatabaseSource,
+    ) -> Result<Rc<Self>> {
         let manager = Rc::new(Self {
             host: host.clone(),
 
-            database: database.into(),
+            database,
             store: RefCell::new(None),
             executor,
             busy: Flag::new(false),

@@ -5,14 +5,26 @@
 //! does not replace cancellation, authorization or operation-specific uncertainty handling.
 
 mod admission;
+pub mod backend;
 mod configuration;
 mod mapping;
 mod publisher;
 mod service;
 mod store;
 
-pub use configuration::Configuration;
-pub use service::facet;
+pub use configuration::{Configuration, SharedConfiguration};
+pub use service::{facet, facet_with_database};
+
+/// Current binding schema for the shared physical owner. Initialization creates tables only;
+/// the selected bridge later pins its task store, session store and consumer atomically.
+pub fn sqlite_schema() -> swarmie_sqlite_local::Schema {
+    swarmie_sqlite_local::Schema {
+        domain: "task-session-bindings",
+        version: 1,
+        initialize: store::initialize_schema,
+        validate: store::validate_schema,
+    }
+}
 
 /// Compiled application plugin identity.
 pub const PLUGIN_ID: &str = "swarmie.task-session-integration";

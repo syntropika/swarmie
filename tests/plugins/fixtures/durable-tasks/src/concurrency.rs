@@ -519,7 +519,7 @@ impl TaskStorageProvider for Proxy {
 #[tembra::contract(local, name = "swarmie.acceptance-concurrent-handler", version = 1)]
 trait ConcurrentHandler {
     #[portable]
-    async fn step(&self, invocation: TaskInvocation) -> Result<TaskTransition>;
+    async fn step(&self, invocation: TaskInvocation) -> Result<TaskDecision>;
 }
 
 pub fn handler_facet(control: Rc<StorageControl>) -> Result<NativeFacet> {
@@ -551,7 +551,44 @@ struct Handler {
 }
 
 impl ConcurrentHandlerProvider for Handler {
-    async fn step(&self, invocation: TaskInvocation, _context: Context) -> Result<TaskTransition> {
+    async fn step(&self, invocation: TaskInvocation, _context: Context) -> Result<TaskDecision> {
+        let task = match &invocation {
+            TaskInvocation::Run { task, .. } | TaskInvocation::Migrate { task, .. } => task,
+        };
+        let staged = task.input["joint_intent"] == true;
+        let task_id = task.id.clone();
+        let mut decision: TaskDecision = self.step_transition(invocation, _context).await?.into();
+        if staged {
+            decision.session_appends.push(TaskSessionAppend {
+                session_store_id: "fixture.sessions".into(),
+                append: swarmie_session_contracts::AppendEvents {
+                    session_id: "fixture.chat".into(),
+                    batch_id: format!("{task_id}:intent"),
+                    expected_head: None,
+                    events: vec![swarmie_session_contracts::NewEvent {
+                        event_id: format!("{task_id}:intent"),
+                        kind: "fixture.intent".into(),
+                        version: 1,
+                        correlation: swarmie_session_contracts::Correlation {
+                            task_id: Some(task_id),
+                            ..Default::default()
+                        },
+                        occurred_at_ms: None,
+                        payload: serde_json::json!({"intent":true}),
+                    }],
+                },
+            });
+        }
+        Ok(decision)
+    }
+}
+
+impl Handler {
+    async fn step_transition(
+        &self,
+        invocation: TaskInvocation,
+        _context: Context,
+    ) -> Result<TaskTransition> {
         let TaskInvocation::Run { task, .. } = invocation else {
             return Ok(TaskTransition::RejectMigration {
                 reason: "no migration needed".into(),

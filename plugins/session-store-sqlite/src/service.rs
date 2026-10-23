@@ -51,10 +51,36 @@ pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Res
     })
 }
 
-struct Service {
+pub(crate) struct Service {
     resource: Resource<Store>,
     committed: Cell<StoreHead>,
     publication: Rc<Publication>,
+}
+
+impl Service {
+    pub(crate) fn reconciler(&self) -> Rc<dyn Fn(&Context)> {
+        let publication = self.publication.clone();
+        Rc::new(move |context| publication.reconcile(context))
+    }
+    pub(crate) fn from_resource(
+        resource: Resource<Store>,
+        declaration: &mut tembra::Declaration<'_>,
+        definition: tembra::StateDefinition<StoreHead>,
+        driver: Rc<dyn core::Driver>,
+    ) -> Result<Self> {
+        let initial = resource.clone();
+        let committed = declaration.state(definition.with_initializer(move |_| {
+            let resource = initial.clone();
+            async move { resource.value()?.head() }
+        }))?;
+        let publication = Publication::new(resource.clone(), committed.clone(), driver);
+        publication.attach(declaration)?;
+        Ok(Self {
+            resource,
+            committed,
+            publication,
+        })
+    }
 }
 
 /// Only write attempts reconcile publication: reads never move the durable watermark, and the

@@ -75,6 +75,7 @@ impl Engine {
         journal: &mut Journal,
         context: &Context,
     ) -> Result<ToolResult> {
+        journal.require_committed()?;
         let call = &intent.call;
         let suffix = format!("tool:{}:{}", call.turn.step, index);
         let events = journal.history(&self.sessions, context).await?;

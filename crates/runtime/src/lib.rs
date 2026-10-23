@@ -4,6 +4,7 @@ mod application;
 mod bootstrap;
 mod configuration;
 mod deployment;
+mod local_storage;
 mod preparation;
 mod reconciliation;
 mod transport;
@@ -39,6 +40,7 @@ pub fn resolve_application(
     Ok(preparation::prepare(
         application,
         &application::compiled(PathBuf::new(), core::ManualDriver::new()),
+        &swarmie_sqlite_local::DatabaseHandle::default(),
     )?
     .effective)
 }
@@ -59,6 +61,7 @@ pub struct Runtime {
     pub effective: EffectiveComposition,
     /// Last acknowledged application selections, distinct from requested intent and live References.
     pub applied: BTreeMap<String, swarmie_composition::EffectiveInstance>,
+    pub(crate) database: swarmie_sqlite_local::DatabaseHandle,
     pub(crate) desired: Application,
     pub(crate) compiled: Vec<CompiledPlugin>,
     pub(crate) configuration_values: configuration::ConfigurationValues,

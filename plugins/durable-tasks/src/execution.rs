@@ -2,9 +2,10 @@ use std::collections::BTreeSet;
 use std::rc::Rc;
 
 use swarmie_task_contracts::{
-    BlockingReason, CommitResult, TaskInvocation, TaskLifecycleEvent, TaskLifecycleOrigin,
-    TaskLifecycleTask, TaskOutcome, TaskPhaseKind, TaskPhaseOutcome, TaskRecord, TaskStatus,
-    TaskTransition, TaskWrite, task_wire_bytes, validate_task_payload_size,
+    BlockingReason, CommitResult, TaskDecision, TaskInvocation, TaskLifecycleEvent,
+    TaskLifecycleOrigin, TaskLifecycleTask, TaskOutcome, TaskPhaseKind, TaskPhaseOutcome,
+    TaskRecord, TaskSessionAppend, TaskStatus, TaskTransition, TaskWrite, task_wire_bytes,
+    validate_task_payload_size,
 };
 use tembra::{Context, Result, RuntimeError};
 
@@ -18,7 +19,7 @@ use crate::{
 
 #[derive(Clone)]
 enum Decision {
-    Transition(TaskTransition),
+    Transition(TaskDecision),
     Park(String),
     Fault(String),
     RejectMigration(u32, String),
@@ -38,6 +39,7 @@ pub(crate) struct Continuation {
     admitted: TaskRecord,
     checkpoint: serde_json::Value,
     phase: String,
+    session_appends: Vec<TaskSessionAppend>,
 }
 
 fn diagnostic(mut detail: String) -> String {
@@ -64,6 +66,12 @@ fn invalid_decision(error: &RuntimeError) -> bool {
     error.reason.starts_with("task_storage_invalid")
         || error.reason == "task_storage_too_large"
         || error.reason == "durable_tasks_transition"
+        || error.reason == "durable_tasks_joint_commit"
+        || (error.code == tembra::core::ErrorCode::Invalid
+            && (error.reason.starts_with("task_session_commit_")
+                // The joint Contract guarantees rollback for these known Session refusals.
+                // Unavailable errors and invalid post-COMMIT receipts remain uncertain.
+                || matches!(error.reason.as_str(), "session_store_invalid" | "session_store_too_large")))
 }
 
 fn without_progress() -> RuntimeError {
@@ -205,8 +213,12 @@ impl Engine {
             admitted,
             checkpoint,
             phase,
+            session_appends,
         } = *continuation;
-        let decision = Decision::Transition(TaskTransition::Continue { checkpoint, phase });
+        let decision = Decision::Transition(TaskDecision {
+            transition: TaskTransition::Continue { checkpoint, phase },
+            session_appends,
+        });
         match self
             .finish_decision(&context, &admitted, decision, None)
             .await?
@@ -293,7 +305,7 @@ impl Engine {
             return Ok(Next::Done);
         }
         let result = result.and_then(|value| {
-            tembra::contracts::from_portable_value::<TaskTransition>(&value.ok_or_else(|| {
+            tembra::contracts::from_portable_value::<TaskDecision>(&value.ok_or_else(|| {
                 RuntimeError::invalid(
                     "durable_tasks_transition",
                     "handler returned no durable transition",
@@ -303,14 +315,24 @@ impl Engine {
         });
         let decision = match result {
             // Only a run invocation can continue. A migration must accept or reject explicitly.
-            Ok(TaskTransition::Continue { checkpoint, phase }) if !migrating => {
+            Ok(TaskDecision {
+                transition: TaskTransition::Continue { checkpoint, phase },
+                session_appends,
+            }) if !migrating => {
                 return Ok(Next::Continue(Box::new(Continuation {
                     admitted,
                     checkpoint,
                     phase,
+                    session_appends,
                 })));
             }
-            Ok(transition) => Decision::Transition(transition),
+            Ok(decision) if migrating && !decision.session_appends.is_empty() => {
+                Decision::RejectMigration(
+                    definition.metadata.version,
+                    "migration cannot attach phase history".into(),
+                )
+            }
+            Ok(decision) => Decision::Transition(decision),
             Err(error) if migrating => {
                 Decision::RejectMigration(definition.metadata.version, error.to_string())
             }
@@ -361,6 +383,7 @@ impl Engine {
         checkpoint: serde_json::Value,
         phase: String,
         attempts: u32,
+        history: Vec<TaskSessionAppend>,
     ) -> Result<CommitResult> {
         if checkpoint == task.checkpoint && phase == task.phase {
             return Err(without_progress());
@@ -373,7 +396,8 @@ impl Engine {
         task.attempts = attempts;
         task.restarts = 0;
         task.blocking_reason = None;
-        self.update(context, task, change).await
+        self.update_with_history(context, task, change, history)
+            .await
     }
 
     /// Commits a physically settled decision without invoking its handler again. Returns the
@@ -444,7 +468,10 @@ impl Engine {
                         });
                         self.update(context, latest, change).await
                     }
-                    Decision::Transition(transition) => {
+                    Decision::Transition(TaskDecision {
+                        transition,
+                        session_appends,
+                    }) => {
                         if let Some(target_version) = migration {
                             match transition {
                                 TaskTransition::Migrate { checkpoint, phase } => {
@@ -475,7 +502,12 @@ impl Engine {
                             {
                                 continued = Some(definition);
                                 self.reserve_continuation(
-                                    context, latest, checkpoint, phase, attempts,
+                                    context,
+                                    latest,
+                                    checkpoint,
+                                    phase,
+                                    attempts,
+                                    session_appends,
                                 )
                                 .await
                             } else {
@@ -484,12 +516,19 @@ impl Engine {
                                     latest,
                                     TaskTransition::Continue { checkpoint, phase },
                                     &family.children,
+                                    session_appends,
                                 )
                                 .await
                             }
                         } else {
-                            self.apply_transition(context, latest, transition, &family.children)
-                                .await
+                            self.apply_transition(
+                                context,
+                                latest,
+                                transition,
+                                &family.children,
+                                session_appends,
+                            )
+                            .await
                         }
                     }
                 }
@@ -550,6 +589,7 @@ impl Engine {
         mut task: TaskRecord,
         transition: TaskTransition,
         children: &[TaskRecord],
+        history: Vec<TaskSessionAppend>,
     ) -> Result<CommitResult> {
         let mut created = Vec::new();
         let mut change = Change::from_record(&task, TaskLifecycleOrigin::Handler);
@@ -650,6 +690,6 @@ impl Engine {
             },
             change,
         });
-        self.commit(context, created).await
+        self.commit_with_history(context, created, history).await
     }
 }

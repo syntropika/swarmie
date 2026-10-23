@@ -17,7 +17,7 @@ use swarmie_task_contracts::{
 };
 use tembra::{RuntimeError, core::ErrorCode};
 
-pub(crate) type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, Error>;
 
 /// Holds every fixed and transaction-control statement plus the eighteen filtered scan shapes.
 const STATEMENT_CACHE_CAPACITY: usize = 64;
@@ -70,7 +70,7 @@ fn control(connection: &Connection, sql: &str) -> rusqlite::Result<()> {
     connection.prepare_cached(sql)?.execute([]).map(|_| ())
 }
 
-pub(crate) struct Store {
+pub struct Store {
     pub(crate) connection: RefCell<Option<Connection>>,
     pub(crate) outbox_limits: crate::TaskOutboxLimits,
     /// Immutable database identity, read while opening. No operation updates it.
@@ -80,10 +80,14 @@ pub(crate) struct Store {
     sequence: Cell<Option<u64>>,
     lock: RefCell<Option<File>>,
     owner: RefCell<Option<String>>,
+    shared: Option<swarmie_sqlite_local::Database>,
+    closed: Cell<bool>,
 }
 
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum Error {
+pub enum Error {
+    #[error("shared SQLite owner failed: {0}")]
+    Shared(#[from] swarmie_sqlite_local::Error),
     #[error("SQLite storage failed: {0}")]
     Database(#[from] rusqlite::Error),
     #[error("task storage filesystem access failed: {0}")]
@@ -111,9 +115,12 @@ pub(crate) enum Error {
 }
 
 impl Error {
-    pub(crate) fn into_runtime(self) -> RuntimeError {
+    pub fn into_runtime(self) -> RuntimeError {
+        if let Self::Shared(error) = self {
+            return error.into();
+        }
         let reason = match &self {
-            Self::Database(_) | Self::Io(_) => "task_storage_io",
+            Self::Shared(_) | Self::Database(_) | Self::Io(_) => "task_storage_io",
             Self::Corrupt(_) => "task_storage_corrupt",
             Self::Invalid(_) => "task_storage_invalid",
             Self::TooLarge(_) => "task_storage_too_large",
@@ -139,6 +146,56 @@ impl Error {
 }
 
 impl Store {
+    /// Borrows the actual physical owner without creating a second connection or lock.
+    pub fn from_database(
+        database: swarmie_sqlite_local::Database,
+        outbox_limits: crate::TaskOutboxLimits,
+    ) -> Result<Self> {
+        outbox_limits
+            .validate()
+            .map_err(|error| Error::Invalid(error.to_string()))?;
+        let (sequence, store_id) = database.with_connection(|connection| -> Result<_> {
+            let sequence = read_sequence(connection)?;
+            let store_id = connection.query_row(
+                "SELECT store_id FROM task_storage_metadata WHERE singleton=1",
+                [],
+                |row| row.get(0),
+            )?;
+            Ok((sequence, store_id))
+        })?;
+        Ok(Self {
+            connection: RefCell::new(None),
+            outbox_limits,
+            store_id,
+            sequence: Cell::new(Some(sequence)),
+            lock: RefCell::new(None),
+            owner: RefCell::new(None),
+            shared: Some(database),
+            closed: Cell::new(false),
+        })
+    }
+    /// Checks current scheduler authority, including before successful-receipt replay.
+    pub fn authorize(&self, owner: &str) -> Result<()> {
+        self.with(|_| Ok(()))?;
+        if self.owner.borrow().as_deref() != Some(owner) {
+            return Err(Error::OwnerMismatch);
+        }
+        Ok(())
+    }
+    /// Proves physical sharing by actual native owner identity, never by a path or store label.
+    pub fn shares_database(&self, database: &swarmie_sqlite_local::Database) -> bool {
+        self.shared
+            .as_ref()
+            .is_some_and(|shared| shared.same_owner(database))
+    }
+    /// Adopts only a successfully committed sequence. Rollback paths never call this method.
+    pub fn adopt_sequence(&self, sequence: u64) {
+        self.sequence.set(Some(sequence));
+    }
+    /// Reloads authoritative sequence after a COMMIT whose outcome is uncertain.
+    pub fn refresh_sequence(&self) {
+        self.sequence.set(self.with(read_sequence).ok());
+    }
     #[cfg(test)]
     pub(crate) fn open(path: &Path) -> Result<Self> {
         Self::open_with_outbox_limits(path, crate::TaskOutboxLimits::default())
@@ -205,10 +262,18 @@ impl Store {
             sequence: Cell::new(Some(sequence)),
             lock: RefCell::new(Some(lock)),
             owner: RefCell::new(None),
+            shared: None,
+            closed: Cell::new(false),
         })
     }
 
     pub(crate) fn with<T>(&self, action: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+        if self.closed.get() {
+            return Err(Error::Closed);
+        }
+        if let Some(shared) = &self.shared {
+            return shared.with_connection(action);
+        }
         let connection = self.connection.borrow();
         action(connection.as_ref().ok_or(Error::Closed)?)
     }
@@ -363,6 +428,30 @@ impl Store {
     }
 
     pub(crate) fn commit(&self, batch: TaskTransaction) -> Result<CommitResult> {
+        let (batch, encoded) = self.prepare(batch)?;
+        self.with(|connection| {
+            let transaction = Transaction::immediate(connection)?;
+            let result = self.commit_prepared_in(&transaction, batch, encoded)?;
+            if matches!(&result, CommitResult::Conflict { .. }) {
+                return Ok(result);
+            }
+            if let Err(error) = transaction.commit() {
+                self.sequence.set(read_sequence(connection).ok());
+                return Err(error.into());
+            }
+            if let CommitResult::Committed { sequence, .. } = &result {
+                self.adopt_sequence(*sequence);
+            }
+            Ok(result)
+        })
+    }
+    fn prepare(
+        &self,
+        batch: TaskTransaction,
+    ) -> Result<(
+        TaskTransaction,
+        swarmie_task_contracts::EncodedTaskTransaction,
+    )> {
         if self.owner.borrow().as_deref() != Some(batch.owner.as_str()) {
             return Err(Error::OwnerMismatch);
         }
@@ -377,10 +466,39 @@ impl Store {
         // observe canonical portable numbers.
         let encoded = encode_task_transaction(&batch).map_err(size_error)?;
         validate_task_payload_bytes(encoded.bytes).map_err(size_error)?;
-        let connection = self.connection.borrow();
-        let connection = connection.as_ref().ok_or(Error::Closed)?;
-        let transaction = Transaction::immediate(connection)?;
-        let sequence = self.committed_sequence(&transaction)?;
+        Ok((batch, encoded))
+    }
+    /// Applies validated task mutations and outbox facts inside an explicit caller transaction.
+    /// This method neither commits nor adopts caches; its caller owns rollback and publication.
+    /// It rejects an autocommit connection or a different task-domain identity before mutation.
+    pub fn commit_in(
+        &self,
+        connection: &Connection,
+        batch: TaskTransaction,
+    ) -> Result<CommitResult> {
+        if connection.is_autocommit() {
+            return Err(invalid(
+                "joint task writes require an active outer transaction",
+            ));
+        }
+        let (batch, encoded) = self.prepare(batch)?;
+        let actual: String = connection
+            .prepare_cached("SELECT store_id FROM task_storage_metadata WHERE singleton=1")?
+            .query_row([], |row| row.get(0))?;
+        if actual != self.store_id {
+            return Err(invalid(
+                "joint connection belongs to a different task store",
+            ));
+        }
+        self.commit_prepared_in(connection, batch, encoded)
+    }
+    fn commit_prepared_in(
+        &self,
+        connection: &Connection,
+        batch: TaskTransaction,
+        encoded: swarmie_task_contracts::EncodedTaskTransaction,
+    ) -> Result<CommitResult> {
+        let sequence = self.committed_sequence(connection)?;
         if sequence >= MAX_PORTABLE_INTEGER {
             return Err(invalid("commit sequence exhausted"));
         }
@@ -392,7 +510,7 @@ impl Store {
             if candidates.insert(record.id.as_str(), index).is_some() {
                 return Err(invalid("duplicate task write"));
             }
-            let existing = read_record(&transaction, &record.id)?.map(|(record, _)| record);
+            let existing = read_record(connection, &record.id)?.map(|(record, _)| record);
             let actual_revision = existing.as_ref().map(|record| record.revision);
             if actual_revision != write.expected_revision {
                 return Ok(CommitResult::Conflict {
@@ -432,7 +550,7 @@ impl Store {
             }
             previous.insert(record.id.clone(), existing);
         }
-        validate_relationships(&transaction, &batch, &candidates, &previous)?;
+        validate_relationships(connection, &batch, &candidates, &previous)?;
         validate_task_payload_bytes(
             committed_receipt_bytes(
                 sequence + 1,
@@ -442,7 +560,7 @@ impl Store {
         )
         .map_err(size_error)?;
         let events = crate::outbox::prepare_events(
-            &transaction,
+            connection,
             &batch,
             &previous,
             &self.store_id,
@@ -450,7 +568,7 @@ impl Store {
             self.outbox_limits,
         )?;
         {
-            let mut upsert = transaction.prepare_cached(
+            let mut upsert = connection.prepare_cached(
                 "INSERT INTO task_records(id, revision, status, parent, record) VALUES(?1, ?2, ?3, ?4, ?5)
                  ON CONFLICT(id) DO UPDATE SET revision = excluded.revision, status = excluded.status, parent = excluded.parent, record = excluded.record",
             )?;
@@ -465,18 +583,11 @@ impl Store {
                 ])?;
             }
         }
-        crate::outbox::append_events(&transaction, &events)?;
+        crate::outbox::append_events(connection, &events)?;
         let sequence = sequence + 1;
-        transaction
+        connection
             .prepare_cached("UPDATE task_storage_metadata SET sequence = ?1 WHERE singleton = 1")?
             .execute([sequence])?;
-        if let Err(error) = transaction.commit() {
-            // A failed COMMIT has an unknown outcome. Adopt what SQLite now reports, or force
-            // the next caller to read it again when even that read fails.
-            self.sequence.set(read_sequence(connection).ok());
-            return Err(error.into());
-        }
-        self.sequence.set(Some(sequence));
         Ok(CommitResult::Committed {
             sequence,
             records: batch.writes.into_iter().map(|write| write.record).collect(),
@@ -484,6 +595,11 @@ impl Store {
     }
 
     pub(crate) fn close(&self) -> Result<()> {
+        if self.shared.is_some() {
+            self.closed.set(true);
+            self.owner.borrow_mut().take();
+            return Ok(());
+        }
         let connection = self.connection.borrow_mut().take();
         if let Some(connection) = connection {
             // Release the OS lock only after SQLite has closed successfully.
@@ -575,7 +691,10 @@ fn decode(encoded: &str) -> Result<TaskRecord> {
 }
 
 /// Reads one record and its canonical stored length, cross-checking the indexed columns.
-fn read_record(connection: &Connection, id: &str) -> Result<Option<(TaskRecord, usize)>> {
+pub(crate) fn read_record(
+    connection: &Connection,
+    id: &str,
+) -> Result<Option<(TaskRecord, usize)>> {
     let row: Option<(String, u64, String, Option<String>)> = connection
         .prepare_cached("SELECT record, revision, status, parent FROM task_records WHERE id = ?1")?
         .query_row([id], |row| {

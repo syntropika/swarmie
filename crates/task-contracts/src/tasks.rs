@@ -93,13 +93,44 @@ pub enum TaskTransition {
     },
 }
 
+/// A typed append whose destination is pinned by the handler's confirmed routing proof.
+/// It is pending intent, never an append receipt or a claim that history is already durable.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct TaskSessionAppend {
+    pub session_store_id: String,
+    pub append: swarmie_session_contracts::AppendEvents,
+}
+
+/// A physically settled handler result and the history accepted at the same durable boundary.
+/// Only the scheduler may turn the transition into task writes. It discards these appends when
+/// cancellation or a newer task supersedes the decision. Nonempty appends require an admitted
+/// joint commit capability; executing separate task and session writes is never a fallback.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "tembra::serde", deny_unknown_fields)]
+#[schemars(crate = "tembra::schemars")]
+pub struct TaskDecision {
+    pub transition: TaskTransition,
+    pub session_appends: Vec<TaskSessionAppend>,
+}
+
+impl From<TaskTransition> for TaskDecision {
+    fn from(transition: TaskTransition) -> Self {
+        Self {
+            transition,
+            session_appends: Vec::new(),
+        }
+    }
+}
+
 /// Canonical method schema only. Each application serves its own named Contract with an
 /// identical portable step method, then registers that method in [`task_definitions`].
 /// This avoids multiple application providers competing for one singleton Contract identity.
 #[tembra::contract(local, name = "swarmie.task-handler-schema", version = 1)]
 pub trait TaskHandler {
     #[portable]
-    async fn step(&self, invocation: TaskInvocation) -> Result<TaskTransition>;
+    async fn step(&self, invocation: TaskInvocation) -> Result<TaskDecision>;
 }
 
 /// Actual Tembra Registry declaration shared by scheduler and contributing application Facets.

@@ -203,7 +203,12 @@ fn actual_genai_streaming_tool_turn_preserves_http_calls_and_session_transcript(
         )?
         .await?;
         host.install(
-            swarmie_agent_loop_default::facet(driver)?,
+            swarmie_agent_loop_default::facet_with_options(
+                driver,
+                swarmie_agent_loop_default::Options {
+                    history_commit: swarmie_agent_loop_default::HistoryCommit::Independent,
+                },
+            )?,
             core::LoadOptions::default(),
         )?
         .await?;

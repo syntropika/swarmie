@@ -12,7 +12,8 @@ Tembra owns managed objects, References, RPC, Resources, State and subscription 
 SessionStore adds immutable application history, not a second runtime or EventBus. It does
 not execute agents, models, tasks, tools, hooks, memory retrieval or compaction policies.
 MemoryStore remains a separate key-value capability. TaskStorage remains the durable authority
-for task execution state; no transaction spans these two storage contracts.
+for task execution state. Ordinary calls do not span both storage contracts; the selected same-owner
+provider exposes a separate explicit joint-commit capability.
 
 ## Persistent representation
 
@@ -77,7 +78,14 @@ A future retention policy must preserve replay, deduplication and external blob 
 
 ## Durability and concurrency
 
-The provider requires a dedicated file on a local filesystem supporting OS locks and SQLite
+The standalone provider owns its dedicated file. The compiled local task/session provider
+reuses this domain implementation on the node's lifecycle-owned SQLite connection. Its explicit
+joint-commit Contract can atomically combine scheduler-owned task changes with associated
+Session batches; both domains validate the complete request before the shared commit. Ordinary
+independently selected providers do not gain this guarantee merely by sharing a path or label.
+Domain closure revokes its facade while Tembra retains the physical owner for other dependents.
+
+The standalone provider requires a dedicated file on a local filesystem supporting OS locks and SQLite
 WAL. It uses `synchronous=NORMAL`, foreign keys and immediate write transactions. One live
 provider owns an OS lock for a database; its many Tembra clients may append concurrently.
 CAS distinguishes competing appends against the same head. Symlink aliases share ownership;

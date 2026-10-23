@@ -1,0 +1,27 @@
+[package]
+name = "swarmie-task-session-sqlite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+swarmie-sqlite-local = { path = "../../crates/sqlite-local" }
+swarmie-task-contracts = { path = "../../crates/task-contracts" }
+swarmie-session-contracts = { path = "../../crates/session-contracts" }
+swarmie-task-session-contracts = { path = "../../crates/task-session-contracts" }
+swarmie-task-session-integration = { path = "../task-session-integration" }
+swarmie-task-storage-sqlite = { path = "../task-storage-sqlite" }
+swarmie-session-store-sqlite = { path = "../session-store-sqlite" }
+tembra.workspace = true
+futures.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+rusqlite = { workspace = true, features = ["hooks"] }
+
+[lints]
+workspace = true

@@ -9,6 +9,7 @@ rust-version.workspace = true
 javascript = ["dep:tembra-executor-js"]
 
 [dependencies]
+swarmie-task-session-contracts = { path = "../../crates/task-session-contracts" }
 swarmie-task-contracts = { path = "../../crates/task-contracts" }
 tembra.workspace = true
 tembra-hooks.workspace = true

@@ -78,6 +78,8 @@ pub enum ManagerError {
     Closed,
     #[error("sqlite: {0}")]
     Database(#[from] rusqlite::Error),
+    #[error("shared sqlite: {0}")]
+    SqliteLocal(#[from] swarmie_sqlite_local::Error),
     #[error("serialization: {0}")]
     Serialization(#[from] serde_json::Error),
     #[error("runtime: {0}")]

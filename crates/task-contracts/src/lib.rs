@@ -2,7 +2,7 @@
 //!
 //! A checkpoint describes the next resumable phase. Committing an intention before an effect
 //! does not make that effect exactly once: interrupted phases may execute again with the same
-//! operation identity. Only a successful TaskStorage commit establishes durable progress.
+//! operation identity. Only a confirmed storage commit establishes durable progress.
 
 #[cfg(feature = "conformance")]
 pub mod conformance;

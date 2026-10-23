@@ -1,7 +1,8 @@
 //! Replaceable, bounded agent turns over Tembra operations and the Durable Tasks scheduler.
 //!
-//! Session history and task transitions have independent commit authorities. Stable receipts
-//! reconcile them; an interrupted external operation can remain uncertain and require evidence.
+//! TaskStorage owns task progress and SessionStore owns history. The selected joint capability
+//! commits prepared intents with task settlement; independent providers use immediate intents.
+//! An interrupted external operation can remain uncertain and require confirmed evidence.
 
 #[cfg(feature = "javascript")]
 mod javascript;
@@ -22,7 +23,7 @@ mod workflow;
 #[cfg(feature = "javascript")]
 pub use javascript::register_agent_hooks;
 
-pub use service::facet;
+pub use service::{HistoryCommit, Options, facet, facet_with_options};
 
 /// Compiled plugin identity. Native implementation replacement requires a fresh Host.
 pub const PLUGIN_ID: &str = "swarmie.agent-loop-default";

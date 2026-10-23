@@ -21,7 +21,7 @@ const KIND: &str = "swarmie.agent-turn";
 )]
 trait ReplacementHandler {
     #[portable]
-    async fn step(&self, invocation: TaskInvocation) -> Result<TaskTransition>;
+    async fn step(&self, invocation: TaskInvocation) -> Result<TaskDecision>;
 }
 
 pub fn facet() -> Result<NativeFacet> {
@@ -309,7 +309,17 @@ struct Finalizer {
 }
 
 impl ReplacementHandlerProvider for Finalizer {
-    async fn step(&self, invocation: TaskInvocation, context: Context) -> Result<TaskTransition> {
+    async fn step(&self, invocation: TaskInvocation, context: Context) -> Result<TaskDecision> {
+        self.transition(invocation, context).await.map(Into::into)
+    }
+}
+
+impl Finalizer {
+    async fn transition(
+        &self,
+        invocation: TaskInvocation,
+        context: Context,
+    ) -> Result<TaskTransition> {
         let task = match invocation {
             TaskInvocation::Run { task, .. } => task,
             TaskInvocation::Migrate {

@@ -212,6 +212,7 @@ async fn measure(
         }
         Err(error) => result["error"] = error_json("execution", &error),
     }
+    result["persistence"] = h.persistence()?;
     phase(run_index, "close", "begin", origin)?;
     let close_start = Snapshot::take(driver, origin);
     let closed = bounded(options.timeout, h.host.close()).await;

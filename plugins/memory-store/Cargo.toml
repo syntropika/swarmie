@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+swarmie-sqlite-local = { path = "../../crates/sqlite-local" }
 tembra.workspace = true
 futures.workspace = true
 rusqlite.workspace = true

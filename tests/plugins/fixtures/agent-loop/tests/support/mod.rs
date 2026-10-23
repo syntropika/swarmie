@@ -151,6 +151,27 @@ pub async fn open_replacement(driver: Rc<TokioDriver>, root: &Path) -> Result<Ha
     .await
 }
 
+/// Selects joint intent settlement with independently owned stores and no joint capability,
+/// so tests can verify explicit refusal rather than a sequential persistence fallback.
+pub async fn open_joint_without_capability(
+    driver: Rc<TokioDriver>,
+    root: &Path,
+) -> Result<Harness> {
+    open_with_loop(
+        driver,
+        root,
+        vec![Reply::text("must not run")],
+        Default::default(),
+        Some(true),
+        true,
+        LoopSetup {
+            history_commit: Some(swarmie_agent_loop_default::HistoryCommit::Joint),
+            ..Default::default()
+        },
+    )
+    .await
+}
+
 #[derive(Default)]
 struct LoopSetup {
     replacement: bool,
@@ -158,6 +179,7 @@ struct LoopSetup {
     binding_configuration: Option<swarmie_task_session_integration::Configuration>,
     tolerate_binding_startup_failure: bool,
     session_provider: Option<NativeFacet>,
+    history_commit: Option<swarmie_agent_loop_default::HistoryCommit>,
 }
 
 pub async fn open_with_session_provider(
@@ -210,6 +232,7 @@ async fn open_with_loop(
         binding_configuration,
         tolerate_binding_startup_failure,
         session_provider,
+        history_commit,
     } = setup;
     let host = Host::with_driver("agent-acceptance", "application", driver.clone())?;
     let model = ModelProbe::default();
@@ -293,7 +316,13 @@ async fn open_with_loop(
         if replacement {
             swarmie_agent_loop_fixture::replacement::facet()?
         } else {
-            swarmie_agent_loop_default::facet(driver)?
+            swarmie_agent_loop_default::facet_with_options(
+                driver,
+                swarmie_agent_loop_default::Options {
+                    history_commit: history_commit
+                        .unwrap_or(swarmie_agent_loop_default::HistoryCommit::Independent),
+                },
+            )?
         },
         core::LoadOptions::default(),
     )?

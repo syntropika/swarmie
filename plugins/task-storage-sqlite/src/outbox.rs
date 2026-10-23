@@ -125,6 +125,48 @@ pub(crate) fn prepare_events(
     Ok(events)
 }
 
+/// Reads one freshly committed logical batch inside its enclosing physical transaction.
+/// This does not advance any consumer delivery position or acknowledgement.
+pub(crate) fn committed_facts_in(
+    connection: &Connection,
+    store_id: &str,
+    sequence: u64,
+) -> Result<Vec<TaskOutboxEvent>> {
+    if sequence == 0 || sequence > MAX_PORTABLE_INTEGER {
+        return Err(invalid("invalid task fact sequence"));
+    }
+    let mut statement = connection.prepare_cached(
+        "SELECT ordinal,event FROM task_outbox WHERE sequence=?1 ORDER BY ordinal LIMIT 257",
+    )?;
+    let mut rows = statement.query([sequence])?;
+    let mut events = Vec::new();
+    while let Some(row) = rows.next()? {
+        let ordinal: u32 = row.get(0)?;
+        let encoded: String = row.get(1)?;
+        let event = decode_event(&encoded)?;
+        if ordinal as usize != events.len()
+            || event.id
+                != (TaskOutboxEventId {
+                    store_id: store_id.into(),
+                    sequence,
+                    ordinal,
+                })
+            || events.len() == 256
+        {
+            return Err(Error::Corrupt(
+                "task fact batch and indexed identity disagree".into(),
+            ));
+        }
+        events.push(event);
+    }
+    if events.is_empty() {
+        return Err(Error::Corrupt(
+            "committed task fact batch is missing".into(),
+        ));
+    }
+    Ok(events)
+}
+
 pub(crate) fn append_events(connection: &Connection, events: &[(u64, u32, String)]) -> Result<()> {
     let mut statement = connection.prepare_cached(
         "INSERT INTO task_outbox(sequence, ordinal, event, bytes) VALUES(?1, ?2, ?3, ?4)",
@@ -140,8 +182,8 @@ pub(crate) fn append_events(connection: &Connection, events: &[(u64, u32, String
 
 impl Store {
     pub(crate) fn outbox_status(&self) -> Result<TaskOutboxStatus> {
-        let connection = self.connection.borrow();
-        let transaction = Transaction::deferred(connection.as_ref().ok_or(Error::Closed)?)?;
+        self.with(|connection| {
+        let transaction = Transaction::deferred(connection)?;
         let store_id = &self.store_id;
         let (retained_events, retained_bytes, floor) = usage(&transaction)?;
         let positions = {
@@ -208,6 +250,7 @@ impl Store {
             .map_err(|error| Error::TooLarge(error.to_string()))?;
         transaction.commit()?;
         Ok(status)
+        })
     }
 
     pub(crate) fn register_outbox_consumer(
@@ -217,8 +260,8 @@ impl Store {
     ) -> Result<TaskOutboxConsumerState> {
         identity(&request.id)?;
         owner_name(owner)?;
-        let connection = self.connection.borrow();
-        let transaction = Transaction::immediate(connection.as_ref().ok_or(Error::Closed)?)?;
+        self.with(|connection| {
+        let transaction = Transaction::immediate(connection)?;
         let store_id = &self.store_id;
         let (_, _, floor) = usage(&transaction)?;
         let exists: bool = transaction
@@ -246,6 +289,7 @@ impl Store {
         };
         transaction.commit()?;
         Ok(state)
+        })
     }
 
     pub(crate) fn read_outbox(
@@ -258,8 +302,8 @@ impl Store {
         if !(1..=256).contains(&request.limit) {
             return Err(invalid("outbox page limit requires 1..=256"));
         }
-        let connection = self.connection.borrow();
-        let transaction = Transaction::immediate(connection.as_ref().ok_or(Error::Closed)?)?;
+        self.with(|connection| {
+        let transaction = Transaction::immediate(connection)?;
         let store_id = &self.store_id;
         let (_, _, floor) = usage(&transaction)?;
         let (ack, delivered) = consumer(&transaction, &request.consumer_id, owner)?;
@@ -322,6 +366,7 @@ impl Store {
         }
         transaction.commit()?;
         Ok(page)
+        })
     }
 
     pub(crate) fn acknowledge_outbox(
@@ -331,24 +376,25 @@ impl Store {
     ) -> Result<()> {
         identity(&request.consumer_id)?;
         owner_name(owner)?;
-        let connection = self.connection.borrow();
-        let transaction = Transaction::immediate(connection.as_ref().ok_or(Error::Closed)?)?;
-        let through = position(&request.through, &self.store_id)?;
-        let (ack, delivered) = consumer(&transaction, &request.consumer_id, owner)?;
-        if through > delivered {
-            return Err(invalid("outbox acknowledgement exceeds delivered prefix"));
-        }
-        if through > ack {
-            let (_, _, floor) = usage(&transaction)?;
-            boundary(&transaction, through, floor)?;
-            transaction
+        self.with(|connection| {
+            let transaction = Transaction::immediate(connection)?;
+            let through = position(&request.through, &self.store_id)?;
+            let (ack, delivered) = consumer(&transaction, &request.consumer_id, owner)?;
+            if through > delivered {
+                return Err(invalid("outbox acknowledgement exceeds delivered prefix"));
+            }
+            if through > ack {
+                let (_, _, floor) = usage(&transaction)?;
+                boundary(&transaction, through, floor)?;
+                transaction
                 .prepare_cached(
                     "UPDATE task_outbox_consumers SET ack_sequence=?1, ack_ordinal=?2 WHERE id=?3",
                 )?
                 .execute(params![through.0, through.1, request.consumer_id])?;
-        }
-        transaction.commit()?;
-        Ok(())
+            }
+            transaction.commit()?;
+            Ok(())
+        })
     }
 
     pub(crate) fn remove_outbox_consumer(
@@ -358,19 +404,20 @@ impl Store {
     ) -> Result<()> {
         identity(&request.id)?;
         owner_name(owner)?;
-        let connection = self.connection.borrow();
-        let transaction = Transaction::immediate(connection.as_ref().ok_or(Error::Closed)?)?;
-        let exists: bool = transaction
-            .prepare_cached("SELECT EXISTS(SELECT 1 FROM task_outbox_consumers WHERE id=?1)")?
-            .query_row([&request.id], |row| row.get(0))?;
-        if exists {
-            consumer(&transaction, &request.id, owner)?;
-            transaction
-                .prepare_cached("DELETE FROM task_outbox_consumers WHERE id=?1")?
-                .execute([request.id])?;
-        }
-        transaction.commit()?;
-        Ok(())
+        self.with(|connection| {
+            let transaction = Transaction::immediate(connection)?;
+            let exists: bool = transaction
+                .prepare_cached("SELECT EXISTS(SELECT 1 FROM task_outbox_consumers WHERE id=?1)")?
+                .query_row([&request.id], |row| row.get(0))?;
+            if exists {
+                consumer(&transaction, &request.id, owner)?;
+                transaction
+                    .prepare_cached("DELETE FROM task_outbox_consumers WHERE id=?1")?
+                    .execute([request.id])?;
+            }
+            transaction.commit()?;
+            Ok(())
+        })
     }
 
     pub(crate) fn compact_outbox(
@@ -380,8 +427,8 @@ impl Store {
         if !(1..=4096).contains(&request.limit) {
             return Err(invalid("outbox compaction limit requires 1..=4096"));
         }
-        let connection = self.connection.borrow();
-        let transaction = Transaction::immediate(connection.as_ref().ok_or(Error::Closed)?)?;
+        self.with(|connection| {
+        let transaction = Transaction::immediate(connection)?;
         let protected: Option<Position> = transaction.prepare_cached("SELECT ack_sequence, ack_ordinal FROM task_outbox_consumers ORDER BY ack_sequence,ack_ordinal LIMIT 1")?.query_row([], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
         let mut removed = 0_u32;
         if let Some(protected) = protected {
@@ -412,6 +459,7 @@ impl Store {
             removed,
             retained_events,
             retained_bytes,
+        })
         })
     }
 }

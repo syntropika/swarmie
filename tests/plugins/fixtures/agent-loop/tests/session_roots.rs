@@ -603,3 +603,33 @@ fn committed_turn_decision_survives_its_inflight_reply_timeout() {
         backend.close().await
     });
 }
+
+#[test]
+fn joint_intents_require_the_selected_capability_before_any_effect() {
+    run(|driver| async move {
+        let directory = tempfile::tempdir().unwrap();
+        let fixture = open_joint_without_capability(driver, directory.path()).await?;
+        fixture.start("missing-joint", Default::default()).await?;
+        let record = fixture.terminal("missing-joint").await?;
+        assert!(
+            matches!(&record.task.outcome, Some(TaskOutcome::Faulted { error }) if error.contains("durable_tasks_joint_commit")),
+            "{record:?}"
+        );
+        assert_eq!(record.task.phase, "start");
+        assert!(record.task.checkpoint["request_event"].is_null());
+        assert!(fixture.model.requests.borrow().is_empty());
+        assert!(fixture.tool.calls.borrow().is_empty());
+        let events = fixture.events("missing-joint").await?;
+        assert!(
+            events.iter().all(|entry| !matches!(
+                entry.event.kind.as_str(),
+                "swarmie.agent.model-request"
+                    | "swarmie.agent.model-started"
+                    | "swarmie.agent.tool-intent"
+                    | "swarmie.agent.tool-started"
+            )),
+            "a refused joint decision cannot publish its pending intent: {events:?}"
+        );
+        fixture.host.close().await
+    });
+}

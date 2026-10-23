@@ -427,7 +427,7 @@ fn missing_mapping_stops_contiguous_prefix_and_explicit_repair_preserves_destina
 #[tembra::contract(local, name = "fixture.bridge-handler", version = 1)]
 trait Handler {
     #[portable]
-    async fn step(&self, invocation: TaskInvocation) -> Result<TaskTransition>;
+    async fn step(&self, invocation: TaskInvocation) -> Result<TaskDecision>;
 }
 
 struct Workflow {
@@ -437,7 +437,19 @@ struct Workflow {
 }
 
 impl HandlerProvider for Workflow {
-    async fn step(&self, invocation: TaskInvocation, context: Context) -> Result<TaskTransition> {
+    async fn step(&self, invocation: TaskInvocation, context: Context) -> Result<TaskDecision> {
+        self.transition(invocation, context)
+            .await
+            .map(TaskDecision::from)
+    }
+}
+
+impl Workflow {
+    async fn transition(
+        &self,
+        invocation: TaskInvocation,
+        context: Context,
+    ) -> Result<TaskTransition> {
         let TaskInvocation::Run { task, .. } = invocation else {
             return Ok(TaskTransition::RejectMigration {
                 reason: "unsupported".into(),

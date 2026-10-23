@@ -31,7 +31,7 @@ impl Control {
 #[tembra::contract(local, name = "fixture.capacity-cancellation", version = 1)]
 trait CapacityHandler {
     #[portable]
-    async fn step(&self, invocation: TaskInvocation) -> Result<TaskTransition>;
+    async fn step(&self, invocation: TaskInvocation) -> Result<TaskDecision>;
 }
 
 struct Handler {
@@ -51,7 +51,19 @@ fn task(id: &str, phase: &str) -> TaskSpec {
 }
 
 impl CapacityHandlerProvider for Handler {
-    async fn step(&self, invocation: TaskInvocation, context: Context) -> Result<TaskTransition> {
+    async fn step(&self, invocation: TaskInvocation, context: Context) -> Result<TaskDecision> {
+        self.step_transition(invocation, context)
+            .await
+            .map(Into::into)
+    }
+}
+
+impl Handler {
+    async fn step_transition(
+        &self,
+        invocation: TaskInvocation,
+        context: Context,
+    ) -> Result<TaskTransition> {
         let TaskInvocation::Run { task: record, .. } = invocation else {
             return Err(RuntimeError::invalid(
                 "fixture_mode",

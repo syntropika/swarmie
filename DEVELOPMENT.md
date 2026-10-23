@@ -10,8 +10,22 @@ including after reopening. This fixed policy applies to task state, Session hist
 bindings, namespaced memory and plugin administration. It is not a selectable runtime mode.
 Transactions remain atomic and consistent, and committed state survives application process
 crashes. Recent successful commits may roll back after power loss or an operating-system crash;
-the runtime does not promise per-commit power-loss durability. External effects and separate
+the runtime does not promise per-commit power-loss durability. External effects and independently backed
 stores do not form a single atomic transaction.
+
+The local runtime owns one physical database for administration and the default MemoryStore.
+Selecting the compiled task/session SQLite provider places its logical stores on that owner
+and exposes an explicit joint-commit Contract. Select `commit: "task_session"` on Durable Tasks
+for every scheduler mutation to use it; `task_storage` selects an independent task provider.
+The default agent loop requires joint settlement; an independently backed embedding explicitly
+selects `history_commit: "independent"` instead. A missing selected capability fails without an
+implicit two-store fallback. The scheduler can commit a task transition and
+its associated prepared Session batches together, with exact operation receipts retained for
+uncertain replies. External effects run outside the transaction; recovery-critical receipts
+that must precede an effect remain immediate. Structural task facts are projected into paired local Session history in that same transaction.
+Reactive publication follows the commit. Managed consumers retain their own delivery acknowledgements;
+local projection never impersonates another consumer to advance its retention cursor.
+Independent providers and destinations retain their own delivery and recovery semantics.
 
 ## Verification tiers and evidence
 

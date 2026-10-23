@@ -16,6 +16,7 @@ pub(crate) struct Prepared {
 pub(crate) fn prepare(
     application: &Application,
     compiled: &[CompiledPlugin],
+    database: &swarmie_sqlite_local::DatabaseHandle,
 ) -> Result<Prepared, Error> {
     if application
         .releases
@@ -43,11 +44,19 @@ pub(crate) fn prepare(
             .release
             .as_ref()
             .ok_or("selected release metadata is absent")?;
-        if ["swarmie.plugin-manager", crate::configuration::PLUGIN_ID]
-            .contains(&release.plugin.as_str())
+        if [
+            "swarmie.plugin-manager",
+            "swarmie.sqlite-local",
+            crate::configuration::PLUGIN_ID,
+        ]
+        .contains(&release.plugin.as_str())
             || release.facets.iter().any(|facet| {
-                ["swarmie.plugin-manager", crate::configuration::FACET_ID]
-                    .contains(&facet.id.as_str())
+                [
+                    "swarmie.plugin-manager",
+                    "swarmie.sqlite-local.owner",
+                    crate::configuration::FACET_ID,
+                ]
+                .contains(&facet.id.as_str())
             })
         {
             return Err("application selection conflicts with indispensable administration".into());
@@ -59,7 +68,7 @@ pub(crate) fn prepare(
             .iter()
             .find(|adapter| adapter.release == *release)
             .ok_or("compiled adapter is absent")?;
-        let facets = adapter.prepare(&instance.selection.config)?;
+        let facets = adapter.prepare(&instance.selection.config, database)?;
         let actual = facets
             .iter()
             .map(|facet| facet.core().name().to_owned())

@@ -1,18 +1,23 @@
-use std::{cell::RefCell, path::Path, time::Duration};
+use std::{cell::Cell, path::Path};
 
-use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, params};
+use swarmie_sqlite_local::{Database, Schema};
 use tembra::{RuntimeError, core::ErrorCode};
 
 use crate::GetResult;
 
 pub(crate) struct Store {
-    connection: RefCell<Option<Connection>>,
+    database: Database,
+    closed: Cell<bool>,
+    owns_database: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
     #[error("SQLite storage failed: {0}")]
     Database(#[from] rusqlite::Error),
+    #[error("shared SQLite storage failed: {0}")]
+    Shared(#[from] swarmie_sqlite_local::Error),
     #[error("stored JSON is invalid: {0}")]
     Corrupt(#[from] serde_json::Error),
     #[error("the SQLite resource is closed")]
@@ -23,6 +28,8 @@ impl Error {
     pub(crate) fn into_runtime(self) -> RuntimeError {
         let reason = match &self {
             Self::Database(_) => "memory_store_storage",
+            Self::Shared(swarmie_sqlite_local::Error::Closed) => "memory_store_closed",
+            Self::Shared(_) => "memory_store_storage",
             Self::Corrupt(_) => "memory_store_corrupt",
             Self::Closed => "memory_store_closed",
         };
@@ -32,32 +39,46 @@ impl Error {
 
 impl Store {
     pub(crate) fn open(path: &Path) -> Result<Self, Error> {
-        let connection = Connection::open_with_flags(
-            path,
-            OpenFlags::SQLITE_OPEN_READ_WRITE
-                | OpenFlags::SQLITE_OPEN_CREATE
-                | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )?;
-        // Refuse lock contention immediately rather than blocking the Host's local executor.
-        connection.busy_timeout(Duration::ZERO)?;
-        connection.execute_batch(
-            "PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = NORMAL;
-             CREATE TABLE IF NOT EXISTS swarmie_memory_entries (
-                 namespace TEXT NOT NULL,
-                 key TEXT NOT NULL,
-                 value TEXT NOT NULL,
-                 PRIMARY KEY (namespace, key)
-             ) WITHOUT ROWID;",
+        let database = Database::open(
+            &swarmie_sqlite_local::Configuration {
+                database: path.into(),
+            },
+            vec![schema()],
         )?;
         Ok(Self {
-            connection: RefCell::new(Some(connection)),
+            database,
+            closed: Cell::new(false),
+            owns_database: true,
+        })
+    }
+
+    pub(crate) fn from_database(database: Database) -> Result<Self, Error> {
+        database.with_connection(|connection| {
+            connection.prepare("SELECT namespace,key,value FROM swarmie_memory_entries LIMIT 0")?;
+            Ok::<_, Error>(())
+        })?;
+        Ok(Self {
+            database,
+            closed: Cell::new(false),
+            owns_database: false,
         })
     }
 
     fn with<T>(&self, action: impl FnOnce(&Connection) -> Result<T, Error>) -> Result<T, Error> {
-        let connection = self.connection.borrow();
-        action(connection.as_ref().ok_or(Error::Closed)?)
+        if self.closed.get() {
+            return Err(Error::Closed);
+        }
+        self.database.with_connection(action)
+    }
+
+    fn transaction<T>(
+        &self,
+        action: impl FnOnce(&Connection) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        if self.closed.get() {
+            return Err(Error::Closed);
+        }
+        self.database.transaction(action)
     }
 
     pub(crate) fn get(&self, namespace: &str, key: &str) -> Result<GetResult, Error> {
@@ -85,7 +106,7 @@ impl Store {
         value: &serde_json::Value,
     ) -> Result<(), Error> {
         let encoded = serde_json::to_string(value)?;
-        self.with(|connection| {
+        self.transaction(|connection| {
             connection.execute(
                 "INSERT INTO swarmie_memory_entries (namespace, key, value) VALUES (?1, ?2, ?3)
                  ON CONFLICT(namespace, key) DO UPDATE SET value = excluded.value",
@@ -96,7 +117,7 @@ impl Store {
     }
 
     pub(crate) fn delete(&self, namespace: &str, key: &str) -> Result<bool, Error> {
-        self.with(|connection| {
+        self.transaction(|connection| {
             Ok(connection.execute(
                 "DELETE FROM swarmie_memory_entries WHERE namespace = ?1 AND key = ?2",
                 params![namespace, key],
@@ -115,10 +136,37 @@ impl Store {
     }
 
     pub(crate) fn close(&self) -> Result<(), Error> {
-        if let Some(connection) = self.connection.borrow_mut().take() {
-            connection.close().map_err(|(_, error)| error)?;
+        self.closed.set(true);
+        if self.owns_database {
+            self.database.close()?;
         }
         Ok(())
+    }
+}
+
+pub(crate) fn schema() -> Schema {
+    Schema {
+        domain: "swarmie.memory-store",
+        version: 1,
+        initialize: |connection| {
+            connection
+                .execute_batch(
+                    "CREATE TABLE IF NOT EXISTS swarmie_memory_entries (
+                namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
+                PRIMARY KEY(namespace,key)) WITHOUT ROWID;",
+                )
+                .map_err(|error| {
+                    RuntimeError::unavailable("memory_store_storage", error.to_string())
+                })
+        },
+        validate: |connection| {
+            connection
+                .prepare("SELECT namespace,key,value FROM swarmie_memory_entries LIMIT 0")
+                .map(|_| ())
+                .map_err(|error| {
+                    RuntimeError::unavailable("memory_store_storage", error.to_string())
+                })
+        },
     }
 }
 
@@ -169,28 +217,33 @@ mod tests {
     }
 
     #[test]
-    fn dropping_the_resource_value_closes_connection_and_releases_its_write_lock()
-    -> Result<(), Error> {
+    fn closing_one_shared_domain_preserves_the_physical_owner() -> Result<(), Error> {
         let directory = tempfile::tempdir().expect("test directory");
-        let database = directory.path().join("memory.sqlite");
-        let store = Store::open(&database)?;
+        let database = Database::open(
+            &swarmie_sqlite_local::Configuration {
+                database: directory.path().join("shared.sqlite"),
+            },
+            vec![schema()],
+        )?;
+        let store = Store::from_database(database.clone())?;
         store.put("notes", "committed", &serde_json::json!(1))?;
-        store.with(|connection| {
-            connection.execute_batch("BEGIN IMMEDIATE")?;
-            Ok(())
-        })?;
-        let competitor = Connection::open(&database)?;
-        competitor.busy_timeout(Duration::ZERO)?;
-        assert!(competitor.execute_batch("BEGIN IMMEDIATE").is_err());
-        drop(store);
-        competitor.execute_batch("BEGIN IMMEDIATE; ROLLBACK")?;
-        let reopened = Store::open(&database)?;
+        store.close()?;
+        assert!(matches!(
+            store.get("notes", "committed"),
+            Err(Error::Closed)
+        ));
+        let other = Store::from_database(database.clone())?;
         assert_eq!(
-            reopened.get("notes", "committed")?,
+            other.get("notes", "committed")?,
             GetResult::Present {
                 value: serde_json::json!(1)
             }
         );
+        database.close()?;
+        assert!(matches!(
+            other.get("notes", "committed"),
+            Err(Error::Shared(swarmie_sqlite_local::Error::Closed))
+        ));
         Ok(())
     }
 }

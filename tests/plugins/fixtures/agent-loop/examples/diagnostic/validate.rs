@@ -24,9 +24,11 @@ pub async fn validate(h: &Harness, key: TaskLookup, outcome: &TaskOutcome) -> Re
         h.tasks.graph(TaskQuery::default()).await?.records.len() == 1,
         "unexpected durable task count",
     )?;
+    let visible_before = h.projected_facts()?;
     let publication = drain(h).await?;
     let mut value = turn(h, &h.request, key, outcome).await?;
     value["publisher_lag_before"] = publication["lag_before"].clone();
+    value["source_facts_visible_before_publication"] = json!(visible_before);
     value["publisher_lag_after"] = json!(0);
     value["repeated_publication_empty"] = json!(true);
     Ok(value)
@@ -105,6 +107,25 @@ pub async fn turn(
         facts.len() as u64 == terminal.revision,
         "published facts do not cover each committed task revision",
     )?;
+    // Under contention the scheduler may checkpoint Continue as Pending, then reserve it
+    // separately to give another runnable task its slot. That adds one legitimate revision.
+    let split_continuations = facts
+        .iter()
+        .filter(|fact| {
+            let source = &fact.event.payload["source"];
+            source["previous_status"] == "running"
+                && source["current_status"] == "pending"
+                && source["provenance"]["origin"] == "handler"
+                && source["provenance"]["checkpoint_committed"] == true
+                && matches!(source["phase"].as_str(), Some("model" | "tool"))
+        })
+        .count();
+    ensure(
+        terminal.attempts == 4
+            && split_continuations <= 3
+            && terminal.revision == 6 + split_continuations as u64,
+        "task revisions differ from four invocations and admitted continuation fairness",
+    )?;
     let mut ids = BTreeSet::new();
     for (index, fact) in facts.iter().enumerate() {
         ensure(
@@ -127,6 +148,19 @@ pub async fn turn(
         )?;
     }
 
+    let endings = events
+        .iter()
+        .filter(|event| event.event.kind == "swarmie.agent.turn-ended")
+        .collect::<Vec<_>>();
+    ensure(
+        endings.len() == 1 && endings[0].event.payload == json!(outcome),
+        "terminal task lacks its exact committed turn decision",
+    )?;
+    let semantic_kinds = events
+        .iter()
+        .filter(|event| event.event.kind != "swarmie.task-transition")
+        .map(|event| event.event.kind.as_str())
+        .collect::<Vec<_>>();
     let tool_calls = h.tool.calls.borrow();
     let calls = tool_calls
         .iter()
@@ -280,7 +314,8 @@ pub async fn turn(
     Ok(json!({
         "terminal": terminal, "model_invocations": 2, "tool_invocations": 1,
         "policy_invocations": policies.len(),
-        "published_facts": facts.len(),
+        "published_facts": facts.len(), "split_continuations":split_continuations, "semantic_kinds":semantic_kinds,
+        "terminal_decision_visible":true,
         "messages": messages, "tool_confirmations": confirmed,
         "exact_transcript": true, "exact_tool_result": true, "exact_durable_intents":true,
         "exact_outcome": true, "tool_result_consumed_by_model": true,

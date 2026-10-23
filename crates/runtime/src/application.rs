@@ -45,11 +45,7 @@ impl Default for Application {
                             plugin: plugin.into(),
                             version: env!("CARGO_PKG_VERSION").into(),
                             provider: None,
-                            config: if plugin == swarmie_memory_store::PLUGIN_ID {
-                                json!({"database":"memory.sqlite"})
-                            } else {
-                                json!({})
-                            },
+                            config: json!({}),
                         })
                         .into(),
                     },
@@ -60,7 +56,8 @@ impl Default for Application {
     }
 }
 
-type Factory = dyn Fn(&Value) -> tembra::Result<Vec<NativeFacet>>;
+type Factory =
+    dyn Fn(&Value, &swarmie_sqlite_local::DatabaseHandle) -> tembra::Result<Vec<NativeFacet>>;
 type LanguageAdapter = dyn Fn(&Executor) -> tembra::Result<()>;
 
 /// Compile-time adapter for selecting native Facets; never a runtime service container.
@@ -80,6 +77,22 @@ impl CompiledPlugin {
     pub fn new(
         release: Release,
         factory: impl Fn(&Value) -> tembra::Result<Vec<NativeFacet>> + 'static,
+    ) -> Self {
+        Self {
+            release,
+            factory: Rc::new(move |value, _database| factory(value)),
+            language_adapter: None,
+            trusted_sources: vec![],
+        }
+    }
+
+    fn with_database(
+        release: Release,
+        factory: impl Fn(
+            &Value,
+            &swarmie_sqlite_local::DatabaseHandle,
+        ) -> tembra::Result<Vec<NativeFacet>>
+        + 'static,
     ) -> Self {
         Self {
             release,
@@ -121,8 +134,12 @@ impl CompiledPlugin {
         Ok(())
     }
 
-    pub(crate) fn prepare(&self, configuration: &Value) -> tembra::Result<Vec<NativeFacet>> {
-        (self.factory)(configuration)
+    pub(crate) fn prepare(
+        &self,
+        configuration: &Value,
+        database: &swarmie_sqlite_local::DatabaseHandle,
+    ) -> tembra::Result<Vec<NativeFacet>> {
+        (self.factory)(configuration, database)
     }
 }
 
@@ -144,6 +161,40 @@ pub(crate) fn compiled(
 ) -> Vec<CompiledPlugin> {
     let session_driver = driver.clone();
     vec![
+        CompiledPlugin::with_database(
+            Release {
+                plugin: swarmie_task_session_sqlite::PLUGIN_ID.into(),
+                version: env!("CARGO_PKG_VERSION").into(),
+                kind: PluginKind::Core,
+                facets: [
+                    swarmie_task_storage_sqlite::FACET_ID,
+                    swarmie_session_store_sqlite::FACET_ID,
+                    swarmie_task_session_sqlite::FACET_ID,
+                ]
+                .map(|id| FacetIdentity {
+                    id: id.into(),
+                    target: FacetTarget::Server,
+                })
+                .into(),
+            },
+            {
+                let joint_driver = driver.clone();
+                move |value, database| {
+                    let configuration: swarmie_task_session_sqlite::Configuration =
+                        serde_json::from_value(value.clone()).map_err(|error| {
+                            tembra::RuntimeError::invalid(
+                                "task_session_sqlite_configuration",
+                                error.to_string(),
+                            )
+                        })?;
+                    swarmie_task_session_sqlite::facets_with_database(
+                        database,
+                        &configuration,
+                        joint_driver.clone(),
+                    )
+                }
+            },
+        ),
         CompiledPlugin::new(
             release(
                 swarmie_session_store_sqlite::PLUGIN_ID,
@@ -163,12 +214,15 @@ pub(crate) fn compiled(
                 )?])
             },
         ),
-        CompiledPlugin::new(
+        CompiledPlugin::with_database(
             release(
                 swarmie_memory_store::PLUGIN_ID,
                 swarmie_memory_store::FACET_ID,
             ),
-            |value| {
+            |value, database| {
+                if value == &json!({}) {
+                    return Ok(vec![swarmie_memory_store::facet_with_database(database)?]);
+                }
                 let configuration: swarmie_memory_store::Configuration =
                     serde_json::from_value(value.clone()).map_err(|error| {
                         tembra::RuntimeError::invalid(
@@ -240,14 +294,28 @@ pub(crate) fn compiled(
                 }
             },
         ),
-        CompiledPlugin::new(
+        CompiledPlugin::with_database(
             release(
                 swarmie_task_session_integration::PLUGIN_ID,
                 swarmie_task_session_integration::FACET_ID,
             ),
             {
                 let binding_driver = driver.clone();
-                move |value| {
+                move |value, database| {
+                    if value.get("database").is_none() {
+                        let configuration: swarmie_task_session_integration::SharedConfiguration =
+                            serde_json::from_value(value.clone()).map_err(|error| {
+                                tembra::RuntimeError::invalid(
+                                    "task_session_configuration",
+                                    error.to_string(),
+                                )
+                            })?;
+                        return Ok(vec![swarmie_task_session_integration::facet_with_database(
+                            database,
+                            &configuration,
+                            binding_driver.clone(),
+                        )?]);
+                    }
                     let configuration: swarmie_task_session_integration::Configuration =
                         serde_json::from_value(value.clone()).map_err(|error| {
                             tembra::RuntimeError::invalid(
@@ -270,14 +338,16 @@ pub(crate) fn compiled(
             {
                 let agent_driver = driver.clone();
                 move |value| {
-                    if value != &json!({}) {
-                        return Err(tembra::RuntimeError::invalid(
-                            "agent_loop_configuration",
-                            "agent loop configuration must be an empty object",
-                        ));
-                    }
-                    Ok(vec![swarmie_agent_loop_default::facet(
+                    let options: swarmie_agent_loop_default::Options =
+                        serde_json::from_value(value.clone()).map_err(|error| {
+                            tembra::RuntimeError::invalid(
+                                "agent_loop_configuration",
+                                error.to_string(),
+                            )
+                        })?;
+                    Ok(vec![swarmie_agent_loop_default::facet_with_options(
                         agent_driver.clone(),
+                        options,
                     )?])
                 }
             },
@@ -297,21 +367,4 @@ pub(crate) fn compiled(
         )
         .with_trusted_source("local".into()),
     ]
-}
-
-/// The executable chooses default application data placement; bootstrap only composes plugins.
-pub(crate) fn default_for(database: &std::path::Path) -> Application {
-    let mut application = Application::default();
-    if let Some(bundle) = application
-        .composition
-        .bundles
-        .get_mut("swarmie.foundation")
-    {
-        for selection in &mut bundle.plugins {
-            if selection.plugin == swarmie_memory_store::PLUGIN_ID {
-                selection.config = json!({"database": database.with_extension("memory.sqlite")});
-            }
-        }
-    }
-    application
 }

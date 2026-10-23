@@ -29,3 +29,8 @@ pub use error::{ManagerError, Result};
 pub use manager::PluginManager;
 pub use source::LocalSource;
 pub use startup::CorePluginDeployment;
+
+/// Declares the administrative schema for the embedding's physical SQLite owner.
+pub fn sqlite_schema() -> swarmie_sqlite_local::Schema {
+    store::schema()
+}

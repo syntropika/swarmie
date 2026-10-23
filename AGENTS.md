@@ -69,8 +69,10 @@ Agent turns use the Agent Contract, native Tembra hooks, neutral Model Contracts
 The default loop contributes ordinary Durable Tasks handlers; it must not replace their scheduler,
 implement model providers, own another event log or import concrete memory/compaction plugins.
 Tools use managed Registry operations with final-boundary authorization and explicit replay policy.
-SessionStore owns history; TaskStorage owns durable task transitions. Never assume cross-store
-atomicity or exactly-once external effects. Durable subagents, semantic memory, compaction,
+SessionStore owns history; TaskStorage owns durable task transitions. The selected local SQLite
+provider may expose an explicit same-owner task/history commit capability. Require that capability
+before joining those writes; independent providers have no cross-store atomicity. Never assume
+exactly-once external effects. Durable subagents, semantic memory, compaction,
 coordination, workflows, a hosted marketplace and Desktop application development remain separate
 work. MemoryStore remains independent namespaced persistent JSON storage.
 

@@ -21,7 +21,7 @@ fn summary(output: &Path) -> Value {
 }
 
 #[test]
-fn both_observers_validate_real_durable_tool_turns() {
+fn joint_same_owner_turns_preserve_history_and_effect_boundaries_for_both_observers() {
     let root = tempfile::tempdir().unwrap();
     for observer in ["wait", "store"] {
         let output = root.path().join(observer);
@@ -32,6 +32,78 @@ fn both_observers_validate_real_durable_tool_turns() {
         assert_eq!(run["invariants"]["exact_transcript"], true);
         assert_eq!(run["invariants"]["tool_invocations"], 1);
         assert_eq!(run["invariants"]["publisher_lag_after"], 0);
+        assert_eq!(
+            run["invariants"]["source_facts_visible_before_publication"],
+            6
+        );
+        assert_eq!(run["invariants"]["terminal"]["attempts"], 4);
+        assert_eq!(run["invariants"]["terminal"]["revision"], 6);
+        assert_eq!(run["invariants"]["model_invocations"], 2);
+        assert_eq!(run["invariants"]["policy_invocations"], 1);
+        assert_eq!(run["invariants"]["terminal_decision_visible"], true);
+        assert_eq!(
+            run["invariants"]["semantic_kinds"],
+            serde_json::json!([
+                "swarmie.message",
+                "swarmie.agent.turn-started",
+                "swarmie.agent.model-request",
+                "swarmie.agent.model-actual",
+                "swarmie.agent.model-started",
+                "swarmie.agent.model-provider-confirmed",
+                "swarmie.agent.model-confirmed",
+                "swarmie.message",
+                "swarmie.agent.tool-intent",
+                "swarmie.agent.tool-started",
+                "swarmie.agent.tool-confirmed",
+                "swarmie.message",
+                "swarmie.agent.step-ended",
+                "swarmie.agent.model-request",
+                "swarmie.agent.model-actual",
+                "swarmie.agent.model-started",
+                "swarmie.agent.model-provider-confirmed",
+                "swarmie.agent.model-confirmed",
+                "swarmie.message",
+                "swarmie.agent.step-ended",
+                "swarmie.agent.turn-ended",
+                "swarmie.agent.task-settled"
+            ])
+        );
+        let persistence = &run["persistence"];
+        assert_eq!(persistence["composition"], "unified_same_owner");
+        assert_eq!(persistence["database_files"], 1);
+        assert_eq!(persistence["journal_mode"], "wal");
+        assert_eq!(persistence["synchronous"], 1, "the live owner uses NORMAL");
+        assert_eq!(persistence["scheduler_commit"], "task_session");
+        assert_eq!(persistence["joint_commit_records"], 6);
+        assert_eq!(persistence["joint_explicit_intent_records"], 3);
+        let mutations = persistence["joint_mutations"].as_array().unwrap();
+        assert_eq!(mutations.len(), 6);
+        for (mutation, revision) in mutations.iter().zip(1..=6) {
+            assert_eq!(mutation["revision"], revision);
+        }
+        assert_eq!(persistence["logical_session_batches"], 26);
+        assert_eq!(persistence["history_events"], 28);
+        let intents = persistence["joint_intents"].as_array().unwrap();
+        assert_eq!(intents.len(), 3);
+        for (intent, (phase, revision)) in
+            intents
+                .iter()
+                .zip([("model", 3), ("tool", 4), ("model", 5)])
+        {
+            assert_eq!(intent["phase"], phase);
+            assert_eq!(intent["revision"], revision);
+            assert_eq!(intent["checkpoint_reference"], intent["batch_id"]);
+            assert_eq!(intent["first_sequence"], intent["last_sequence"]);
+            assert_eq!(
+                intent["append_commit_sequence"].as_u64().unwrap() + 1,
+                intent["head"]["commit_sequence"].as_u64().unwrap()
+            );
+        }
+        assert!(output.join("run-0001/runtime.sqlite").is_file());
+        for separate in ["tasks.sqlite", "sessions.sqlite", "bindings.sqlite"] {
+            assert!(!output.join("run-0001").join(separate).exists());
+        }
+
         assert!(run["window"]["wall_ns"].as_u64().unwrap() > 0);
         if cfg!(target_os = "linux") {
             assert!(run["window"]["thread_cpu_ns"].as_u64().unwrap() > 0);
@@ -97,6 +169,7 @@ fn shared_host_load_validates_each_turn_under_interleaving_and_scheduled_arrival
         assert_eq!(result["scope"]["hosts"], 1);
         assert_eq!(result["configuration"]["scheduler_max_parallel"], 2);
         let mut tasks = std::collections::BTreeSet::new();
+        let mut expected_revisions = 0_u64;
         for turn in result["warmup"]
             .as_array()
             .unwrap()
@@ -111,7 +184,42 @@ fn shared_host_load_validates_each_turn_under_interleaving_and_scheduled_arrival
             assert_eq!(turn["invariants"]["policy_invocations"], 1);
             assert_eq!(turn["invariants"]["tool_result_consumed_by_model"], true);
             assert_eq!(turn["invariants"]["distinct_ordered_source_facts"], true);
+            let terminal = &turn["invariants"]["terminal"];
+            let revision = terminal["revision"].as_u64().unwrap();
+            let split = turn["invariants"]["split_continuations"].as_u64().unwrap();
+            assert_eq!(terminal["attempts"], 4);
+            assert!(split <= 3);
+            assert_eq!(revision, 6 + split);
+            assert_eq!(turn["invariants"]["published_facts"], revision);
+            assert_eq!(
+                turn["invariants"]["semantic_kinds"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                22
+            );
+            let revisions = result["persistence"]["joint_mutations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|mutation| mutation["task_id"] == terminal["id"])
+                .map(|mutation| mutation["revision"].as_u64().unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(revisions, (1..=revision).collect::<Vec<_>>());
+            expected_revisions += revision;
         }
+        assert_eq!(
+            result["source_facts_visible_before_publication"],
+            expected_revisions
+        );
+        assert_eq!(
+            result["persistence"]["joint_commit_records"],
+            expected_revisions
+        );
+        assert_eq!(
+            result["persistence"]["joint_explicit_intent_records"],
+            (tasks.len() * 3) as u64
+        );
         assert_eq!(result["statistics"]["planned"], 4);
         assert_eq!(result["statistics"]["offered"], 4);
         assert_eq!(

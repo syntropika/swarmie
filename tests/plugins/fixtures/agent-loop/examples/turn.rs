@@ -30,19 +30,24 @@ fn main() -> Result<()> {
                 let directory=tempfile::tempdir().expect("example storage");
                 let host=Host::with_driver("agent-example","application",driver.clone())?;
                 let replies=if with_tool {vec![Reply::double(21),Reply::text("The answer is 42.")]} else {vec![Reply::text("Hello from the extensible agent loop.")]};
-                for facet in [
-                    swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {database:directory.path().join("tasks.sqlite"),outbox:Default::default(),})?,
-                    swarmie_session_store_sqlite::facet(&swarmie_session_store_sqlite::Configuration {database:directory.path().join("sessions.sqlite")},driver.clone())?,
+                let (owner,database)=swarmie_sqlite_local::facet(&swarmie_sqlite_local::Configuration {database:directory.path().join("runtime.sqlite")},vec![
+                    swarmie_task_storage_sqlite::sqlite_schema(),swarmie_session_store_sqlite::sqlite_schema(),
+                    swarmie_task_session_sqlite::sqlite_schema(),swarmie_task_session_integration::sqlite_schema(),
+                ])?;
+                host.install(owner,core::LoadOptions::default())?.await?;
+                let mut facets=swarmie_task_session_sqlite::facets_with_database(&database,&swarmie_task_session_sqlite::Configuration {outbox:Default::default()},driver.clone())?;
+                facets.extend([
                     model::facet(replies,ModelProbe::default())?,
                     tool::facet(Default::default(),ToolProbe::default())?,
                     policy::facet(true,PolicyProbe::default())?,
-                    swarmie_durable_tasks::facet(&swarmie_durable_tasks::Configuration {poll_interval_ms:2,..Default::default()},driver.clone())?,
+                    swarmie_durable_tasks::facet(&swarmie_durable_tasks::Configuration {commit:swarmie_durable_tasks::CommitStrategy::TaskSession,poll_interval_ms:2,..Default::default()},driver.clone())?,
 
-                ] {host.install(facet,core::LoadOptions::default())?.await?;}
+                ]);
+                let readiness=facets.into_iter().map(|facet|host.install(facet,core::LoadOptions::default())).collect::<Result<Vec<_>>>()?;
+                for ready in readiness {ready.await?;}
                 let sessions=host.get(SessionStore,SessionStoreInput {}).await?;
                 let storage=host.get(TaskStorage,TaskStorageInput {}).await?;
-                host.install(swarmie_task_session_integration::facet(&swarmie_task_session_integration::Configuration {
-                    database:directory.path().join("bindings.sqlite"),
+                host.install(swarmie_task_session_integration::facet_with_database(&database,&swarmie_task_session_integration::SharedConfiguration {
                     task_store_id:storage.outbox_status().await?.store_id,
                     session_store_id:sessions.publication_status().await?.durable.store_id,
                     consumer_id:"agent-example-session-history".into(),

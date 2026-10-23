@@ -51,6 +51,46 @@ pub fn facet(configuration: &Configuration) -> Result<NativeFacet> {
     })
 }
 
+/// Declares the independent memory domain over an existing physical SQLite owner.
+///
+/// Register [`crate::sqlite_schema`] with that owner before startup. The actual Tembra
+/// Resource dependency orders closure; retiring this domain revokes its access without
+/// closing the shared database or deleting data owned by any domain.
+///
+/// # Errors
+/// Missing owner readiness, unavailable schema and ordinary resource failures reject startup.
+pub fn facet_with_database(handle: &swarmie_sqlite_local::DatabaseHandle) -> Result<NativeFacet> {
+    let handle = handle.clone();
+    NativeFacet::new(FACET_ID, vec![], move |_, setup| {
+        let handle = handle.clone();
+        setup.serve_with_options(
+            MemoryStore,
+            move |_, _, declaration| {
+                let database = handle.declare(declaration)?;
+                let opening = database.clone();
+                let mut domain = ResourceDeclaration::new(move |_| {
+                    let database = opening.value().map(|database| (*database).clone());
+                    async move {
+                        Store::from_database(database?).map_err(crate::store::Error::into_runtime)
+                    }
+                    .boxed_local()
+                })
+                .with_close(|store| {
+                    async move { store.close().map_err(crate::store::Error::into_runtime) }
+                        .boxed_local()
+                });
+                domain.deps.push(database.dependency());
+                let resource = declaration.core_mut().resource("memory-domain", domain)?;
+                Ok(Service { resource })
+            },
+            core::ServeOptions {
+                lifetime: core::Lifetime::Host,
+                ..Default::default()
+            },
+        )
+    })
+}
+
 struct Service {
     resource: Resource<Store>,
 }

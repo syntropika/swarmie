@@ -49,7 +49,7 @@ impl Engine {
                     "turn changed before terminal evidence recovery",
                 ));
             }
-            let mut journal = Journal::new(admitted);
+            let mut journal = Journal::new(admitted, crate::HistoryCommit::Independent);
             self.recorded_terminal_decision(task, request, checkpoint, &mut journal, &cleanup)
                 .await
         };

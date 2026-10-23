@@ -1,6 +1,6 @@
 use rusqlite::{Connection, OpenFlags};
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     fs::{File, OpenOptions, TryLockError},
     path::Path,
     time::Duration,
@@ -53,11 +53,13 @@ fn control(connection: &Connection, sql: &str) -> rusqlite::Result<()> {
     connection.prepare_cached(sql)?.execute([]).map(|_| ())
 }
 
-pub(crate) struct Store {
+pub struct Store {
     connection: RefCell<Option<Connection>>,
     lock: RefCell<Option<File>>,
     /// Immutable database identity, read while opening. No operation updates it.
     pub(crate) store_id: String,
+    shared: Option<swarmie_sqlite_local::Database>,
+    closed: Cell<bool>,
 }
 
 pub(crate) fn io(error: impl std::fmt::Display) -> RuntimeError {
@@ -91,6 +93,23 @@ pub(crate) fn metadata(connection: &Connection) -> Result<StoreHead> {
 }
 
 impl Store {
+    /// Borrows one schema-qualified physical engine, retaining an independent logical identity.
+    pub fn from_database(database: swarmie_sqlite_local::Database) -> Result<Self> {
+        let store_id = database.with_connection(metadata)?.store_id;
+        Ok(Self {
+            connection: RefCell::new(None),
+            lock: RefCell::new(None),
+            store_id,
+            shared: Some(database),
+            closed: Cell::new(false),
+        })
+    }
+    /// Proves this facade uses the same actual engine as the joint committer.
+    pub fn shares_database(&self, database: &swarmie_sqlite_local::Database) -> bool {
+        self.shared
+            .as_ref()
+            .is_some_and(|shared| shared.same_owner(database))
+    }
     pub(crate) fn open(path: &Path) -> Result<Self> {
         let file = OpenOptions::new()
             .read(true)
@@ -164,12 +183,23 @@ impl Store {
             connection: RefCell::new(Some(connection)),
             lock: RefCell::new(Some(lock)),
             store_id: head.store_id,
+            shared: None,
+            closed: Cell::new(false),
         })
     }
 
-    pub(crate) fn with<T>(&self, action: impl FnOnce(&mut Connection) -> Result<T>) -> Result<T> {
-        let mut connection = self.connection.borrow_mut();
-        action(connection.as_mut().ok_or_else(|| {
+    pub(crate) fn with<T>(&self, action: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+        if self.closed.get() {
+            return Err(RuntimeError::unavailable(
+                "session_store_closed",
+                "storage resource is closed",
+            ));
+        }
+        if let Some(shared) = &self.shared {
+            return shared.with_connection(action);
+        }
+        let connection = self.connection.borrow();
+        action(connection.as_ref().ok_or_else(|| {
             RuntimeError::unavailable("session_store_closed", "storage resource is closed")
         })?)
     }
@@ -194,6 +224,10 @@ impl Store {
     }
 
     pub(crate) fn close(&self) -> Result<()> {
+        if self.shared.is_some() {
+            self.closed.set(true);
+            return Ok(());
+        }
         let connection = self.connection.borrow_mut().take();
         if let Some(connection) = connection {
             match connection.close() {

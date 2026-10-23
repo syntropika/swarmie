@@ -115,7 +115,7 @@ impl Engine {
                     .min(maximum),
             );
             journal
-                .append(
+                .append_intent(
                     &self.sessions,
                     &turn,
                     &suffix,
@@ -138,6 +138,7 @@ impl Engine {
         journal: &mut Journal,
         context: &Context,
     ) -> Result<TaskTransition> {
+        journal.require_committed()?;
         let turn = cp.turn(request);
         let events = journal.history(&self.sessions, context).await?;
         let call: ModelCall = decode(

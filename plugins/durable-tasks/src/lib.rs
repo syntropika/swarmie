@@ -5,6 +5,7 @@
 //! External effects may repeat after an interrupted phase and require stable operation identities.
 
 mod cancellation;
+mod commit;
 mod configuration;
 mod delivery;
 mod execution;
@@ -21,7 +22,7 @@ mod service;
 mod waiters;
 mod work;
 
-pub use configuration::Configuration;
+pub use configuration::{CommitStrategy, Configuration};
 #[cfg(feature = "javascript")]
 pub use language::register_language_hooks;
 pub use service::facet;

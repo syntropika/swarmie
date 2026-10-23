@@ -1,6 +1,16 @@
 use serde::{Deserialize, Serialize};
 use tembra::{Result, RuntimeError};
 
+/// Durable commit capability selected for every scheduler mutation, including recovery.
+/// TaskSession requires an explicitly installed same-owner joint provider and never falls back.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommitStrategy {
+    #[default]
+    TaskStorage,
+    TaskSession,
+}
+
 /// Scheduling limits. Wake timestamps are persisted as UTC milliseconds. `poll_interval_ms`
 /// bounds the delay before observing an elapsed wake time, paces contention retries and checks
 /// scheduler liveness for waiting callers. Waiting callers also reread at this interval to observe
@@ -9,6 +19,7 @@ use tembra::{Result, RuntimeError};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Configuration {
+    pub commit: CommitStrategy,
     pub restart_limit: u32,
     pub poll_interval_ms: u64,
     pub max_parallel: u32,
@@ -17,6 +28,7 @@ pub struct Configuration {
 impl Default for Configuration {
     fn default() -> Self {
         Self {
+            commit: CommitStrategy::TaskStorage,
             restart_limit: 3,
             poll_interval_ms: 50,
             max_parallel: 16,

@@ -6,6 +6,8 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+swarmie-sqlite-local = { path = "../sqlite-local" }
+swarmie-task-session-sqlite = { path = "../../plugins/task-session-sqlite" }
 swarmie-task-session-integration = { path = "../../plugins/task-session-integration" }
 swarmie-agent-loop-default = { path = "../../plugins/agent-loop-default", features = ["javascript"] }
 swarmie-composition = { path = "../composition" }

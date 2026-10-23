@@ -102,7 +102,8 @@ pub struct AppendReceipt {
 /// A native provider replacement requires a fresh Host; closing never deletes history.
 /// Successful SQLite reads and commits do not depend on reactive publication. Publication lag
 /// is observable separately and repaired through managed activity while the Host remains live.
-/// There is no transaction spanning TaskStorage and this Contract.
+/// Ordinary methods do not form a transaction with TaskStorage. A selected same-owner provider
+/// may separately expose the explicit `TaskSessionCommit` Contract for associated writes.
 #[tembra::contract(local, name = "swarmie.session-store", version = 1)]
 pub trait SessionStore {
     #[state]

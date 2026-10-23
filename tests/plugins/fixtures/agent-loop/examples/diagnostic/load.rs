@@ -95,7 +95,7 @@ async fn measure(
     };
     result["store_identity"] = json!({"tasks":h.storage.outbox_status().await?.store_id,
         "sessions":h.sessions.publication_status().await?.durable.store_id,
-        "bindings":"private binding route state; one selected bindings.sqlite Resource"});
+        "bindings":"private binding route state on the selected common owner"});
     let turns: Turns = Rc::new(RefCell::new((0..load.turns + load.warmup).map(|i| {
         let mut request = h.request.clone();
         request.turn_id = format!("turn-{i}");
@@ -171,6 +171,7 @@ async fn measure(
         }
     }
     // All publication and strong semantic checks are outside the measured window.
+    result["source_facts_visible_before_publication"] = json!(h.projected_facts()?);
     let before = Snapshot::take(driver, origin);
     match bounded(options.timeout, validate::drain(&h)).await {
         Ok(publication) => result["publication"] = publication,
@@ -231,6 +232,7 @@ async fn measure(
         record_error(&mut result, "validation", &error);
     }
     result["phases"]["validation"] = before.window(&Snapshot::take(driver, origin));
+    result["persistence"] = h.persistence()?;
     let before = Snapshot::take(driver, origin);
     if let Err(error) = bounded(options.timeout, h.host.close()).await {
         record_error(&mut result, "close", &error);

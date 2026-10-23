@@ -26,12 +26,47 @@ use crate::{
     state::{Checkpoint, TurnIdentity, decode, encode, invalid, now_ms, task_id},
 };
 
-/// Installs one compiled implementation of the Agent Contract and its registered turn handler.
-/// The Host selects providers; the loop neither owns storage nor schedules a second executor.
+/// Selects how prepared intents become durable before the next effect invocation.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryCommit {
+    /// The scheduler commits each prepared intent with its associated task transition through
+    /// the selected same-owner TaskSessionCommit capability. Missing support refuses progress.
+    #[default]
+    Joint,
+    /// SessionStore commits intents before returning a task decision. This supports embeddings
+    /// with independently selected providers and does not imply cross-store atomicity.
+    Independent,
+}
+
+/// Storage-boundary options for one compiled Agent loop implementation.
+#[derive(Clone, Copy, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Options {
+    pub history_commit: HistoryCommit,
+}
+
+/// Installs the Agent loop with joint intent and task settlement.
+///
+/// # Errors
+/// Returns Tembra declaration errors. The selected scheduler must provide same-owner joint
+/// commit support before a prepared intent can admit a model or tool effect.
+pub fn facet(driver: Rc<dyn core::Driver>) -> Result<NativeFacet> {
+    facet_with_options(driver, Options::default())
+}
+
+/// Installs the Agent Contract and its turn handler with an explicit storage boundary.
+///
+/// # Guarantees
+/// Joint mode returns prepared intent batches with the task decision; they are not committed
+/// history until the scheduler confirms the joint transaction. Critical effect receipts remain
+/// immediate in either mode. The loop neither owns the persistence transaction nor schedules
+/// another executor.
 ///
 /// # Errors
 /// Returns Tembra declaration errors. Missing dependencies fail actual installation readiness.
-pub fn facet(driver: Rc<dyn core::Driver>) -> Result<NativeFacet> {
+/// A missing or mismatched joint capability refuses the pending decision before the next effect.
+pub fn facet_with_options(driver: Rc<dyn core::Driver>, options: Options) -> Result<NativeFacet> {
     NativeFacet::new("swarmie.agent-loop-default", vec![], move |scope, setup| {
         let observers = ObserverDispatcher::new(scope.clone(), driver.clone())?;
         let monitor = observers.clone();
@@ -76,7 +111,13 @@ pub fn facet(driver: Rc<dyn core::Driver>) -> Result<NativeFacet> {
                 ..Default::default()
             },
         )?;
-        crate::workflow::declare(scope, setup, driver.clone(), observers)
+        crate::workflow::declare(
+            scope,
+            setup,
+            driver.clone(),
+            observers,
+            options.history_commit,
+        )
     })
 }
 

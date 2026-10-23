@@ -9,6 +9,7 @@ rust-version.workspace = true
 conformance = []
 
 [dependencies]
+swarmie-session-contracts = { path = "../session-contracts" }
 tembra.workspace = true
 tembra-hooks.workspace = true
 serde_json.workspace = true

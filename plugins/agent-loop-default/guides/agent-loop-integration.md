@@ -73,14 +73,23 @@ The checkpoint object has these exact fields:
 Durable phases are `start`, `model`, `tool` and `finish`. Context preparation, result processing,
 tool preparation and step bookkeeping run as bounded internal substeps of the current invocation.
 Each invocation performs at most one model or tool effect. Before another effect, the handler
-returns `Continue` so Durable Tasks commits the next intent checkpoint and admits that invocation.
-The handler does not own a separate scheduler. Version, identity and counter fields are required. The serializer emits explicit null for absent
+returns a `TaskDecision` containing `Continue` so Durable Tasks commits the next intent checkpoint
+and admits that invocation. The default joint mode returns the final `model-request` or
+`tool-intent` batch in `session_appends`, pinned to the admitted Session store identity. The selected
+same-owner `TaskSessionCommit` commits it with the scheduler's accepted task mutation; pending
+batches have no sequence or head and never enter the committed history view. Cancellation or a
+superseding decision discards them. Missing joint support is a refusal, never separate writes.
+Explicit `HistoryCommit::Independent` mode supports independently selected providers by committing
+prepared intents before returning the task decision. The handler does not own a separate scheduler. Version, identity and counter fields are required. The serializer emits explicit null for absent
 receipt references and `ending`; a reader also accepts an omitted optional field as None, and
 phases requiring a receipt reject its absence explicitly.
 Successful inline completion keeps the last effect-entry checkpoint; its authoritative terminal
 outcome references the confirmed response and final counters. The checkpoint is a recovery point,
 not a duplicate of the final outcome. Controlled failure first commits `finish` with the latest
-fully recorded progress. Ordinary Session receipts commit immediately, before their observations.
+fully recorded progress. Provider/effective model confirmations, tool start and result receipts,
+messages, step endings and turn decisions remain immediate, before their dependent hooks or
+observations. Only the final prepared intent can be pending at handler return; no subsequent
+history query, immediate append or effect may run until its scheduler-owned settlement.
 The effective model request and its started receipt share one immutable batch when the public
 append budget admits the pair; provider confirmation remains a separate post-effect commit.
 After nested model execution, the loop refreshes its checked history before interpreting the
