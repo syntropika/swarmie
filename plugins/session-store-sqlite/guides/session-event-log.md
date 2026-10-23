@@ -49,8 +49,9 @@ API exposes no destructive history or retention operation.
 3. Resolve an existing batch identity before evaluating CAS. An identical committed request
    returns its original receipt, even after later events. Reusing a committed batch ID with
    different events, order or expected head fails.
-4. Check session existence, optional expected head, sequence capacity and event uniqueness.
-   Validate every complete stored envelope and compaction prefix before inserting any row.
+4. Check that the session exists and its stored record is readable, as opening requires, then
+   check the optional expected head, sequence capacity and event uniqueness. Validate every
+   complete stored envelope and compaction prefix before inserting any row.
 5. Insert all events, update the session head, retain the complete canonical request and its
    compact receipt, and advance the store commit sequence in the same transaction.
 6. Commit SQLite, then attempt adoption of the small Tembra State watermark without an

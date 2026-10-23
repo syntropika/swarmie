@@ -4,7 +4,8 @@ use tembra::{Result, RuntimeError};
 
 use crate::database::{Store, corrupt, decode_stored, invalid, io};
 
-/// Reads the committed head of a session without decoding its metadata.
+/// Reads the committed head of a session without its metadata, for event pages, which never
+/// return or depend on session metadata. Every write reads the complete record instead.
 pub(crate) fn session_head(connection: &Connection, id: &str) -> Result<Option<u64>> {
     let head: Option<u64> = connection
         .prepare_cached("SELECT head FROM sessions WHERE id=?1")

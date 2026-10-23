@@ -4,7 +4,7 @@ use tembra::{Result, RuntimeError};
 
 use crate::{
     database::{Store, Transaction, commit_sequence, decode_stored, invalid, io},
-    reads::{record, session_head},
+    reads::record,
 };
 
 impl Store {
@@ -57,7 +57,9 @@ impl Store {
                 if prior != encoded.request() { return Err(RuntimeError::invalid("session_store_duplicate", "batch identity has a different request")); }
                 return decode_stored(&receipt);
             }
-            let head = session_head(&transaction, &request.session_id)?.ok_or_else(|| RuntimeError::invalid("session_store_missing", "session does not exist"))?;
+            // Read the complete session record, as open does, so a session whose stored record
+            // is corrupt refuses appends instead of growing history that cannot be opened.
+            let head = record(&transaction, &self.store_id, &request.session_id)?.ok_or_else(|| RuntimeError::invalid("session_store_missing", "session does not exist"))?.head;
             if request.expected_head.is_some_and(|n| n != head) { return Err(RuntimeError::invalid("session_store_conflict", format!("expected head differs from committed head {head}"))); }
             let last_sequence = next(head, request.events.len() as u64)?;
             let receipt = AppendReceipt { store_id: self.store_id.clone(), session_id: request.session_id.clone(), batch_id: request.batch_id.clone(), first_sequence: head + 1, last_sequence, commit_sequence: next(commit_sequence(&transaction)?, 1)? };
