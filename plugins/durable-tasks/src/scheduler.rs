@@ -8,8 +8,8 @@ use std::{
 
 use futures::{FutureExt, StreamExt, future::LocalBoxFuture, stream::FuturesUnordered};
 use swarmie_task_contracts::{
-    CommitResult, StorageOwner, TaskLookup, TaskRecord, TaskStorageRef, TaskTransaction, TaskWrite,
-    validate_task_payload_size, validate_task_record_size,
+    CommitResult, StorageOwner, TaskLifecycleOrigin, TaskLookup, TaskRecord, TaskStatus,
+    TaskStorageRef, TaskTransaction, TaskWrite, validate_task_payload_size,
 };
 use tembra::{Context, Resource, Result, RuntimeError, core};
 
@@ -17,6 +17,7 @@ use crate::{
     Configuration,
     mutation::{Change, Mutation},
     reads::is_contention,
+    waiters::Waiters,
     work::Work,
 };
 
@@ -48,6 +49,22 @@ impl Wake {
     }
 }
 
+/// Returns to the executor exactly once after requesting an immediate re-poll. It bounds
+/// synchronous work without adding a timer delay; idle callers still block on their own wakes.
+pub(crate) async fn yield_now() {
+    let mut yielded = false;
+    futures::future::poll_fn(|context| {
+        if yielded {
+            Poll::Ready(())
+        } else {
+            yielded = true;
+            context.waker().wake_by_ref();
+            Poll::Pending
+        }
+    })
+    .await;
+}
+
 pub(crate) struct Engine {
     pub observations: Rc<crate::observation::Observations>,
     pub storage: TaskStorageRef,
@@ -67,6 +84,8 @@ pub(crate) struct Engine {
     pub committed_sequence: tembra::Cell<u64>,
     pub work: RefCell<Work>,
     pub reconcile_gate: futures::lock::Mutex<()>,
+    /// Callers of `DurableTasks.wait`, woken by terminal commits and observed external writes.
+    pub waiters: Waiters,
 }
 
 impl Engine {
@@ -138,9 +157,8 @@ impl Engine {
             ));
         }
         let owner = self.owner.value()?.id.clone();
-        for write in &writes {
-            validate_task_record_size(&write.record)?;
-        }
+        // Storage refuses every oversized record before mutation, with the same reason. Only the
+        // complete transaction is bounded here, because it must cross the portable boundary.
         let transaction = TaskTransaction { owner, writes };
         validate_task_payload_size(&transaction)?;
         match self
@@ -151,10 +169,17 @@ impl Engine {
         {
             CommitResult::Committed { sequence, records } => {
                 // Admission is infallible and never awaits plugins. Failed commits never reach it.
+                let mut reserved = BTreeSet::new();
                 for record in &records {
                     if let Some((revision, change)) = changes.remove(&record.id)
                         && revision == record.revision
                     {
+                        if change.origin == TaskLifecycleOrigin::Reservation
+                            && record.status == TaskStatus::Running
+                            && record.parent.is_none()
+                        {
+                            reserved.insert(record.id.clone());
+                        }
                         self.observations.emit(change.event(record, sequence));
                     }
                 }
@@ -164,14 +189,21 @@ impl Engine {
                 }
                 work.sequence = work.sequence.max(sequence);
                 for record in &records {
-                    work.observe(record);
-                    if record.status != swarmie_task_contracts::TaskStatus::Running {
+                    if reserved.contains(&record.id) {
+                        work.observe_reservation(record);
+                    } else {
+                        work.observe(record);
+                    }
+                    if record.status != TaskStatus::Running {
                         self.reservations.borrow_mut().remove(&record.id);
                     }
                 }
                 drop(work);
                 // The durable receipt is final even if caller cancellation closes live state.
                 self.publish_sequence(context, sequence);
+                for record in records.iter().filter(|record| record.is_terminal()) {
+                    self.waiters.notify(&record.id);
+                }
                 self.wake.notify();
                 Ok(CommitResult::Committed { sequence, records })
             }
@@ -246,11 +278,10 @@ impl Engine {
                         continue;
                     }
                     let engine = self.clone();
-                    let id = candidate.id;
                     let cleanup = self.clone();
-                    let cleanup_id = id.clone();
+                    let cleanup_id = candidate.id.clone();
                     let phase = scope.root(move |context| {
-                        async move { engine.execute(id, Context::from_core(context)).await }
+                        async move { engine.execute(candidate, Context::from_core(context)).await }
                             .boxed_local()
                     });
                     phases.push(
@@ -268,10 +299,10 @@ impl Engine {
                         .boxed_local(),
                     );
                 }
-                // Native operations can settle synchronously. Yield through the existing
-                // runtime Driver after bounded work so other Facets, timers and cancellation
-                // are polled even when local notifications stay continuously ready.
-                self.driver.sleep(Duration::from_millis(1)).await;
+                // Native operations can settle synchronously. Return to the executor once after
+                // bounded work so other Facets, timers and cancellation are polled even when
+                // local notifications stay continuously ready. Ready phases add no timer delay.
+                yield_now().await;
                 let timer = self
                     .driver
                     .sleep(Duration::from_millis(self.configuration.poll_interval_ms));
@@ -526,6 +557,7 @@ mod tests {
                                     committed_sequence,
                                     work: RefCell::new(Work::default()),
                                     reconcile_gate: futures::lock::Mutex::new(()),
+                                    waiters: Waiters::default(),
                                 });
                                 *captured.borrow_mut() = Some(engine.clone());
                                 Ok(RepairService { engine, projection })

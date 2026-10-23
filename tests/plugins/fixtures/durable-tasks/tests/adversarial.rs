@@ -503,3 +503,68 @@ fn a_fatal_pump_error_is_visible_while_physical_work_is_still_draining() {
         host.close().await
     });
 }
+
+#[test]
+fn waiting_rereads_storage_only_after_terminal_notifications() {
+    run(|driver| async move {
+        let directory = tempfile::tempdir().unwrap();
+        let backend_host = Host::with_driver("wait-storage", "application", driver.clone())?;
+        backend_host
+            .install(
+                swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
+                    outbox_legacy_owners: Default::default(),
+                    database: directory.path().join("tasks.sqlite"),
+                    outbox: Default::default(),
+                })?,
+                core::LoadOptions::default(),
+            )?
+            .await?;
+        let storage = backend_host.get(TaskStorage, TaskStorageInput {}).await?;
+        let host = Host::with_driver("wait-scheduler", "application", driver.clone())?;
+        let calls = StorageControl::new(storage);
+        host.install(
+            concurrency::storage_facet(calls.clone())?,
+            core::LoadOptions::default(),
+        )?
+        .await?;
+        let control = Rc::new(Control::default());
+        host.install(
+            adversarial::facet(control.clone(), 1)?,
+            core::LoadOptions::default(),
+        )?
+        .await?;
+        host.install(
+            swarmie_durable_tasks::facet(
+                &swarmie_durable_tasks::Configuration {
+                    poll_interval_ms: 2,
+                    ..Default::default()
+                },
+                driver,
+            )?,
+            core::LoadOptions::default(),
+        )?
+        .await?;
+        let tasks = host.get(DurableTasks, DurableTasksInput {}).await?;
+        tasks.create(spec("held", "gate")).await?;
+        while !control.started.get() {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        calls.reset_counts();
+        let waiting = tasks.wait(TaskLookup { id: "held".into() });
+        tokio::pin!(waiting);
+        tokio::select! {
+            result = &mut waiting => panic!("a held phase cannot be terminal: {result:?}"),
+            () = tokio::time::sleep(Duration::from_millis(100)) => {}
+        }
+        assert!(
+            calls.gets.get() <= 1,
+            "a waiter on a held phase reread storage {} times instead of sleeping",
+            calls.gets.get()
+        );
+        tasks.cancel(TaskLookup { id: "held".into() }).await?;
+        control.release();
+        assert!(matches!(waiting.await?, TaskOutcome::Aborted { .. }));
+        host.close().await?;
+        backend_host.close().await
+    });
+}

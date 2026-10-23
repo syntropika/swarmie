@@ -1,7 +1,8 @@
 //! Real SQLite and managed operation races must not replay settled external phases.
 
-use std::{future::Future, rc::Rc, time::Duration};
+use std::{cell::RefCell, future::Future, rc::Rc, time::Duration};
 
+use futures::future::LocalBoxFuture;
 use serde_json::json;
 use swarmie_durable_tasks_fixture::concurrency::{StorageControl, handler_facet, storage_facet};
 use swarmie_task_contracts::*;
@@ -553,5 +554,137 @@ fn a_child_inserted_during_complete_retains_the_settled_completion_decision() {
         assert_eq!(rig.control.effects("parent"), 1);
         rig.host.close().await?;
         rig.backend.close().await
+    });
+}
+
+#[test]
+fn a_root_phase_reads_its_family_only_for_admission_and_decision() {
+    run(|driver| async move {
+        let rig = open(driver, vec![], |_| {}).await?;
+        // A completed resume includes startup discovery; count only the phase that follows.
+        rig.tasks.resume().await?;
+        rig.control.reset_counts();
+        rig.tasks.create(spec("parent")).await?;
+        assert!(matches!(
+            rig.tasks
+                .wait(TaskLookup {
+                    id: "parent".into()
+                })
+                .await?,
+            TaskOutcome::Completed { .. }
+        ));
+        assert_eq!(
+            rig.control.commits.get(),
+            3,
+            "creation, reservation and decision are the only writes"
+        );
+        // Admission and decision each read one fenced family: an opening sequence probe and a
+        // children page. The reconciled root record is the reservation base, and the engine
+        // does not reconcile its own in-flight reservation. One bounded probe may also run.
+        assert!(
+            rig.control.scans.get() <= 5,
+            "{} scans for one root phase",
+            rig.control.scans.get()
+        );
+        assert_eq!(rig.control.effects("parent"), 1);
+        rig.host.close().await?;
+        rig.backend.close().await
+    });
+}
+
+/// Records requested timer durations while the Host's actual driver performs scheduling.
+struct TimerLog {
+    inner: Rc<TokioDriver>,
+    sleeps: RefCell<Vec<Duration>>,
+}
+
+impl core::Driver for TimerLog {
+    fn spawn(&self, future: LocalBoxFuture<'static, ()>) {
+        core::Driver::spawn(self.inner.as_ref(), future);
+    }
+
+    fn sleep(&self, duration: Duration) -> LocalBoxFuture<'static, ()> {
+        self.sleeps.borrow_mut().push(duration);
+        core::Driver::sleep(self.inner.as_ref(), duration)
+    }
+
+    fn now(&self) -> Duration {
+        core::Driver::now(self.inner.as_ref())
+    }
+}
+
+#[test]
+fn scheduling_and_paged_reads_request_no_fixed_pacing_timers() {
+    run(|driver| async move {
+        let directory = tempfile::tempdir().unwrap();
+        let backend = Host::with_driver("timer-backend", "application", driver.clone())?;
+        backend
+            .install(
+                swarmie_task_storage_sqlite::facet(&swarmie_task_storage_sqlite::Configuration {
+                    outbox_legacy_owners: Default::default(),
+                    database: directory.path().join("tasks.sqlite"),
+                    outbox: Default::default(),
+                })?,
+                core::LoadOptions::default(),
+            )?
+            .await?;
+        let control = StorageControl::new(backend.get(TaskStorage, TaskStorageInput {}).await?);
+        // One record per page makes every relation read follow continuation cursors.
+        control.page_limit.set(1);
+        let timers = Rc::new(TimerLog {
+            inner: driver.clone(),
+            sleeps: RefCell::new(Vec::new()),
+        });
+        let host = Host::with_driver("timer-scheduler", "application", driver.clone())?;
+        host.install(
+            storage_facet(control.clone())?,
+            core::LoadOptions::default(),
+        )?
+        .await?;
+        host.install(
+            swarmie_durable_tasks_fixture::facet(1)?,
+            core::LoadOptions::default(),
+        )?
+        .await?;
+        host.install(
+            swarmie_durable_tasks::facet(
+                &swarmie_durable_tasks::Configuration {
+                    poll_interval_ms: 2,
+                    ..Default::default()
+                },
+                timers.clone(),
+            )?,
+            core::LoadOptions::default(),
+        )?
+        .await?;
+        let tasks = host.get(DurableTasks, DurableTasksInput {}).await?;
+        let mut parent = swarmie_durable_tasks_fixture::task("paged-parent");
+        parent.phase = "spawn".into();
+        tasks.create(parent).await?;
+        assert!(matches!(
+            tasks
+                .wait(TaskLookup {
+                    id: "paged-parent".into()
+                })
+                .await?,
+            TaskOutcome::Completed { .. }
+        ));
+        control.page_limit.set(0);
+        let graph = tasks.graph(TaskQuery::default()).await?;
+        assert_eq!(graph.records.len(), 3);
+        assert!(graph.records.iter().all(TaskRecord::is_terminal));
+        let sleeps = timers.sleeps.borrow().clone();
+        assert!(
+            !sleeps.is_empty(),
+            "the scheduler still arms its poll timer"
+        );
+        assert!(
+            sleeps
+                .iter()
+                .all(|duration| *duration >= Duration::from_millis(2)),
+            "phases and page reads yield without fixed pacing timers: {sleeps:?}"
+        );
+        host.close().await?;
+        backend.close().await
     });
 }

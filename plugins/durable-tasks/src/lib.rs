@@ -18,6 +18,7 @@ mod recovery;
 mod registry;
 mod scheduler;
 mod service;
+mod waiters;
 mod work;
 
 pub use configuration::Configuration;

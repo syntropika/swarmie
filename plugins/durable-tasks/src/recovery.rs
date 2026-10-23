@@ -14,6 +14,9 @@ use crate::{
     scheduler::{Engine, now_ms},
 };
 
+/// Bound on noticing committed writes that did not pass through this engine's own commits.
+pub(crate) const PROBE_INTERVAL: Duration = Duration::from_secs(1);
+
 impl Engine {
     /// Seed active identities at startup, then use commit hints and bounded sequence probes.
     /// Retained terminal history is read only through explicit graph and family queries.
@@ -42,9 +45,10 @@ impl Engine {
                     return Err(busy());
                 }
                 self.publish_sequence(context, sequence);
+                // The changed records are unknown here; each waiter rereads its own task.
+                self.waiters.notify_all();
             }
-            self.work.borrow_mut().next_probe =
-                self.driver.now().saturating_add(Duration::from_secs(1));
+            self.work.borrow_mut().next_probe = self.driver.now().saturating_add(PROBE_INTERVAL);
         }
         self.work.borrow_mut().due(now_ms()?);
         let mut runnable = Vec::new();
@@ -97,6 +101,11 @@ impl Engine {
             && !record.cancellation_requested
         {
             return Ok(Some(record));
+        }
+        // An in-flight root's managed execution owns its admission and decision reads. Its own
+        // cancellation intent was handled above, and a root has no ancestors to read.
+        if record.parent.is_none() && self.inflight.borrow().contains(id) {
+            return Ok(None);
         }
         let family = self.family(context, id).await?;
         let now = now_ms()?;

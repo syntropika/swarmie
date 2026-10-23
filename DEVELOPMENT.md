@@ -152,6 +152,13 @@ and an explicit diagnostic. Cancellation intent takes precedence over an uncommi
 decision. Before retrying a parked effect, reconcile the external operation using its stable
 identity; a rejected local transition does not prove that the external effect did not happen.
 
+The scheduler reacts to its own commits immediately. Every commit wakes its scheduling loop,
+and a terminal commit wakes the `DurableTasks.wait` callers for that task, which then read the
+authoritative record. Between passes the loop yields to the Host executor without a fixed
+timer. `poll_interval_ms` bounds the detection of elapsed sleep deadlines, paces contention
+retries and checks scheduler liveness for waiting callers. Writes that bypass the running
+scheduler are observed by a bounded sequence probe about once per second.
+
 ## Durable task lifecycle extensions
 
 Durable Tasks defines twelve independent version-one Tembra `series` Hooks. Each has a typed

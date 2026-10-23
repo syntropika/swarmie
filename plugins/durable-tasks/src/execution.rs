@@ -73,21 +73,34 @@ impl Engine {
         }
     }
 
-    pub async fn execute(self: Rc<Self>, id: String, context: Context) -> Result<()> {
-        let family = match self.family(&context, &id).await {
-            Err(error) if is_contention(&error) => {
-                self.schedule(&id);
-                return Ok(());
-            }
-            result => result?,
+    /// Reserves and runs one phase of a reconciled candidate.
+    ///
+    /// Reconciliation returns a root only while it is Pending without cancellation intent, so its
+    /// record is the reservation's compare-and-swap base: any later write, including cancellation
+    /// intent, changes the revision and makes the reservation conflict and reschedule. An owned
+    /// task still reads its coherent family first, because ancestor cancellation does not change
+    /// the task's own revision.
+    pub async fn execute(self: Rc<Self>, candidate: TaskRecord, context: Context) -> Result<()> {
+        let id = candidate.id.clone();
+        let (mut record, cancelled) = if candidate.parent.is_none() {
+            let cancelled = candidate.cancellation_requested;
+            (candidate, cancelled)
+        } else {
+            let family = match self.family(&context, &id).await {
+                Err(error) if is_contention(&error) => {
+                    self.schedule(&id);
+                    return Ok(());
+                }
+                result => result?,
+            };
+            let cancelled = self.cancelled(&family);
+            (family.task, cancelled)
         };
-        let mut record = family.task;
         if record.status != TaskStatus::Pending {
             return Ok(());
         }
-        // Cancellation is checked against a coherent family before reserving execution.
-        let family = self.settled_family(&context, &id).await?;
-        if self.cancelled(&family) {
+        // Cancellation is judged on a coherent family before reserving execution.
+        if cancelled {
             self.schedule(&id);
             return Ok(());
         }

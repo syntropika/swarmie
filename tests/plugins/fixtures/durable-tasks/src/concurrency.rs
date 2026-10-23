@@ -13,6 +13,7 @@ use tembra::{core, prelude::*};
 pub struct StorageControl {
     backend: TaskStorageRef,
     owner: RefCell<Option<String>>,
+    pub gets: Cell<usize>,
     pub scans: Cell<usize>,
     pub commits: Cell<usize>,
     pub page_limit: Cell<u32>,
@@ -36,6 +37,7 @@ impl StorageControl {
         Rc::new(Self {
             backend,
             owner: RefCell::new(None),
+            gets: Cell::new(0),
             scans: Cell::new(0),
             commits: Cell::new(0),
             page_limit: Cell::new(0),
@@ -56,6 +58,7 @@ impl StorageControl {
     }
 
     pub fn reset_counts(&self) {
+        self.gets.set(0);
         self.scans.set(0);
         self.commits.set(0);
         self.unfiltered_scans.set(0);
@@ -244,6 +247,7 @@ impl TaskStorageProvider for Proxy {
         Ok(())
     }
     async fn get(&self, request: TaskLookup, _context: Context) -> Result<Option<TaskRecord>> {
+        self.control.gets.set(self.control.gets.get() + 1);
         self.control.backend.get(request).await
     }
     async fn scan(&self, mut query: TaskQuery, _context: Context) -> Result<TaskPage> {

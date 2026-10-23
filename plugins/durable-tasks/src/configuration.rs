@@ -1,8 +1,11 @@
 use serde::{Deserialize, Serialize};
 use tembra::{Result, RuntimeError};
 
-/// Scheduling limits. Wake timestamps are persisted as UTC milliseconds; polling only bounds
-/// the delay before observing an elapsed wake time or another committed storage mutation.
+/// Scheduling limits. Wake timestamps are persisted as UTC milliseconds. `poll_interval_ms`
+/// bounds the delay before observing an elapsed wake time, paces contention retries and checks
+/// scheduler liveness for waiting callers. This scheduler's own commits wake its loop and the
+/// callers waiting on a terminal task immediately; commits that bypass it are observed by a
+/// bounded sequence probe.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Configuration {
