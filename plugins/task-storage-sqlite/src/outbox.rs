@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use swarmie_task_contracts::{
     MAX_PORTABLE_INTEGER, MAX_TASK_OUTBOX_EVENT_BYTES, MAX_TASK_PAGE_BYTES,
     TaskOutboxAcknowledgement, TaskOutboxCompaction, TaskOutboxConsumer, TaskOutboxConsumerState,
@@ -10,7 +10,7 @@ use swarmie_task_contracts::{
 
 use crate::{
     TaskOutboxLimits,
-    store::{Error, Result, Store, metadata},
+    store::{Error, Result, Store, Transaction},
 };
 
 type Position = (u64, i64);
@@ -46,12 +46,12 @@ fn event_id(position: Position, store_id: &str) -> Option<TaskOutboxEventId> {
 }
 
 fn usage(connection: &Connection) -> Result<(u64, u64, Position)> {
-    Ok(connection.query_row("SELECT retained_events, retained_bytes, floor_sequence, floor_ordinal FROM task_outbox_metadata WHERE singleton=1", [], |row| Ok((row.get(0)?, row.get(1)?, (row.get(2)?, row.get(3)?))))?)
+    Ok(connection.prepare_cached("SELECT retained_events, retained_bytes, floor_sequence, floor_ordinal FROM task_outbox_metadata WHERE singleton=1")?.query_row([], |row| Ok((row.get(0)?, row.get(1)?, (row.get(2)?, row.get(3)?))))?)
 }
 
 fn consumer(connection: &Connection, id: &str, owner: &str) -> Result<(Position, Position)> {
-    let (actual,ack,delivered) = connection.query_row(
-        "SELECT owner_facet,ack_sequence,ack_ordinal,delivered_sequence,delivered_ordinal FROM task_outbox_consumers WHERE id=?1",[id],
+    let (actual,ack,delivered) = connection.prepare_cached(
+        "SELECT owner_facet,ack_sequence,ack_ordinal,delivered_sequence,delivered_ordinal FROM task_outbox_consumers WHERE id=?1")?.query_row([id],
         |row| Ok((row.get::<_,Option<String>>(0)?,(row.get(1)?,row.get(2)?),(row.get(3)?,row.get(4)?))))
         .optional()?.ok_or_else(|| invalid("outbox consumer is not registered"))?;
     match actual {
@@ -70,11 +70,11 @@ fn boundary(connection: &Connection, position: Position, floor: Position) -> Res
     if position == START || position == floor {
         return Ok(());
     }
-    let exists: bool = connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM task_outbox WHERE sequence=?1 AND ordinal=?2)",
-        params![position.0, position.1],
-        |row| row.get(0),
-    )?;
+    let exists: bool = connection
+        .prepare_cached(
+            "SELECT EXISTS(SELECT 1 FROM task_outbox WHERE sequence=?1 AND ordinal=?2)",
+        )?
+        .query_row(params![position.0, position.1], |row| row.get(0))?;
     if !exists {
         return Err(invalid("outbox position is not a retained event boundary"));
     }
@@ -124,7 +124,7 @@ pub(crate) fn prepare_events(
 }
 
 pub(crate) fn append_events(connection: &Connection, events: &[(u64, u32, String)]) -> Result<()> {
-    let mut statement = connection.prepare(
+    let mut statement = connection.prepare_cached(
         "INSERT INTO task_outbox(sequence, ordinal, event, bytes) VALUES(?1, ?2, ?3, ?4)",
     )?;
     let mut bytes = 0_u64;
@@ -132,21 +132,18 @@ pub(crate) fn append_events(connection: &Connection, events: &[(u64, u32, String
         bytes += encoded.len() as u64;
         statement.execute(params![sequence, ordinal, encoded, encoded.len() as u64])?;
     }
-    connection.execute("UPDATE task_outbox_metadata SET retained_events=retained_events+?1, retained_bytes=retained_bytes+?2 WHERE singleton=1", params![events.len() as u64, bytes])?;
+    connection.prepare_cached("UPDATE task_outbox_metadata SET retained_events=retained_events+?1, retained_bytes=retained_bytes+?2 WHERE singleton=1")?.execute(params![events.len() as u64, bytes])?;
     Ok(())
 }
 
 impl Store {
     pub(crate) fn outbox_status(&self) -> Result<TaskOutboxStatus> {
-        let mut connection = self.connection.borrow_mut();
-        let transaction = connection
-            .as_mut()
-            .ok_or(Error::Closed)?
-            .transaction_with_behavior(TransactionBehavior::Deferred)?;
-        let (_, store_id) = metadata(&transaction)?;
+        let connection = self.connection.borrow();
+        let transaction = Transaction::deferred(connection.as_ref().ok_or(Error::Closed)?)?;
+        let store_id = &self.store_id;
         let (retained_events, retained_bytes, floor) = usage(&transaction)?;
         let positions = {
-            let mut statement = transaction.prepare("SELECT id,ack_sequence,ack_ordinal,delivered_sequence,delivered_ordinal,owner_facet FROM task_outbox_consumers ORDER BY id COLLATE BINARY LIMIT 65")?;
+            let mut statement = transaction.prepare_cached("SELECT id,ack_sequence,ack_ordinal,delivered_sequence,delivered_ordinal,owner_facet FROM task_outbox_consumers ORDER BY id COLLATE BINARY LIMIT 65")?;
             statement
                 .query_map([], |row| {
                     Ok((
@@ -165,11 +162,11 @@ impl Store {
         }
         let acknowledged = positions.iter().map(|(_, ack, _, _)| *ack).min();
         let compactable_events = if let Some(ack) = acknowledged {
-            transaction.query_row(
-                "SELECT count(*) FROM task_outbox WHERE (sequence,ordinal)<=(?1,?2)",
-                params![ack.0, ack.1],
-                |row| row.get::<_, u64>(0),
-            )?
+            transaction
+                .prepare_cached(
+                    "SELECT count(*) FROM task_outbox WHERE (sequence,ordinal)<=(?1,?2)",
+                )?
+                .query_row(params![ack.0, ack.1], |row| row.get::<_, u64>(0))?
         } else {
             0
         };
@@ -185,16 +182,16 @@ impl Store {
                     owner_facet,
                     consumer_id,
                     store_id: store_id.clone(),
-                    acknowledged: event_id(ack, &store_id),
-                    delivered: event_id(delivered, &store_id),
-                    retained_after: event_id(floor, &store_id),
+                    acknowledged: event_id(ack, store_id),
+                    delivered: event_id(delivered, store_id),
+                    retained_after: event_id(floor, store_id),
                 },
             )
             .collect();
         let status = TaskOutboxStatus {
             store_id: store_id.clone(),
             limits: self.outbox_limits,
-            retained_after: event_id(floor, &store_id),
+            retained_after: event_id(floor, store_id),
             retained_events,
             retained_bytes,
             compactable_events,
@@ -214,39 +211,32 @@ impl Store {
     ) -> Result<TaskOutboxConsumerState> {
         identity(&request.id)?;
         owner_name(owner)?;
-        let mut connection = self.connection.borrow_mut();
-        let transaction = connection
-            .as_mut()
-            .ok_or(Error::Closed)?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let (_, store_id) = metadata(&transaction)?;
+        let connection = self.connection.borrow();
+        let transaction = Transaction::immediate(connection.as_ref().ok_or(Error::Closed)?)?;
+        let store_id = &self.store_id;
         let (_, _, floor) = usage(&transaction)?;
-        let exists: bool = transaction.query_row(
-            "SELECT EXISTS(SELECT 1 FROM task_outbox_consumers WHERE id=?1)",
-            [&request.id],
-            |row| row.get(0),
-        )?;
+        let exists: bool = transaction
+            .prepare_cached("SELECT EXISTS(SELECT 1 FROM task_outbox_consumers WHERE id=?1)")?
+            .query_row([&request.id], |row| row.get(0))?;
         if !exists {
-            let count: u32 =
-                transaction.query_row("SELECT count(*) FROM task_outbox_consumers", [], |row| {
-                    row.get(0)
-                })?;
+            let count: u32 = transaction
+                .prepare_cached("SELECT count(*) FROM task_outbox_consumers")?
+                .query_row([], |row| row.get(0))?;
             if count >= self.outbox_limits.max_consumers {
                 return Err(Error::OutboxFull);
             }
-            transaction.execute(
+            transaction.prepare_cached(
                 "INSERT INTO task_outbox_consumers(id,ack_sequence,ack_ordinal,delivered_sequence,delivered_ordinal,owner_facet) VALUES(?1, ?2, ?3, ?2, ?3, ?4)",
-                params![request.id, floor.0, floor.1, owner],
-            )?;
+            )?.execute(params![request.id, floor.0, floor.1, owner])?;
         }
         let (ack, delivered) = consumer(&transaction, &request.id, owner)?;
         let state = TaskOutboxConsumerState {
             owner_facet: Some(owner.into()),
             consumer_id: request.id,
             store_id: store_id.clone(),
-            acknowledged: event_id(ack, &store_id),
-            delivered: event_id(delivered, &store_id),
-            retained_after: event_id(floor, &store_id),
+            acknowledged: event_id(ack, store_id),
+            delivered: event_id(delivered, store_id),
+            retained_after: event_id(floor, store_id),
         };
         transaction.commit()?;
         Ok(state)
@@ -262,18 +252,15 @@ impl Store {
         if !(1..=256).contains(&request.limit) {
             return Err(invalid("outbox page limit requires 1..=256"));
         }
-        let mut connection = self.connection.borrow_mut();
-        let transaction = connection
-            .as_mut()
-            .ok_or(Error::Closed)?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let (_, store_id) = metadata(&transaction)?;
+        let connection = self.connection.borrow();
+        let transaction = Transaction::immediate(connection.as_ref().ok_or(Error::Closed)?)?;
+        let store_id = &self.store_id;
         let (_, _, floor) = usage(&transaction)?;
         let (ack, delivered) = consumer(&transaction, &request.consumer_id, owner)?;
         let after = request
             .after
             .as_ref()
-            .map(|id| position(id, &store_id))
+            .map(|id| position(id, store_id))
             .transpose()?
             .unwrap_or(ack);
         if after < ack || after > delivered {
@@ -284,14 +271,14 @@ impl Store {
         boundary(&transaction, after, floor)?;
         let mut page = TaskOutboxPage {
             store_id: store_id.clone(),
-            retained_after: event_id(floor, &store_id),
+            retained_after: event_id(floor, store_id),
             events: vec![],
-            next: event_id(after, &store_id),
-            acknowledged: event_id(ack, &store_id),
+            next: event_id(after, store_id),
+            acknowledged: event_id(ack, store_id),
         };
         let mut last = after;
         {
-            let mut statement = transaction.prepare("SELECT sequence, ordinal, event FROM task_outbox WHERE (sequence,ordinal)>(?1,?2) ORDER BY sequence,ordinal LIMIT ?3")?;
+            let mut statement = transaction.prepare_cached("SELECT sequence, ordinal, event FROM task_outbox WHERE (sequence,ordinal)>(?1,?2) ORDER BY sequence,ordinal LIMIT ?3")?;
             let mut rows = statement.query(params![after.0, after.1, request.limit])?;
             let envelope =
                 task_wire_bytes(&page).map_err(|error| Error::Invalid(error.to_string()))?;
@@ -304,7 +291,7 @@ impl Store {
                     break;
                 }
                 let event = decode_event(&encoded)?;
-                let expected = event_id((sequence, ordinal), &store_id)
+                let expected = event_id((sequence, ordinal), store_id)
                     .ok_or_else(|| Error::Corrupt("invalid outbox event identity".into()))?;
                 if event.id != expected {
                     return Err(Error::Corrupt(
@@ -316,7 +303,7 @@ impl Store {
                 page.events.push(event);
             }
         }
-        page.next = event_id(last, &store_id);
+        page.next = event_id(last, store_id);
         if task_wire_bytes(&page).map_err(|error| Error::Invalid(error.to_string()))?
             > MAX_TASK_PAGE_BYTES
         {
@@ -325,7 +312,7 @@ impl Store {
             ));
         }
         if last > delivered {
-            transaction.execute("UPDATE task_outbox_consumers SET delivered_sequence=?1, delivered_ordinal=?2 WHERE id=?3", params![last.0, last.1, request.consumer_id])?;
+            transaction.prepare_cached("UPDATE task_outbox_consumers SET delivered_sequence=?1, delivered_ordinal=?2 WHERE id=?3")?.execute(params![last.0, last.1, request.consumer_id])?;
         }
         transaction.commit()?;
         Ok(page)
@@ -338,13 +325,9 @@ impl Store {
     ) -> Result<()> {
         identity(&request.consumer_id)?;
         owner_name(owner)?;
-        let mut connection = self.connection.borrow_mut();
-        let transaction = connection
-            .as_mut()
-            .ok_or(Error::Closed)?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let (_, store_id) = metadata(&transaction)?;
-        let through = position(&request.through, &store_id)?;
+        let connection = self.connection.borrow();
+        let transaction = Transaction::immediate(connection.as_ref().ok_or(Error::Closed)?)?;
+        let through = position(&request.through, &self.store_id)?;
         let (ack, delivered) = consumer(&transaction, &request.consumer_id, owner)?;
         if through > delivered {
             return Err(invalid("outbox acknowledgement exceeds delivered prefix"));
@@ -352,10 +335,11 @@ impl Store {
         if through > ack {
             let (_, _, floor) = usage(&transaction)?;
             boundary(&transaction, through, floor)?;
-            transaction.execute(
-                "UPDATE task_outbox_consumers SET ack_sequence=?1, ack_ordinal=?2 WHERE id=?3",
-                params![through.0, through.1, request.consumer_id],
-            )?;
+            transaction
+                .prepare_cached(
+                    "UPDATE task_outbox_consumers SET ack_sequence=?1, ack_ordinal=?2 WHERE id=?3",
+                )?
+                .execute(params![through.0, through.1, request.consumer_id])?;
         }
         transaction.commit()?;
         Ok(())
@@ -368,22 +352,16 @@ impl Store {
     ) -> Result<()> {
         identity(&request.id)?;
         owner_name(owner)?;
-        let mut connection = self.connection.borrow_mut();
-        let transaction = connection
-            .as_mut()
-            .ok_or(Error::Closed)?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let exists: bool = transaction.query_row(
-            "SELECT EXISTS(SELECT 1 FROM task_outbox_consumers WHERE id=?1)",
-            [&request.id],
-            |row| row.get(0),
-        )?;
+        let connection = self.connection.borrow();
+        let transaction = Transaction::immediate(connection.as_ref().ok_or(Error::Closed)?)?;
+        let exists: bool = transaction
+            .prepare_cached("SELECT EXISTS(SELECT 1 FROM task_outbox_consumers WHERE id=?1)")?
+            .query_row([&request.id], |row| row.get(0))?;
         if exists {
             consumer(&transaction, &request.id, owner)?;
-            transaction.execute(
-                "DELETE FROM task_outbox_consumers WHERE id=?1",
-                [request.id],
-            )?;
+            transaction
+                .prepare_cached("DELETE FROM task_outbox_consumers WHERE id=?1")?
+                .execute([request.id])?;
         }
         transaction.commit()?;
         Ok(())
@@ -396,16 +374,13 @@ impl Store {
         if !(1..=4096).contains(&request.limit) {
             return Err(invalid("outbox compaction limit requires 1..=4096"));
         }
-        let mut connection = self.connection.borrow_mut();
-        let transaction = connection
-            .as_mut()
-            .ok_or(Error::Closed)?
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let protected: Option<Position> = transaction.query_row("SELECT ack_sequence, ack_ordinal FROM task_outbox_consumers ORDER BY ack_sequence,ack_ordinal LIMIT 1", [], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
+        let connection = self.connection.borrow();
+        let transaction = Transaction::immediate(connection.as_ref().ok_or(Error::Closed)?)?;
+        let protected: Option<Position> = transaction.prepare_cached("SELECT ack_sequence, ack_ordinal FROM task_outbox_consumers ORDER BY ack_sequence,ack_ordinal LIMIT 1")?.query_row([], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
         let mut removed = 0_u32;
         if let Some(protected) = protected {
             let candidates = {
-                let mut statement = transaction.prepare("SELECT sequence,ordinal,bytes FROM task_outbox WHERE (sequence,ordinal)<=(?1,?2) ORDER BY sequence,ordinal LIMIT ?3")?;
+                let mut statement = transaction.prepare_cached("SELECT sequence,ordinal,bytes FROM task_outbox WHERE (sequence,ordinal)<=(?1,?2) ORDER BY sequence,ordinal LIMIT ?3")?;
                 statement
                     .query_map(params![protected.0, protected.1, request.limit], |row| {
                         Ok((
@@ -419,11 +394,10 @@ impl Store {
             if let Some((sequence, ordinal, _)) = candidates.last() {
                 let bytes: u64 = candidates.iter().map(|row| row.2).sum();
                 removed = candidates.len() as u32;
-                transaction.execute(
-                    "DELETE FROM task_outbox WHERE (sequence,ordinal)<=(?1,?2)",
-                    params![sequence, ordinal],
-                )?;
-                transaction.execute("UPDATE task_outbox_metadata SET retained_events=retained_events-?1,retained_bytes=retained_bytes-?2,floor_sequence=?3,floor_ordinal=?4 WHERE singleton=1", params![removed,bytes,sequence,ordinal])?;
+                transaction
+                    .prepare_cached("DELETE FROM task_outbox WHERE (sequence,ordinal)<=(?1,?2)")?
+                    .execute(params![sequence, ordinal])?;
+                transaction.prepare_cached("UPDATE task_outbox_metadata SET retained_events=retained_events-?1,retained_bytes=retained_bytes-?2,floor_sequence=?3,floor_ordinal=?4 WHERE singleton=1")?.execute(params![removed,bytes,sequence,ordinal])?;
             }
         }
         let (retained_events, retained_bytes, _) = usage(&transaction)?;

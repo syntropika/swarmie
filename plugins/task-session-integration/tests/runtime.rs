@@ -446,7 +446,7 @@ impl HandlerProvider for Workflow {
         let store = self
             .storage
             .with_context(&context)
-            .outbox_status()
+            .identity()
             .await?
             .store_id;
         let key = BindingKey {

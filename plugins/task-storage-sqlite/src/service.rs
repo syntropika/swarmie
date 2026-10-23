@@ -3,7 +3,7 @@ use swarmie_task_contracts::{
     CommitResult, StorageOwner, TaskLookup, TaskOutboxAcknowledgement, TaskOutboxCompaction,
     TaskOutboxConsumer, TaskOutboxConsumerState, TaskOutboxPage, TaskOutboxQuery,
     TaskOutboxRetention, TaskOutboxStatus, TaskPage, TaskQuery, TaskRecord, TaskStorage,
-    TaskStorageProvider, TaskTransaction,
+    TaskStorageIdentity, TaskStorageProvider, TaskTransaction,
 };
 use tembra::{core, prelude::*};
 
@@ -98,6 +98,14 @@ impl TaskStorageProvider for Service {
             .commit(transaction)
             .map_err(crate::store::Error::into_runtime)
     }
+
+    async fn identity(&self, _context: Context) -> Result<TaskStorageIdentity> {
+        self.resource
+            .value()?
+            .store_identity()
+            .map_err(crate::store::Error::into_runtime)
+    }
+
     async fn outbox_status(&self, _context: Context) -> Result<TaskOutboxStatus> {
         self.resource
             .value()?

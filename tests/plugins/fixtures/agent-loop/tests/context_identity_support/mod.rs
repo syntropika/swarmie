@@ -65,6 +65,10 @@ impl SessionStoreProvider for Proxy {
         self.committed.clone()
     }
 
+    async fn identity(&self, _context: Context) -> Result<SessionStoreIdentity> {
+        self.backend.identity().await
+    }
+
     async fn publication_status(&self, _context: Context) -> Result<PublicationStatus> {
         self.backend.publication_status().await
     }

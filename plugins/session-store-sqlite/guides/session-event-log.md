@@ -64,9 +64,11 @@ sequence range and store commit sequence of that batch, not a later session head
 SQLite, transport or caller cancellation failures can have unknown outcome. They are never
 proof that a write did not happen. Read the authoritative prefix or retry the original identity.
 Reactive publication is separate: successful SQLite reads and committed writes return their
-authoritative results even if State adoption fails. Reads, exact retries and a managed repair
-activity reconcile the watermark from current database metadata. No detached write task outlives
-a native invocation; synchronous SQLite work can complete before caller cancellation is observed.
+authoritative results even if State adoption fails. Every create and append attempt, including
+exact retries, refusals and failures with unknown outcome, and a managed repair activity reconcile
+the watermark from current database metadata. Reads never move the durable watermark and never
+publish. No detached write task outlives a native invocation; synchronous SQLite work can
+complete before caller cancellation is observed.
 
 Canonical requests are retained with receipts to make equality exact rather than hash-only.
 This costs additional disk space. There is no batch receipt expiry or automatic data deletion.
@@ -137,12 +139,16 @@ Tembra State contains only `{ store_id, commit_sequence }`. It is a coalescible 
 not a durable notification queue or event feed. Subscribe before reading/catching up; capture
 the source prefix, consume it fully, then read again if the watermark advanced. On reconnect,
 reacquire the Reference, verify store identity and catch up from the durable source cursor.
+`identity` answers the immutable store identity read when the provider's Resource opened. It
+reads no history and is the cheap probe for replacement checks; ask the live provider again
+whenever replacement matters rather than retaining an earlier answer or a State value.
 A slow observer does not cause unbounded SessionStore buffering: Tembra owns subscription
 backpressure, delta/reset behavior and closure. Store replacement initializes State from SQLite.
 Global hints may wake readers for another session; readers obtain their own committed head.
 
 `publication_status` reports durable/published watermarks, pending lag, a bounded failure count
-and the last error category for the live provider. It does not require successful State adoption.
+and the last error category for the live provider. It does not require successful State adoption
+and remains a diagnostic; use `identity` for store identity checks.
 One pending bit coalesces repair work; no event queue grows with observer lag. A Tembra managed activity uses
 the existing Host Driver, waits 50 ms between retries and opens fresh roots. It stops on activity
 cancellation before resource closure. A permanently refusing State can remain behind while

@@ -72,6 +72,12 @@ fn invalid(message: &str) -> RuntimeError {
 }
 
 impl TaskStorageProvider for Service {
+    async fn identity(&self, _context: Context) -> Result<TaskStorageIdentity> {
+        Ok(TaskStorageIdentity {
+            store_id: self.resource.value()?.borrow().store_id.clone(),
+        })
+    }
+
     async fn outbox_status(&self, _context: Context) -> Result<TaskOutboxStatus> {
         let value = self.resource.value()?;
         let data = value.borrow();
@@ -366,6 +372,7 @@ mod tests {
                 assert_eq!(empty.retained_events, 0);
                 assert_eq!(empty.limits.max_events, 4096);
                 assert_eq!(storage.outbox_status().await.unwrap(), empty);
+                assert_eq!(storage.identity().await.unwrap().store_id, empty.store_id);
                 let initial = consumer
                     .register_outbox_consumer(register("publisher"))
                     .await
@@ -546,6 +553,13 @@ mod tests {
                 assert_eq!(error.reason, "task_storage_outbox_full");
                 assert_eq!(storage.outbox_status().await.unwrap(), before);
                 assert_eq!(error.code, tembra::ErrorCode::Unavailable);
+                // Identity stays answerable while the outbox is full and after ownership ends.
+                assert_eq!(storage.identity().await.unwrap().store_id, before.store_id);
+                storage
+                    .release_owner(StorageOwner { id: "owner".into() })
+                    .await
+                    .unwrap();
+                assert_eq!(storage.identity().await.unwrap().store_id, before.store_id);
                 assert!(
                     storage
                         .get(TaskLookup {

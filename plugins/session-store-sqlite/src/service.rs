@@ -57,43 +57,48 @@ struct Service {
     publication: Rc<Publication>,
 }
 
+/// Only write attempts reconcile publication: reads never move the durable watermark, and the
+/// managed activity repairs any lag left by a failed adoption without another call.
 impl SessionStoreProvider for Service {
+    async fn identity(&self, _context: Context) -> Result<SessionStoreIdentity> {
+        self.resource.value()?.identity()
+    }
+
     async fn publication_status(&self, _context: Context) -> Result<PublicationStatus> {
         self.publication.status()
     }
+
     fn committed(&self) -> Readable<StoreHead> {
         self.committed.readable()
     }
 
     async fn create(&self, request: CreateSession, context: Context) -> Result<SessionRecord> {
-        let record = self.resource.value()?.create(request)?;
+        let result = self.resource.value()?.create(request);
+        // A refused or failed write may still follow an unknown commit outcome.
         self.publication.reconcile(&context);
-        Ok(record)
+        result
     }
 
     async fn open(
         &self,
         request: SessionLookup,
-        context: Context,
+        _context: Context,
     ) -> Result<Option<SessionRecord>> {
-        let record = self.resource.value()?.get(request)?;
-        self.publication.reconcile(&context);
-        Ok(record)
+        self.resource.value()?.get(request)
     }
 
     async fn append(&self, request: AppendEvents, context: Context) -> Result<AppendReceipt> {
-        let receipt = self.resource.value()?.append(request)?;
+        let result = self.resource.value()?.append(request);
+        // A refused or failed write may still follow an unknown commit outcome.
         self.publication.reconcile(&context);
-        Ok(receipt)
+        result
     }
 
-    async fn events(&self, query: EventQuery, context: Context) -> Result<EventPage> {
-        let page = self.resource.value()?.events(query)?;
-        self.publication.reconcile(&context);
-        Ok(page)
+    async fn events(&self, query: EventQuery, _context: Context) -> Result<EventPage> {
+        self.resource.value()?.events(query)
     }
 
-    async fn project(&self, query: ProjectionQuery, context: Context) -> Result<ProjectionPage> {
+    async fn project(&self, query: ProjectionQuery, _context: Context) -> Result<ProjectionPage> {
         // Projection wrappers are slightly larger than source wrappers. Reserve 1 KiB before
         // source admission so a returned projection always fits the original requested budget.
         let budget = query.source.max_bytes as usize;
@@ -107,7 +112,6 @@ impl SessionStoreProvider for Service {
         source.max_bytes -= 1024;
         let page = project(self.resource.value()?.events(source)?, query.kind);
         bounded(&page, budget)?;
-        self.publication.reconcile(&context);
         Ok(page)
     }
 }
@@ -327,7 +331,8 @@ mod tests {
                 );
                 let status = probe.publication_status().await.unwrap();
                 assert!(status.pending);
-                assert!(status.failures >= 4);
+                // Only the refused append adoption counts; reads never attempt publication.
+                assert!(status.failures >= 1);
                 assert!(
                     status
                         .last_error

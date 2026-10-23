@@ -6,10 +6,11 @@ const VERSION: i64 = 3;
 const APPLICATION_ID: i64 = 0x5357544b;
 
 /// Refuses unrelated or newer databases and installs the complete schema atomically.
+/// Returns the committed sequence and the immutable store identity read in that transaction.
 pub(crate) fn apply(
     connection: &mut Connection,
     legacy_owners: &std::collections::BTreeMap<String, String>,
-) -> Result<()> {
+) -> Result<(u64, String)> {
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let application: i64 =
         transaction.pragma_query_value(None, "application_id", |row| row.get(0))?;
@@ -130,11 +131,16 @@ pub(crate) fn apply(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()?;
-    if metadata.is_none_or(|(sequence, identity)| sequence < 0 || identity.is_empty()) {
+    let Some((sequence, store_id)) = metadata.and_then(|(sequence, store_id)| {
+        u64::try_from(sequence)
+            .ok()
+            .filter(|_| !store_id.is_empty())
+            .map(|sequence| (sequence, store_id))
+    }) else {
         return Err(Error::Corrupt(
             "task storage metadata is missing or invalid".into(),
         ));
-    }
+    };
     transaction.commit()?;
-    Ok(())
+    Ok((sequence, store_id))
 }

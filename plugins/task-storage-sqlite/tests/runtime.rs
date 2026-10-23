@@ -29,6 +29,8 @@ fn public_contract_backend_conformance_and_restart_persistence() -> Result<()> {
     driver.run_until(async {
         let storage = open(&host, &database).await?;
         storage.conformance().await?;
+        let identity = storage.identity().await?;
+        assert_eq!(identity.store_id, storage.outbox_status().await?.store_id);
         let before = storage
             .get(TaskLookup {
                 id: "parent".into(),
@@ -44,8 +46,17 @@ fn public_contract_backend_conformance_and_restart_persistence() -> Result<()> {
                 .await
                 .is_err()
         );
+        assert!(
+            storage.identity().await.is_err(),
+            "a closed provider never answers identity"
+        );
         let next = Host::with_driver("storage-reopened", "application", driver.clone())?;
         let reopened = open(&next, &database).await?;
+        assert_eq!(
+            reopened.identity().await?,
+            identity,
+            "the same database keeps its identity"
+        );
         assert_eq!(
             reopened
                 .get(TaskLookup {

@@ -9,7 +9,16 @@ fn canonical_descriptor_round_trips_and_preserves_portable_operations()
     let parsed = Contract::from_json(&encoded)?;
     assert_eq!(descriptor.fingerprint(), parsed.fingerprint());
     assert!(encoded.contains("swarmie.session-store"));
-    for method in ["create", "open", "append", "events", "project", "committed"] {
+    for method in [
+        "identity",
+        "publication_status",
+        "create",
+        "open",
+        "append",
+        "events",
+        "project",
+        "committed",
+    ] {
         assert!(encoded.contains(method));
     }
     Ok(())
