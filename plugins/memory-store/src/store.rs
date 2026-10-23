@@ -42,7 +42,7 @@ impl Store {
         connection.busy_timeout(Duration::ZERO)?;
         connection.execute_batch(
             "PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = FULL;
+             PRAGMA synchronous = NORMAL;
              CREATE TABLE IF NOT EXISTS swarmie_memory_entries (
                  namespace TEXT NOT NULL,
                  key TEXT NOT NULL,
@@ -125,6 +125,30 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn owning_connection_uses_normal_wal_after_open_and_reopen() -> Result<(), Error> {
+        let directory = tempfile::tempdir().expect("test directory");
+        let database = directory.path().join("store.sqlite");
+        for _ in 0..2 {
+            let store = Store::open(&database)?;
+            store.with(|connection| {
+                assert_eq!(
+                    connection
+                        .pragma_query_value(None, "synchronous", |row| row.get::<_, i64>(0))?,
+                    1
+                );
+                assert_eq!(
+                    connection
+                        .pragma_query_value(None, "journal_mode", |row| row.get::<_, String>(0))?,
+                    "wal"
+                );
+                Ok(())
+            })?;
+            store.close()?;
+        }
+        Ok(())
+    }
 
     #[test]
     fn close_revokes_retained_value_and_is_idempotent() -> Result<(), Error> {

@@ -157,7 +157,7 @@ fn killed_process_releases_owner_and_preserves_committed_checkpoint() -> Result<
 fn publish_to_sink(database: &Path, event: &TaskOutboxEvent) -> usize {
     let sink = rusqlite::Connection::open(database.with_extension("receipts.sqlite"))
         .expect("open publication sink");
-    sink.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS receipts(store_id TEXT NOT NULL,sequence INTEGER NOT NULL,ordinal INTEGER NOT NULL,task_id TEXT NOT NULL,PRIMARY KEY(store_id,sequence,ordinal)) WITHOUT ROWID;").expect("durable publication schema");
+    sink.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; CREATE TABLE IF NOT EXISTS receipts(store_id TEXT NOT NULL,sequence INTEGER NOT NULL,ordinal INTEGER NOT NULL,task_id TEXT NOT NULL,PRIMARY KEY(store_id,sequence,ordinal)) WITHOUT ROWID;").expect("durable publication schema");
     sink.execute(
         "INSERT OR IGNORE INTO receipts VALUES(?1,?2,?3,?4)",
         rusqlite::params![

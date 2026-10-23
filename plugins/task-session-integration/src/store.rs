@@ -113,7 +113,7 @@ impl Store {
             return Err(io("WAL is required"));
         }
         connection
-            .pragma_update(None, "synchronous", "FULL")
+            .pragma_update(None, "synchronous", "NORMAL")
             .map_err(io)?;
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -243,4 +243,42 @@ fn read(connection: &Connection, key: &BindingKey) -> Result<Option<BindingDispo
 pub(crate) fn canonical(value: &impl serde::Serialize) -> Result<String> {
     let value = tembra::contracts::to_portable_value(value).map_err(io)?;
     tembra::contracts::canonical_json(&value).map_err(io)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn owning_connection_uses_normal_wal_after_open_and_reopen() -> Result<()> {
+        let directory = tempfile::tempdir().expect("test directory");
+        let configuration = Configuration {
+            database: directory.path().join("bindings.sqlite"),
+            task_store_id: "tasks".into(),
+            session_store_id: "sessions".into(),
+            consumer_id: "history".into(),
+            auto_publish: false,
+            poll_interval_ms: 2,
+        };
+        for _ in 0..2 {
+            let store = Store::open(&configuration)?;
+            store.with(|connection| {
+                assert_eq!(
+                    connection
+                        .pragma_query_value(None, "synchronous", |row| row.get::<_, i64>(0))
+                        .map_err(io)?,
+                    1
+                );
+                assert_eq!(
+                    connection
+                        .pragma_query_value(None, "journal_mode", |row| row.get::<_, String>(0))
+                        .map_err(io)?,
+                    "wal"
+                );
+                Ok(())
+            })?;
+            store.close()?;
+        }
+        Ok(())
+    }
 }

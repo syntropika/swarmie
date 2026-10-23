@@ -152,7 +152,7 @@ impl Store {
             return Err(invalid("WAL is required"));
         }
         connection
-            .pragma_update(None, "synchronous", "FULL")
+            .pragma_update(None, "synchronous", "NORMAL")
             .map_err(io)?;
         connection
             .pragma_update(None, "foreign_keys", "ON")
@@ -239,6 +239,32 @@ mod tests {
     use swarmie_session_contracts::{
         AppendEvents, Correlation, CreateSession, EventQuery, NewEvent, SessionLookup,
     };
+
+    #[test]
+    fn owning_connection_uses_normal_wal_after_open_and_reopen() -> Result<()> {
+        let directory = tempfile::tempdir().expect("test directory");
+        let database = directory.path().join("store.sqlite");
+        for _ in 0..2 {
+            let store = Store::open(&database)?;
+            store.with(|connection| {
+                assert_eq!(
+                    connection
+                        .pragma_query_value(None, "synchronous", |row| row.get::<_, i64>(0))
+                        .map_err(io)?,
+                    1
+                );
+                assert_eq!(
+                    connection
+                        .pragma_query_value(None, "journal_mode", |row| row.get::<_, String>(0))
+                        .map_err(io)?,
+                    "wal"
+                );
+                Ok(())
+            })?;
+            store.close()?;
+        }
+        Ok(())
+    }
 
     fn nested(depth: usize) -> serde_json::Value {
         let mut value = serde_json::Value::Null;

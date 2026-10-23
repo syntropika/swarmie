@@ -188,12 +188,12 @@ impl Store {
         if !mode.eq_ignore_ascii_case("wal") {
             return Err(Error::Unsupported("SQLite refused WAL mode".into()));
         }
-        connection.pragma_update(None, "synchronous", "FULL")?;
+        connection.pragma_update(None, "synchronous", "NORMAL")?;
         let synchronization: i64 =
             connection.pragma_query_value(None, "synchronous", |row| row.get(0))?;
-        if synchronization != 2 {
+        if synchronization != 1 {
             return Err(Error::Unsupported(
-                "SQLite refused FULL synchronization".into(),
+                "SQLite refused NORMAL synchronization".into(),
             ));
         }
         let (sequence, store_id) = crate::schema::initialize(&mut connection)?;
@@ -778,6 +778,30 @@ fn verify_lock_identity(_lock: &File, _path: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use swarmie_task_contracts::{TaskSpec, TaskWrite};
+
+    #[test]
+    fn owning_connection_uses_normal_wal_after_open_and_reopen() -> Result<()> {
+        let directory = tempfile::tempdir().expect("test directory");
+        let database = directory.path().join("store.sqlite");
+        for _ in 0..2 {
+            let store = Store::open(&database)?;
+            store.with(|connection| {
+                assert_eq!(
+                    connection
+                        .pragma_query_value(None, "synchronous", |row| row.get::<_, i64>(0))?,
+                    1
+                );
+                assert_eq!(
+                    connection
+                        .pragma_query_value(None, "journal_mode", |row| row.get::<_, String>(0))?,
+                    "wal"
+                );
+                Ok(())
+            })?;
+            store.close()?;
+        }
+        Ok(())
+    }
 
     fn pending(id: &str) -> TaskWrite {
         TaskWrite {

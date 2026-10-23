@@ -78,7 +78,7 @@ A future retention policy must preserve replay, deduplication and external blob 
 ## Durability and concurrency
 
 The provider requires a dedicated file on a local filesystem supporting OS locks and SQLite
-WAL. It uses `synchronous=FULL`, foreign keys and immediate write transactions. One live
+WAL. It uses `synchronous=NORMAL`, foreign keys and immediate write transactions. One live
 provider owns an OS lock for a database; its many Tembra clients may append concurrently.
 CAS distinguishes competing appends against the same head. Symlink aliases share ownership;
 hard-linked databases are refused on platforms exposing link counts. Renaming, unlinking or
@@ -86,9 +86,9 @@ replacing open database or lock files is unsupported.
 
 A zero busy timeout refuses external contention promptly instead of waiting on Tembra's local
 executor. Retry transient `session_store_io` errors using the original identity. SQLite's WAL
-recovers committed frames and discards uncommitted work after process death. FULL durability
-still depends on correct filesystem/device synchronization; process-kill tests are not physical
-power-loss qualification. Synchronous admission bounds work per request but does not promise
+recovers committed frames and discards uncommitted work after application process death.
+WAL/NORMAL preserves transactional consistency, but recent successful commits may roll back after
+power loss or an operating-system crash. Process-kill tests do not establish power-loss durability. Synchronous admission bounds work per request but does not promise
 a latency deadline for an unhealthy filesystem.
 
 Schema ownership and the current supported structure are checked in a read-only transaction

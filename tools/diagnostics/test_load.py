@@ -79,7 +79,7 @@ class LoadTests(unittest.TestCase):
             output = Path(directory)
             with sqlite3.connect(output / "tasks.sqlite") as db:
                 db.execute("PRAGMA journal_mode=WAL")
-                db.execute("PRAGMA synchronous=FULL")
+                db.execute("PRAGMA synchronous=NORMAL")
             actual = store_configuration(output)
             self.assertEqual(actual["tasks"]["journal_mode"], "wal")
             self.assertIsNone(actual["tasks"]["writer_synchronous"])

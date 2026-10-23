@@ -41,7 +41,9 @@ administration and recovery. Keep it minimal. The Rust Plugin Manager is a Core 
 administrative control plane, outside ordinary plugin invocation paths. Consumers use Tembra
 References, Contracts and Registries directly. Provider connections belong to their objects
 and use Tembra Resources when supported. SQLite holds durable administrative state; reactive
-State is not durable storage.
+State is not durable storage. All runtime-owned SQLite databases use WAL with
+`synchronous=NORMAL` on every opened connection. Keep this policy fixed, verify it on the owning
+connection, and describe application-crash recovery separately from power-loss durability.
 
 Core Plugins are Rust compiled with Swarmie. They are not downloadable and do not hot reload
 native code. Dynamic Plugins are trusted TypeScript or JavaScript artifacts loaded and

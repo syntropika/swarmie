@@ -3,6 +3,16 @@
 This guide covers local setup, development commands, extension points and repository structure.
 For an introduction to the project, see [README.md](README.md).
 
+## SQLite persistence policy
+
+Every runtime-owned SQLite database uses WAL with `synchronous=NORMAL` on each connection,
+including after reopening. This fixed policy applies to task state, Session history, task/session
+bindings, namespaced memory and plugin administration. It is not a selectable runtime mode.
+Transactions remain atomic and consistent, and committed state survives application process
+crashes. Recent successful commits may roll back after power loss or an operating-system crash;
+the runtime does not promise per-commit power-loss durability. External effects and separate
+stores do not form a single atomic transaction.
+
 ## Verification tiers and evidence
 
 Run `just quality-local-plan /path/to/fresh/evidence BASE` to inspect local feedback and

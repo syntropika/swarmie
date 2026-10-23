@@ -27,6 +27,7 @@ impl Store {
         connection.execute_batch(
             "PRAGMA foreign_keys=ON;
              PRAGMA journal_mode=WAL;
+             PRAGMA synchronous=NORMAL;
              CREATE TABLE IF NOT EXISTS composition (
                  singleton INTEGER PRIMARY KEY CHECK(singleton=1), declared TEXT NOT NULL);
              CREATE TABLE IF NOT EXISTS plugin_versions (
@@ -314,5 +315,34 @@ impl Store {
                 })
                 .collect()
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn owning_connection_uses_normal_wal_after_open_and_reopen() -> Result<()> {
+        let directory = tempfile::tempdir().expect("test directory");
+        let database = directory.path().join("administration.sqlite");
+        for _ in 0..2 {
+            let store = Store::open(&database)?;
+            store.with(|connection| {
+                assert_eq!(
+                    connection
+                        .pragma_query_value(None, "synchronous", |row| row.get::<_, i64>(0))?,
+                    1
+                );
+                assert_eq!(
+                    connection
+                        .pragma_query_value(None, "journal_mode", |row| row.get::<_, String>(0))?,
+                    "wal"
+                );
+                Ok(())
+            })?;
+            store.close()?;
+        }
+        Ok(())
     }
 }

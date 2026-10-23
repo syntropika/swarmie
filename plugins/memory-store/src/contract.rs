@@ -52,8 +52,10 @@ pub enum GetResult {
 /// Local application storage, available to trusted plugins through ordinary Tembra References.
 ///
 /// Each method executes a synchronous SQLite operation during its poll; there is no detached
-/// write task. Successful writes use SQLite's FULL synchronous WAL mode. Storage errors are
-/// explicit and must not be interpreted as absence or as proof of rollback after an I/O fault.
+/// write task. Successful writes use SQLite's NORMAL synchronous WAL mode. A power loss or
+/// system crash may roll back recent commits; application-crash recovery remains supported.
+/// Storage errors are explicit and must not be interpreted as absence or as proof of rollback
+/// after an I/O fault.
 /// Host shutdown closes the Resource; retained References cannot revive it. Closing or retiring
 /// this compiled plugin never deletes its database. Replacing native declarations needs a new Host.
 #[tembra::contract(local, name = "swarmie.memory-store", version = 1)]
