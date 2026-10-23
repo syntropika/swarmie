@@ -149,7 +149,7 @@ pub fn validate_append(request: &AppendEvents) -> Result<()> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EncodedAppend {
     request: String,
-    /// Each text is `[[event]]`; the wrapper reproduces the event's nesting inside the request.
+    /// Each text is `[[[event]]]`, matching the event's nesting inside returned pages.
     events: Vec<String>,
     session: String,
 }
@@ -175,15 +175,18 @@ impl EncodedAppend {
     }
 }
 
-/// Removes the two array wrappers added by [`encode_append`].
+/// Removes the three array wrappers added by [`encode_append`].
 fn unwrap_event(wrapped: &str) -> &str {
-    &wrapped[2..wrapped.len() - 2]
+    &wrapped[3..wrapped.len() - 3]
 }
 
 /// Validates an entire append request and encodes it once before writing any rows.
 ///
-/// Every event is encoded exactly once, nested in two arrays so Tembra's portable depth limit
-/// applies exactly as it does inside the complete request. The canonical request is assembled
+/// Every event is encoded exactly once, nested in three arrays so Tembra's portable depth limit
+/// includes the page, event list and stored envelope used by both [`crate::EventPage`] and
+/// [`crate::ProjectionPage`]. Their event is one container deeper than in the append request;
+/// admission reserves that depth so accepted events remain readable through the Contract.
+/// The canonical request is assembled
 /// from those texts in canonical member order (`batch_id`, `events`, `expected_head`,
 /// `session_id`); canonical JSON encodes every member independently of its position, so the
 /// request is never serialized a second time. Checks run in the order documented by
@@ -206,7 +209,7 @@ pub fn encode_append(request: &AppendEvents) -> Result<EncodedAppend> {
     let events = request
         .events
         .iter()
-        .map(|event| canonical(&[[event]]))
+        .map(|event| canonical(&[[[event]]]))
         .collect::<Result<Vec<_>>>()?;
     let batch = canonical(&request.batch_id)?;
     let session = canonical(&request.session_id)?;
@@ -379,16 +382,17 @@ mod tests {
             expected_head: None,
             events: vec![event("deep", "plugin.deep", payload)],
         };
-        // Inside a request, an event payload is nested within three containers.
-        let accepted = request(nested(125));
+        // Pages add one container beyond the request's three-container payload envelope.
+        let accepted = request(nested(124));
         assert!(canonical(&accepted).is_ok());
         assert!(encode_append(&accepted).is_ok());
-        let refused = request(nested(126));
-        assert!(canonical(&refused).is_err());
+        let refused = request(nested(125));
+        assert!(canonical(&refused).is_ok());
         assert_eq!(
             encode_append(&refused).unwrap_err().reason,
             "session_store_invalid"
         );
+        assert!(canonical(&request(nested(126))).is_err());
         let unsafe_number = request(serde_json::json!({"value": MAX_SEQUENCE + 1}));
         assert_eq!(
             encode_append(&unsafe_number).unwrap_err().reason,

@@ -71,6 +71,8 @@ pub struct PublicationStatus {
 /// An exact retry returns the original receipt before evaluating expected_head. Changed events,
 /// order, or expected_head under the same batch ID are refused. Duplicate event IDs under a new
 /// batch ID are refused, including exact duplicates; retry the original batch after uncertainty.
+/// Payload depth reserves the complete event-page and projection envelopes, so every admitted
+/// event remains portable when read back. A deeper payload is refused before any mutation.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(crate = "tembra::serde", deny_unknown_fields)]
 #[schemars(crate = "tembra::schemars")]

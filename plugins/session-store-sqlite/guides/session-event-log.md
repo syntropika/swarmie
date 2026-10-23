@@ -130,6 +130,10 @@ requested budget fails explicitly; the caller may increase it. Admission and ret
 checks use canonical UTF-8, including escaping, rather than character count. These budgets
 leave room below pinned Tembra's one-MiB portable ingestion ceiling; transport envelopes keep
 their own limits. Page replay uses bounded row decoding and one lookahead, not an entire log.
+Event admission also reserves the complete page and projection nesting: payloads may contain
+at most 124 nested containers under pinned Tembra's 128-container limit. Metadata may contain
+127. Deeper values are refused before mutation, even when their append request itself would
+fit, so every admitted event remains readable through the SessionStore Reference.
 
 Oversized content belongs in a producer-owned durable blob store. `BlobReference` describes
 URI, digest, byte count and media type; it does not implement retrieval, authorization or blob

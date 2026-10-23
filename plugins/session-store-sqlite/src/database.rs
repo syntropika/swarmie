@@ -233,9 +233,9 @@ pub(crate) fn decode<T: tembra::serde::de::DeserializeOwned>(encoded: &str) -> R
 ///
 /// The parse keeps serde_json's default recursion limit, which accepts 127 nested containers
 /// and bounds recursion on tampered rows. Admission keeps every stored text within it: Tembra
-/// admits 128 nested containers in a request, and a request nests each value one container
-/// deeper than its stored row (metadata in its create request, an event in its append request
-/// compared with its stored envelope), so a stored row holds at most 127.
+/// admits 128 nested containers: metadata reserves its create/record wrapper, and events
+/// reserve their complete page/projection envelope. Stored metadata therefore holds at most
+/// 127 containers and stored event envelopes at most 126.
 pub(crate) fn decode_stored<T: tembra::serde::de::DeserializeOwned>(encoded: &str) -> Result<T> {
     serde_json::from_str(encoded).map_err(corrupt)
 }
@@ -275,9 +275,9 @@ mod tests {
     fn rows_at_the_admitted_nesting_limit_remain_readable() -> Result<()> {
         let directory = tempfile::tempdir().map_err(io)?;
         let store = Store::open(&directory.path().join("sessions.sqlite"))?;
-        // A create request nests metadata within one container and an append request nests a
-        // payload within three, so these are the deepest values that admission accepts. Each
-        // stored row then holds 127 containers, exactly what the trusted typed decode accepts.
+        // Metadata reserves one create/record wrapper; event payloads reserve the four
+        // containers of their returned pages. These are the deepest admitted values, keeping
+        // stored metadata at serde's 127-container limit and stored event envelopes at 126.
         let create = CreateSession {
             session_id: "deep".into(),
             metadata: nested(127),
@@ -295,7 +295,7 @@ mod tests {
             })?,
             Some(created)
         );
-        let request = append("deep", nested(125));
+        let request = append("deep", nested(124));
         let receipt = store.append(request.clone())?;
         assert_eq!(store.append(request.clone())?, receipt);
         let page = store.events(EventQuery::new("deep"))?;
@@ -313,7 +313,7 @@ mod tests {
         );
         assert_eq!(
             store
-                .append(append("deeper", nested(126)))
+                .append(append("deeper", nested(125)))
                 .unwrap_err()
                 .reason,
             "session_store_invalid"
