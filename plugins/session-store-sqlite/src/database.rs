@@ -230,6 +230,95 @@ pub(crate) fn decode<T: tembra::serde::de::DeserializeOwned>(encoded: &str) -> R
 
 /// Decodes a row that this provider admitted and stored as canonical text with one typed parse.
 /// Malformed JSON and duplicate, unknown or mistyped fields fail explicitly as corrupt data.
+///
+/// The parse keeps serde_json's default recursion limit, which accepts 127 nested containers
+/// and bounds recursion on tampered rows. Admission keeps every stored text within it: Tembra
+/// admits 128 nested containers in a request, and a request nests each value one container
+/// deeper than its stored row (metadata in its create request, an event in its append request
+/// compared with its stored envelope), so a stored row holds at most 127.
 pub(crate) fn decode_stored<T: tembra::serde::de::DeserializeOwned>(encoded: &str) -> Result<T> {
     serde_json::from_str(encoded).map_err(corrupt)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use swarmie_session_contracts::{
+        AppendEvents, Correlation, CreateSession, EventQuery, NewEvent, SessionLookup,
+    };
+
+    fn nested(depth: usize) -> serde_json::Value {
+        let mut value = serde_json::Value::Null;
+        for _ in 0..depth {
+            value = serde_json::json!([value]);
+        }
+        value
+    }
+
+    fn append(id: &str, payload: serde_json::Value) -> AppendEvents {
+        AppendEvents {
+            session_id: "deep".into(),
+            batch_id: id.into(),
+            expected_head: None,
+            events: vec![NewEvent {
+                event_id: id.into(),
+                kind: "plugin.deep".into(),
+                version: 1,
+                correlation: Correlation::default(),
+                occurred_at_ms: None,
+                payload,
+            }],
+        }
+    }
+
+    #[test]
+    fn rows_at_the_admitted_nesting_limit_remain_readable() -> Result<()> {
+        let directory = tempfile::tempdir().map_err(io)?;
+        let store = Store::open(&directory.path().join("sessions.sqlite"))?;
+        // A create request nests metadata within one container and an append request nests a
+        // payload within three, so these are the deepest values that admission accepts. Each
+        // stored row then holds 127 containers, exactly what the trusted typed decode accepts.
+        let create = CreateSession {
+            session_id: "deep".into(),
+            metadata: nested(127),
+        };
+        let created = store.create(create.clone())?;
+        assert_eq!(created.metadata, nested(127));
+        assert_eq!(
+            store.create(create)?,
+            created,
+            "exact retry decodes the row"
+        );
+        assert_eq!(
+            store.get(SessionLookup {
+                session_id: "deep".into()
+            })?,
+            Some(created)
+        );
+        let request = append("deep", nested(125));
+        let receipt = store.append(request.clone())?;
+        assert_eq!(store.append(request.clone())?, receipt);
+        let page = store.events(EventQuery::new("deep"))?;
+        assert_eq!(page.events.len(), 1);
+        assert_eq!(page.events[0].event, request.events[0]);
+        // One more container is refused before any mutation.
+        let head = store.head()?;
+        let deeper = CreateSession {
+            session_id: "deeper".into(),
+            metadata: nested(128),
+        };
+        assert_eq!(
+            store.create(deeper).unwrap_err().reason,
+            "session_store_invalid"
+        );
+        assert_eq!(
+            store
+                .append(append("deeper", nested(126)))
+                .unwrap_err()
+                .reason,
+            "session_store_invalid"
+        );
+        assert_eq!(store.head()?, head);
+        store.close()
+    }
 }
