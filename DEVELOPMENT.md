@@ -152,6 +152,33 @@ and an explicit diagnostic. Cancellation intent takes precedence over an uncommi
 decision. Before retrying a parked effect, reconcile the external operation using its stable
 identity; a rejected local transition does not prove that the external effect did not happen.
 
+### Scheduling and phase continuation
+
+The scheduler reacts to its own commits immediately. Every commit wakes its scheduling loop,
+and a terminal commit wakes the `DurableTasks.wait` callers for that task, which then read the
+authoritative record. Between passes the loop yields to the Host executor without a fixed
+timer. `poll_interval_ms` bounds the detection of elapsed sleep deadlines, paces contention
+retries and checks scheduler liveness for waiting callers. Writes that bypass the running
+scheduler are observed by waiting callers at `poll_interval_ms`; global discovery uses a
+separate sequence probe at least one second apart, performed on the next scheduler pass.
+Longer poll intervals and active work on the Host can delay global discovery.
+
+A handler that returns `Checkpoint` ends its phase: the task becomes Pending and a later pass
+reserves the next phase in a second write. A handler may instead opt into
+`Continue { checkpoint, phase }`. One Running write then commits the decision and reserves the
+next phase: the revision and the attempt counter advance once, restarts reset and the blocking
+reason clears. The same managed execution invokes the handler again from a fresh root Context,
+so the next phase resolves its definition at the current code version. The decision still
+rereads the task's coherent family first: cancellation intent settles the task and a newer
+record parks it, exactly as for any settled decision, and admission of the next phase checks
+cancellation again like any reservation. The scheduler commits an ordinary Pending checkpoint
+instead when the next phase's definition is unavailable or has another version, so blocking or
+migration runs through normal admission, and when another runnable task waits while every
+execution slot is occupied. A continuation write carries `reservation` provenance with
+`checkpoint_committed` set. A crash during the continued phase recovers like any interrupted
+reservation: the Running record returns to Pending with one more restart, at the continued
+phase.
+
 ## Durable task lifecycle extensions
 
 Durable Tasks defines twelve independent version-one Tembra `series` Hooks. Each has a typed
@@ -207,7 +234,8 @@ handler value does not prove that a task transition was valid or committed.
 When several notifications describe one commit, admission order is Created, PhaseStarted,
 Checkpoint, Waiting, Sleeping, Recovered, Blocked, Parked, Retry, CancellationRequested, Terminal.
 For example, a checkpoint can also enter Waiting or Sleeping; recovery can also enter Parked;
-cancellation intent can accompany Terminal. Physical settlement is independently observed before
+cancellation intent can accompany Terminal; a continuation reports PhaseStarted and then
+Checkpoint for its single revision. Physical settlement is independently observed before
 the subsequent result-commit notifications. Unchanged reconciliation does not repeat status-entry
 notifications. Concurrent callers do not obtain a globally durable Hook delivery order.
 

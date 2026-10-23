@@ -984,3 +984,99 @@ fn full_outbox_retains_settled_handler_decision_until_acknowledgement_frees_capa
         host.close().await
     });
 }
+
+#[test]
+fn a_continuation_reports_phase_start_then_checkpoint_after_the_previous_settlement() {
+    run(|driver| async move {
+        let observer = Rc::new(Observer::default());
+        let (host, tasks, _directory) =
+            open(driver, vec![("continuation-audit", 0, observer.clone())]).await?;
+        let mut spec = task("continued");
+        spec.input = json!({"continue":true});
+        tasks.create(spec).await?;
+        assert!(matches!(
+            terminal(&tasks, "continued").await?,
+            TaskOutcome::Completed { .. }
+        ));
+        eventually(|| observed(&observer, "continued", "terminal")).await;
+        let order: Vec<_> = observer
+            .notifications
+            .borrow()
+            .iter()
+            .filter_map(|notification| {
+                let task = match &notification.event {
+                    TaskLifecycleEvent::Committed { task, .. }
+                    | TaskLifecycleEvent::PhaseSettled { task, .. } => task,
+                };
+                (task.task_id == "continued").then(|| {
+                    (
+                        notification
+                            .hook
+                            .trim_start_matches("swarmie.task-")
+                            .to_owned(),
+                        task.revision,
+                    )
+                })
+            })
+            .collect();
+        let expected = [
+            ("created", 1),
+            ("phase-started", 2),
+            ("phase-settled", 2),
+            ("phase-started", 3),
+            ("checkpoint", 3),
+            ("phase-settled", 3),
+            ("phase-started", 4),
+            ("checkpoint", 4),
+            ("phase-settled", 4),
+            ("terminal", 5),
+        ]
+        .map(|(hook, revision)| (hook.to_owned(), revision));
+        assert_eq!(order, expected);
+        let continuations: Vec<_> = observer
+            .notifications
+            .borrow()
+            .iter()
+            .filter_map(|notification| match &notification.event {
+                TaskLifecycleEvent::Committed {
+                    task,
+                    previous_status,
+                    current_status,
+                    origin,
+                    checkpoint_committed,
+                    ..
+                } if notification.hook == "swarmie.task-checkpoint" => Some((
+                    task.phase.clone(),
+                    task.attempt,
+                    *previous_status,
+                    *current_status,
+                    *origin,
+                    *checkpoint_committed,
+                )),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            continuations,
+            [
+                (
+                    "effect".to_owned(),
+                    2,
+                    Some(TaskStatus::Running),
+                    TaskStatus::Running,
+                    TaskLifecycleOrigin::Reservation,
+                    true
+                ),
+                (
+                    "finish".to_owned(),
+                    3,
+                    Some(TaskStatus::Running),
+                    TaskStatus::Running,
+                    TaskLifecycleOrigin::Reservation,
+                    true
+                ),
+            ]
+        );
+        host.close().await
+    });
+}

@@ -28,7 +28,7 @@ fn child(database: &Path, log: &Path, phase: &str) -> Child {
         .env("SWARMIE_TASK_FIXTURE_LOG", log)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if phase == "interrupt" {
+    if phase.ends_with("interrupt") {
         command.env("SWARMIE_TASK_FIXTURE_HANG_AFTER_EFFECT", "1");
     }
     command.spawn().unwrap()
@@ -41,7 +41,11 @@ fn effect_count(log: &Path) -> usize {
 }
 
 fn interrupt_after_effect(database: &Path, log: &Path, expected: usize) {
-    let mut child = child(database, log, "interrupt");
+    interrupt_phase_after_effect(database, log, "interrupt", expected);
+}
+
+fn interrupt_phase_after_effect(database: &Path, log: &Path, phase: &str, expected: usize) {
+    let mut child = child(database, log, phase);
     let started = Instant::now();
     while effect_count(log) < expected {
         if let Some(status) = child.try_wait().unwrap() {
@@ -75,6 +79,21 @@ fn killed_effect_repeats_with_identical_operation_key_and_recovered_checkpoint()
     let log = directory.path().join("effects.log");
     interrupt_after_effect(&database, &log, 1);
     finish(&database, &log, "complete");
+    let lines = fs::read_to_string(&log)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    assert_eq!(lines, ["process-task:publish", "process-task:publish"]);
+}
+
+#[test]
+fn killed_continued_phase_recovers_from_its_reserved_checkpoint() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("tasks.sqlite");
+    let log = directory.path().join("effects.log");
+    interrupt_phase_after_effect(&database, &log, "continue-interrupt", 1);
+    finish(&database, &log, "continue-complete");
     let lines = fs::read_to_string(&log)
         .unwrap()
         .lines()
@@ -202,7 +221,11 @@ fn child_process() -> Result<()> {
                     .is_none()
                 {
                     let mut spec = task("process-task");
-                    spec.input = json!({"effect_log":log});
+                    spec.input = if phase.to_str().is_some_and(|phase| phase.starts_with("continue-")) {
+                        json!({"effect_log":log,"continue":true})
+                    } else {
+                        json!({"effect_log":log})
+                    };
                     tasks.create(spec).await?;
                 }
                 if phase == "retry" {
@@ -351,7 +374,7 @@ fn child_process() -> Result<()> {
                         )));
                     }
                 }
-                if phase == "complete" || phase == "retry" {
+                if phase == "complete" || phase == "retry" || phase == "continue-complete" {
                     let storage = host.get(TaskStorage, TaskStorageInput {}).await?;
                     let consumer = outbox_consumer::install(&host, "fixture.process-outbox-reader", storage).await?;
                     consumer.register_outbox_consumer(TaskOutboxConsumer { id: "recovery-provenance".into() }).await?;
@@ -359,6 +382,24 @@ fn child_process() -> Result<()> {
                     assert!(durable.events.iter().any(|event| event.task_id == "process-task" && event.previous_status == Some(TaskStatus::Running) && event.provenance == Some(TaskTransitionProvenance { origin: TaskLifecycleOrigin::Recovery, checkpoint_committed: false })), "real process restart records recovery provenance atomically");
                     if phase == "retry" {
                         assert!(durable.events.iter().any(|event| event.provenance == Some(TaskTransitionProvenance { origin: TaskLifecycleOrigin::Retry, checkpoint_committed: false })));
+                    }
+                    if phase == "continue-complete" {
+                        let continuation = Some(TaskTransitionProvenance { origin: TaskLifecycleOrigin::Reservation, checkpoint_committed: true });
+                        let history: Vec<_> = durable.events.iter().filter(|event| event.task_id == "process-task").map(|event| (event.phase.as_str(), event.previous_status, event.current_status, event.attempt, event.restarts, event.provenance.map(|provenance| provenance.origin))).collect();
+                        // The killed process committed prepare's decision together with the effect
+                        // reservation. Recovery resumes that reserved phase, never prepare, and the
+                        // next continuation resets the restart count again.
+                        assert_eq!(history, [
+                            ("prepare", None, TaskStatus::Pending, 0, 0, Some(TaskLifecycleOrigin::Creation)),
+                            ("prepare", Some(TaskStatus::Pending), TaskStatus::Running, 1, 0, Some(TaskLifecycleOrigin::Reservation)),
+                            ("effect", Some(TaskStatus::Running), TaskStatus::Running, 2, 0, Some(TaskLifecycleOrigin::Reservation)),
+                            ("effect", Some(TaskStatus::Running), TaskStatus::Pending, 2, 1, Some(TaskLifecycleOrigin::Recovery)),
+                            ("effect", Some(TaskStatus::Pending), TaskStatus::Running, 3, 1, Some(TaskLifecycleOrigin::Reservation)),
+                            ("finish", Some(TaskStatus::Running), TaskStatus::Running, 4, 0, Some(TaskLifecycleOrigin::Reservation)),
+                            ("finish", Some(TaskStatus::Running), TaskStatus::Terminal, 4, 0, Some(TaskLifecycleOrigin::Handler)),
+                        ]);
+                        assert_eq!(durable.events.iter().filter(|event| event.provenance == continuation).count(), 2);
+                        assert_eq!(record.attempts, 4);
                     }
                 }
                 if phase == "reopen-terminal" {

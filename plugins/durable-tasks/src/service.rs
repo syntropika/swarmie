@@ -20,6 +20,7 @@ use crate::{
     observation::Observations,
     reads::is_contention,
     scheduler::{Engine, Wake},
+    waiters::Waiters,
     work::Work,
 };
 
@@ -125,6 +126,7 @@ pub fn facet(configuration: &Configuration, driver: Rc<dyn core::Driver>) -> Res
                     committed_sequence,
                     work: RefCell::new(Work::default()),
                     reconcile_gate: futures::lock::Mutex::new(()),
+                    waiters: Waiters::default(),
                 });
                 let activity = engine.clone();
                 declaration
@@ -302,7 +304,12 @@ impl DurableTasksProvider for Service {
         self.engine.get(&context, &request.id).await
     }
 
+    /// Every outcome comes from an authoritative terminal read. A terminal commit wakes the
+    /// task's callers immediately; a fallback read at `poll_interval_ms` also observes external
+    /// writers. Registration precedes the first read so a concurrent commit cannot lose a wake.
     async fn wait(&self, request: TaskLookup, context: Context) -> Result<TaskOutcome> {
+        let waiter = self.engine.waiters.register(&request.id);
+        let interval = Duration::from_millis(self.engine.configuration.poll_interval_ms);
         loop {
             let record = self.engine.require(&context, &request.id).await?;
             if record.is_terminal() {
@@ -312,13 +319,13 @@ impl DurableTasksProvider for Service {
             }
             self.engine.ensure_running()?;
             let stopped = context.cancellation().cancelled();
-            let timer = self.engine.driver.sleep(Duration::from_millis(
-                self.engine.configuration.poll_interval_ms,
-            ));
-            if let futures::future::Either::Left((error, _)) =
-                futures::future::select(stopped, timer).await
-            {
-                return Err(error);
+            let notified = waiter.notified();
+            let timer = self.engine.driver.sleep(interval);
+            futures::pin_mut!(stopped, notified, timer);
+            futures::select_biased! {
+                error = stopped.fuse() => return Err(error),
+                () = notified.fuse() => {},
+                () = timer.fuse() => {},
             }
         }
     }

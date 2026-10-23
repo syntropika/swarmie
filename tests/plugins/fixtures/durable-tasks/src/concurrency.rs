@@ -13,6 +13,7 @@ use tembra::{core, prelude::*};
 pub struct StorageControl {
     backend: TaskStorageRef,
     owner: RefCell<Option<String>>,
+    pub gets: Cell<usize>,
     pub scans: Cell<usize>,
     pub commits: Cell<usize>,
     pub page_limit: Cell<u32>,
@@ -27,15 +28,33 @@ pub struct StorageControl {
     pub insert_child_during_complete: Cell<bool>,
     pub pause_final_commit: Cell<bool>,
     pub final_commit_started: Cell<bool>,
+    /// Holds the parent's next continuation write until [`StorageControl::release_commit`].
+    pub pause_continuation_commit: Cell<bool>,
+    pub continuation_commit_started: Cell<bool>,
+    /// Commits the parent's cancellation intent right after its next continuation write.
+    pub cancel_after_continuation: Cell<bool>,
+    /// Commits cancellation intent for the owner of the next continued child task right after
+    /// that child's continuation write.
+    pub cancel_owner_after_continuation: Cell<bool>,
+    /// Every write confirmed through this proxy, in commit order.
+    pub committed: RefCell<Vec<TaskWrite>>,
     released: core::CancellationToken,
     effects: RefCell<BTreeMap<String, usize>>,
+    completions: RefCell<BTreeMap<String, usize>>,
 }
+
+/// Provenance of a write that commits a continuation and reserves its next phase.
+pub const CONTINUATION: TaskTransitionProvenance = TaskTransitionProvenance {
+    origin: TaskLifecycleOrigin::Reservation,
+    checkpoint_committed: true,
+};
 
 impl StorageControl {
     pub fn new(backend: TaskStorageRef) -> Rc<Self> {
         Rc::new(Self {
             backend,
             owner: RefCell::new(None),
+            gets: Cell::new(0),
             scans: Cell::new(0),
             commits: Cell::new(0),
             page_limit: Cell::new(0),
@@ -50,12 +69,19 @@ impl StorageControl {
             insert_child_during_complete: Cell::new(false),
             pause_final_commit: Cell::new(false),
             final_commit_started: Cell::new(false),
+            pause_continuation_commit: Cell::new(false),
+            continuation_commit_started: Cell::new(false),
+            cancel_after_continuation: Cell::new(false),
+            cancel_owner_after_continuation: Cell::new(false),
+            committed: RefCell::new(Vec::new()),
             released: core::CancellationToken::new(),
             effects: RefCell::new(BTreeMap::new()),
+            completions: RefCell::new(BTreeMap::new()),
         })
     }
 
     pub fn reset_counts(&self) {
+        self.gets.set(0);
         self.scans.set(0);
         self.commits.set(0);
         self.unfiltered_scans.set(0);
@@ -72,6 +98,43 @@ impl StorageControl {
 
     pub fn effects(&self, id: &str) -> usize {
         *self.effects.borrow().get(id).unwrap_or(&0)
+    }
+
+    /// Invocations of the effect-free `complete` phase that follows a continuation.
+    pub fn completions(&self, id: &str) -> usize {
+        *self.completions.borrow().get(id).unwrap_or(&0)
+    }
+
+    /// Writes durable cancellation intent through the backend, bypassing the scheduler.
+    async fn request_cancellation(&self, id: &str, owner: &str) -> Result<()> {
+        let mut record = self
+            .backend
+            .get(TaskLookup { id: id.into() })
+            .await?
+            .ok_or_else(|| {
+                RuntimeError::invalid("fixture_missing", "cancellation requires a committed task")
+            })?;
+        let revision = record.revision;
+        record.revision += 1;
+        record.cancellation_requested = true;
+        match self
+            .backend
+            .commit(TaskTransaction {
+                owner: owner.into(),
+                writes: vec![TaskWrite {
+                    provenance: None,
+                    expected_revision: Some(revision),
+                    record,
+                }],
+            })
+            .await?
+        {
+            CommitResult::Committed { .. } => Ok(()),
+            CommitResult::Conflict { .. } => Err(RuntimeError::invalid(
+                "fixture_conflict",
+                "controlled cancellation unexpectedly conflicted",
+            )),
+        }
     }
 
     pub async fn external_create(&self, spec: TaskSpec) -> Result<()> {
@@ -96,6 +159,48 @@ impl StorageControl {
             CommitResult::Conflict { .. } => Err(RuntimeError::invalid(
                 "fixture_conflict",
                 "external task already exists",
+            )),
+        }
+    }
+
+    /// Settles a childless task with `outcome` through the backend under the scheduler's claimed
+    /// owner. The write bypasses the scheduler, so no local commit hint reaches its waiters.
+    pub async fn external_settle(&self, id: &str, outcome: TaskOutcome) -> Result<()> {
+        let owner = self
+            .owner
+            .borrow()
+            .clone()
+            .expect("claimed scheduler storage");
+        let mut record = self
+            .backend
+            .get(TaskLookup { id: id.into() })
+            .await?
+            .ok_or_else(|| {
+                RuntimeError::invalid("fixture_missing", "settlement requires a committed task")
+            })?;
+        let revision = record.revision;
+        record.revision += 1;
+        record.status = TaskStatus::Terminal;
+        record.outcome = Some(outcome);
+        record.wake_at_ms = None;
+        record.wait_for.clear();
+        record.blocking_reason = None;
+        match self
+            .backend
+            .commit(TaskTransaction {
+                owner,
+                writes: vec![TaskWrite {
+                    provenance: None,
+                    expected_revision: Some(revision),
+                    record,
+                }],
+            })
+            .await?
+        {
+            CommitResult::Committed { .. } => Ok(()),
+            CommitResult::Conflict { .. } => Err(RuntimeError::invalid(
+                "fixture_conflict",
+                "external settlement unexpectedly conflicted",
             )),
         }
     }
@@ -244,6 +349,7 @@ impl TaskStorageProvider for Proxy {
         Ok(())
     }
     async fn get(&self, request: TaskLookup, _context: Context) -> Result<Option<TaskRecord>> {
+        self.control.gets.set(self.control.gets.get() + 1);
         self.control.backend.get(request).await
     }
     async fn scan(&self, mut query: TaskQuery, _context: Context) -> Result<TaskPage> {
@@ -375,7 +481,34 @@ impl TaskStorageProvider for Proxy {
                 .set(self.control.metadata_conflicts.get() - 1);
             self.control.bump("parent", &transaction.owner).await?;
         }
-        self.control.backend.commit(transaction).await
+        let continuation = transaction
+            .writes
+            .iter()
+            .any(|write| write.record.id == "parent" && write.provenance == Some(CONTINUATION));
+        if continuation && self.control.pause_continuation_commit.replace(false) {
+            self.control.continuation_commit_started.set(true);
+            self.control.released.cancelled().await;
+        }
+        let continued_owner = transaction
+            .writes
+            .iter()
+            .find(|write| write.provenance == Some(CONTINUATION))
+            .and_then(|write| write.record.parent.clone());
+        let writes = transaction.writes.clone();
+        let owner = transaction.owner.clone();
+        let result = self.control.backend.commit(transaction).await?;
+        if matches!(result, CommitResult::Committed { .. }) {
+            self.control.committed.borrow_mut().extend(writes);
+            if continuation && self.control.cancel_after_continuation.replace(false) {
+                self.control.request_cancellation("parent", &owner).await?;
+            }
+            if let Some(ancestor) = continued_owner
+                && self.control.cancel_owner_after_continuation.replace(false)
+            {
+                self.control.request_cancellation(&ancestor, &owner).await?;
+            }
+        }
+        Ok(result)
     }
 }
 
@@ -420,6 +553,17 @@ impl ConcurrentHandlerProvider for Handler {
                 reason: "no migration needed".into(),
             });
         };
+        if task.phase == "complete" {
+            *self
+                .control
+                .completions
+                .borrow_mut()
+                .entry(task.id.clone())
+                .or_default() += 1;
+            return Ok(TaskTransition::Complete {
+                value: serde_json::json!({"completed_after_continuation":true}),
+            });
+        }
         *self
             .control
             .effects
@@ -458,9 +602,37 @@ impl ConcurrentHandlerProvider for Handler {
                 phase: "illegal".into(),
             });
         }
-        if task.input["collision"] == true {
-            Ok(TaskTransition::Wait {
+        // Continues through `chain` effect-free phases that each settle synchronously, then
+        // completes.
+        if let Some(total) = task.input["chain"].as_u64() {
+            let step = task.checkpoint["step"].as_u64().unwrap_or(0);
+            return Ok(if step < total {
+                TaskTransition::Continue {
+                    checkpoint: serde_json::json!({"step":step + 1}),
+                    phase: format!("chain-{}", step + 1),
+                }
+            } else {
+                TaskTransition::Complete {
+                    value: serde_json::json!({"steps":step}),
+                }
+            });
+        }
+        if task.input["continue"] == true {
+            return Ok(TaskTransition::Continue {
                 checkpoint: serde_json::json!({"effect_performed":true}),
+                phase: "complete".into(),
+            });
+        }
+        if task.input["collision"] == true {
+            // An oversized checkpoint makes the waiting parent record exceed its byte budget
+            // while the whole transaction, created child included, still fits a payload.
+            let checkpoint = if task.input["oversized_checkpoint"] == true {
+                serde_json::json!({"effect_performed":true,"data":"x".repeat(780_000)})
+            } else {
+                serde_json::json!({"effect_performed":true})
+            };
+            Ok(TaskTransition::Wait {
+                checkpoint,
                 phase: "complete".into(),
                 children: vec![TaskSpec {
                     id: "collision".into(),

@@ -5,7 +5,9 @@
 //! recovered, blocked, parked, retry, cancellation requested, terminal. State-specific hooks
 //! describe entry into that status; reconciliation of an unchanged status does not repeat them.
 //! Checkpoint acceptance is observed even when its value is unchanged. A recovered write may
-//! also enter parked, and a checkpoint write may also enter waiting or sleeping.
+//! also enter parked, and a checkpoint write may also enter waiting or sleeping. A continuation
+//! write reserves the next phase while accepting a checkpoint, so one revision reports phase
+//! started followed by checkpoint, after the previous phase's settlement.
 //!
 //! Physical phase settlement is a separate fact from any subsequent handler-result commit.
 //! Notification order is local to the publisher; it is not a global durable delivery order.
@@ -157,7 +159,8 @@ pub enum TaskLifecycleEvent {
         previous_status: Option<TaskStatus>,
         current_status: TaskStatus,
         origin: TaskLifecycleOrigin,
-        /// An accepted Checkpoint, Sleep, Wait or Migrate payload was committed, even unchanged.
+        /// An accepted Checkpoint, Continue, Sleep, Wait or Migrate payload was committed,
+        /// even unchanged.
         checkpoint_committed: bool,
         /// Cancellation intent changed from false to true in this confirmed write.
         cancellation_requested: bool,

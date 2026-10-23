@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use swarmie_task_contracts::{TaskQuery, TaskRecord, TaskStatus};
 use tembra::{Context, Result, RuntimeError};
 
-use crate::scheduler::Engine;
+use crate::scheduler::{Engine, yield_now};
 
 pub(crate) const ACTIVE: [TaskStatus; 7] = [
     TaskStatus::Pending,
@@ -73,7 +73,8 @@ impl Engine {
             records.extend(page.records);
             if let Some(next) = page.next {
                 query.cursor = Some(next);
-                self.driver.sleep(std::time::Duration::from_millis(1)).await;
+                // Bound synchronous page reads; a write admitted meanwhile invalidates the cursor.
+                yield_now().await;
             } else {
                 return Ok((page.sequence, records));
             }

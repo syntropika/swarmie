@@ -22,7 +22,8 @@ pub trait DurableWorkflow {
     async fn step(&self, invocation: TaskInvocation) -> Result<TaskTransition>;
 }
 
-/// Creates a workflow at the first resumable phase.
+/// Creates a workflow at the first resumable phase. An input `"continue": true` advances its
+/// phases with in-place continuations instead of Pending checkpoints.
 pub fn task(id: &str) -> TaskSpec {
     TaskSpec {
         id: id.into(),
@@ -83,11 +84,25 @@ impl DurableWorkflowProvider for Workflow {
             }
             TaskInvocation::Run { task, .. } => task,
         };
+        let continued = task.input["continue"] == true;
+        let advance = |checkpoint, phase: &str| {
+            if continued {
+                TaskTransition::Continue {
+                    checkpoint,
+                    phase: phase.into(),
+                }
+            } else {
+                TaskTransition::Checkpoint {
+                    checkpoint,
+                    phase: phase.into(),
+                }
+            }
+        };
         match task.phase.as_str() {
-            "prepare" => Ok(TaskTransition::Checkpoint {
-                checkpoint: serde_json::json!({"operation_id":format!("{}:publish",task.id)}),
-                phase: "effect".into(),
-            }),
+            "prepare" => Ok(advance(
+                serde_json::json!({"operation_id":format!("{}:publish",task.id)}),
+                "effect",
+            )),
             "effect" => {
                 if let Some(path) = task.input["effect_log"].as_str() {
                     let mut file = OpenOptions::new()
@@ -113,10 +128,7 @@ impl DurableWorkflowProvider for Workflow {
                         futures::future::pending::<()>().await;
                     }
                 }
-                Ok(TaskTransition::Checkpoint {
-                    checkpoint: task.checkpoint,
-                    phase: "finish".into(),
-                })
+                Ok(advance(task.checkpoint, "finish"))
             }
             "finish" => Ok(TaskTransition::Complete {
                 value: serde_json::json!({"published":true,"version":self.version}),

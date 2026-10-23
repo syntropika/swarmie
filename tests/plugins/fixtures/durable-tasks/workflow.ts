@@ -51,6 +51,14 @@ export function workflow(version: number) {
                   phase: "finish",
                 };
               }
+              if (task.phase === "gated-continue") {
+                await gate.await_gate(context);
+                return {
+                  type: "continue",
+                  checkpoint: { executed_by: version },
+                  phase: "finish",
+                };
+              }
               return { type: "complete", value: { published: true, version } };
             },
           })(input, self);

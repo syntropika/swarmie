@@ -11,7 +11,7 @@ use serde_json::json;
 use swarmie_composition::{FacetIdentity, FacetTarget, PluginKind, Release, Selection};
 use swarmie_durable_tasks_fixture::{
     gate::{self, TaskGate, TaskGateInput},
-    task, volatile_storage,
+    outbox_consumer, task, volatile_storage,
 };
 use swarmie_runtime::{
     Application, CompiledPlugin, Configuration, compiled_plugins, start_with_catalog,
@@ -409,6 +409,264 @@ fn admitted_old_javascript_phase_settles_before_next_phase_uses_replacement() {
             Some(TaskOutcome::Completed {
                 value: json!({"published":true,"version":2})
             })
+        );
+        runtime.host.close().await.unwrap();
+    });
+}
+
+#[test]
+fn a_missing_definition_before_a_continued_phase_preserves_the_checkpoint() {
+    run(|driver| async move {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("tasks.sqlite");
+        let mut runtime = start_with_catalog(
+            driver.clone(),
+            configuration(directory.path(), application(&database, false, true)),
+            catalog(driver.clone()),
+        )
+        .await
+        .unwrap();
+        assert!(
+            runtime.deployment_errors.is_empty(),
+            "{:?}",
+            runtime.deployment_errors
+        );
+        let storage = runtime
+            .host
+            .get(TaskStorage, TaskStorageInput {})
+            .await
+            .unwrap();
+        let consumer =
+            outbox_consumer::install(&runtime.host, "fixture.continuation-removal-audit", storage)
+                .await
+                .unwrap();
+        consumer
+            .register_outbox_consumer(TaskOutboxConsumer {
+                id: "continuation-removal-audit".into(),
+            })
+            .await
+            .unwrap();
+        let tasks = runtime
+            .host
+            .get(DurableTasks, DurableTasksInput {})
+            .await
+            .unwrap();
+        let gate = runtime.host.get(TaskGate, TaskGateInput {}).await.unwrap();
+        let mut spec = task("removed-continued");
+        spec.phase = "gated-continue".into();
+        tasks.create(spec).await.unwrap();
+        while gate.entered().value().unwrap() == 0 {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        let mut removed = runtime.desired_application().clone();
+        removed
+            .composition
+            .profile
+            .plugins
+            .retain(|selection| selection.id != "workflow");
+        let report = runtime.apply_application(removed).await.unwrap();
+        assert!(matches!(
+            report.results["workflow"].outcome,
+            swarmie_runtime::TransitionOutcome::Applied
+        ));
+        gate.release_gate().await.unwrap();
+        let blocked = loop {
+            let record = tasks
+                .get(TaskLookup {
+                    id: "removed-continued".into(),
+                })
+                .await
+                .unwrap()
+                .unwrap();
+            if record.status == TaskStatus::Blocked {
+                break record;
+            }
+            assert!(
+                !record.is_terminal(),
+                "the missing definition must not execute the next phase: {record:?}"
+            );
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        };
+        assert_eq!(
+            blocked.blocking_reason,
+            Some(BlockingReason::MissingDefinition)
+        );
+        assert_eq!(blocked.phase, "finish");
+        assert_eq!(blocked.checkpoint, json!({"executed_by":1}));
+        assert_eq!(blocked.attempts, 1);
+        let events = consumer
+            .read_outbox(TaskOutboxQuery {
+                consumer_id: "continuation-removal-audit".into(),
+                after: None,
+                limit: 256,
+            })
+            .await
+            .unwrap()
+            .events;
+        assert!(
+            events.iter().any(|event| {
+                event.task_id == "removed-continued"
+                    && event.phase == "finish"
+                    && event.current_status == TaskStatus::Pending
+                    && event.provenance
+                        == Some(TaskTransitionProvenance {
+                            origin: TaskLifecycleOrigin::Handler,
+                            checkpoint_committed: true,
+                        })
+            }),
+            "the settled decision must commit before ordinary missing-definition blocking"
+        );
+        runtime.host.close().await.unwrap();
+    });
+}
+
+#[test]
+fn a_definition_change_before_a_continued_phase_commits_pending_and_migrates() {
+    run(|driver| async move {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("tasks.sqlite");
+        let mut runtime = start_with_catalog(
+            driver.clone(),
+            configuration(directory.path(), application(&database, false, true)),
+            catalog(driver.clone()),
+        )
+        .await
+        .unwrap();
+        assert!(
+            runtime.deployment_errors.is_empty(),
+            "{:?}",
+            runtime.deployment_errors
+        );
+        let storage = runtime
+            .host
+            .get(TaskStorage, TaskStorageInput {})
+            .await
+            .unwrap();
+        let consumer = outbox_consumer::install(
+            &runtime.host,
+            "fixture.continuation-migration-audit",
+            storage,
+        )
+        .await
+        .unwrap();
+        consumer
+            .register_outbox_consumer(TaskOutboxConsumer {
+                id: "continuation-migration-audit".into(),
+            })
+            .await
+            .unwrap();
+        let tasks = runtime
+            .host
+            .get(DurableTasks, DurableTasksInput {})
+            .await
+            .unwrap();
+        let gate = runtime.host.get(TaskGate, TaskGateInput {}).await.unwrap();
+        let mut spec = task("reload-continued");
+        spec.phase = "gated-continue".into();
+        tasks.create(spec).await.unwrap();
+        while gate.entered().value().unwrap() == 0 {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        let mut replacement = runtime.desired_application().clone();
+        replacement
+            .composition
+            .profile
+            .plugins
+            .iter_mut()
+            .find(|selection| selection.id == "workflow")
+            .unwrap()
+            .version = "1.1.0".into();
+        let report = runtime.apply_application(replacement).await.unwrap();
+        assert!(matches!(
+            report.results["workflow"].outcome,
+            swarmie_runtime::TransitionOutcome::Applied
+        ));
+        gate.release_gate().await.unwrap();
+        let completed = terminal(&tasks, "reload-continued").await;
+        assert_eq!(completed.checkpoint, json!({"executed_by":1}));
+        assert_eq!(completed.definition_version, 2);
+        assert_eq!(
+            completed.outcome,
+            Some(TaskOutcome::Completed {
+                value: json!({"published":true,"version":2})
+            })
+        );
+        let events = consumer
+            .read_outbox(TaskOutboxQuery {
+                consumer_id: "continuation-migration-audit".into(),
+                after: None,
+                limit: 256,
+            })
+            .await
+            .unwrap()
+            .events;
+        let history: Vec<_> = events
+            .iter()
+            .filter(|event| event.task_id == "reload-continued")
+            .map(|event| {
+                (
+                    event.phase.as_str(),
+                    event.definition_version,
+                    event.current_status,
+                    event.provenance,
+                )
+            })
+            .collect();
+        let provenance = |origin, checkpoint_committed| {
+            Some(TaskTransitionProvenance {
+                origin,
+                checkpoint_committed,
+            })
+        };
+        // The old generation's continuation is committed as an ordinary Pending checkpoint at
+        // version one, because the next phase resolves version two. Migration then runs through
+        // ordinary admission before the finish phase.
+        assert_eq!(
+            history,
+            [
+                (
+                    "gated-continue",
+                    1,
+                    TaskStatus::Pending,
+                    provenance(TaskLifecycleOrigin::Creation, false)
+                ),
+                (
+                    "gated-continue",
+                    1,
+                    TaskStatus::Running,
+                    provenance(TaskLifecycleOrigin::Reservation, false)
+                ),
+                (
+                    "finish",
+                    1,
+                    TaskStatus::Pending,
+                    provenance(TaskLifecycleOrigin::Handler, true)
+                ),
+                (
+                    "finish",
+                    1,
+                    TaskStatus::Running,
+                    provenance(TaskLifecycleOrigin::Reservation, false)
+                ),
+                (
+                    "finish",
+                    2,
+                    TaskStatus::Pending,
+                    provenance(TaskLifecycleOrigin::Handler, true)
+                ),
+                (
+                    "finish",
+                    2,
+                    TaskStatus::Running,
+                    provenance(TaskLifecycleOrigin::Reservation, false)
+                ),
+                (
+                    "finish",
+                    2,
+                    TaskStatus::Terminal,
+                    provenance(TaskLifecycleOrigin::Handler, false)
+                ),
+            ]
         );
         runtime.host.close().await.unwrap();
     });

@@ -8,7 +8,7 @@ use std::{
 };
 
 use serde_json::json;
-use swarmie_durable_tasks_fixture::{facet, task};
+use swarmie_durable_tasks_fixture::{facet, outbox_consumer, task};
 use swarmie_task_contracts::*;
 use tembra::{core, prelude::*};
 use tembra_native::TokioDriver;
@@ -501,6 +501,126 @@ fn completing_outcome_waits_for_recovered_owned_work_without_reinvoking_parent()
                 .unwrap()
                 .is_terminal()
         );
+        host.close().await
+    });
+}
+
+#[test]
+fn consecutive_continued_phases_commit_once_per_phase() {
+    run(|driver| async move {
+        let directory = tempfile::tempdir().unwrap();
+        let (host, tasks, storage) =
+            open(driver, &directory.path().join("tasks.sqlite"), Some(1)).await?;
+        let consumer =
+            outbox_consumer::install(&host, "fixture.continuation-audit", storage).await?;
+        consumer
+            .register_outbox_consumer(TaskOutboxConsumer {
+                id: "continuation-audit".into(),
+            })
+            .await?;
+        let mut continued = task("continued");
+        continued.input = json!({"continue":true});
+        tasks.create(continued).await?;
+        assert_eq!(
+            tasks
+                .wait(TaskLookup {
+                    id: "continued".into()
+                })
+                .await?,
+            TaskOutcome::Completed {
+                value: json!({"published":true,"version":1})
+            }
+        );
+        let events = consumer
+            .read_outbox(TaskOutboxQuery {
+                consumer_id: "continuation-audit".into(),
+                after: None,
+                limit: 256,
+            })
+            .await?
+            .events;
+        let provenance = |origin, checkpoint_committed| {
+            Some(TaskTransitionProvenance {
+                origin,
+                checkpoint_committed,
+            })
+        };
+        let observed: Vec<_> = events
+            .iter()
+            .map(|event| {
+                (
+                    event.revision,
+                    event.phase.as_str(),
+                    event.previous_status,
+                    event.current_status,
+                    event.attempt,
+                    event.restarts,
+                    event.provenance,
+                )
+            })
+            .collect();
+        // Three phases cost one write each after creation: prepare's reservation, two
+        // continuations that commit a decision with the next reservation, and the result.
+        assert_eq!(
+            observed,
+            [
+                (
+                    1,
+                    "prepare",
+                    None,
+                    TaskStatus::Pending,
+                    0,
+                    0,
+                    provenance(TaskLifecycleOrigin::Creation, false)
+                ),
+                (
+                    2,
+                    "prepare",
+                    Some(TaskStatus::Pending),
+                    TaskStatus::Running,
+                    1,
+                    0,
+                    provenance(TaskLifecycleOrigin::Reservation, false)
+                ),
+                (
+                    3,
+                    "effect",
+                    Some(TaskStatus::Running),
+                    TaskStatus::Running,
+                    2,
+                    0,
+                    provenance(TaskLifecycleOrigin::Reservation, true)
+                ),
+                (
+                    4,
+                    "finish",
+                    Some(TaskStatus::Running),
+                    TaskStatus::Running,
+                    3,
+                    0,
+                    provenance(TaskLifecycleOrigin::Reservation, true)
+                ),
+                (
+                    5,
+                    "finish",
+                    Some(TaskStatus::Running),
+                    TaskStatus::Terminal,
+                    3,
+                    0,
+                    provenance(TaskLifecycleOrigin::Handler, false)
+                ),
+            ]
+        );
+        assert!(
+            events[2].checkpoint_changed,
+            "the first continuation commits the operation identity"
+        );
+        let graph = tasks.graph(TaskQuery::default()).await?;
+        assert_eq!(
+            graph.records[0].checkpoint,
+            json!({"operation_id":"continued:publish"})
+        );
+        assert_eq!(tasks.committed_sequence().value()?, graph.sequence);
         host.close().await
     });
 }

@@ -62,6 +62,17 @@ impl Work {
     }
 
     pub fn observe(&mut self, task: &TaskRecord) {
+        self.record(task, true);
+    }
+
+    /// Records this engine's own Running reservation of an in-flight root without queuing it.
+    /// Its managed execution queues the task again when it settles, and a later cancellation
+    /// commit is observed on its own, so a pass now could only reread this reservation.
+    pub fn observe_reservation(&mut self, task: &TaskRecord) {
+        self.record(task, false);
+    }
+
+    fn record(&mut self, task: &TaskRecord, queue: bool) {
         if self
             .hints
             .get(&task.id)
@@ -93,7 +104,9 @@ impl Work {
                     wake: task.wake_at_ms,
                 },
             );
-            self.schedule(task.id.clone());
+            if queue {
+                self.schedule(task.id.clone());
+            }
             if task.status == TaskStatus::Sleeping
                 && let Some(wake) = task.wake_at_ms
             {
@@ -141,6 +154,14 @@ impl Work {
         self.initialized = true;
         self.rescan = false;
         true
+    }
+
+    /// Whether a task last observed as Pending, other than the given in-flight executions,
+    /// waits for an execution slot.
+    pub fn runnable_waiting(&self, inflight: &BTreeSet<String>) -> bool {
+        self.hints
+            .iter()
+            .any(|(id, hint)| hint.status == TaskStatus::Pending && !inflight.contains(id))
     }
 
     pub fn definitions_changed(&mut self) {
