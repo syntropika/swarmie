@@ -1,5 +1,8 @@
 use swarmie_session_contracts::*;
-use tembra::{ContractToken, contracts::Contract};
+use tembra::{
+    ContractToken,
+    contracts::{Contract, Member},
+};
 
 #[test]
 fn canonical_descriptor_round_trips_and_preserves_portable_operations()
@@ -8,7 +11,9 @@ fn canonical_descriptor_round_trips_and_preserves_portable_operations()
     let encoded = serde_json::to_string(descriptor.descriptor())?;
     let parsed = Contract::from_json(&encoded)?;
     assert_eq!(descriptor.fingerprint(), parsed.fingerprint());
-    assert!(encoded.contains("swarmie.session-store"));
+    assert_eq!(parsed.name(), "swarmie.session-store");
+    // Inspect the member map: descriptions mention several member names.
+    let members = parsed.members("").expect("the default variant");
     for method in [
         "identity",
         "publication_status",
@@ -17,10 +22,16 @@ fn canonical_descriptor_round_trips_and_preserves_portable_operations()
         "append",
         "events",
         "project",
-        "committed",
     ] {
-        assert!(encoded.contains(method));
+        assert!(
+            matches!(members.get(method), Some(Member::Method { .. })),
+            "{method} must be a method"
+        );
     }
+    assert!(matches!(
+        members.get("committed"),
+        Some(Member::State { .. })
+    ));
     Ok(())
 }
 
