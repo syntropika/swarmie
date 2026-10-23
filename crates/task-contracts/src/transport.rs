@@ -65,62 +65,127 @@ pub fn validate_task_payload_bytes(size: usize) -> Result<usize> {
 /// input, checkpoint and ownership field. The second measurement uses the maximum portable
 /// revision, maximum version and retry counters, and longest status/cancellation encodings,
 /// so counter growth cannot consume the diagnostic reserve. Control data must also fit the
-/// complete record ceiling; callers should bound diagnostics to the reserved space.
+/// complete record ceiling; callers should bound diagnostics to the reserved space. The record
+/// is encoded once, and both measurements are derived from that encoding.
 ///
 /// # Errors
 /// Returns `task_storage_too_large` when the complete record or its non-control fields exceed
 /// their fixed budgets, or `task_storage_invalid` for nonportable JSON. No value is modified.
 pub fn validate_task_record_size(record: &TaskRecord) -> Result<usize> {
-    validate_task_record_encoding(record, task_wire_bytes(record)?)
+    let record = tembra::contracts::to_portable_value(record).map_err(nonportable)?;
+    validate_task_record_encoding(&encode_record(record)?)
 }
 
-/// Applies [`validate_task_record_size`] to a record whose canonical length is already known.
-///
-/// `size` must be the byte length of the record's canonical portable encoding, such as a text
-/// returned by [`encode_task_transaction`]. The second measurement is derived exactly from that
-/// length: canonical JSON encodes every object member independently of its position, so
-/// removing a member subtracts its quoted name, colon, value and one separating comma, and
-/// replacing a value changes the length only by the difference between both value encodings.
-/// Only the small control and counter values are encoded; the record is never encoded again.
+/// Applies [`validate_task_record_size`] to a record that [`encode_task_transaction`] already
+/// encoded. Both measurements come from that single encoding; no part of the record, including
+/// a large outcome or blocking diagnostic, is encoded or measured again.
 ///
 /// # Errors
 /// Returns `task_storage_too_large` exactly when [`validate_task_record_size`] does for the
-/// same record, and `task_storage_invalid` for nonportable control values or a `size` that
-/// cannot be the canonical length of `record`. No value is modified.
-pub fn validate_task_record_encoding(record: &TaskRecord, size: usize) -> Result<usize> {
-    within(size, MAX_TASK_RECORD_BYTES, "task record")?;
-    let removed = member_bytes("outcome", task_wire_bytes(&record.outcome)?)
-        + member_bytes("blocking_reason", task_wire_bytes(&record.blocking_reason)?);
-    let current = integer_bytes(record.revision)
-        + [record.definition_version, record.attempts, record.restarts]
-            .into_iter()
-            .map(|value| integer_bytes(value.into()))
-            .sum::<usize>()
-        + boolean_bytes(record.cancellation_requested)
-        + task_wire_bytes(&record.status)?;
-    let widest = integer_bytes(MAX_PORTABLE_INTEGER)
-        + 3 * integer_bytes(u32::MAX.into())
-        + boolean_bytes(false)
-        + task_wire_bytes(&TaskStatus::Completing)?;
-    // The removed and replaced encodings are parts of the record's canonical text.
-    let reserved = size.checked_sub(removed + current).ok_or_else(|| {
-        RuntimeError::invalid(
-            "task_storage_invalid",
-            "the canonical record length is inconsistent with its fields",
-        )
-    })? + widest;
+/// same record. No value is modified.
+pub fn validate_task_record_encoding(record: &EncodedTaskRecord) -> Result<usize> {
+    let size = within(record.text.len(), MAX_TASK_RECORD_BYTES, "task record")?;
     within(
-        reserved,
+        record.reserved,
         MAX_TASK_RECORD_BYTES - MAX_TASK_CONTROL_BYTES,
         "task record without control fields",
     )?;
     Ok(size)
 }
 
-/// Canonical bytes of one object member with a plain ASCII name: the quoted name, its colon,
-/// the value and the single comma that separates it from a remaining member.
-fn member_bytes(name: &str, value: usize) -> usize {
-    name.len() + 2 + 1 + value + 1
+/// One task record encoded once for storage and exact size accounting.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EncodedTaskRecord {
+    text: String,
+    /// Canonical size of the same record without `outcome` and `blocking_reason`, with the
+    /// widest revision, version, retry, cancellation and status encodings.
+    reserved: usize,
+}
+
+impl EncodedTaskRecord {
+    /// Canonical portable text of the record. It equals the encoding that [`task_wire_bytes`]
+    /// measures, so its length is the record's exact wire size.
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+}
+
+/// Encodes a portable record once by joining its canonically encoded members.
+///
+/// RFC 8785 writes an object as its members, each a canonical name, a colon and its
+/// independently encoded value, sorted by the UTF-16 code units of their names, separated by
+/// commas and enclosed in braces. Joining members encoded once in that order reproduces the
+/// complete encoding. The same member texts give the exact size of the record without its
+/// control members and with the widest counter encodings, which is the second measurement of
+/// [`validate_task_record_size`], so no value is encoded or measured twice.
+fn encode_record(record: serde_json::Value) -> Result<EncodedTaskRecord> {
+    let serde_json::Value::Object(members) = record else {
+        return Err(RuntimeError::invalid(
+            "task_storage_invalid",
+            "a task record must encode as an object",
+        ));
+    };
+    let mut members = members
+        .into_iter()
+        .map(|(name, value)| {
+            let value = tembra::contracts::canonical_json(&value).map_err(nonportable)?;
+            Ok((name, value))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    members.sort_unstable_by(|(left, _), (right, _)| left.encode_utf16().cmp(right.encode_utf16()));
+    let widest_status = task_wire_bytes(&TaskStatus::Completing)?;
+    // Braces, then each member's quoted name, colon, value and separating comma.
+    let mut text = String::with_capacity(
+        2 + members
+            .iter()
+            .map(|(name, value)| name.len() + value.len() + 4)
+            .sum::<usize>(),
+    );
+    let mut reserved = "{}".len();
+    let mut kept = 0;
+    text.push('{');
+    for (index, (name, value)) in members.iter().enumerate() {
+        if index > 0 {
+            text.push(',');
+        }
+        let start = text.len();
+        push_name(&mut text, name)?;
+        let name_bytes = text.len() - start;
+        text.push(':');
+        text.push_str(value);
+        let width = match name.as_str() {
+            "outcome" | "blocking_reason" => continue,
+            "revision" => integer_bytes(MAX_PORTABLE_INTEGER),
+            "definition_version" | "attempts" | "restarts" => integer_bytes(u32::MAX.into()),
+            "cancellation_requested" => boolean_bytes(false),
+            "status" => widest_status,
+            _ => value.len(),
+        };
+        // The reserved object keeps this member: one comma after its first member, the
+        // canonical name, a colon and the value at its reserved width.
+        reserved += usize::from(kept > 0) + name_bytes + ":".len() + width;
+        kept += 1;
+    }
+    text.push('}');
+    Ok(EncodedTaskRecord { text, reserved })
+}
+
+/// Appends the canonical text of a member name. RFC 8785 escapes only quotation marks, reverse
+/// solidi and control characters, so a name of ASCII letters, digits and underscores, such as
+/// every task record member, is quoted verbatim. Any other name is encoded as a string.
+fn push_name(text: &mut String, name: &str) -> Result<()> {
+    if name
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+    {
+        text.push('"');
+        text.push_str(name);
+        text.push('"');
+    } else {
+        let name = serde_json::Value::String(name.to_owned());
+        text.push_str(&tembra::contracts::canonical_json(&name).map_err(nonportable)?);
+    }
+    Ok(())
 }
 
 /// Portable integers encode as plain decimal digits without sign, exponent or fraction.
@@ -137,9 +202,8 @@ fn boolean_bytes(value: bool) -> usize {
 /// One task transaction encoded once for storage and exact size accounting.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EncodedTaskTransaction {
-    /// Canonical portable text of each written record, in write order. Each text equals the
-    /// encoding measured by [`task_wire_bytes`] for that record.
-    pub records: Vec<String>,
+    /// Each written record encoded once, in write order.
+    pub records: Vec<EncodedTaskRecord>,
     /// Exact canonical wire size of the complete transaction.
     pub bytes: usize,
 }
@@ -177,12 +241,12 @@ pub fn encode_task_transaction(transaction: &TaskTransaction) -> Result<EncodedT
             .get_mut("record")
             .map(serde_json::Value::take)
             .ok_or_else(missing)?;
-        let text = tembra::contracts::canonical_json(&record).map_err(nonportable)?;
+        let record = encode_record(record)?;
         let envelope = tembra::contracts::canonical_json(&envelope)
             .map_err(nonportable)?
             .len();
-        bytes += usize::from(index > 0) + envelope - "null".len() + text.len();
-        records.push(text);
+        bytes += usize::from(index > 0) + envelope - "null".len() + record.text.len();
+        records.push(record);
     }
     Ok(EncodedTaskTransaction { records, bytes })
 }
@@ -305,21 +369,34 @@ mod tests {
         Ok(size)
     }
 
+    /// Compares both derived paths with the reference: a standalone record and the same record
+    /// encoded inside a transaction, whose writes are converted at their nested depth.
     fn assert_reference_result(record: &TaskRecord) {
-        match (
-            reference_record_size(record),
+        let encoded = encode_task_transaction(&TaskTransaction {
+            owner: "owner".into(),
+            writes: vec![TaskWrite {
+                provenance: None,
+                expected_revision: None,
+                record: record.clone(),
+            }],
+        })
+        .expect("a shallow portable record encodes inside a transaction");
+        for actual in [
             validate_task_record_size(record),
-        ) {
-            (Ok(expected), Ok(actual)) => assert_eq!(expected, actual),
-            (Err(expected), Err(actual)) => {
-                assert_eq!(expected.reason, actual.reason);
-                assert_eq!(expected.message, actual.message);
+            validate_task_record_encoding(&encoded.records[0]),
+        ] {
+            match (reference_record_size(record), actual) {
+                (Ok(expected), Ok(actual)) => assert_eq!(expected, actual),
+                (Err(expected), Err(actual)) => {
+                    assert_eq!(expected.reason, actual.reason);
+                    assert_eq!(expected.message, actual.message);
+                }
+                (expected, actual) => panic!(
+                    "derived record budget differs from the reference: {:?} versus {:?}",
+                    expected.map_err(|error| error.reason),
+                    actual.map_err(|error| error.reason)
+                ),
             }
-            (expected, actual) => panic!(
-                "derived record budget differs from the reference: {:?} versus {:?}",
-                expected.map_err(|error| error.reason),
-                actual.map_err(|error| error.reason)
-            ),
         }
     }
 
@@ -445,10 +522,35 @@ mod tests {
         let mut total = record();
         total.checkpoint = serde_json::json!("x".repeat(MAX_TASK_RECORD_BYTES));
         assert_reference_result(&total);
+        Ok(())
+    }
+
+    #[test]
+    fn assembled_members_equal_the_complete_canonical_object() -> Result<()> {
+        // Escaped names use the general path. The emoji's UTF-16 surrogates sort before the
+        // half-width full stop, although its UTF-8 bytes sort after it.
+        let object = serde_json::json!({
+            "plain_name": 1.0,
+            "a": [2.5, "é\"\\\u{2028}", {"z": null, "b": -0.5}],
+            "": "empty",
+            "é": true,
+            "quoted\"name": {"nested": [false]},
+            "control\u{7}": -3,
+            "\u{1F600}": "supplementary",
+            "\u{FF61}": "half-width",
+        });
+        let encoded = encode_record(object.clone())?;
         assert_eq!(
-            validate_task_record_encoding(&record(), 3)
-                .unwrap_err()
-                .reason,
+            encoded.text(),
+            tembra::contracts::canonical_json(&object).map_err(nonportable)?
+        );
+        let record = tembra::contracts::to_portable_value(&record()).map_err(nonportable)?;
+        assert_eq!(
+            encode_record(record.clone())?.text(),
+            tembra::contracts::canonical_json(&record).map_err(nonportable)?
+        );
+        assert_eq!(
+            encode_record(serde_json::json!([])).unwrap_err().reason,
             "task_storage_invalid"
         );
         Ok(())
@@ -497,18 +599,24 @@ mod tests {
                     .iter()
                     .map(|write| write.record.clone())
                     .collect();
-                for (text, record) in encoded.records.iter().zip(&records) {
+                for (written, record) in encoded.records.iter().zip(&records) {
                     let value =
                         tembra::contracts::to_portable_value(record).map_err(nonportable)?;
                     assert_eq!(
-                        text,
-                        &tembra::contracts::canonical_json(&value).map_err(nonportable)?
+                        written.text(),
+                        tembra::contracts::canonical_json(&value).map_err(nonportable)?
                     );
-                    validate_task_record_encoding(record, text.len())?;
+                    assert_eq!(
+                        validate_task_record_encoding(written)?,
+                        reference_record_size(record)?
+                    );
                 }
                 for sequence in [1, 4096, MAX_PORTABLE_INTEGER] {
                     assert_eq!(
-                        committed_receipt_bytes(sequence, encoded.records.iter().map(String::len))?,
+                        committed_receipt_bytes(
+                            sequence,
+                            encoded.records.iter().map(|record| record.text().len())
+                        )?,
                         task_wire_bytes(&CommitResult::Committed {
                             sequence,
                             records: records.clone(),

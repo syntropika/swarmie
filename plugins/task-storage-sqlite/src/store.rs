@@ -9,10 +9,11 @@ use std::{
 
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use swarmie_task_contracts::{
-    CommitResult, MAX_PORTABLE_INTEGER, MAX_TASK_PAGE_BYTES, MAX_TASK_RECORD_BYTES, StorageOwner,
-    TaskCursor, TaskLookup, TaskPage, TaskQuery, TaskRecord, TaskStatus, TaskStorageIdentity,
-    TaskTransaction, committed_receipt_bytes, encode_task_transaction, task_wire_bytes,
-    validate_identity, validate_task_payload_bytes, validate_task_record_encoding,
+    CommitResult, EncodedTaskRecord, MAX_PORTABLE_INTEGER, MAX_TASK_PAGE_BYTES,
+    MAX_TASK_RECORD_BYTES, StorageOwner, TaskCursor, TaskLookup, TaskPage, TaskQuery, TaskRecord,
+    TaskStatus, TaskStorageIdentity, TaskTransaction, committed_receipt_bytes,
+    encode_task_transaction, task_wire_bytes, validate_identity, validate_task_payload_bytes,
+    validate_task_record_encoding,
 };
 use tembra::{RuntimeError, core::ErrorCode};
 
@@ -372,9 +373,11 @@ impl Store {
             return Err(invalid("transactions require 1..=256 task writes"));
         }
         // Encode each record exactly once. That canonical text is the stored row and the exact
-        // basis of the record, request and receipt budgets. Arguments reach this provider only
-        // through Tembra's portable decoding, which already represents every integral number
-        // as an integer, so immutable comparisons below observe canonical portable numbers.
+        // basis of the record, control reserve, request and receipt budgets; the reserve comes
+        // from the same member encodings, so a large outcome is never encoded again. Arguments
+        // reach this provider only through Tembra's portable decoding, which already
+        // represents every integral number as an integer, so immutable comparisons below
+        // observe canonical portable numbers.
         let encoded = encode_task_transaction(&batch).map_err(size_error)?;
         validate_task_payload_bytes(encoded.bytes).map_err(size_error)?;
         let connection = self.connection.borrow();
@@ -387,7 +390,7 @@ impl Store {
         let mut candidates = BTreeMap::new();
         let mut previous = BTreeMap::new();
         for (index, write) in batch.writes.iter().enumerate() {
-            validate_record(&write.record, encoded.records[index].len())?;
+            validate_record(&write.record, &encoded.records[index])?;
             let record = &write.record;
             if candidates.insert(record.id.as_str(), index).is_some() {
                 return Err(invalid("duplicate task write"));
@@ -434,8 +437,11 @@ impl Store {
         }
         validate_relationships(&transaction, &batch, &candidates, &previous)?;
         validate_task_payload_bytes(
-            committed_receipt_bytes(sequence + 1, encoded.records.iter().map(String::len))
-                .map_err(size_error)?,
+            committed_receipt_bytes(
+                sequence + 1,
+                encoded.records.iter().map(|record| record.text().len()),
+            )
+            .map_err(size_error)?,
         )
         .map_err(size_error)?;
         let events = crate::outbox::prepare_events(
@@ -458,7 +464,7 @@ impl Store {
                     record.revision,
                     status_name(record.status),
                     record.parent,
-                    encoded.records[index]
+                    encoded.records[index].text()
                 ])?;
             }
         }
@@ -553,6 +559,11 @@ fn read_sequence(connection: &Connection) -> Result<u64> {
 /// the record's exact wire size, so only the record ceiling is checked. One typed parse refuses
 /// malformed JSON, duplicate, unknown or mistyped fields, and the structural checks refuse
 /// impossible records. Refused rows remain stored for explicit operator repair.
+///
+/// The parse keeps serde_json's default recursion limit, which accepts 127 nested containers
+/// and bounds recursion on tampered rows. Admission keeps every stored record within it: a
+/// transaction nests each record within three containers of Tembra's 128, so a stored record
+/// holds at most 125.
 fn decode(encoded: &str) -> Result<TaskRecord> {
     if encoded.len() > MAX_TASK_RECORD_BYTES {
         return Err(Error::TooLarge(format!(
@@ -590,9 +601,9 @@ fn read_record(connection: &Connection, id: &str) -> Result<Option<(TaskRecord, 
     .transpose()
 }
 
-/// Admits a replacement record from the length of its canonical encoding.
-fn validate_record(record: &TaskRecord, encoded_bytes: usize) -> Result<()> {
-    validate_task_record_encoding(record, encoded_bytes).map_err(size_error)?;
+/// Admits a replacement record from its single canonical encoding.
+fn validate_record(record: &TaskRecord, encoded: &EncodedTaskRecord) -> Result<()> {
+    validate_task_record_encoding(encoded).map_err(size_error)?;
     check_record(record)
 }
 
@@ -967,6 +978,142 @@ mod tests {
         )?;
         assert_eq!(persisted, 2);
         assert_eq!(store.store_identity()?.store_id, store_id);
+        Ok(())
+    }
+
+    #[test]
+    fn a_failed_commit_rolls_back_before_the_sequence_is_reread() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let store = Store::open(&directory.path().join("tasks.sqlite"))?;
+        store.claim_owner(StorageOwner {
+            id: "unit-owner".into(),
+        })?;
+        let commit = |id: &str| {
+            store.commit(TaskTransaction {
+                owner: "unit-owner".into(),
+                writes: vec![pending(id)],
+            })
+        };
+        assert!(matches!(
+            commit("a")?,
+            CommitResult::Committed { sequence: 1, .. }
+        ));
+        // A deferred foreign key violation fails COMMIT itself. SQLite then keeps the
+        // transaction open, so a sequence read before the guard rolls back would observe the
+        // uncommitted value.
+        store.with(|connection| {
+            connection.execute_batch(
+                "PRAGMA foreign_keys = ON;
+                 CREATE TABLE fk_parent(id INTEGER PRIMARY KEY);
+                 CREATE TABLE fk_child(parent INTEGER REFERENCES fk_parent(id) DEFERRABLE INITIALLY DEFERRED);
+                 CREATE TRIGGER fk_commit_failure AFTER INSERT ON task_records WHEN NEW.id = 'z-commit'
+                 BEGIN INSERT INTO fk_child VALUES(42); END;",
+            )?;
+            Ok(())
+        })?;
+        let durable = || {
+            store.with(|connection| {
+                Ok(connection.query_row(
+                    "SELECT (SELECT sequence FROM task_storage_metadata WHERE singleton = 1),
+                            (SELECT count(*) FROM task_outbox),
+                            (SELECT retained_events FROM task_outbox_metadata WHERE singleton = 1)",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, u64>(0)?,
+                            row.get::<_, u64>(1)?,
+                            row.get::<_, u64>(2)?,
+                        ))
+                    },
+                )?)
+            })
+        };
+        let before = durable()?;
+        assert_eq!(before.0, 1);
+        match commit("z-commit") {
+            Err(Error::Database(error)) => {
+                assert!(error.to_string().contains("FOREIGN KEY"), "{error}");
+            }
+            other => panic!("COMMIT must fail on the deferred violation: {other:?}"),
+        }
+        assert!(store.with(|connection| Ok(connection.is_autocommit()))?);
+        assert_eq!(
+            store.sequence.get(),
+            Some(1),
+            "the cache adopts the sequence that survived the rollback"
+        );
+        assert_eq!(
+            durable()?,
+            before,
+            "record, outbox and sequence roll back together"
+        );
+        assert!(
+            store
+                .get(TaskLookup {
+                    id: "z-commit".into()
+                })?
+                .is_none()
+        );
+        assert_eq!(store.scan(TaskQuery::default())?.sequence, 1);
+        assert!(matches!(
+            commit("b")?,
+            CommitResult::Committed { sequence: 2, .. }
+        ));
+        assert_eq!(durable()?.0, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn records_at_the_admitted_nesting_limit_remain_readable() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let store = Store::open(&directory.path().join("tasks.sqlite"))?;
+        store.claim_owner(StorageOwner {
+            id: "unit-owner".into(),
+        })?;
+        let nested = |depth| {
+            let mut value = serde_json::Value::Null;
+            for _ in 0..depth {
+                value = serde_json::json!([value]);
+            }
+            value
+        };
+        // A transaction nests input and checkpoint within four containers and a completed
+        // value within five, so these are the deepest admitted values. Each stored record then
+        // holds 125 containers, within the 127 that the trusted typed decode accepts.
+        let mut deep = pending("deep");
+        deep.record.input = nested(124);
+        deep.record.checkpoint = nested(124);
+        let mut completing = pending("completing");
+        completing.record.status = TaskStatus::Completing;
+        completing.record.outcome =
+            Some(swarmie_task_contracts::TaskOutcome::Completed { value: nested(123) });
+        let writes = vec![deep, completing];
+        store.commit(TaskTransaction {
+            owner: "unit-owner".into(),
+            writes: writes.clone(),
+        })?;
+        let mut records: Vec<_> = writes.into_iter().map(|write| write.record).collect();
+        records.sort_by(|left, right| left.id.cmp(&right.id));
+        for record in &records {
+            assert_eq!(
+                store
+                    .get(TaskLookup {
+                        id: record.id.clone()
+                    })?
+                    .as_ref(),
+                Some(record)
+            );
+        }
+        assert_eq!(store.scan(TaskQuery::default())?.records, records);
+        let mut deeper = pending("deeper");
+        deeper.record.input = nested(125);
+        assert!(matches!(
+            store.commit(TaskTransaction {
+                owner: "unit-owner".into(),
+                writes: vec![deeper],
+            }),
+            Err(Error::Invalid(_))
+        ));
         Ok(())
     }
 
