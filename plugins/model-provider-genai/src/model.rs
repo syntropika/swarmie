@@ -10,7 +10,7 @@ use genai::{
     resolver::{AuthData, Endpoint, ProviderConfig},
 };
 use std::time::Duration;
-use swarmie_models::{Model, ModelRequest, ModelResponse, OperationId, Progress, Recovery};
+use swarmie_providers::{Model, ModelRequest, ModelResponse, OperationId, Progress, Recovery};
 use tembra::{Code, Context, Error};
 
 /// One configured model client. The caller owns direct futures; a native orb

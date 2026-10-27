@@ -8,7 +8,7 @@ use requests::request;
 use scenario::Scenario;
 use std::rc::Rc;
 use swarmie_agent_loop::*;
-use swarmie_models::mock::{MockModel, Step};
+use swarmie_providers::mock::{MockModel, Step};
 use tembra::{Code, Host, Orb, Service};
 
 fn response(text: &str, tools: bool) -> ModelResponse {
@@ -191,8 +191,8 @@ fn independent_provider_bindings_in_the_same_orb_route_to_their_own_models() {
         }),
     );
     host.install(vec![
-        swarmie_models::mock::orb("fixture.model_a", a),
-        swarmie_models::mock::orb("fixture.model_b", b),
+        swarmie_providers::mock::orb("fixture.model_a", a),
+        swarmie_providers::mock::orb("fixture.model_b", b),
         consumer,
     ])
     .unwrap();

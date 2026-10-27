@@ -9,7 +9,7 @@ use futures::{FutureExt, executor::LocalPool};
 use serde_json::json;
 use std::{cell::Cell, rc::Rc};
 use swarmie_agent_loop::{hooks::*, *};
-use swarmie_models::mock::{MockModel, Step};
+use swarmie_providers::mock::{MockModel, Step};
 use tembra::Host;
 #[cfg(feature = "conversations")]
 use tembra::{Orb, Service};
@@ -23,7 +23,7 @@ use hook_scenario::*;
 fn durable_restart_reconciles_the_prepared_call_after_result_hook_failure() {
     use std::num::NonZeroU64;
     use swarmie_durable_tasks::{self as tasks, TaskRecord, TaskStatus};
-    use swarmie_storage_sqlite::SqliteOwner;
+    use swarmie_storage::sqlite::SqliteOwner;
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("tasks.sqlite");
     let mut pool = LocalPool::new();
@@ -161,7 +161,7 @@ fn durable_restart_reconciles_the_prepared_call_after_result_hook_failure() {
 fn history_restart_restores_prepared_tool_evidence_without_rewriting_assistant_arguments() {
     use swarmie_agent_loop::conversation::{self as history, History, Record};
     use swarmie_conversations::{self as conversations, EntryDraft, Read, WriteReceipt};
-    use swarmie_storage_sqlite::SqliteOwner;
+    use swarmie_storage::sqlite::SqliteOwner;
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("history.sqlite");
     let mut pool = LocalPool::new();

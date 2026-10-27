@@ -3,7 +3,7 @@ use crate::{
     authority::{Reason, error},
 };
 use std::{cell::RefCell, collections::BTreeSet, rc::Rc};
-use swarmie_storage::{ChangeSource, Subscription};
+use swarmie_storage_core::{ChangeSource, Subscription};
 use tembra::Code;
 
 type Reader = Rc<dyn Fn() -> Vec<TaskDefinition>>;

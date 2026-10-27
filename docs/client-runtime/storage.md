@@ -4,6 +4,15 @@ Storage holds domain data behind backend-neutral interfaces. Each capability def
 its own records and commit rules. A storage owner supplies a shared identity,
 write-health gate, and lifetime.
 
+Storage lives at root `storage/`. Its default `sqlite` feature exposes the implementation
+in `src/sqlite/` as `swarmie_storage::sqlite`; SQLite has no separate Cargo package.
+Disable default features to compile the backend-neutral API alone.
+
+The small internal `storage/core/` package holds shared owner, scope and notification
+contracts. Capabilities depend on this core, and the SQLite module implements their
+storage traits. This split avoids a dependency cycle while keeping each capability
+independent of a concrete backend and the composing runtime.
+
 ## Owner and leases
 
 `StorageOwner` identifies one backing store. Clones share its state. Two owners are
@@ -15,7 +24,7 @@ connection and owner. Closing the last lease closes the connection permanently.
 Create a new owner and factories after final closure or recovery.
 
 ```rust
-use swarmie_storage_sqlite::SqliteOwner;
+use swarmie_storage::sqlite::SqliteOwner;
 
 let owner = SqliteOwner::new("swarmie.sqlite");
 let inventory = owner.inventory_factory();

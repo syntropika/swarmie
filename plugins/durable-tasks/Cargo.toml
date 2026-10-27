@@ -7,7 +7,7 @@ license.workspace = true
 description = "Recoverable task execution as an independent Tembra orb"
 
 [dependencies]
-swarmie-storage.workspace = true
+swarmie-storage-core.workspace = true
 tembra.workspace = true
 futures.workspace = true
 serde.workspace = true

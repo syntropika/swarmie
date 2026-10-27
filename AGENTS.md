@@ -41,10 +41,12 @@ Conversations adapters. Normal execution does not require a scheduler or history
 Tools owns tool metadata and provider routing; Tembra owns the actual services and
 references. Catalog membership never grants provider authority. Confirm routed provider
 identity with pending tool arguments, and reconcile before permitting a retry.
-Neutral model values and provider interfaces belong in `crates/models`; concrete model
+Shared model values and provider interfaces belong in `plugins/providers`; concrete model
 adapters belong in their own provider crate. Keep test mocks behind explicit features.
 
-Storage is a backend-neutral resource. The SQLite adapter owns its connections and sets
+Storage is a backend-neutral resource. The storage package enables its `sqlite` feature by default;
+disable default features to supply another backend. Keep the neutral contracts independent
+of the concrete adapter and consuming capabilities. The SQLite adapter owns its connections and sets
 WAL plus synchronous=NORMAL on every connection. Only compatible writes issued by the
 same storage owner can share an atomic commit. Do not infer cross-store atomicity or
 power-loss durability. Durable Tasks owns assignment, attempts and checkpoints; the resource
@@ -109,7 +111,8 @@ Do not recreate a generic Contract generator or packaging layer without a concre
 
 Use the root pinned toolchain, rustfmt.toml and justfile. Keep manifests with their owners;
 do not duplicate formatting, toolchain or changelog configuration. Infrastructure belongs in
-`crates/`, capability libraries in `plugins/`, and synthetic fixtures in `tests/fixtures/`.
+`runtime/`; storage lives in root `storage/`, with neutral contracts in `storage/core/`.
+Capability libraries belong in `plugins/`, and synthetic fixtures in `tests/fixtures/`.
 Do not add top-level example applications or an editor-specific `.vscode/` directory.
 
 Keep lib.rs focused on public exports. Use typed domain/control values and accurate public

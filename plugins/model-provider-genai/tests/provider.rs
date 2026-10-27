@@ -8,7 +8,7 @@ use serde_json::json;
 use std::{num::NonZeroU64, rc::Rc, time::Duration};
 use support::*;
 use swarmie_model_provider_genai::{self as provider, GenaiModel, Provider};
-use swarmie_models::{Model, ModelMethod, ModelResponse, OperationId, Recovery};
+use swarmie_providers::{Model, ModelMethod, ModelResponse, OperationId, Recovery};
 use tembra::{Code, Host};
 use tokio::task::LocalSet;
 
@@ -89,7 +89,7 @@ async fn the_same_native_agent_loop_executes_tool_cycles_through_all_six_adapter
                 let tools = counter.clone();
                 host.install(vec![swarmie_agent_loop::orb(move |d| {
                     Ok(swarmie_agent_loop::Agent::new(
-                        Rc::new(swarmie_models::ModelService::bind(
+                        Rc::new(swarmie_providers::ModelService::bind(
                             &d,
                             binding.clone(),
                             provider::SERVICE,
@@ -160,13 +160,13 @@ async fn malformed_requests_and_unadmitted_models_fail_before_network_dispatch()
                     2 => request
                         .context
                         .messages
-                        .push(swarmie_models::Message::Tool {
-                            call: swarmie_models::ToolCallId::new("unknown").unwrap(),
-                            result: swarmie_models::ToolResult::Success(json!(1)),
+                        .push(swarmie_providers::Message::Tool {
+                            call: swarmie_providers::ToolCallId::new("unknown").unwrap(),
+                            result: swarmie_providers::ToolResult::Success(json!(1)),
                         }),
                     _ => {
                         request.tools[0].name =
-                            swarmie_models::ToolName::new("not.portable").unwrap()
+                            swarmie_providers::ToolName::new("not.portable").unwrap()
                     }
                 }
                 let model = model.clone();
@@ -327,11 +327,11 @@ async fn optional_mock_recovers_a_lost_reply_and_checks_owner_and_exact_input() 
         .run_until(async {
             use provider::mock::{MockModel, Step};
             let response = ModelResponse {
-                message: swarmie_models::AssistantMessage {
+                message: swarmie_providers::AssistantMessage {
                     content: "Done".into(),
                     tool_calls: vec![],
                 },
-                usage: swarmie_models::Usage {
+                usage: swarmie_providers::Usage {
                     input_tokens: 7,
                     output_tokens: 3,
                 },
@@ -451,7 +451,7 @@ async fn real_http_models_share_the_existing_atomic_history_and_task_path() {
             use swarmie_agent_loop::conversation as history;
             use swarmie_conversations as conversations;
             use swarmie_durable_tasks as tasks;
-            use swarmie_storage_sqlite::SqliteOwner;
+            use swarmie_storage::sqlite::SqliteOwner;
             for streaming in [false, true] {
                 let server = if streaming {
                     Server::streaming(vec![
@@ -496,7 +496,7 @@ async fn real_http_models_share_the_existing_atomic_history_and_task_path() {
                     ),
                     history::durable::orb(move |declaration| {
                         let agent = swarmie_agent_loop::Agent::new(
-                            Rc::new(swarmie_models::ModelService::bind(
+                            Rc::new(swarmie_providers::ModelService::bind(
                                 &declaration,
                                 binding.clone(),
                                 provider::SERVICE,
@@ -505,7 +505,7 @@ async fn real_http_models_share_the_existing_atomic_history_and_task_path() {
                             tools.clone(),
                         );
                         let agent = if streaming {
-                            agent.with_progress(swarmie_models::Progress::bind(&declaration)?)
+                            agent.with_progress(swarmie_providers::Progress::bind(&declaration)?)
                         } else {
                             agent
                         };

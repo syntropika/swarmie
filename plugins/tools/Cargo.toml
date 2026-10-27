@@ -15,7 +15,7 @@ tembra.workspace = true
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-swarmie-models.workspace = true
+swarmie-providers.workspace = true
 swarmie-plugin-manager = { workspace = true, optional = true }
 
 [lints]

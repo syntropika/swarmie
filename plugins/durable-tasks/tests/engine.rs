@@ -7,7 +7,7 @@ use std::{
     rc::Rc,
 };
 use swarmie_durable_tasks::*;
-use swarmie_storage::{ChangeSource, StorageOwner};
+use swarmie_storage_core::{ChangeSource, StorageOwner};
 use tembra::{Code, Host, Orb, Reference, Service};
 
 #[derive(Default)]

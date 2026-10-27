@@ -12,8 +12,8 @@ use swarmie_agent_loop::{
 use swarmie_conversations::{
     self as conversations, ConversationId, EntryDraft, Head, HistoryPoint, Read, WriteReceipt,
 };
-use swarmie_models::mock::{MockModel, Step};
-use swarmie_storage_sqlite::SqliteOwner;
+use swarmie_providers::mock::{MockModel, Step};
+use swarmie_storage::sqlite::SqliteOwner;
 use tembra::{Host, Reference};
 
 fn open(pool: &LocalPool, owner: &SqliteOwner) -> (Host, Rc<Reference>, History) {

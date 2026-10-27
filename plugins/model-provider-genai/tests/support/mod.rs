@@ -12,7 +12,7 @@ use swarmie_agent_loop::ToolDecision;
 use swarmie_model_provider_genai::{
     Configuration, Connection, ConnectionId, Credentials, ModelId, ModelKey, Provider,
 };
-use swarmie_models::{AgentContext, Message, ModelRequest, ToolCall, ToolResult, ToolSpec};
+use swarmie_providers::{AgentContext, Message, ModelRequest, ToolCall, ToolResult, ToolSpec};
 use tembra::{Context, Host, Reference};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -221,7 +221,7 @@ pub fn input(tool: bool) -> ModelRequest {
         },
         tools: if tool {
             vec![ToolSpec {
-                name: swarmie_models::ToolName::new("counter_add").unwrap(),
+                name: swarmie_providers::ToolName::new("counter_add").unwrap(),
                 description: "Add one".into(),
                 input_schema: json!({"type":"object","properties":{"amount":{"type":"integer"}},"required":["amount"]}),
             }]

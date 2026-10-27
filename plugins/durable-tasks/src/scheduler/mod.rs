@@ -11,7 +11,7 @@ use std::{
     cell::{Cell, RefCell},
     rc::Rc,
 };
-use swarmie_storage::Subscription;
+use swarmie_storage_core::Subscription;
 use tembra::{Code, Context, Host, ResourceSignal};
 
 mod attempts;

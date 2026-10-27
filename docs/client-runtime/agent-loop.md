@@ -121,7 +121,7 @@ delay host close.
 
 ## Streaming
 
-Use `Agent::with_progress` with a bound `swarmie_models::Progress` to request provider
+Use `Agent::with_progress` with a bound `swarmie_providers::Progress` to request provider
 streaming. Previews are transient. They do not enter history, checkpoints, or tool
 dispatch. Only the settled response enters the normal confirmation path.
 

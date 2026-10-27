@@ -9,7 +9,7 @@ use swarmie_agent_loop::{durable, *};
 use swarmie_durable_tasks::{
     self as tasks, Definitions, Options, TaskId, TaskRecord, TaskSpec, TaskStatus,
 };
-use swarmie_storage_sqlite::{SqliteOwner, SqliteWrite};
+use swarmie_storage::sqlite::{SqliteOwner, SqliteWrite};
 use tembra::{Host, Reference};
 
 fn open(pool: &LocalPool, owner: SqliteOwner, scenario: Rc<Scenario>) -> (Host, Rc<Reference>) {
@@ -513,7 +513,7 @@ fn shutdown_joins_the_physical_tool_before_releasing_its_assignment() {
     pool.run_until(closing).unwrap();
     assert_eq!(host.kernel().diagnostics().calls, 0);
     assert_eq!(host.kernel().diagnostics().resources, 0);
-    let stored = swarmie_storage_sqlite::SqliteTaskStorage::open(path).unwrap();
+    let stored = swarmie_storage::sqlite::SqliteTaskStorage::open(path).unwrap();
     let record = pool
         .run_until(tasks::TaskStorage::get(&stored, id))
         .unwrap()

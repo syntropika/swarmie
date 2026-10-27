@@ -24,7 +24,7 @@ pub enum Rejection {
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum StorageError {
     #[error(transparent)]
-    Owner(#[from] swarmie_storage::OwnerError),
+    Owner(#[from] swarmie_storage_core::OwnerError),
     #[error(transparent)]
     Refused(Rejection),
     #[error("conversation storage is closed")]
@@ -45,9 +45,8 @@ impl From<StorageError> for Error {
             StorageError::Refused(Rejection::Forbidden) => Code::Forbidden,
             StorageError::Refused(Rejection::Invalid) | StorageError::Invalid(_) => Code::Invalid,
             StorageError::Refused(Rejection::Exhausted) => Code::Exhausted,
-            StorageError::Closed | StorageError::Owner(swarmie_storage::OwnerError::Closed) => {
-                Code::Closed
-            }
+            StorageError::Closed
+            | StorageError::Owner(swarmie_storage_core::OwnerError::Closed) => Code::Closed,
             _ => Code::Unavailable,
         };
         Error::new(code, Reason::Storage.as_str(), error.to_string())
@@ -73,7 +72,7 @@ impl Reason {
 /// conversation, preserve immutable payloads, and return bounded ordered pages.
 /// They may replace the physical history representation without changing callers.
 pub trait ConversationStorage {
-    fn owner(&self) -> swarmie_storage::StorageOwner;
+    fn owner(&self) -> swarmie_storage_core::StorageOwner;
 
     fn get<'a>(
         &'a self,

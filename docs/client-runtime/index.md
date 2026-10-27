@@ -11,7 +11,7 @@ capabilities, supplies I/O and owns the executor.
 | Recoverable work and leases | [Durable Tasks](durable-tasks.md) |
 | Model and tool execution | [Agent Loop](agent-loop.md) |
 | Persistent history and branches | [Conversations](conversations.md) |
-| Provider requests and streaming | [Models](models.md) |
+| Provider requests and streaming | [Providers](providers.md) |
 | Tool discovery and provider routing | [Tools](tools.md) |
 | Node identity and remote destinations | [Node connections](node-connections.md) |
 | Browser composition and views | [Client UI](client-ui.md) |

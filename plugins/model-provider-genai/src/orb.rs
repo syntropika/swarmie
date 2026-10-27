@@ -1,7 +1,7 @@
 use crate::{Configuration, Credentials, GenaiModel};
 use futures::FutureExt;
 use std::rc::Rc;
-use swarmie_models::{Model, ModelMethod, ModelRequest, OperationId, Progress};
+use swarmie_providers::{Model, ModelMethod, ModelRequest, OperationId, Progress};
 use tembra::{Orb, Service};
 
 pub const SERVICE: &str = "swarmie.models.genai";

@@ -5,7 +5,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     rc::Rc,
 };
-use swarmie_storage::ChangeSource;
+use swarmie_storage_core::ChangeSource;
 
 type Contributions = BTreeMap<PluginId, Vec<Rc<dyn Any>>>;
 

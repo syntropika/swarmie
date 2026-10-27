@@ -28,7 +28,7 @@ pub(crate) fn invalid(message: impl ToString) -> Error {
     )
 }
 
-pub use swarmie_models::{
+pub use swarmie_providers::{
     AgentContext, AssistantMessage, Message, ModelRequest, ModelResponse, OperationId, ToolCall,
     ToolCallId, ToolName, ToolResult, ToolSpec, Usage,
 };

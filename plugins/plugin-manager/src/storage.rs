@@ -26,7 +26,7 @@ pub enum CommitOutcome {
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum StorageError {
     #[error(transparent)]
-    Owner(#[from] swarmie_storage::OwnerError),
+    Owner(#[from] swarmie_storage_core::OwnerError),
     #[error("storage is closed")]
     Closed,
     #[error("storage is unavailable: {0}")]
@@ -41,7 +41,7 @@ pub enum StorageError {
 /// Implementations may use any backend satisfying these atomic guarantees.
 pub trait PluginStorage {
     /// Shared authority identity and uncertainty gate of the backing owner.
-    fn owner(&self) -> swarmie_storage::StorageOwner;
+    fn owner(&self) -> swarmie_storage_core::StorageOwner;
 
     /// Reads records and their revision from one consistent snapshot.
     fn inventory(&self) -> LocalBoxFuture<'_, Result<Inventory, StorageError>>;

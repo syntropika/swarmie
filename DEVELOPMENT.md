@@ -11,13 +11,14 @@ The Rust workspace builds without frontend dependencies or documentation content
 ```sh
 just rust-check
 just foundation-check
+just storage-check
 just agent-loop-check
 just model-provider-check
 just tools-check
 ```
 
 The foundation recipe also qualifies the optional Agent Loop adapters and genai
-provider feature combinations. Individual cases can run through `just rust-test`.
+provider feature combinations, plus Storage with and without its default SQLite backend. Individual cases can run through `just rust-test`.
 Use `just rust-lock-workspace` when changing workspace membership while retaining
 unrelated dependency versions.
 
@@ -45,7 +46,10 @@ and catalogs. These checks do not qualify device-specific native runtime behavio
 
 ## Repository layout
 
-- `crates/`: the embeddable runtime, neutral model values and storage interfaces/adapters.
+- `runtime/`: the embeddable runtime.
+- `storage/`: the shared storage API and feature-gated `src/sqlite/` implementation.
+- `storage/core/`: internal contracts used by independent capabilities.
+- `plugins/providers/`: shared model/provider types and its browser presentation.
 - `plugins/`: independent capability libraries and their optional Tembra orb composition.
 - `tests/fixtures/`: synthetic behavior and SDK authoring fixtures.
 - `apps/client`: the independently composed node client.
@@ -63,7 +67,7 @@ Start with the [concept index](docs/client-runtime/index.md).
 - [Storage and durable execution](docs/client-runtime/durable-tasks.md)
 - [Independent Agent Loop and lifecycle hooks](docs/client-runtime/agent-loop.md)
 - [Tool registration and provider routing](docs/client-runtime/tools.md)
-- [Neutral Models and genai provider](docs/client-runtime/models.md)
+- [Providers and the genai adapter](docs/client-runtime/providers.md)
 
 Durable Tasks and Conversations remain optional Agent Loop dependencies. The
 normal library does not require PluginManager, a task scheduler, a conversation

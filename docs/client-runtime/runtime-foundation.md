@@ -4,12 +4,24 @@ The runtime is an embeddable Rust library. It creates a Tembra host and starts
 PluginManager. The embedding supplies its local executor, storage and compiled
 plugin catalog.
 
+## Storage selection
+
+The runtime lives at root `runtime/`. Storage is an independent package at root
+`storage/`; it enables its `sqlite` feature by default and exposes the backend as
+`swarmie_storage::sqlite`. The embedding supplies the file path and factory. Enabling
+the backend does not open a database or install more Orbs.
+
+Disable Storage's default features to use only its backend-neutral API. Capabilities
+share the small internal `storage/core/` package, so they can be used without the
+runtime or concrete backend. Run `just storage-check` to qualify that boundary.
+
 ## Open and use
 
 ```rust
 use futures::executor::LocalPool;
 use swarmie_plugin_manager::Catalog;
 use swarmie_runtime::Runtime;
+use swarmie_storage::sqlite;
 
 let directory = tempfile::tempdir().unwrap();
 let mut pool = LocalPool::new();
@@ -17,7 +29,7 @@ let spawner = pool.spawner();
 pool.run_until(async {
     let runtime = Runtime::open(
         spawner,
-        swarmie_storage_sqlite::factory(directory.path().join("runtime.sqlite")),
+        sqlite::factory(directory.path().join("runtime.sqlite")),
         Catalog::default(),
     ).await.unwrap();
 

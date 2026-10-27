@@ -37,7 +37,7 @@ pub(crate) fn error(code: Code, reason: Reason, message: impl ToString) -> Error
 
 pub(crate) fn storage_error(cause: crate::StorageError) -> Error {
     use crate::StorageError;
-    use swarmie_storage::OwnerError;
+    use swarmie_storage_core::OwnerError;
     match cause {
         StorageError::Owner(OwnerError::Closed) | StorageError::Closed => {
             error(Code::Closed, Reason::Closed, cause)

@@ -6,7 +6,7 @@ mod scenario;
 use futures::{FutureExt, executor::LocalPool};
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 use swarmie_agent_loop::*;
-use swarmie_models::{
+use swarmie_providers::{
     ModelProgress, Progress,
     mock::{self, MockModel, Step},
 };

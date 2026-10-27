@@ -1,5 +1,19 @@
 [workspace]
-members = ["crates/runtime", "crates/models", "crates/storage", "crates/storage-sqlite", "plugins/plugin-manager", "plugins/tools", "plugins/model-provider-genai", "plugins/durable-tasks", "plugins/agent-loop", "plugins/conversations", "tests/fixtures/foundation-counter", "tests/fixtures/durable-documents", "tests/fixtures/atomic-journal"]
+members = [
+    "runtime",
+    "storage",
+    "storage/core",
+    "plugins/providers",
+    "plugins/plugin-manager",
+    "plugins/tools",
+    "plugins/model-provider-genai",
+    "plugins/durable-tasks",
+    "plugins/agent-loop",
+    "plugins/conversations",
+    "tests/fixtures/foundation-counter",
+    "tests/fixtures/durable-documents",
+    "tests/fixtures/atomic-journal",
+]
 exclude = ["vendor/genai-0.7.0"]
 resolver = "2"
 
@@ -20,12 +34,12 @@ thiserror = "2"
 rusqlite = { version = "0.37", features = ["bundled"] }
 tempfile = "3"
 swarmie-tools = { path = "plugins/tools" }
-swarmie-models = { path = "crates/models" }
-swarmie-storage = { path = "crates/storage" }
+swarmie-providers = { path = "plugins/providers" }
+swarmie-storage = { path = "storage" }
+swarmie-storage-core = { path = "storage/core" }
 swarmie-conversations = { path = "plugins/conversations" }
 swarmie-durable-tasks = { path = "plugins/durable-tasks" }
 swarmie-plugin-manager = { path = "plugins/plugin-manager" }
-swarmie-storage-sqlite = { path = "crates/storage-sqlite" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

@@ -36,4 +36,4 @@ pub use orb::{SERVICE, orb};
 
 /// Scripted providers are opt-in and share the production model contract.
 #[cfg(feature = "mock")]
-pub use swarmie_models::mock;
+pub use swarmie_providers::mock;

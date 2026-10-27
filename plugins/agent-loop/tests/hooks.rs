@@ -10,7 +10,7 @@ use std::{
     rc::Rc,
 };
 use swarmie_agent_loop::{hooks::*, *};
-use swarmie_models::mock::{MockModel, Step};
+use swarmie_providers::mock::{MockModel, Step};
 use tembra::{Code, Host, Orb, Service};
 
 #[path = "support/hook_scenario.rs"]

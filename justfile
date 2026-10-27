@@ -99,7 +99,7 @@ rust-check: rust-fmt-check rust-clippy
 tembra-authoring-test: tembra-plugins
     bun test tests/fixtures/tembra-sdk/sdk.test.ts
 
-foundation-check: rust-check tools-check agent-loop-check model-provider-check runtime-rpc-check
+foundation-check: rust-check storage-check tools-check agent-loop-check model-provider-check runtime-rpc-check
 
 # Qualify the independent loop and its explicitly optional task adapter.
 agent-loop-check:
@@ -119,7 +119,7 @@ rust-lock-workspace:
 
 # Qualify native HTTP adapters and the explicitly opt-in scripted provider.
 model-provider-check:
-    cargo +{{rust_version}} test --locked -p swarmie-models --no-default-features
+    cargo +{{rust_version}} test --locked -p swarmie-providers --no-default-features
     cargo +{{rust_version}} test --locked -p swarmie-model-provider-genai --no-default-features
     cargo +{{rust_version}} test --locked -p swarmie-model-provider-genai --features mock
     cargo +{{rust_version}} clippy --locked -p swarmie-model-provider-genai --all-features --all-targets -- -D warnings
@@ -154,3 +154,10 @@ runtime-rpc-check:
     cargo +{{rust_version}} test --locked -p swarmie-runtime --features rpc --test node
     cargo +{{rust_version}} clippy --locked -p swarmie-runtime --features rpc --all-targets -- -D warnings
     RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D rustdoc::broken_intra_doc_links" cargo +{{rust_version}} doc --locked -p swarmie-runtime --features rpc --no-deps
+
+# Qualify storage without its default backend and the independent runtime.
+storage-check:
+    cargo +{{rust_version}} test --locked -p swarmie-storage --no-default-features
+    cargo +{{rust_version}} clippy --locked -p swarmie-storage --no-default-features --all-targets -- -D warnings
+    RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D rustdoc::broken_intra_doc_links" cargo +{{rust_version}} doc --locked -p swarmie-storage --no-default-features --no-deps
+    cargo +{{rust_version}} clippy --locked -p swarmie-runtime --no-default-features --features rpc --lib -- -D warnings

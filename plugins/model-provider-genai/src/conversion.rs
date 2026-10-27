@@ -5,7 +5,7 @@ use genai::chat::{
 };
 use serde_json::json;
 use std::collections::{BTreeSet, VecDeque};
-use swarmie_models::{
+use swarmie_providers::{
     AssistantMessage, Message, ModelRequest, ModelResponse, ToolCall, ToolCallId, ToolName,
     ToolResult, Usage,
 };

@@ -176,7 +176,7 @@ fn history_and_task_recovery_reopen_with_the_saved_route_after_catalog_withdrawa
     use swarmie_agent_loop::conversation::{self as history, History, Record};
     use swarmie_conversations::{self as conversations, EntryDraft, Read, WriteReceipt};
     use swarmie_durable_tasks::{self as tasks, TaskRecord, TaskStatus};
-    use swarmie_storage_sqlite::SqliteOwner;
+    use swarmie_storage::sqlite::SqliteOwner;
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("tasks.sqlite");
     let mut pool = LocalPool::new();

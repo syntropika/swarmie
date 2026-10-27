@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 use std::{cell::RefCell, num::NonZeroU32, rc::Rc, time::Duration};
 use swarmie_agent_loop::{Agent, ExecutionResult, Method, Request};
 use swarmie_model_provider_genai::{self as provider, Provider};
-use swarmie_models::{
+use swarmie_providers::{
     ModelMethod, ModelProgress, ModelResponse, ModelService, OperationId, Progress,
 };
 use tembra::Host;
@@ -201,7 +201,7 @@ async fn six_routes_publish_text_before_the_final_native_loop_response() {
             tokio::time::timeout(Duration::from_secs(2), receive).await.unwrap().unwrap();
             assert!(!running.is_finished(), "{kind:?}: preview must precede settlement");
             let output = running.await.unwrap();
-            assert!(matches!(&output.messages[0], swarmie_models::Message::Assistant(m) if m.content == "Done"));
+            assert!(matches!(&output.messages[0], swarmie_providers::Message::Assistant(m) if m.content == "Done"));
             assert_eq!(output.usage.input_tokens, 7, "{kind:?}");
             assert_eq!(output.usage.output_tokens, 3, "{kind:?}");
             assert_eq!(previews.borrow().iter().map(|p| p.content.as_str()).collect::<Vec<_>>(), ["", "Do", "Done"], "{kind:?}");
@@ -521,7 +521,7 @@ async fn coalescing_retains_only_latest_text_and_flushes_the_settled_preview() {
         let output = call::<_,ExecutionResult>(&host, reference.clone(), "alice", Method::Execute.as_str(), request(false)).await.unwrap().unwrap();
         assert_eq!(previews.borrow().as_slice(), [String::new(), "x".into(), "x".repeat(128)]);
         assert_eq!(reference.state::<Option<ModelProgress>>().unwrap().value().unwrap().as_ref().as_ref().unwrap().content, "x".repeat(128));
-        assert!(matches!(&output.messages[0], swarmie_models::Message::Assistant(m) if m.content.len() == 128));
+        assert!(matches!(&output.messages[0], swarmie_providers::Message::Assistant(m) if m.content.len() == 128));
         drop(observation);
         close(&host).await;
         server.finish().await;

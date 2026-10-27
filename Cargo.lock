@@ -1838,9 +1838,8 @@ dependencies = [
  "serde_json",
  "swarmie-conversations",
  "swarmie-durable-tasks",
- "swarmie-models",
+ "swarmie-providers",
  "swarmie-storage",
- "swarmie-storage-sqlite",
  "swarmie-tools",
  "tembra",
  "tempfile",
@@ -1861,7 +1860,7 @@ dependencies = [
  "futures",
  "serde",
  "serde_json",
- "swarmie-storage",
+ "swarmie-storage-core",
  "tembra",
  "thiserror",
  "uuid",
@@ -1886,7 +1885,7 @@ dependencies = [
  "serde",
  "serde_json",
  "swarmie-plugin-manager",
- "swarmie-storage",
+ "swarmie-storage-core",
  "tembra",
  "thiserror",
  "uuid",
@@ -1912,22 +1911,11 @@ dependencies = [
  "swarmie-agent-loop",
  "swarmie-conversations",
  "swarmie-durable-tasks",
- "swarmie-models",
- "swarmie-storage-sqlite",
+ "swarmie-providers",
+ "swarmie-storage",
  "tembra",
  "tempfile",
  "tokio",
-]
-
-[[package]]
-name = "swarmie-models"
-version = "0.1.0"
-dependencies = [
- "futures",
- "serde",
- "serde_json",
- "tembra",
- "uuid",
 ]
 
 [[package]]
@@ -1937,9 +1925,20 @@ dependencies = [
  "futures",
  "serde",
  "serde_json",
- "swarmie-storage",
+ "swarmie-storage-core",
  "tembra",
  "thiserror",
+]
+
+[[package]]
+name = "swarmie-providers"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "serde",
+ "serde_json",
+ "tembra",
+ "uuid",
 ]
 
 [[package]]
@@ -1957,10 +1956,9 @@ dependencies = [
  "swarmie-durable-documents",
  "swarmie-durable-tasks",
  "swarmie-foundation-counter",
- "swarmie-models",
  "swarmie-plugin-manager",
+ "swarmie-providers",
  "swarmie-storage",
- "swarmie-storage-sqlite",
  "swarmie-tools",
  "tembra",
  "tempfile",
@@ -1971,15 +1969,6 @@ name = "swarmie-storage"
 version = "0.1.0"
 dependencies = [
  "futures",
- "tembra",
- "thiserror",
-]
-
-[[package]]
-name = "swarmie-storage-sqlite"
-version = "0.1.0"
-dependencies = [
- "futures",
  "futures-timer",
  "rusqlite",
  "serde",
@@ -1987,9 +1976,18 @@ dependencies = [
  "swarmie-conversations",
  "swarmie-durable-tasks",
  "swarmie-plugin-manager",
- "swarmie-storage",
+ "swarmie-storage-core",
  "tembra",
  "tempfile",
+]
+
+[[package]]
+name = "swarmie-storage-core"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "tembra",
+ "thiserror",
 ]
 
 [[package]]
@@ -1999,8 +1997,8 @@ dependencies = [
  "futures",
  "serde",
  "serde_json",
- "swarmie-models",
  "swarmie-plugin-manager",
+ "swarmie-providers",
  "tembra",
 ]
 

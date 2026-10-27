@@ -109,7 +109,7 @@ pub enum CommitOutcome {
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum StorageError {
     #[error(transparent)]
-    Owner(#[from] swarmie_storage::OwnerError),
+    Owner(#[from] swarmie_storage_core::OwnerError),
     #[error("domain write refused: {0}")]
     Refused(tembra::Error),
     #[error("task storage is closed")]
@@ -122,11 +122,11 @@ pub enum StorageError {
 
 /// Capability of a storage owner, without assuming SQL or a universal records model.
 pub trait TaskStorage {
-    fn owner(&self) -> swarmie_storage::StorageOwner;
+    fn owner(&self) -> swarmie_storage_core::StorageOwner;
 
     /// Local committed eligibility invalidation. Other-authority changes require
     /// the host adapter to call wake; notices are hints, never assignment authority.
-    fn changes(&self) -> swarmie_storage::ChangeSource;
+    fn changes(&self) -> swarmie_storage_core::ChangeSource;
 
     /// Reads exactly one task, including payload, when a consumer requests it.
     fn get(&self, id: TaskId) -> LocalBoxFuture<'_, Result<Option<TaskRecord>, StorageError>>;
@@ -157,7 +157,7 @@ pub trait TaskStorage {
     fn commit_with(
         &self,
         changes: Vec<TaskChange>,
-        prepared: swarmie_storage::PreparedChanges,
+        prepared: swarmie_storage_core::PreparedChanges,
     ) -> LocalBoxFuture<'_, Result<CommitOutcome, StorageError>> {
         Box::pin(async move {
             let commands = prepared

@@ -16,6 +16,6 @@ pub(crate) use error::invalid;
 pub use provider::{
     ToolDecision, ToolExecution, ToolMethod, ToolPreparation, ToolProvider, ToolService, Tools,
 };
-pub use swarmie_models::{
+pub use swarmie_providers::{
     AgentContext, OperationId, Recovery, ToolCall, ToolCallId, ToolName, ToolResult, ToolSpec,
 };

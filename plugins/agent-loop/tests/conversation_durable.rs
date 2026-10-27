@@ -19,7 +19,7 @@ use swarmie_conversations::{
     self as conversations, ConversationId, EntryDraft, Head, Read, WriteReceipt,
 };
 use swarmie_durable_tasks::{self as tasks, TaskRecord, TaskStatus};
-use swarmie_storage_sqlite::{SqliteOwner, SqliteTaskStorage};
+use swarmie_storage::sqlite::{SqliteOwner, SqliteTaskStorage};
 use tembra::{Code, Host, Orb, Reference, Service};
 
 #[derive(Clone, Copy, PartialEq)]
@@ -404,7 +404,7 @@ fn refused_tool_result_keeps_pending_intent_then_recovers_without_repeating_effe
 fn prepared_tool_and_checkpoint_commit_together_and_reopen_with_exact_arguments() {
     use serde_json::json;
     use swarmie_agent_loop::hooks::{HookName, Hooks};
-    use swarmie_models::mock::{MockModel, Step};
+    use swarmie_providers::mock::{MockModel, Step};
     use tembra::core::Requirement;
 
     let dir = tempfile::tempdir().unwrap();

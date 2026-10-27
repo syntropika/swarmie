@@ -8,10 +8,10 @@ description = "Independent native Tembra orb for genai model providers"
 
 [features]
 default = []
-mock = ["swarmie-models/mock"]
+mock = ["swarmie-providers/mock"]
 
 [dependencies]
-swarmie-models.workspace = true
+swarmie-providers.workspace = true
 tembra.workspace = true
 futures.workspace = true
 serde.workspace = true
@@ -22,10 +22,10 @@ tokio = { version = "1", features = ["rt", "time"] }
 
 [dev-dependencies]
 swarmie-agent-loop = { path = "../agent-loop", features = ["durable-tasks", "conversations"] }
-swarmie-models = { workspace = true, features = ["mock"] }
+swarmie-providers = { workspace = true, features = ["mock"] }
 swarmie-durable-tasks.workspace = true
 swarmie-conversations.workspace = true
-swarmie-storage-sqlite.workspace = true
+swarmie-storage.workspace = true
 tempfile.workspace = true
 tokio = { version = "1", features = ["macros", "net", "io-util", "rt", "time"] }
 

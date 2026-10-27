@@ -5,7 +5,7 @@ use std::{
     collections::BTreeMap,
     time::{Duration, Instant},
 };
-use swarmie_models::{ModelProgress, ModelRequest, ModelResponse, OperationId, Progress};
+use swarmie_providers::{ModelProgress, ModelRequest, ModelResponse, OperationId, Progress};
 use tembra::{Code, Context, Error};
 
 pub(super) async fn stream(

@@ -1,0 +1,35 @@
+[package]
+name = "swarmie-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Embeddable Swarmie runtime over Tembra"
+
+[features]
+default = []
+rpc = ["tembra/rpc"]
+
+[dependencies]
+tembra.workspace = true
+swarmie-plugin-manager.workspace = true
+futures.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+swarmie-agent-loop = { path = "../plugins/agent-loop", features = ["conversations", "durable-tasks"] }
+swarmie-conversations.workspace = true
+swarmie-providers.workspace = true
+swarmie-tools = { workspace = true, features = ["plugin-manager"] }
+futures-timer.workspace = true
+swarmie-durable-tasks = { workspace = true, features = ["plugin-manager"] }
+serde_json.workspace = true
+swarmie-atomic-journal = { path = "../tests/fixtures/atomic-journal" }
+swarmie-durable-documents = { path = "../tests/fixtures/durable-documents" }
+swarmie-storage.workspace = true
+tempfile.workspace = true
+rusqlite.workspace = true
+swarmie-foundation-counter = { path = "../tests/fixtures/foundation-counter" }
+
+[lints]
+workspace = true

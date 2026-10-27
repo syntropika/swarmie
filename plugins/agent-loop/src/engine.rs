@@ -18,7 +18,7 @@ pub struct Agent {
     model: Rc<dyn Model>,
     tools: Rc<dyn Tools>,
     hooks: Option<Rc<Lifecycle>>,
-    progress: Option<swarmie_models::Progress>,
+    progress: Option<swarmie_providers::Progress>,
 }
 
 /// Internal awaited confirmation seam, not a plugin hook or an external effect.
@@ -60,7 +60,7 @@ impl Agent {
     /// ```
     /// use std::rc::Rc;
     /// use swarmie_agent_loop::{Agent, Model, Tools};
-    /// use swarmie_models::Progress;
+    /// use swarmie_providers::Progress;
     ///
     /// fn streamed_agent(
     ///     declaration: &tembra::Declaration,
@@ -70,7 +70,7 @@ impl Agent {
     ///     Ok(Agent::new(model, tools).with_progress(Progress::bind(declaration)?))
     /// }
     /// ```
-    pub fn with_progress(mut self, progress: swarmie_models::Progress) -> Self {
+    pub fn with_progress(mut self, progress: swarmie_providers::Progress) -> Self {
         self.progress = Some(progress);
         self
     }

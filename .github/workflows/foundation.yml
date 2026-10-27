@@ -3,7 +3,8 @@ name: Plugin foundation
 on:
   pull_request:
     paths:
-      - "crates/**"
+      - "runtime/**"
+      - "storage/**"
       - "plugins/**"
       - "vendor/**"
       - "tests/fixtures/**"
