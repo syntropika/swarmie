@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import { releaseTarget, versionFromTag } from "./desktop";
+import { nativeVersionFromTag, releaseTarget, versionFromTag } from "./desktop";
 
 describe("desktop release identity", () => {
   test("requires a canonical release tag before changing package identity", () => {
     expect(versionFromTag("v0.2.0")).toBe("0.2.0");
     expect(versionFromTag("v1.2.3-beta.4")).toBe("1.2.3-beta.4");
+    expect(nativeVersionFromTag("v1.2.3-beta.4")).toBe("1.2.3");
     for (const tag of ["develop", "1.2.3", "v01.2.3", "v1.2.3/evil", "v1.2.3-beta.01"]) {
       expect(() => versionFromTag(tag)).toThrow();
     }

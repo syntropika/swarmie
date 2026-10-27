@@ -15,6 +15,10 @@ export function versionFromTag(tag: string): string {
   return version;
 }
 
+export function nativeVersionFromTag(tag: string): string {
+  return versionFromTag(tag).replace(/-.*/u, "");
+}
+
 export function releaseTarget(platform = process.platform, arch = process.arch) {
   const target = new Map([
     ["darwin", { os: "osx", native: "macos" }],
@@ -63,7 +67,7 @@ async function readManifest() {
 
 async function prepare(tag: string) {
   const manifest = await readManifest();
-  manifest.version = versionFromTag(tag);
+  manifest.version = nativeVersionFromTag(tag);
   await writeFile(path.join(desktop, "app.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
@@ -106,7 +110,7 @@ async function activation() {
 async function packageRelease(tag: string) {
   const version = versionFromTag(tag);
   const manifest = await readManifest();
-  if (manifest.version !== version) {
+  if (manifest.version !== nativeVersionFromTag(tag)) {
     throw new Error("Prepare and build the release tag before packaging it.");
   }
   const target = releaseTarget();

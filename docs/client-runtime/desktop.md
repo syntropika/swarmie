@@ -59,7 +59,9 @@ are separate distribution steps; producing a local package does not perform them
 
 The [desktop release workflow](../../.github/workflows/desktop-release.yml) runs when a
 `vMAJOR.MINOR.PATCH` tag is pushed. Prerelease suffixes such as `-beta.1` are supported.
-The tag sets the application version before building. All four targets must succeed:
+The tag sets the package version before building; the Native SDK manifest uses its required
+numeric MAJOR.MINOR.PATCH form, while Velopack retains the complete prerelease version.
+All four targets must succeed:
 Linux x64, Windows x64, macOS Apple Silicon and macOS Intel. The workflow assembles a
 draft, uploads every installer, full update package and architecture feed, then publishes
 the completed GitHub release. It does not rewrite an already published release.
