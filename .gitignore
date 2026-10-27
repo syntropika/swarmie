@@ -4,7 +4,6 @@
 
 # Dependencies and generated build output.
 **/node_modules/
-/packages/tembra-sdk/upstream/
 **/target/
 **/dist/
 *.pyc

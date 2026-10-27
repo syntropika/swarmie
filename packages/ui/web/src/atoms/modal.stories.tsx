@@ -41,3 +41,35 @@ export const OfficialExample: Story = {
   name: "Official example",
   render: () => <HeroUIDocumentationExample />,
 };
+
+export const SplitLayout: Story = {
+  render: () => (
+    <Modal>
+      <Button variant="secondary">Open guided setup</Button>
+      <Modal.Backdrop>
+        <Modal.Container size="lg" placement="center">
+          <Modal.Dialog layout="guided" aria-label="Guided setup">
+            <Modal.CloseTrigger />
+            <div className="grid min-h-[400px] grid-cols-[304px_minmax(0,1fr)]">
+              <aside className="flex flex-col gap-4 border-r border-border p-6">
+                <h2 className="text-title font-medium">Get started</h2>
+                <p className="text-caption text-muted">Connect a provider</p>
+              </aside>
+              <section className="flex flex-col gap-6 p-6">
+                <Modal.Header>
+                  <Modal.Heading scale="title">Choose a provider</Modal.Heading>
+                </Modal.Header>
+                <Modal.Body>
+                  <p>Configure a connection before choosing a model.</p>
+                </Modal.Body>
+                <Modal.Footer>
+                  <Button slot="close">Continue</Button>
+                </Modal.Footer>
+              </section>
+            </div>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
+  ),
+};

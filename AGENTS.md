@@ -2,138 +2,119 @@
 
 ## Contribution and preservation
 
-Never merge a pull request. Merging belongs exclusively to the user. Do not replace remote
-history, force push, delete remote branches or change repository visibility without explicit
-authorization. Local history resets require verified preservation of the original tree,
-history and pending user work. Preserve user-owned files and working directories.
+Use task branches and worktrees. Reuse suitable existing work before creating another
+checkout, and preserve unrelated changes and user-owned files. Never merge a pull request.
+Create a pull request only when the user explicitly requests one. Do not rewrite remote
+history, force push, remove branches or change repository visibility without authorization.
+Both this repository and the independent hosted-service repository are private.
 
-Every commit message must follow Conventional Commits and be entirely lowercase, including
-its type, scope, subject, body and footer. Use `type(scope): description` or
-`type: description`, with a breaking-change marker when appropriate.
+Every commit message must use Conventional Commits and be entirely lowercase, including
+its type, scope, subject, body and footer. Use `type(scope): description` or `type: description`.
 
-This project is in active development. Backward compatibility with previous development
-clients, internal APIs, schemas and persisted formats is not required unless explicitly
-requested. Update affected consumers and tests together; remove obsolete structures instead
-of adding compatibility shims. This does not authorize data deletion or dropping explicitly
-agreed external integration requirements.
+This project is in active development. Compatibility with previous development clients,
+internal APIs, schemas and formats is not required unless explicitly requested. Update
+consumers and tests together and remove obsolete structures instead of adding compatibility
+shims. This does not authorize deleting user data or dropping agreed integration support.
 
-Write persisted project prose, code comments and UI copy in English unless the user explicitly
-requests a different language for that artifact. Existing localization catalogs keep their
-supported languages. Present explanations to the user in Spanish. Keep device-specific
-operations, deployment history and temporary reports outside the repository. Design reusable
-interfaces and configurable adapters rather than hardcoding individual machines.
+Write persisted project prose, comments and UI copy in English unless the user explicitly
+requests another language for that artifact. Existing localization catalogs retain their
+languages. Explain work to the user in Spanish. Keep research, measurements, temporary
+reports and local deployment scripts outside the repository. Avoid persisting device-specific
+paths, addresses, hostnames or operational history in reusable project code and documentation.
 
 ## Architecture and ownership
 
-Tembra is the composition runtime for objects, facets, Contracts, Registries, References,
-reactive State, subscriptions, hooks and lifecycle. Use its actual public APIs and artifacts;
-do not implement parallel object protocols, registries, dependency containers or reload engines.
-Pin and qualify the dependency revision before relying on an API.
+Tembra owns composition, objects, Orbs, References, State, hooks, subscriptions and physical
+lifecycle. Use its actual public APIs at the pinned qualified revision. Do not build parallel
+object protocols, containers, registries, hook dispatchers, reload engines or cleanup runtimes.
+Use Orb and orb/orbs consistently; the source folder for capability crates is `plugins/`.
+PluginManager is the administrative capability, outside ordinary invocation paths.
 
-The bootstrap initializes Tembra, registers compiled Core Plugins and starts plugin
-administration and recovery. Keep it minimal. The Rust Plugin Manager is a Core Plugin and
-administrative control plane, outside ordinary plugin invocation paths. Consumers use Tembra
-References, Contracts and Registries directly. Provider connections belong to their objects
-and use Tembra Resources when supported. SQLite holds durable administrative state; reactive
-State is not durable storage.
+The runtime is an embeddable Rust library. Its host supplies execution and I/O services;
+there is no standalone CLI or mandatory Desktop shell. Keep bootstrap minimal. Core Orbs
+are Rust compiled with the application; do not introduce native dynamic-library plugins.
+Trusted execution does not imply sandbox isolation or automatic remote availability.
 
-Core Plugins are Rust compiled with Swarmie. They are not downloadable and do not hot reload
-native code. Dynamic Plugins are trusted TypeScript or JavaScript artifacts loaded and
-executed through Tembra. Compatible JavaScript updates use its real reload machinery.
-Do not add native dynamic-library plugins, arbitrary native plugin binaries or WASM Components
-as a plugin distribution format. Trusted plugin execution does not imply sandbox isolation.
-Preserve administrative authorization, provenance, integrity, compatibility and honest errors.
+Capability libraries are independently usable. Their Tembra orb composition must not force
+consumers to use PluginManager. Agent Loop has one engine, with optional Durable Tasks and
+Conversations adapters. Normal execution does not require a scheduler or history store.
+Tools owns tool metadata and provider routing; Tembra owns the actual services and
+references. Catalog membership never grants provider authority. Confirm routed provider
+identity with pending tool arguments, and reconcile before permitting a retry.
+Neutral model values and provider interfaces belong in `crates/models`; concrete model
+adapters belong in their own provider crate. Keep test mocks behind explicit features.
 
-Discover Plugin Source Providers through Tembra Contracts and Registries. The Plugin Manager
-must not know individual registries, marketplaces or remote vendors. Reuse Tembra packaging
-and loader contracts rather than creating a competing artifact format. UI contributions use
-the actual Browser Host and browser facets; React is the renderer. Resolve React components
-through module and export identity, never serialized functions. Keep server JavaScript
-execution distinct from browser module loading and keep contributions tied to plugin lifecycle.
-Installation and capability availability belong to the connected node, not every node.
+Storage is a backend-neutral resource. The SQLite adapter owns its connections and sets
+WAL plus synchronous=NORMAL on every connection. Only compatible writes issued by the
+same storage owner can share an atomic commit. Do not infer cross-store atomicity or
+power-loss durability. Durable Tasks owns assignment, attempts and checkpoints; the resource
+consumer owns recognition, receipts and reconciliation of external effects. Unknown outcomes
+must not permit automatic replay. Cancellation cannot undo an external effect.
 
-Agent Loop, subagents, model providers, tools, memory, compaction, coordination, workflows,
-a general storage plugin, a hosted marketplace and a full Desktop rewrite are outside the
-foundation delivery. Do not introduce premature contracts or implementations for those features.
+Hooks use typed values and Tembra contribution plans. Confirm effective model requests and
+tool arguments before dispatch. Request projections do not silently rewrite canonical history.
+Terminal observation uses the physically owned source and must preserve original cancellation,
+identity and versioning without reviving storage scopes. Observation errors cannot replace
+confirmed outcomes or grant replay authority. Do not claim exactly-once hook effects.
 
-## Repository boundaries and documentation
+Keep subagents, collaboration, compaction, memory, hosted synchronization and Desktop embedding
+within their explicitly agreed scopes. Extension points do not imply those features are already
+implemented or qualified. Do not restore retired interfaces as speculative compatibility layers.
 
-This public repository owns clients, the independently installable runtime, public contracts,
-shared UI, extension interfaces and distribution tooling. It must build without private
-packages, hosted credentials, documentation contents or another repository checkout.
-The independent private `swarmie-cloud` repository owns hosted identity, enrollment, relay
-routing, allocation, collaboration authorization, synchronization, billing and entitlements.
-It is not a submodule or workspace member. Public code must not import private implementation.
+## Repository and documentation boundaries
 
-Technical documentation and task tracking live in the verified Swarmie Space. Do not recreate
-the previous documentation application or a root `docs/` tree. Keep required licenses,
-legal notices, agent policy and operational build inputs with their owners.
+This repository owns clients, reusable runtime capabilities, extension interfaces, local
+persistence, shared UI and distribution tools. It must build without the hosted-service
+repository, hosted credentials or documentation contents. The independent `swarmie-cloud`
+repository owns hosted identity, enrollment, relay routing, allocations, collaboration authority,
+hosted synchronization, billing and entitlements. It is not a submodule or workspace member.
+Do not add relative cross-repository dependencies or automatic hosted checkouts.
 
-Describe Swarmie's own behavior without comparisons or inspiration references to other
-projects. Check prose, hyperlinks, citations, examples and metadata. Keep necessary technical
-dependencies and supported integration references, and preserve legal attribution and exact
-historical source archives. Do not remove a working dependency merely to hide its name.
+Keep technical project documentation under root `docs/`, with client/runtime guides in
+`docs/client-runtime/`. Do not create package-local technical READMEs or documentation trees.
+Keep root README focused on purpose and capabilities, and setup/commands in DEVELOPMENT.md.
+Describe accepted behavior and open limits without external comparison products. Preserve
+licenses, third-party notices and source provenance with the dependencies they describe.
 
-- [Current foundation and task specifications](https://chatgpt.com/space/page_eae8127333ac8191a1fcdfcea3236fa0).
-- [Architecture overview](https://chatgpt.com/space/page_6ad2888a451481918a45bb8e60906c5f).
-- [Historical public documentation](https://chatgpt.com/space/page_f906cd304fb48191b4c05bd472bdf04d).
-- [Shared engineering and design references](https://chatgpt.com/space/page_2ca4e9eeb8f4819199773f9c68b1c204).
+Architecture task Pages in the verified Swarmie Space remain authoritative for scope, human
+review, execution state and evidence. Refresh Pages and comments before guarded changes,
+preserve concurrent edits and synchronize the external local tracking mirror. Keep private
+tracking and operational evidence outside source control. Do not mark work done merely from
+a plan, open PR or passing build; distinguish human review from implementation qualification.
 
-Refresh relevant Pages, their comments and review decisions before updates. Preserve human
-edits and use current hashes and sequence guards. Review status is separate from execution.
-Record owners, dependencies, blockers and acceptance evidence. A plan, open PR or passing
-build alone does not complete a task. Historical notices distinguish previous designs from
-current behavior; consult archived source only for deliberate reuse, without importing the
-old runtime wholesale or keeping legacy copies in the active tree.
+## TypeScript and clients
 
-## Shared TypeScript and frontend rules
+Start workflows from the repository root. The root owns package.json, bun.lock, tsconfig.json,
+oxlint.config.ts, oxfmt.config.ts, mise.toml and justfile. Do not add package-local lockfiles,
+lint/format policy or duplicate toolchains. Use the pinned Bun and frozen installation.
 
-Start JavaScript and TypeScript workflows from this repository root. The root owns
-`package.json`, `bun.lock`, `tsconfig.json`, `oxlint.config.ts`, `oxfmt.config.ts`,
-`mise.toml` and `justfile`. Do not introduce application lockfiles, nested lint/format policy,
-relative filesystem dependencies or automatic hosted-repository checkouts.
+Shared compiler settings, fonts, Tailwind setup and tokens belong in `packages/config`.
+Keep `packages/ui/web` and `packages/ui/native` dependencies, projects and Storybooks separate.
+Reuse public shared components. Native vendor selection remains provisional. Preserve
+accessibility, localization and reduced motion.
+Web belongs in `apps/web`; Mobile belongs in `apps/mobile`. Keep hosted authority outside clients.
 
-Before changing TypeScript, React, styling or frontend tooling, read the shared engineering,
-design principles, visual system and brandkit references in Spaces. Their historical source
-paths were `frontend.md`, `design-principles.md`, `DESIGN.md` and `brandkit.md`; apply the
-current Tembra and repository ownership rules when those references describe retired components.
-Runtime configuration, fonts, Tailwind setup and tokens belong in `packages/config` and
-canonical brand assets in `assets/brandkit`. Builds must not depend on documentation metadata.
+Use strict TypeScript, precise discriminated values, type-only imports and owning-boundary
+validation. Do not replace rejected promises or unsafe casts with lint suppressions. Check
+formatting, types, lint and affected behavior; qualify clients and catalogs when their shared
+contracts change. A browser-rendered native story does not qualify native device behavior.
 
-Use the repository-local [HeroUI React skill](.agents/skills/heroui-react/SKILL.md) for shared
-DOM interfaces and the [HeroUI Native skill](.agents/skills/heroui-native/SKILL.md) for the
-reversible native trial. HeroUI React is the web primitive base; the native choice remains
-provisional. Reuse public `@swarmie/ui-web` and `@swarmie/ui-native` exports before adding
-components. Keep platform dependencies, compiler projects and Storybooks separate.
-
-The website belongs in `apps/web`; Mobile belongs in `apps/mobile`. Bun shared packages
-belong in `packages/`. The retired language SDKs, native bindings and WIT boundary have been
-removed. The source-built Tembra SDK is a required implementation dependency. The standalone
-TypeScript contracts and plugin UI packages and the browser acceptance application have been
-retired. Rust contracts remain authoritative; generated TypeScript bindings live only with
-the native plugin acceptance fixtures that consume them. Mobile retains account onboarding
-and native UI, with old runtime-dependent views removed and connectivity unavailable;
-do not restore the retired transport or advertise native builds or live connectivity before
-a new client integration is qualified. Do not recreate Tembra's transport engine in each language.
-
-Use precise types, validated external boundaries, discriminated workflow states, explicit
-failures and narrow adapters. Preserve accessibility, localization, reduced motion and
-approved shared control geometry. Do not suppress rejected promises or broad compiler/lint
-warnings. Keep tokens and neutral primitives independent of transports and hosted authority.
-Run root formatting, typechecks, lint and affected behavior tests; qualify retained builds
-and both Storybooks when shared frontend contracts change. Browser checks do not qualify
-native device behavior.
+Consume Tembra from pinned crates.io and npm releases, with the root lockfiles owning
+resolution and integrity. Do not restore local SDK links, upstream source builds or a
+copied/generated SDK package as installation workarounds.
+Keep synthetic authoring fixtures under `tests/fixtures` and generated outputs under target.
+Do not recreate a generic Contract generator or packaging layer without a concrete requirement.
 
 ## Rust and verification
 
-Use the root toolchain in `mise.toml`, formatting in `rustfmt.toml`, recipes in `justfile`
-and changelog policy in `cliff.toml`. Keep Cargo manifests with their owners. The Rust workspace
-contains new foundation crates; align recipes with the qualified Tembra toolchain and actual members.
-Do not copy configuration into application or package directories.
+Use the root pinned toolchain, rustfmt.toml and justfile. Keep manifests with their owners;
+do not duplicate formatting, toolchain or changelog configuration. Infrastructure belongs in
+`crates/`, capability libraries in `plugins/`, and synthetic fixtures in `tests/fixtures/`.
+Do not add top-level example applications or an editor-specific `.vscode/` directory.
 
-Write Rust documentation in English and describe meaningful invariants and failure conditions.
-Keep `lib.rs` focused on public entries and separate adjacent declarations with a blank line.
-Keep unit tests inline and integration tests in each crate's `tests/` directory. Verify changed
-Rust with formatting, Clippy, relevant behavior tests and Rustdoc link checks. Report genuine
-exceptions instead of suppressing warnings across a crate. Run macOS-specific operations on
-the configured macOS host through SSH. Do not add a `.vscode/` directory.
+Keep lib.rs focused on public exports. Use typed domain/control values and accurate public
+contracts; document meaningful invariants, cancellation and failure conditions in English.
+Separate adjacent declarations. Keep unit tests inline and integration tests in each crate's
+`tests/` directory; do not create source directories solely to hold tests. Run root formatting,
+strict Clippy, relevant behavior tests and Rustdoc link checks. Report real exceptions rather
+than suppressing new warnings. Run platform-specific checks on a configured compatible host.

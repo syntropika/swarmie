@@ -1,0 +1,16 @@
+[package]
+name = "swarmie-durable-documents"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+tembra.workspace = true
+swarmie-durable-tasks.workspace = true
+swarmie-foundation-counter = { path = "../foundation-counter" }
+futures.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

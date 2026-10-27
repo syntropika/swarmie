@@ -4,8 +4,9 @@ on:
   pull_request:
     paths:
       - "crates/**"
-      - "packages/tembra-sdk/**"
-      - "examples/plugins/**"
+      - "plugins/**"
+      - "vendor/**"
+      - "tests/fixtures/**"
       - "scripts/tembra/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -44,15 +45,11 @@ jobs:
         run: |
           rustup toolchain install 1.99.0 --profile minimal --component clippy,rustfmt
           cargo +1.99.0 install just --version 1.58.0 --locked
-      - name: Install locked workspace and source-built Tembra SDK
-        run: |
-          bun install --frozen-lockfile
-          just tembra-sdk
-      - name: Verify canonical contracts, packaging and actual native lifecycle
-        run: just foundation-check
+      - name: Install locked workspace and published Tembra packages
+        run: bun install --frozen-lockfile
+      - name: Verify native libraries and actual managed lifecycle
+        run: just foundation-check sdk-check
       - name: Verify root frontend policy and retained clients
         run: bun run check
-      - name: Build the real browser ABI
-        run: |
-          just tembra-browser-tools
-          just tembra-browser
+      - name: Export the published browser ABI
+        run: just tembra-browser

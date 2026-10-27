@@ -1,0 +1,62 @@
+@import "@swarmie/ui-web/styles.css";
+@source "./";
+@source "../../../plugins/*/browser/src/**/*.{ts,tsx}";
+
+@theme static {
+  --spacing-reading-column: 45rem;
+}
+
+/* Geometry changes continuously during a drag; presentation uses the shared tokens. */
+:root {
+  --navigation-width: 220px;
+  --conversation-share: 50%;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  overflow: hidden;
+}
+::selection {
+  background: var(--color-brand-accent);
+  color: var(--color-brand-accent-foreground);
+}
+textarea,
+input {
+  caret-color: var(--color-brand-accent);
+}
+textarea:focus,
+input:focus {
+  outline: none;
+  box-shadow: none;
+}
+/* Text fields indicate focus through fill and caret, without the rejected outline. */
+textarea:focus-visible,
+input:focus-visible {
+  background-color: var(--color-row-hover);
+}
+button:focus-visible,
+summary:focus-visible,
+[role="separator"]:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+[data-resizing="true"],
+[data-resizing="true"] * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+[data-resizing="true"] [role="separator"] {
+  outline: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,6 +1,8 @@
 /* Scope both palettes to working surfaces; color-scheme resolves explicit or system choices. */
 [data-theme] {
   color-scheme: light;
+  --brand-ink-display: block;
+  --brand-white-display: none;
   --color-reference-canvas: light-dark(#ffffff, #181818);
   scrollbar-color: var(--color-drawing-line) var(--color-canvas);
   --color-canvas: var(--background);
@@ -43,4 +45,193 @@
 
 [data-theme="dark"] {
   color-scheme: dark;
+  --brand-ink-display: none;
+  --brand-white-display: block;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-theme="system"] {
+    --brand-ink-display: none;
+    --brand-white-display: block;
+  }
+}
+
+@layer components {
+  .swarmie-brand-ink {
+    display: var(--brand-ink-display, block);
+  }
+
+  .swarmie-brand-white {
+    display: var(--brand-white-display, none);
+  }
+}
+
+/* The optional development viewer follows the shared semantic palette. */
+[data-json-inspector] {
+  --w-rjv-background-color: transparent;
+  --w-rjv-color: var(--foreground);
+  --w-rjv-key-string: var(--foreground);
+  --w-rjv-key-number: var(--muted);
+  --w-rjv-type-string-color: var(--muted);
+  --w-rjv-type-int-color: var(--color-brand-accent);
+  --w-rjv-type-float-color: var(--color-brand-accent);
+  --w-rjv-type-boolean-color: var(--foreground);
+  --w-rjv-border-left: 1px solid var(--border);
+  --w-rjv-info-color: var(--muted);
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* MIT-licensed tick presentation attribution: ui/web/vendor/openclaw-position-rail/NOTICE.md. */
+.conversation-map {
+  position: relative;
+  width: 44px;
+  height: min(45vh, calc(var(--conversation-map-count, 0) * 12px), 100%);
+}
+.conversation-map__marks {
+  position: relative;
+  height: 100%;
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.conversation-map__marks::-webkit-scrollbar {
+  display: none;
+}
+.conversation-map__space {
+  position: relative;
+  height: calc(var(--conversation-map-count, 0) * 12px);
+}
+.conversation-map__item {
+  display: contents;
+}
+.conversation-map__marker {
+  position: absolute;
+  top: var(--conversation-map-position);
+  inset-inline-start: 0;
+  color: color-mix(in srgb, var(--muted) 40%, transparent);
+  background: transparent;
+}
+.conversation-map__marker[data-visible] {
+  color: var(--muted);
+}
+.conversation-map__marker[aria-current="step"] {
+  color: var(--color-brand-accent);
+}
+.conversation-map__tick {
+  display: block;
+  width: var(--conversation-map-tick-width, 8px);
+  height: 2px;
+  border-radius: 1px;
+  background: currentColor;
+  pointer-events: none;
+  transition:
+    width 120ms ease,
+    background-color 120ms ease;
+}
+.conversation-map__item:has(
+  + .conversation-map__item + .conversation-map__item + .conversation-map__item[data-hovered]
+),
+.conversation-map__item[data-hovered]
+  + .conversation-map__item
+  + .conversation-map__item
+  + .conversation-map__item {
+  --conversation-map-tick-width: 12px;
+}
+.conversation-map__item:has(+ .conversation-map__item + .conversation-map__item[data-hovered]),
+.conversation-map__item[data-hovered] + .conversation-map__item + .conversation-map__item {
+  --conversation-map-tick-width: 16px;
+}
+.conversation-map__item:has(+ .conversation-map__item[data-hovered]),
+.conversation-map__item[data-hovered] + .conversation-map__item {
+  --conversation-map-tick-width: 24px;
+}
+.conversation-map__item[data-hovered] {
+  --conversation-map-tick-width: 32px;
+}
+.conversation-map__preview {
+  display: grid;
+  width: 200px;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--foreground);
+  background: var(--overlay);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.conversation-map__label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.conversation-map__copy {
+  display: -webkit-box;
+  margin: 0;
+  max-height: 3lh;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow-wrap: anywhere;
+}
+@media (prefers-reduced-motion: reduce) {
+  .conversation-map__tick {
+    transition: none;
+  }
+}
+
+/* Touch browsers can magnify small editable text on focus; preserve manual page zoom. */
+@media (max-width: 900px), (hover: none) and (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not(
+      [type="file"]
+    ):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="hidden"]),
+  textarea,
+  select,
+  [contenteditable="true"],
+  [contenteditable="plaintext-only"] {
+    font-size: max(16px, 1em);
+  }
+}
+
+/* Phone typography and touch geometry change together; wider clients retain compact chrome. */
+@media (max-width: 639px) {
+  :root {
+    --text-caption: 0.875rem;
+    --text-chrome: 0.8125rem;
+    --text-navigation: 0.875rem;
+    --text-navigation-label: 0.75rem;
+    --text-conversation: 1rem;
+    --text-code: 0.875rem;
+    --text-panel-switch: 0.8125rem;
+    --spacing-shell-bar: 2.75rem;
+    --spacing-shell-rail: 3.25rem;
+    --spacing-navigation-header: 2.75rem;
+    --spacing-navigation-group: 2.75rem;
+    --spacing-chrome-action-height: 2.5rem;
+    --spacing-chrome-action-width: 2.5rem;
+    --spacing-chrome-icon: 1.125rem;
+    --spacing-chrome-rail-control: 2.5rem;
+    --spacing-chrome-row: 2.75rem;
+    --spacing-chrome-navigation-row: 2.75rem;
+    --spacing-chrome-menu-row: 2.75rem;
+    --spacing-composer-control: 2.5rem;
+    --spacing-chrome-tab: 2.5rem;
+    --spacing-chrome-tab-close: 2.5rem;
+    --spacing-panel-switch: 2.5rem;
+  }
+}
+
+@media (max-width: 639px) {
+  .button,
+  .input,
+  .select__trigger,
+  .checkbox,
+  .switch {
+    min-height: var(--spacing-chrome-action-height);
+  }
+  .switch {
+    align-items: center;
+    justify-content: center;
+  }
 }

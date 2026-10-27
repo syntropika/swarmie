@@ -1,0 +1,33 @@
+[package]
+name = "swarmie-model-provider-genai"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Independent native Tembra orb for genai model providers"
+
+[features]
+default = []
+mock = ["swarmie-models/mock"]
+
+[dependencies]
+swarmie-models.workspace = true
+tembra.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+genai = { version = "=0.7.0", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream"] }
+tokio = { version = "1", features = ["rt", "time"] }
+
+[dev-dependencies]
+swarmie-agent-loop = { path = "../agent-loop", features = ["durable-tasks", "conversations"] }
+swarmie-models = { workspace = true, features = ["mock"] }
+swarmie-durable-tasks.workspace = true
+swarmie-conversations.workspace = true
+swarmie-storage-sqlite.workspace = true
+tempfile.workspace = true
+tokio = { version = "1", features = ["macros", "net", "io-util", "rt", "time"] }
+
+[lints]
+workspace = true

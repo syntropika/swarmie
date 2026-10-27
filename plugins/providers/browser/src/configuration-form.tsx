@@ -1,0 +1,153 @@
+import { errorMessage } from "@swarmie/client-ui";
+import { Button } from "@swarmie/ui-web";
+import { useState } from "react";
+
+import type {
+  ProviderAccount,
+  ProviderConfigurationApi,
+  ProviderConfigurationMethod,
+  ProviderDiscoveryApi,
+} from "./index";
+
+function DetectServers({
+  api,
+  busy,
+  onDetected,
+  onFailure,
+}: {
+  api: ProviderDiscoveryApi;
+  busy: boolean;
+  onDetected: (url: string) => void;
+  onFailure: (error: unknown) => void;
+}) {
+  const [detecting, setDetecting] = useState(false);
+  async function detect() {
+    setDetecting(true);
+    try {
+      const [server] = await api.detect(new AbortController().signal);
+      if (server === undefined) {
+        throw new Error("No local model server was found.");
+      }
+      onDetected(server);
+    } finally {
+      setDetecting(false);
+    }
+  }
+  return (
+    <Button
+      variant="secondary"
+      isDisabled={busy || detecting}
+      loading={detecting}
+      loadingLabel="Detecting servers"
+      onPress={() => {
+        detect().catch(onFailure);
+      }}
+    >
+      Detect servers
+    </Button>
+  );
+}
+
+/** Configuration is resolved by the parent; this form receives its complete contract. */
+export function ProviderConfigurationForm({
+  api,
+  discovery,
+  providerId,
+  method,
+  onConfigured,
+  onBusyChange,
+}: {
+  api: ProviderConfigurationApi;
+  discovery: ProviderDiscoveryApi | null;
+  providerId: string;
+  method: ProviderConfigurationMethod;
+  onConfigured: (account: ProviderAccount) => void;
+  onBusyChange: (busy: boolean) => void;
+}) {
+  const [credential, setCredential] = useState("");
+  const [url, setUrl] = useState("http://localhost:11434");
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  function failed(error: unknown) {
+    setFailure(errorMessage(error));
+  }
+  async function configure() {
+    if (busy) {
+      return;
+    }
+    setBusy(true);
+    onBusyChange(true);
+    setFailure(null);
+    try {
+      const account = await api.configure(
+        {
+          providerId,
+          method: method.id,
+          ...(method.kind === "local" ? { url } : { credential }),
+        },
+        new AbortController().signal,
+      );
+      setCredential("");
+      onConfigured(account);
+    } finally {
+      setBusy(false);
+      onBusyChange(false);
+    }
+  }
+  return (
+    <div className="grid gap-5">
+      {method.kind === "local" ? (
+        <>
+          <label className="grid gap-2 text-sm">
+            Server URL
+            <input
+              type="url"
+              value={url}
+              onChange={(event) => {
+                setUrl(event.target.value);
+              }}
+              className="rounded-lg border border-border bg-default px-3 py-3"
+            />
+          </label>
+          {discovery === null ? null : (
+            <DetectServers api={discovery} busy={busy} onDetected={setUrl} onFailure={failed} />
+          )}
+        </>
+      ) : (
+        <label className="grid gap-2 text-sm">
+          API key
+          <input
+            type="password"
+            autoComplete="off"
+            value={credential}
+            onChange={(event) => {
+              setCredential(event.target.value);
+            }}
+            className="rounded-lg border border-border bg-default px-3 py-3"
+          />
+        </label>
+      )}
+      {failure === null ? null : (
+        <p role="alert" className="text-sm text-danger">
+          {failure}
+        </p>
+      )}
+      <p className="text-xs text-muted">Choose your model later.</p>
+      <div className="flex justify-end border-t border-border pt-5">
+        <Button
+          tone="brand"
+          shape="panel"
+          size="lg"
+          loading={busy}
+          loadingLabel="Connecting provider"
+          isDisabled={method.kind === "api-key" && credential.trim() === ""}
+          onPress={() => {
+            configure().catch(failed);
+          }}
+        >
+          Connect provider
+        </Button>
+      </div>
+    </div>
+  );
+}

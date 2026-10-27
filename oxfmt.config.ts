@@ -8,9 +8,9 @@ export default defineConfig({
   ignorePatterns: [
     ...ultracite.ignorePatterns,
     "**/target/**",
-    "packages/tembra-sdk/upstream/**",
-    // Generated verbatim from canonical Tembra descriptors; verified by tembra-contracts-check.
-    "examples/plugins/generated/**",
+    // Preserve the reproducible third-party dependency snapshot and its patch digest.
+    "vendor/genai-0.7.0/**",
+    "packages/ui/web/vendor/**",
     ".agents/skills/heroui-native/**",
     ".agents/skills/heroui-react/**",
     "tests/fixtures/**",

@@ -1,10 +1,12 @@
 @theme static {
+  --stroke-chrome-icon: 1.6;
   /* Vendor semantic roles remain aliases to HeroUI's theme variables. */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
   --color-accent: var(--accent);
   --color-focus: var(--focus);
+  --color-overlay: var(--overlay);
   --color-default: var(--default);
   --color-default-hover: var(--default-hover);
 
@@ -15,6 +17,55 @@
   --color-harness-unavailable: #777777;
   --color-permission-full-access: #ff984e;
   --color-composer-cap-hover: #4a4a4a;
+  --color-pane: light-dark(var(--background), #151514);
+  --color-navigation-surface: light-dark(var(--surface), #1b1b19);
+  --color-chrome-surface: light-dark(var(--surface), #1d1d1b);
+  --color-row-selected: light-dark(var(--default), #30302c);
+  --color-row-hover: var(--default-hover);
+  --color-composer: var(--field-background);
+  --color-composer-border: var(--field-border);
+  --color-composer-context: light-dark(var(--surface), #232321);
+  --color-brand-accent: light-dark(#8d5147, #dda99f);
+  --color-brand-accent-foreground: light-dark(#ffffff, #1c1c1b);
+  --color-resize-active: var(--color-brand-accent);
+  --color-panel-drop-line: #8983b9;
+  --color-panel-drop-surface: rgb(111 105 174 / 18%);
+  --color-panel-drop-label: light-dark(#eeecfa, #252434);
+  --color-panel-drop-foreground: light-dark(#39334f, #e9e7ff);
+
+  --spacing-shell-bar: 2rem;
+  --spacing-shell-rail: 2.625rem;
+  --spacing-navigation-header: 2.25rem;
+  --spacing-navigation-group: 2.0625rem;
+  --spacing-chrome-action-height: 1.4375rem;
+  --spacing-chrome-action-width: 1.5625rem;
+  --spacing-chrome-icon: 0.875rem;
+  --spacing-chrome-rail-control: 1.75rem;
+  --spacing-chrome-row: 1.75rem;
+  --spacing-chrome-navigation-row: 1.9375rem;
+  --spacing-chrome-menu-row: 2rem;
+  --spacing-composer-control: 1.6875rem;
+  --spacing-chrome-tab: 1.75rem;
+  --spacing-chrome-tab-close: 1.375rem;
+  --spacing-panel-switch: 2.5rem;
+  --text-panel-switch: 0.625rem;
+  --spacing-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --spacing-chrome-gap: 0.3125rem;
+  --spacing-chrome-inset: 0.5rem;
+  --spacing-navigation-x: 0.5rem;
+  --spacing-navigation-top: 0.75rem;
+  --spacing-navigation-bottom: 0.875rem;
+  --spacing-navigation-row-x: 0.4375rem;
+  --spacing-navigation-row-y: 0.4375rem;
+  --spacing-control-group: 0.1875rem;
+  --spacing-composer-x: 0.75rem;
+  --spacing-composer-top: 0.75rem;
+  --spacing-composer-bottom: 0.5625rem;
+  --spacing-composer-area-top: 0.875rem;
+  --spacing-composer-area-bottom: 0.75rem;
+  --spacing-reading-top: 1.875rem;
+  --spacing-reading-bottom: 0.9375rem;
+  --text-navigation-label: 0.625rem;
 
   --font-sans: "Google Sans", ui-sans-serif, system-ui, sans-serif;
   --font-brand: var(--font-sans);
@@ -57,7 +108,10 @@
   --color-inverse-muted: #bdc4ce;
   --color-inverse-link: #aac1e0;
 
+  --radius-composer-control: 5px;
   --radius-small: 4px;
+  --radius-composer: 11px;
+  --radius-menu: 10px;
   --radius-control: 16px;
   --radius-panel: 16px;
   --radius-illustration: 16px;
@@ -101,6 +155,7 @@
   --leading-ui: 1.4285714286;
   --leading-body: 1.5;
   --leading-content: 1.625;
+  --leading-composer: 1.75;
   --text-content: 0.875rem;
   --text-content--line-height: 1.625;
   --text-document: 1.75rem;
@@ -109,6 +164,12 @@
   --text-document--letter-spacing: 0em;
   --text-caption: 0.75rem;
   --text-caption--line-height: 1.5;
+  --text-chrome: 0.6875rem;
+  --text-chrome--line-height: 1.4;
+  --text-navigation: 0.71875rem;
+  --text-navigation--line-height: 1.5;
+  --text-conversation: 0.78125rem;
+  --text-conversation--line-height: 1.85;
   --text-code: 0.8125rem;
   --text-code--line-height: 1.6;
   --leading-code: 1.6;

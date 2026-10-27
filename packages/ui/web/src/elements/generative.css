@@ -1,0 +1,181 @@
+/* Structural vocabulary uses shared tokens; interactive controls are provided by HeroUI. */
+.swarmie-generative {
+  min-width: 0;
+  color: var(--foreground);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+
+  [data-aui] {
+    min-width: 0;
+  }
+  [data-aui="col"] {
+    @apply flex flex-col gap-3;
+  }
+  [data-aui="row"] {
+    @apply flex flex-wrap items-center gap-3;
+  }
+  [data-aui="spacer"] {
+    flex: 1;
+  }
+  [data-aui="header"] {
+    @apply text-lg font-semibold;
+  }
+  [data-aui="caption"] {
+    @apply text-xs;
+  }
+  [data-aui-size="xs"] {
+    @apply text-xs;
+  }
+  [data-aui-size="sm"] {
+    @apply text-sm;
+  }
+  [data-aui-size="md"] {
+    @apply text-sm;
+  }
+  [data-aui-size="lg"] {
+    @apply text-lg;
+  }
+  [data-aui-size="xl"] {
+    @apply text-2xl;
+  }
+  [data-aui-size="2xl"] {
+    @apply text-3xl;
+  }
+  [data-aui-weight="medium"] {
+    @apply font-medium;
+  }
+  [data-aui-weight="semibold"] {
+    @apply font-semibold;
+  }
+  [data-aui-weight="bold"] {
+    @apply font-bold;
+  }
+  [data-aui-align="start"] {
+    align-items: flex-start;
+    text-align: start;
+  }
+  [data-aui-align="center"] {
+    align-items: center;
+    text-align: center;
+  }
+  [data-aui-align="end"] {
+    align-items: flex-end;
+    text-align: end;
+  }
+  [data-aui-align="stretch"] {
+    align-items: stretch;
+  }
+  [data-aui-justify="start"] {
+    justify-content: flex-start;
+  }
+  [data-aui-justify="center"] {
+    justify-content: center;
+  }
+  [data-aui-justify="end"] {
+    justify-content: flex-end;
+  }
+  [data-aui-justify="between"] {
+    justify-content: space-between;
+  }
+  [data-aui="image"] {
+    @apply max-w-full rounded-lg object-cover;
+  }
+  [data-aui="image"][data-aui-size="xs"] {
+    @apply size-10;
+  }
+  [data-aui="image"][data-aui-size="sm"] {
+    @apply size-16;
+  }
+  [data-aui="image"][data-aui-size="md"] {
+    @apply size-24;
+  }
+  [data-aui="image"][data-aui-size="lg"] {
+    @apply w-full;
+  }
+  [data-aui="image"][data-aui-round="true"] {
+    @apply rounded-full;
+  }
+  [data-aui="fact"] {
+    @apply flex flex-wrap items-baseline justify-between gap-2;
+  }
+  [data-aui="fact-label"] {
+    @apply text-xs;
+  }
+  [data-aui="fact-value"] {
+    @apply font-medium;
+  }
+  [data-aui="icon"] {
+    @apply size-5 shrink-0;
+  }
+  [data-aui="badge"] {
+    @apply inline-flex w-fit items-center gap-2 rounded-full bg-surface-muted px-2 py-1 text-xs;
+  }
+  [data-aui="divider"] {
+    @apply my-2 border-border;
+  }
+  [data-aui="table"] {
+    @apply w-full border-collapse text-start text-sm;
+  }
+  [data-aui="table"] th,
+  [data-aui="table"] td {
+    @apply border-b border-border px-3 py-2 text-start;
+    overflow-wrap: anywhere;
+  }
+  [data-aui="chart"] {
+    @apply block h-40 w-full;
+  }
+  [data-aui="listview"],
+  [data-aui="steps"],
+  [data-aui="timeline"] {
+    @apply grid gap-3;
+  }
+  [data-aui="listview-item"] {
+    @apply border-b border-border py-2;
+  }
+  [data-aui="steps-title"],
+  [data-aui="timeline-title"],
+  [data-aui="alert-title"] {
+    @apply font-medium;
+  }
+  [data-aui="steps-detail"],
+  [data-aui="timeline-detail"],
+  [data-aui="timeline-time"] {
+    @apply text-xs;
+  }
+  [data-aui="alert"] {
+    @apply grid gap-2 rounded-lg border border-border bg-surface-muted p-3;
+  }
+  [data-aui="carousel"] {
+    @apply flex gap-3 overflow-x-auto;
+  }
+  [data-aui="carousel-slide"] {
+    @apply min-w-0 flex-1;
+  }
+}
+.swarmie-generative [data-aui-gap="0"] {
+  gap: calc(var(--spacing) * 0);
+}
+.swarmie-generative [data-aui-gap="1"] {
+  gap: calc(var(--spacing) * 1);
+}
+.swarmie-generative [data-aui-gap="2"] {
+  gap: calc(var(--spacing) * 2);
+}
+.swarmie-generative [data-aui-gap="3"] {
+  gap: calc(var(--spacing) * 3);
+}
+.swarmie-generative [data-aui-gap="4"] {
+  gap: calc(var(--spacing) * 4);
+}
+.swarmie-generative [data-aui-gap="5"] {
+  gap: calc(var(--spacing) * 5);
+}
+.swarmie-generative [data-aui-gap="6"] {
+  gap: calc(var(--spacing) * 6);
+}
+.swarmie-generative [data-aui-gap="7"] {
+  gap: calc(var(--spacing) * 7);
+}
+.swarmie-generative [data-aui-gap="8"] {
+  gap: calc(var(--spacing) * 8);
+}

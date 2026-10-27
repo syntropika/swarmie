@@ -8,8 +8,21 @@ export function isThemePreference(value: unknown): value is ThemePreference {
   return value === "light" || value === "dark" || value === "system";
 }
 
-/** Trusted static code runs before first paint and hydration; no user data becomes script. */
-export const THEME_PREFERENCE_BOOTSTRAP = `(()=>{let theme="system";try{const stored=localStorage.getItem("${THEME_PREFERENCE_STORAGE_KEY}");if(stored==="light"||stored==="dark"||stored==="system")theme=stored;}catch{theme="system";}document.documentElement.dataset.theme=theme;})();`;
+function applyBrowserThemePreference(preference: ThemePreference) {
+  document.documentElement.dataset.theme = preference;
+  for (const meta of document.querySelectorAll<HTMLMetaElement>(
+    'meta[name="theme-color"][data-swarmie-theme]',
+  )) {
+    if (preference === "system") {
+      meta.media = `(prefers-color-scheme: ${meta.dataset.swarmieTheme})`;
+    } else {
+      meta.media = meta.dataset.swarmieTheme === preference ? "all" : "not all";
+    }
+  }
+}
+
+/** Trusted static code runs after theme metadata, before first paint; user data is never code. */
+export const THEME_PREFERENCE_BOOTSTRAP = `(()=>{let theme="system";try{const stored=localStorage.getItem("${THEME_PREFERENCE_STORAGE_KEY}");if(stored==="light"||stored==="dark"||stored==="system")theme=stored;}catch{theme="system";}(${applyBrowserThemePreference.toString()})(theme);})();`;
 
 type ThemePreferenceEnvironment = {
   read: () => unknown;
@@ -86,9 +99,7 @@ function createBrowserThemePreferenceStore() {
     write: (preference) => {
       window.localStorage.setItem(THEME_PREFERENCE_STORAGE_KEY, preference);
     },
-    apply: (preference) => {
-      document.documentElement.dataset.theme = preference;
-    },
+    apply: applyBrowserThemePreference,
     listen: (receive) => {
       const onStorage = (event: StorageEvent) => {
         if (event.key !== null && event.key !== THEME_PREFERENCE_STORAGE_KEY) {

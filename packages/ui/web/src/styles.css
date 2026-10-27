@@ -6,5 +6,9 @@
 @import "@swarmie/config/tailwind/web-theme.css";
 
 @import "@swarmie/config/tailwind/hero-web.css";
+@import "./elements/generative.css";
+@import "@swarmie/config/tailwind/loading.css";
 
 @source "./**/*.{ts,tsx}";
+
+@source "../target/assistant-elements/**/*.{ts,tsx}";

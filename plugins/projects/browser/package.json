@@ -1,0 +1,26 @@
+{
+  "name": "@swarmie/plugin-projects-browser",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./views": "./src/views.tsx",
+    "./integration": "./src/integration.tsx",
+    "./persistence": "./src/persistence.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@swarmie/client-ui": "workspace:*",
+    "@swarmie/plugin-application-shell-browser": "workspace:*",
+    "@swarmie/plugin-conversations-browser": "workspace:*",
+    "@swarmie/ui-web": "workspace:*",
+    "@syntropika/tembra-sdk": "0.2.0",
+    "lucide-react": "1.61.0"
+  },
+  "peerDependencies": {
+    "react": "19.3.0"
+  }
+}

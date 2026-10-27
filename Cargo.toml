@@ -1,38 +1,39 @@
 [workspace]
-members = ["crates/*"]
+members = ["crates/runtime", "crates/models", "crates/storage", "crates/storage-sqlite", "plugins/plugin-manager", "plugins/tools", "plugins/model-provider-genai", "plugins/durable-tasks", "plugins/agent-loop", "plugins/conversations", "tests/fixtures/foundation-counter", "tests/fixtures/durable-documents", "tests/fixtures/atomic-journal"]
+exclude = ["vendor/genai-0.7.0"]
 resolver = "2"
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-license = "Apache-2.0"
 rust-version = "1.99"
+license = "Apache-2.0"
 
 [workspace.dependencies]
-tembra = { git = "https://github.com/syntropika/tembra.git", rev = "377fd3f61dae2e58a1a0358377fdf9d651d00b54", features = ["native"] }
-tembra-core = { git = "https://github.com/syntropika/tembra.git", rev = "377fd3f61dae2e58a1a0358377fdf9d651d00b54" }
-tembra-contracts = { git = "https://github.com/syntropika/tembra.git", rev = "377fd3f61dae2e58a1a0358377fdf9d651d00b54" }
-tembra-native = { git = "https://github.com/syntropika/tembra.git", rev = "377fd3f61dae2e58a1a0358377fdf9d651d00b54" }
-tembra-executor-js = { git = "https://github.com/syntropika/tembra.git", rev = "377fd3f61dae2e58a1a0358377fdf9d651d00b54" }
+tembra = { git = "https://github.com/syntropika/tembra", rev = "94771d70bfa30a9f87bef8cfb69ff0a117d2f174" }
 futures = "0.3"
-tokio = { version = "1.53.3", features = ["rt", "time", "net", "macros", "signal"] }
-tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["handshake", "connect"] }
+futures-timer = "3"
+uuid = { version = "1", features = ["v4", "serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-schemars = "1.2.3"
 thiserror = "2"
 rusqlite = { version = "0.37", features = ["bundled"] }
-sha2 = "0.10"
-hex = "0.4"
-semver = "1"
-uuid = { version = "1", features = ["v4"] }
 tempfile = "3"
+swarmie-tools = { path = "plugins/tools" }
+swarmie-models = { path = "crates/models" }
+swarmie-storage = { path = "crates/storage" }
+swarmie-conversations = { path = "plugins/conversations" }
+swarmie-durable-tasks = { path = "plugins/durable-tasks" }
+swarmie-plugin-manager = { path = "plugins/plugin-manager" }
+swarmie-storage-sqlite = { path = "crates/storage-sqlite" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 
 [workspace.lints.clippy]
-all = { level = "warn", priority = -1 }
 dbg_macro = "deny"
 todo = "deny"
 unimplemented = "deny"
+
+[patch.crates-io]
+genai = { path = "vendor/genai-0.7.0" }

@@ -6,21 +6,23 @@
     "apps/mobile",
     "packages/ui/web",
     "packages/ui/native",
-    "apps/web"
+    "apps/web",
+    "apps/client",
+    "plugins/*/browser"
   ],
   "type": "module",
   "scripts": {
     "storybook": "bun run --filter @swarmie/ui-web storybook",
     "build:storybook": "bun run --filter @swarmie/ui-web build-storybook && bun run --filter @swarmie/ui-native build-storybook",
-    "typecheck": "bun run --filter @swarmie/ui-web typecheck && bun run --filter @swarmie/ui-native typecheck && bun run --filter swarmie-mobile typecheck && bun run --filter @swarmie/web typecheck && tsc --noEmit -p examples/plugins/tsconfig.json",
+    "typecheck": "bun run --filter @swarmie/ui-web typecheck && bun run --filter @swarmie/ui-native typecheck && bun run --filter swarmie-mobile typecheck && bun run --filter @swarmie/web typecheck && tsc --noEmit -p tests/fixtures/tembra-sdk/tsconfig.json && tsc --noEmit -p scripts/tembra/tsconfig.json && bun run --filter @swarmie/client typecheck",
     "lint": "bun run typegen && bun run lint:code",
     "lint:code": "oxlint --disable-nested-config --deny-warnings --report-unused-disable-directives",
-    "lint:design": "oxlint --disable-nested-config --deny-warnings packages/ui/web/src packages/ui/native/src apps/web/src",
+    "lint:design": "oxlint --disable-nested-config --deny-warnings packages/ui/web/src packages/ui/native/src apps/web/src apps/client/src plugins/*/browser/src",
     "lint:fix": "oxlint --disable-nested-config --fix --deny-warnings",
     "lint:doctor": "ultracite doctor",
     "format": "node node_modules/oxfmt/bin/oxfmt .",
     "format:check": "node node_modules/oxfmt/bin/oxfmt --check .",
-    "test": "bun run test:ui && bun run test:mobile && bun run test:web",
+    "test": "bun run test:ui && bun run test:mobile && bun run test:web && bun run test:client",
     "check": "bun run format:check && bun run typecheck && bun run lint && bun run test",
     "lint:shared": "oxlint --disable-nested-config --deny-warnings --report-unused-disable-directives oxlint.config.ts oxfmt.config.ts packages/config packages/ui",
     "format:shared:check": "node node_modules/oxfmt/bin/oxfmt --check oxlint.config.ts oxfmt.config.ts package.json tsconfig.json packages/config packages/ui",
@@ -35,12 +37,22 @@
     "build:web": "bun run --filter @swarmie/web build",
     "preview:web": "bun run --filter @swarmie/web preview",
     "typegen": "bun run --filter @swarmie/web generate:routes && bun run --filter @swarmie/web cf-typegen",
-    "test:web": "bun test ./apps/web/src"
+    "test:web": "bun test ./apps/web/src",
+    "plugins:build": "bun scripts/tembra/build.ts",
+    "dev:client": "bun run --filter @swarmie/client dev",
+    "build:client": "bun run --filter @swarmie/client build",
+    "test:client": "bun test ./apps/client/test ./plugins/conversations/browser/test ./plugins/connections/browser/test ./plugins/notifications/browser/test ./plugins/read-aloud/browser/test",
+    "ui:elements:prepare": "bun scripts/ui-elements/prepare.mjs",
+    "ui:elements:verify": "bun scripts/ui-elements/verify.mjs"
   },
   "devDependencies": {
+    "@babel/parser": "7.29.2",
     "@shadcn/lint": "0.2.0",
     "@swarmie/config": "workspace:*",
-    "@tembra/sdk": "workspace:*",
+    "@swarmie/ui-web": "workspace:*",
+    "@syntropika/tembra-engine-wasm": "0.2.0",
+    "@syntropika/tembra-sdk": "0.2.0",
+    "@tailwindcss/vite": "4.3.3",
     "@types/bun": "1.3.10",
     "@types/node": "24.13.6",
     "@types/react": "19.3.0",
@@ -49,9 +61,12 @@
     "oxfmt": "0.70.0",
     "oxlint": "1.85.0",
     "oxlint-tsgolint": "7.0.2002",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "tailwindcss": "4.3.3",
     "typescript": "7.0.2",
-    "ultracite": "7.12.0"
+    "ultracite": "7.12.0",
+    "vite": "8.3.0"
   },
   "overrides": {
     "@types/node": "24.13.6"

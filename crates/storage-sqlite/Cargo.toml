@@ -1,0 +1,25 @@
+[package]
+name = "swarmie-storage-sqlite"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "SQLite adapters for independent runtime storage capabilities"
+
+[dependencies]
+swarmie-storage.workspace = true
+swarmie-conversations.workspace = true
+swarmie-plugin-manager.workspace = true
+swarmie-durable-tasks.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+futures.workspace = true
+tembra.workspace = true
+rusqlite.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+futures-timer.workspace = true
+
+[lints]
+workspace = true

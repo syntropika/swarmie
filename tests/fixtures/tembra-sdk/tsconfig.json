@@ -1,0 +1,12 @@
+{
+  "extends": "../../../packages/config/ts/base.json",
+  "compilerOptions": {
+    "types": [
+      "bun"
+    ],
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    "*.ts"
+  ]
+}

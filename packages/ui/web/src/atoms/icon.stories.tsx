@@ -54,7 +54,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "A bounded catalog of Tabler outline icons with a 24-unit grid, rounded terminals, a 1.5-unit stroke, and a 20px default size. Icons inherit text color and are decorative; the adjacent control or label supplies their accessible meaning. Native SVG attributes and refs pass through. Use size utilities for compact or larger contexts.",
+          "A bounded catalog of Lucide outline icons with a 24-unit grid, rounded terminals, a 1.6-unit stroke, and a 20px default size. Icons inherit text color and are decorative; the adjacent control or label supplies their accessible meaning. Native SVG attributes and refs pass through. Use size utilities for compact or larger contexts.",
       },
     },
   },

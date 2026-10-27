@@ -3,7 +3,9 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { officialExampleSource } from "../../.storybook/example-sources";
 import { OfficialExample as HeroUIDocumentationExample } from "../../.storybook/examples/popover";
 import { Button } from "./button";
+import { Label } from "./label";
 import { Popover } from "./popover";
+import { Slider } from "./slider";
 
 const meta = {
   title: "Atoms/Popover",
@@ -20,6 +22,28 @@ export const Default: Story = {
         <Popover.Dialog aria-label="Project details">
           <Popover.Heading>Project details</Popover.Heading>
           <p>A shared project for the team.</p>
+        </Popover.Dialog>
+      </Popover.Content>
+    </Popover>
+  ),
+};
+
+export const Composer: Story = {
+  render: () => (
+    <Popover>
+      <Button variant="tertiary">Thinking effort</Button>
+      <Popover.Content kind="composer" placement="top end">
+        <Popover.Dialog aria-label="Thinking effort">
+          <Slider minValue={0} maxValue={2} step={1} defaultValue={1}>
+            <Label>Thinking effort</Label>
+            <Slider.Output>
+              {({ state }) => ["Less", "Balanced", "More"][state.values[0] ?? 0]}
+            </Slider.Output>
+            <Slider.Track>
+              <Slider.Fill />
+              <Slider.Thumb />
+            </Slider.Track>
+          </Slider>
         </Popover.Dialog>
       </Popover.Content>
     </Popover>

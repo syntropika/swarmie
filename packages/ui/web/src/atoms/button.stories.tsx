@@ -25,6 +25,12 @@ type Story = StoryObj<typeof meta>;
 
 export const Primary: Story = {};
 
+export const Brand: Story = { args: { tone: "brand", children: "Connect provider" } };
+
+export const PanelAction: Story = {
+  args: { tone: "brand", shape: "panel", size: "lg", children: "Connect provider" },
+};
+
 export const FloatingAction: Story = {
   args: {
     variant: "primary",

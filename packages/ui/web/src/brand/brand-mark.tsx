@@ -37,8 +37,8 @@ function BrandArtwork({
     <span {...props} aria-hidden="true" className={cn("inline-flex shrink-0", className)}>
       {tone === "primary" ? (
         <>
-          <img src={ink} alt="" className={cn(imageClass, "dark:hidden")} />
-          <img src={white} alt="" className={cn(imageClass, "hidden dark:block")} />
+          <img src={ink} alt="" className={cn(imageClass, "swarmie-brand-ink")} />
+          <img src={white} alt="" className={cn(imageClass, "swarmie-brand-white")} />
         </>
       ) : (
         <img src={white} alt="" className={imageClass} />

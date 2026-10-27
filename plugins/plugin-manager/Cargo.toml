@@ -1,0 +1,20 @@
+[package]
+name = "swarmie-plugin-manager"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Managed core plugin administration for Tembra"
+
+[dependencies]
+swarmie-storage.workspace = true
+tembra.workspace = true
+futures.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

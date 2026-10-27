@@ -1,0 +1,26 @@
+{
+  "name": "@swarmie/plugin-read-aloud-browser",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@swarmie/client-ui": "workspace:*",
+    "@swarmie/plugin-conversations-browser": "workspace:*",
+    "@swarmie/ui-web": "workspace:*",
+    "@syntropika/tembra-sdk": "0.2.0",
+    "@types/mdast": "4.0.4",
+    "lucide-react": "1.61.0",
+    "remark-gfm": "4.0.1",
+    "remark-parse": "11.0.0",
+    "unified": "11.0.5"
+  },
+  "peerDependencies": {
+    "react": "19.3.0"
+  }
+}

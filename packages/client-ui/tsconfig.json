@@ -1,0 +1,7 @@
+{
+  "extends": "@swarmie/config/ts/react.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src"]
+}

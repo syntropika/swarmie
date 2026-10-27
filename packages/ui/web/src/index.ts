@@ -9,7 +9,6 @@ export { LoadingStatus, type LoadingStatusProps } from "./atoms/loading-status";
 export { BrandMark, BrandLogo, type BrandMarkProps, type BrandLogoProps } from "./brand/brand-mark";
 export { Separator, type SeparatorProps } from "./atoms/separator";
 export { cn } from "./classes";
-
 export {
   THEME_PREFERENCE_BOOTSTRAP,
   getThemePreferenceSnapshot,
@@ -37,7 +36,15 @@ export { Alert, type AlertProps } from "./atoms/alert";
 
 export { TextArea, type TextAreaProps } from "./atoms/textarea";
 export { Tooltip, TooltipContent, type TooltipProps } from "./atoms/tooltip";
-export { ClaudeLogo, OpenAILogo, GeminiLogo, type LogoProps } from "./atoms/model-logos";
+export {
+  ClaudeLogo,
+  OpenAILogo,
+  GeminiLogo,
+  KimiLogo,
+  AlibabaLogo,
+  CopilotLogo,
+  type LogoProps,
+} from "./atoms/model-logos";
 export {
   Table,
   type TableProps,
@@ -48,14 +55,19 @@ export {
 export { Link, type LinkProps } from "./atoms/link";
 export { Switch, type SwitchProps } from "./atoms/switch";
 export { Slider, type SliderProps } from "./atoms/slider";
-export { Modal, type ModalProps } from "./atoms/modal";
-export { Popover, type PopoverProps } from "./atoms/popover";
-export { Dropdown, type DropdownProps } from "./atoms/dropdown";
+export {
+  Modal,
+  type ModalProps,
+  type ModalDialogProps,
+  type ModalHeadingProps,
+} from "./atoms/modal";
+export { Popover, type PopoverProps, type PopoverContentProps } from "./atoms/popover";
+export { Dropdown, ActionMenuPopover, type DropdownProps } from "./atoms/dropdown";
 export { Disclosure, type DisclosureProps } from "./atoms/disclosure";
 export { ComboBox, type ComboBoxProps } from "./atoms/combo-box";
 export { InputGroup, type InputGroupProps } from "./atoms/input-group";
 export { Spinner, type SpinnerProps } from "./atoms/spinner";
-export { ResizeHandle, type ResizeHandleProps } from "./atoms/resize-handle";
+export { ResizeHandle, PaneResize, type ResizeHandleProps } from "./atoms/resize-handle";
 export { TextField, Label, Description, FieldError, type TextFieldProps } from "./atoms/text-field";
 export { Tabs, type TabsProps } from "./atoms/tabs";
 export { Badge, type BadgeProps } from "./atoms/badge";
@@ -306,10 +318,8 @@ export type {
   ModalBodyProps,
   ModalCloseTriggerProps,
   ModalContainerProps,
-  ModalDialogProps,
   ModalFooterProps,
   ModalHeaderProps,
-  ModalHeadingProps,
   ModalIconProps,
   ModalRootProps,
   ModalTriggerProps,
@@ -330,7 +340,6 @@ export type {
   PaginationSummaryProps,
   ParagraphProps,
   PopoverArrowProps,
-  PopoverContentProps,
   PopoverDialogProps,
   PopoverHeadingProps,
   PopoverRootProps,
@@ -437,3 +446,20 @@ export type {
   UseDisclosureGroupNavigationProps,
   UseScrollShadowProps,
 } from "@heroui/react";
+
+export { ChromeButton, type ChromeButtonProps } from "./atoms/chrome-button";
+
+export {
+  PendingContent,
+  ApplicationSkeleton,
+  NavigationSkeleton,
+  ConversationSkeleton,
+  MessageSkeleton,
+  ContentSkeleton,
+  SettingsSkeleton,
+  LoadingRows,
+} from "./patterns/loading";
+
+export { copyText } from "./clipboard";
+
+export { NavigationGroup } from "./molecules/navigation-group";

@@ -1,0 +1,33 @@
+[package]
+name = "swarmie-agent-loop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Independent agent loop with optional durable execution"
+
+[features]
+default = []
+durable-tasks = ["dep:swarmie-durable-tasks"]
+conversations = ["dep:swarmie-conversations"]
+
+[dependencies]
+tembra = { workspace = true, features = ["hooks"] }
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+swarmie-models.workspace = true
+swarmie-tools.workspace = true
+swarmie-durable-tasks = { workspace = true, optional = true }
+swarmie-conversations = { workspace = true, optional = true }
+
+[dev-dependencies]
+swarmie-models = { workspace = true, features = ["mock"] }
+swarmie-storage.workspace = true
+swarmie-storage-sqlite.workspace = true
+tempfile.workspace = true
+futures-timer.workspace = true
+rusqlite.workspace = true
+
+[lints]
+workspace = true

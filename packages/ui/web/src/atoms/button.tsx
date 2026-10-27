@@ -12,6 +12,9 @@ type ActionProps = Omit<HeroButtonProps, "variant"> & {
   popoverTarget?: string | undefined;
   variant?: Variant;
   disabled?: boolean | undefined;
+  tone?: "neutral" | "brand";
+  /** Bordered-panel actions use the shared field radius rather than a pill. */
+  shape?: "pill" | "panel" | "tile";
   loading?: boolean;
   loadingLabel?: string;
 };
@@ -23,6 +26,8 @@ function Root(props: ButtonProps) {
     children,
     disabled = false,
     isDisabled,
+    tone = "neutral",
+    shape = "pill",
     loading = false,
     isPending = false,
     loadingLabel = "Working",
@@ -42,6 +47,8 @@ function Root(props: ButtonProps) {
       render={(nativeProps, state) => {
         const forwarded = {
           ...nativeProps,
+          "data-tone": tone === "brand" ? "brand" : undefined,
+          "data-shape": shape === "pill" ? undefined : shape,
           type: nativeProps.type ?? "button",
           "aria-busy": pending ? true : rest["aria-busy"],
           title: title ?? nativeProps.title,

@@ -10,7 +10,6 @@ default:
 setup:
     mise install
     mise exec -- bun install --frozen-lockfile
-    mise exec -- just tembra-sdk
 
 dev:
     bun run dev:web
@@ -65,22 +64,11 @@ mobile-signing-check:
     bundle exec ruby scripts/distribution/test_apple_signing_storage.rb
     bundle exec ruby scripts/distribution/test_apple_signing_cli.rb
 
-# Tembra is consumed from one immutable public dependency revision.
-tembra-bootstrap:
-    python3 scripts/tembra/tooling.py bootstrap
-
-tembra-sdk: tembra-bootstrap
-    python3 scripts/tembra/tooling.py project-sdk
-    python3 scripts/tembra/tooling.py verify-sdk
-
-tembra-contracts:
-    python3 scripts/tembra/tooling.py generate-contracts
-
 tembra-plugins:
-    python3 scripts/tembra/tooling.py build-plugins
+    bun run plugins:build
 
 tembra-browser:
-    RUSTUP_TOOLCHAIN={{rust_version}} python3 scripts/tembra/tooling.py browser-wasm
+    bun scripts/tembra/browser.ts
 
 rust-lock:
     cargo +{{rust_version}} generate-lockfile
@@ -107,17 +95,62 @@ rust-check: rust-fmt-check rust-clippy
     cargo +{{rust_version}} test --locked --workspace
     just rust-doc
 
-# Canonical Rust descriptors generate the committed TypeScript bindings.
-tembra-contracts-check:
-    python3 scripts/tembra/tooling.py verify-contracts
+# Build and execute an independent orb through the published SDK and native engine.
+tembra-authoring-test: tembra-plugins
+    bun test tests/fixtures/tembra-sdk/sdk.test.ts
 
-tembra-tooling-test:
-    python3 -m unittest discover -s scripts/tembra -p 'test_*.py'
+foundation-check: rust-check tools-check agent-loop-check model-provider-check runtime-rpc-check
 
-foundation-check: tembra-contracts-check tembra-tooling-test tembra-plugins rust-check
-    bunx tsc --noEmit -p examples/plugins/tsconfig.json
+# Qualify the independent loop and its explicitly optional task adapter.
+agent-loop-check:
+    cargo +{{rust_version}} test --locked -p swarmie-agent-loop --no-default-features
+    cargo +{{rust_version}} test --locked -p swarmie-agent-loop --no-default-features --features conversations
+    cargo +{{rust_version}} test --locked -p swarmie-agent-loop --no-default-features --features durable-tasks
+    cargo +{{rust_version}} test --locked -p swarmie-agent-loop --all-features
+    cargo +{{rust_version}} clippy --locked -p swarmie-agent-loop --no-default-features --features conversations --all-targets -- -D warnings
+    cargo +{{rust_version}} clippy --locked -p swarmie-agent-loop --all-features --all-targets -- -D warnings
 
-# The checked browser ABI must match the dependency's pinned wasm-bindgen version.
-tembra-browser-tools:
-    rustup target add wasm32-unknown-unknown --toolchain {{rust_version}}
-    cargo +{{rust_version}} install wasm-bindgen-cli --version 0.2.129 --locked
+agent-loop-dependencies:
+    cargo +{{rust_version}} tree --locked -p swarmie-agent-loop --no-default-features --edges normal
+
+# Update workspace membership while retaining existing external dependency pins.
+rust-lock-workspace:
+    cargo +{{rust_version}} update --workspace
+
+# Qualify native HTTP adapters and the explicitly opt-in scripted provider.
+model-provider-check:
+    cargo +{{rust_version}} test --locked -p swarmie-models --no-default-features
+    cargo +{{rust_version}} test --locked -p swarmie-model-provider-genai --no-default-features
+    cargo +{{rust_version}} test --locked -p swarmie-model-provider-genai --features mock
+    cargo +{{rust_version}} clippy --locked -p swarmie-model-provider-genai --all-features --all-targets -- -D warnings
+
+# Qualify the published SDK separately from native Rust library checks.
+sdk-check: tembra-authoring-test
+
+# Qualify tool registration independently and with the optional manager bridge.
+tools-check:
+    cargo +{{rust_version}} test --locked -p swarmie-tools --no-default-features
+    cargo +{{rust_version}} test --locked -p swarmie-tools --all-features
+    cargo +{{rust_version}} clippy --locked -p swarmie-tools --all-features --all-targets -- -D warnings
+
+# Inspect the default tool capability graph without optional composition.
+tools-dependencies:
+    cargo +{{rust_version}} tree --locked -p swarmie-tools --no-default-features --edges normal
+
+# Develop and qualify the independently mounted node client.
+client-dev:
+    bun run dev:client
+
+client-build:
+    bun run build:client
+
+client-check:
+    bun run --filter @swarmie/client typecheck
+    bun run test:client
+
+
+# Qualify the optional upstream byte RPC entry without adding a transport engine.
+runtime-rpc-check:
+    cargo +{{rust_version}} test --locked -p swarmie-runtime --features rpc --test node
+    cargo +{{rust_version}} clippy --locked -p swarmie-runtime --features rpc --all-targets -- -D warnings
+    RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D rustdoc::broken_intra_doc_links" cargo +{{rust_version}} doc --locked -p swarmie-runtime --features rpc --no-deps

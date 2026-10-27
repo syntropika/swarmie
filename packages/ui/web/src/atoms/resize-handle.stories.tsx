@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 
-import { ResizeHandle } from "../index";
+import { PaneResize, ResizeHandle } from "../index";
 
 const meta = {
   title: "Atoms/Resize Handle",
@@ -42,5 +42,41 @@ export const Keyboard: Story = {
     await waitFor(async () => {
       await expect(control).toHaveAttribute("aria-valuenow", "290");
     });
+  },
+};
+
+function BoundedExample() {
+  const [width, setWidth] = useState(280);
+  return (
+    <div className="flex items-center gap-4">
+      <output id="bounded-panel">Panel width: {width}</output>
+      <PaneResize
+        className="h-24 w-2 cursor-col-resize rounded-pill bg-border focus-visible:outline-2 focus-visible:outline-focus"
+        width={width}
+        onResize={setWidth}
+        minimum={220}
+        maximum={360}
+        reset={280}
+        edge="left"
+        controls="bounded-panel"
+        label="Bounded panel width"
+      />
+    </div>
+  );
+}
+
+export const Bounded: Story = {
+  render: () => <BoundedExample />,
+  play: async ({ canvasElement }) => {
+    const control = within(canvasElement).getByRole("separator", { name: "Bounded panel width" });
+    control.focus();
+    await userEvent.keyboard("{ArrowLeft}");
+    await expect(control).toHaveAttribute("aria-valuenow", "300");
+    await userEvent.keyboard("{End}{ArrowLeft}");
+    await expect(control).toHaveAttribute("aria-valuenow", "360");
+    await userEvent.keyboard("{Home}{ArrowRight}");
+    await expect(control).toHaveAttribute("aria-valuenow", "220");
+    await userEvent.dblClick(control);
+    await expect(control).toHaveAttribute("aria-valuenow", "280");
   },
 };

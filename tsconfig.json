@@ -15,6 +15,45 @@
     },
     {
       "path": "./apps/web/tsconfig.test.json"
+    },
+    {
+      "path": "./apps/client/tsconfig.json"
+    },
+    {
+      "path": "plugins/app-state/browser/tsconfig.json"
+    },
+    {
+      "path": "plugins/notifications/browser/tsconfig.json"
+    },
+    {
+      "path": "plugins/providers/browser/tsconfig.json"
+    },
+    {
+      "path": "plugins/settings/browser/tsconfig.json"
+    },
+    {
+      "path": "plugins/connections/browser/tsconfig.json"
+    },
+    {
+      "path": "plugins/conversations/browser/tsconfig.json"
+    },
+    {
+      "path": "plugins/views/browser/tsconfig.json"
+    },
+    {
+      "path": "plugins/onboarding/browser/tsconfig.json"
+    },
+    {
+      "path": "plugins/read-aloud/browser/tsconfig.json"
+    },
+    {
+      "path": "plugins/application-shell/browser/tsconfig.json"
+    },
+    {
+      "path": "packages/client-ui/tsconfig.json"
+    },
+    {
+      "path": "plugins/projects/browser/tsconfig.json"
     }
   ]
 }

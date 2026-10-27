@@ -1,0 +1,22 @@
+[package]
+name = "swarmie-tools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Scoped tool registration and provider routing over Tembra"
+
+[features]
+default = []
+plugin-manager = ["dep:swarmie-plugin-manager"]
+
+[dependencies]
+tembra.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+swarmie-models.workspace = true
+swarmie-plugin-manager = { workspace = true, optional = true }
+
+[lints]
+workspace = true

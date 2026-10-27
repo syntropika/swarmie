@@ -20,6 +20,8 @@ const mergeClasses = extendTailwindMerge({
       ],
       radius: [
         "small",
+        "composer",
+        "menu",
         "control",
         "panel",
         "illustration",
@@ -29,7 +31,7 @@ const mergeClasses = extendTailwindMerge({
       ],
     },
     classGroups: {
-      leading: [{ leading: ["ui", "body", "content", "code", "notice"] }],
+      leading: [{ leading: ["ui", "body", "content", "code", "notice", "composer"] }],
       "font-size": [
         {
           text: [
@@ -48,6 +50,9 @@ const mergeClasses = extendTailwindMerge({
             "content",
             "document",
             "caption",
+            "chrome",
+            "navigation",
+            "conversation",
             "code",
           ],
         },

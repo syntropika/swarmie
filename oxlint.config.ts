@@ -8,6 +8,9 @@ import tanstack from "ultracite/oxlint/tanstack";
 const frontendSources = [
   "packages/ui/{web,native}/src/**/*.{ts,tsx}",
   "apps/web/src/**/*.{ts,tsx}",
+  "apps/client/src/**/*.{ts,tsx}",
+  "plugins/*/browser/src/**/*.{ts,tsx}",
+  "packages/client-ui/src/**/*.{ts,tsx}",
 ];
 
 const forbiddenStyleProps = ["style", "css"].map((propName) => ({
@@ -51,9 +54,7 @@ export default defineConfig({
   ignorePatterns: [
     ...core.ignorePatterns,
     "**/target/**",
-    "packages/tembra-sdk/upstream/**",
-    // Generated verbatim from canonical Tembra descriptors; verified by tembra-contracts-check.
-    "examples/plugins/generated/**",
+    "packages/ui/web/vendor/**",
     "**/.tanstack/**",
     "**/.expo/**",
     "**/.wrangler/**",
@@ -133,6 +134,21 @@ export default defineConfig({
     "no-restricted-imports": ["error", { patterns: stylingImportPatterns }],
   },
   overrides: [
+    {
+      // The client document entry owns its stylesheet.
+      files: ["apps/client/src/main.tsx"],
+      rules: {
+        "no-restricted-imports": [
+          "error",
+          {
+            patterns: stylingImportPatterns.map((pattern) => ({
+              ...pattern,
+              group: [...pattern.group, "!./styles.css"],
+            })),
+          },
+        ],
+      },
+    },
     {
       // The native Router root owns its single Tailwind stylesheet.
       files: ["apps/mobile/src/app/_layout.tsx"],

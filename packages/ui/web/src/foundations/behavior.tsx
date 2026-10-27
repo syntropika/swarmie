@@ -175,7 +175,7 @@ export function IconsReference({ theme }: { theme: "light" | "dark" }) {
           </div>
           <p className="text-sm text-muted">
             Decorative icons are hidden from assistive technology. An icon-only button names its
-            action; an icon beside text uses that visible label. The shared web entry uses Tabler;
+            action; an icon beside text uses that visible label. The shared web entry uses Lucide;
             application-owned illustrations may also supply their own SVG artwork.
           </p>
         </section>

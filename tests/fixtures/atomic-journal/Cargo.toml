@@ -1,0 +1,13 @@
+[package]
+name = "swarmie-atomic-journal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+tembra.workspace = true
+futures.workspace = true
+
+[lints]
+workspace = true

@@ -20,6 +20,34 @@
   --danger-solid-foreground: var(--white);
   --danger-soft: light-dark(#ffd9d9, color-mix(in oklab, #fa423e 16%, transparent));
   --danger-soft-foreground: light-dark(#ba2623, #ff6764);
+
+  /* Resolve the complete neutral palette together, including the System preference. */
+  --background: light-dark(oklch(0.9702 0 0), #181818);
+  --foreground: light-dark(var(--eclipse), #eeede8);
+  --surface: light-dark(var(--white), #21211f);
+  --surface-foreground: var(--foreground);
+  --surface-secondary: light-dark(oklch(0.9524 0.0013 286.37), #292927);
+  --surface-secondary-foreground: var(--foreground);
+  --surface-tertiary: light-dark(oklch(0.9373 0.0013 286.37), #292927);
+  --surface-tertiary-foreground: var(--foreground);
+  --overlay: light-dark(var(--white), #292924);
+  --overlay-foreground: var(--foreground);
+  --field-background: light-dark(var(--white), #2b2b26);
+  --field-border: light-dark(transparent, #45453d);
+  --field-foreground: var(--foreground);
+  --field-placeholder: var(--muted);
+  --default: light-dark(oklch(94% 0.001 286.375), #30302c);
+  --default-hover: light-dark(
+    color-mix(in oklab, var(--default) 96%, var(--foreground) 4%),
+    #39392f
+  );
+  --default-foreground: var(--foreground);
+  --segment: light-dark(var(--white), #292927);
+  --segment-foreground: var(--foreground);
+  --muted: light-dark(oklch(0.5517 0.0138 285.94), #aaa9a2);
+  --border: light-dark(oklch(90% 0.004 286.32), #343432);
+  --separator: light-dark(oklch(92% 0.004 286.32), #2a2a28);
+  --focus: var(--accent);
 }
 
 .button--secondary {
@@ -43,35 +71,6 @@
   --button-bg-hover: color-mix(in oklab, var(--danger-solid) 90%, var(--black));
   --button-bg-pressed: var(--button-bg-hover);
   --button-fg: var(--danger-solid-foreground);
-}
-
-/* Solid dark layers express component depth; semantic aliases preserve each control’s role. */
-.dark,
-[data-theme="dark"] {
-  --background: #181818;
-  --foreground: var(--snow);
-
-  --surface: #212121;
-  --surface-foreground: var(--foreground);
-  --surface-secondary: #282828;
-  --surface-secondary-foreground: var(--foreground);
-  --surface-tertiary: var(--surface-secondary);
-  --surface-tertiary-foreground: var(--foreground);
-
-  --overlay: var(--surface-secondary);
-  --overlay-foreground: var(--foreground);
-  --field-background: var(--surface-secondary);
-  --field-foreground: var(--foreground);
-  --field-placeholder: var(--muted);
-  --default: color-mix(in oklab, var(--surface-secondary) 82%, var(--foreground));
-  --default-foreground: var(--foreground);
-  --segment: var(--surface-secondary);
-  --segment-foreground: var(--foreground);
-
-  --muted: #b4b4b4;
-  --border: color-mix(in oklab, var(--foreground) 14%, transparent);
-  --separator: color-mix(in oklab, var(--foreground) 8%, transparent);
-  --focus: var(--accent);
 }
 
 @theme inline {
@@ -117,4 +116,73 @@
 .chip[data-brand-color].chip--tertiary {
   --chip-bg: transparent;
   --chip-fg: color-mix(in oklab, var(--brand-chip-color) 25%, var(--foreground));
+}
+
+/* Selection controls share the restrained brand accent without recoloring primary actions. */
+.switch,
+.checkbox,
+.radio-group {
+  --accent: var(--color-brand-accent);
+  --accent-foreground: light-dark(var(--white), #1c1c1b);
+  --accent-hover: color-mix(in oklab, var(--accent) 88%, var(--foreground));
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--color-brand-accent);
+}
+
+/* Branded primary actions retain the vendor interaction and control geometry. */
+.button[data-tone="brand"] {
+  --accent: var(--color-brand-accent);
+  --accent-foreground: var(--color-brand-accent-foreground);
+  --accent-hover: color-mix(in oklab, var(--accent) 88%, var(--foreground));
+}
+
+/* Panel actions share the field radius while preserving vendor interaction states. */
+.button[data-shape="panel"] {
+  border-radius: var(--field-radius);
+}
+
+.button--lg[data-shape="panel"] {
+  height: 44px;
+  font-size: 14px;
+}
+
+/* Guided dialogs retain readable, outlined fields independently of compact app chrome. */
+[data-layout="guided"] {
+  --border-width-field: 1px;
+}
+[data-layout="guided"] .input,
+[data-layout="guided"] .select__trigger {
+  min-height: 44px;
+  box-shadow: none;
+}
+
+.button[data-shape="tile"] {
+  height: auto;
+  padding: 0;
+  border-radius: var(--field-radius);
+}
+
+/* Editable text retains its field boundary without a focus outline or halo while typing.
+ * Other controls keep keyboard focus treatment; invalid fields retain their error signal. */
+:is(
+  input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not(
+      [type="radio"]
+    ):not([type="range"]):not([type="color"]):not([type="file"]),
+  textarea
+):is(:focus, :focus-visible, [data-focused="true"], [data-focus-visible="true"]) {
+  outline: none;
+  box-shadow: none;
+}
+:is(.input, .textarea, .input-group):not([data-invalid="true"]):is(
+    :focus,
+    :focus-within,
+    [data-focused="true"],
+    [data-focus-visible="true"]
+  ) {
+  outline: none;
+  box-shadow: none;
+  border-color: var(--field-border);
 }

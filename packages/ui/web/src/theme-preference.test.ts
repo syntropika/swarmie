@@ -151,7 +151,10 @@ describe("theme bootstrap before paint", () => {
     ["DARK", "system"],
     ['dark";throw new Error("Untrusted storage");', "system"],
   ])("validates stored %p before applying %p", (stored, expected) => {
-    const document = { documentElement: { dataset: { theme: "system" } } };
+    const document = {
+      documentElement: { dataset: { theme: "system" } },
+      querySelectorAll: () => [],
+    };
     runInNewContext(THEME_PREFERENCE_BOOTSTRAP, {
       document,
       localStorage: { getItem: () => stored },
@@ -160,7 +163,10 @@ describe("theme bootstrap before paint", () => {
   });
 
   test("unavailable storage leaves the pre-hydration document in System mode", () => {
-    const document = { documentElement: { dataset: { theme: "system" } } };
+    const document = {
+      documentElement: { dataset: { theme: "system" } },
+      querySelectorAll: () => [],
+    };
     runInNewContext(THEME_PREFERENCE_BOOTSTRAP, {
       document,
       localStorage: {
@@ -172,3 +178,26 @@ describe("theme bootstrap before paint", () => {
     expect(document.documentElement.dataset.theme).toBe("system");
   });
 });
+
+test.each(["light", "dark", "system"] as const)(
+  "theme bootstrap selects matching browser chrome for %s",
+  (stored) => {
+    const metadata = [
+      { dataset: { swarmieTheme: "light" }, media: "" },
+      { dataset: { swarmieTheme: "dark" }, media: "" },
+    ];
+    const document = {
+      documentElement: { dataset: { theme: "system" } },
+      querySelectorAll: () => metadata,
+    };
+    runInNewContext(THEME_PREFERENCE_BOOTSTRAP, {
+      document,
+      localStorage: { getItem: () => stored },
+    });
+    expect(metadata.map((meta) => meta.media)).toEqual(
+      stored === "system"
+        ? ["(prefers-color-scheme: light)", "(prefers-color-scheme: dark)"]
+        : [stored === "light" ? "all" : "not all", stored === "dark" ? "all" : "not all"],
+    );
+  },
+);

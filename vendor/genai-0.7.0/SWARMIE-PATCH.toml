@@ -1,0 +1,27 @@
+schema_version = 1
+upstream_package = "genai"
+upstream_version = "0.7.0"
+upstream_repository = "https://github.com/jeremychone/rust-genai"
+upstream_commit = "8fc13af4db80acd0771c87f6180d79b83c9a898d"
+license = "MIT OR Apache-2.0"
+patch = "swarmie.patch"
+scope = "Native OpenAI developer instructions; explicit refusal in protocols without that role; ordered Responses reasoning and Gemini thought-text replay."
+source_contents = "Published production src tree, legal notices, upstream README and two embedded unit-test JSON fixtures."
+manifest_change = "Retain published features, dependencies and library target; omit standalone example, test and benchmark targets not included in this snapshot."
+maintenance = "Before updating genai, compare the release source with swarmie.patch, port only still-needed changes, refresh provenance and digest, and rerun Swarmie developer and signed-replay HTTP/Tembra acceptance. Remove the Cargo override when a released upstream version provides equivalent qualified behavior."
+upstream_submission = "No upstream submission has been made."
+upstream_crate_sha256 = "53e68820b008ab7e00fde0474c2cfc81315296a1bb0d014943dd74bfcb062e28"
+patch_sha256 = "c8a3015a5833d4a3fc652c07ec0c8e85b1f00a7c3dbb5d29d484372ce5d91214"
+modified_files = [
+    "Cargo.toml",
+    "src/adapter/adapters/anthropic/adapter_shared.rs",
+    "src/adapter/adapters/bedrock/converse.rs",
+    "src/adapter/adapters/cohere/adapter_impl.rs",
+    "src/adapter/adapters/gemini/adapter_impl.rs",
+    "src/adapter/adapters/gemini_ix/adapter_impl.rs",
+    "src/adapter/adapters/ollama/adapter_shared.rs",
+    "src/adapter/adapters/openai/adapter_shared.rs",
+    "src/adapter/adapters/openai_resp/adapter_impl.rs",
+    "src/chat/chat_message.rs",
+    "src/otel/attrs.rs",
+]
