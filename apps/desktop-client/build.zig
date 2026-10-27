@@ -22,8 +22,9 @@ pub fn build(b: *std.Build) void {
             // conflict with those builtins, including unused UBSan float helpers.
             artifact.bundle_compiler_rt = false;
             artifact.bundle_ubsan_rt = false;
+            artifact.linkage = .dynamic;
             artifact.root_module.link_libc = true;
-            for ([_][]const u8{ "advapi32", "bcrypt", "crypt32", "ncrypt", "ntdll", "ole32", "secur32", "userenv", "ws2_32", "synchronization", "vcruntime" }) |name| artifact.root_module.linkSystemLibrary(name, .{});
+            for ([_][]const u8{ "advapi32", "bcrypt", "crypt32", "ncrypt", "ntdll", "ole32", "secur32", "userenv", "ws2_32", "synchronization" }) |name| artifact.root_module.linkSystemLibrary(name, .{});
         } else if (b.graph.host.result.os.tag == .linux) {
             for ([_][]const u8{ "gcc_s", "util", "rt", "pthread", "m", "dl" }) |name| artifact.root_module.linkSystemLibrary(name, .{});
         }
