@@ -82,10 +82,7 @@ function resolveImport(specifier, source) {
     return { owned: `primitives/${specifier.slice("@/components/ui/".length)}` };
   }
   if (specifier.startsWith(".")) {
-    const path = resolve(dirname(source), specifier).replace(
-      /^.*?(?=packages\/ui\/|apps\/docs\/)/u,
-      "",
-    );
+    const path = nodePath.posix.join(nodePath.posix.dirname(source), specifier);
     if (path.startsWith(componentPrefix)) {
       const name = path.slice(componentPrefix.length).replace(/\.tsx?$/u, "");
       if (overrides.has(name)) {
