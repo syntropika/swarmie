@@ -1,0 +1,24 @@
+[package]
+name = "swarmie-desktop-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+swarmie-mcp.workspace = true
+swarmie-tools.workspace = true
+swarmie-runtime = { path = "../../../runtime", features = ["rpc"] }
+tembra.workspace = true
+tokio = { version = "1", features = ["rt", "time", "net", "sync"] }
+uuid.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

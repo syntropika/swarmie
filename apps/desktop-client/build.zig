@@ -14,6 +14,7 @@ pub fn build(b: *std.Build) void {
         break :path b.pathJoin(&.{ installed.path, "Include", installed.version, "winrt" });
     } else null;
     const archive = b.path(if (windows) "../../target/release/swarmie_desktop_updates.lib" else "../../target/release/libswarmie_desktop_updates.a");
+    const runtime_archive = b.path(if (windows) "../../target/release/swarmie_desktop_runtime.lib" else "../../target/release/libswarmie_desktop_runtime.a");
     for ([_]*std.Build.Step.Compile{ app.exe, app.tests }) |artifact| {
         // The SDK reuses the app module for semantic analysis and contract emission.
         // Attach Rust only to the final executable and test runner, not those tools.
@@ -24,6 +25,7 @@ pub fn build(b: *std.Build) void {
         linked.cached_graph = .{ .modules = &.{}, .names = &.{} };
         artifact.root_module = linked;
         artifact.root_module.addObjectFile(archive);
+        artifact.root_module.addObjectFile(runtime_archive);
         if (windows) {
             // Use Rust's builtins and the MSVC CRT. Zig's bundled COFF runtimes
             // conflict with those builtins, including unused UBSan float helpers.

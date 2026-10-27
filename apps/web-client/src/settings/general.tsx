@@ -21,12 +21,13 @@ export function GeneralSettings() {
       <h1 className="text-2xl font-medium">General</h1>
       <div className="mt-8 rounded-xl border border-border bg-chrome-surface p-4">
         <h2 className="text-sm">Appearance</h2>
-        <div className="mt-3 flex gap-2">
+        <fieldset aria-label="Appearance" className="mt-3 flex gap-2">
           {(["system", "dark", "light"] as const).map((theme) => (
             <ChromeButton
               key={theme}
               size="action"
               selected={preferences.theme === theme}
+              aria-pressed={preferences.theme === theme}
               onPress={() => {
                 settings.update((current) => ({ ...current, theme }));
                 setThemePreference(theme);
@@ -35,7 +36,7 @@ export function GeneralSettings() {
               {themeLabel(theme)}
             </ChromeButton>
           ))}
-        </div>
+        </fieldset>
       </div>
     </>
   );

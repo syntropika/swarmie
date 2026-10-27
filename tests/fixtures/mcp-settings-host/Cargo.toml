@@ -1,0 +1,17 @@
+[package]
+name = "swarmie-fixture-mcp-settings-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+swarmie-desktop-runtime = { path = "../../../apps/desktop-client/runtime" }
+swarmie-fixture-mcp-server = { path = "../mcp-server" }
+axum = "0.8"
+serde_json.workspace = true
+tokio = { version = "1", features = ["rt", "macros", "net"] }
+
+[lints]
+workspace = true

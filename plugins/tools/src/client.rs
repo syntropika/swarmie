@@ -33,8 +33,18 @@ impl CatalogMethod {
 /// Exposes metadata and preparation. Actual execution uses Tembra provider calls.
 /// Providers must enforce visibility/permission; catalog membership is not authority.
 pub fn orb(host: Host, catalog: Catalog) -> Orb {
+    orb_with_catalog(host, move |_| Ok(catalog.clone()))
+}
+
+/// Select metadata under the service object's principal. Use separate catalogs
+/// for private definitions; rejecting acquisition must not reveal their contents.
+/// The ordinary `orb` intentionally exposes one shared catalog to its consumers.
+pub fn orb_with_catalog(
+    host: Host,
+    select: impl Fn(&str) -> tembra::Result<Catalog> + 'static,
+) -> Orb {
     let service = Service::new(SERVICE, move |declaration| {
-        let catalog = catalog.clone();
+        let catalog = select(&declaration.address()?.principal)?;
         let host = host.clone();
         declaration.resource(
             "tools.claims",

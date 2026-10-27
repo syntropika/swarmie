@@ -22,9 +22,9 @@
   --danger-soft-foreground: light-dark(#ba2623, #ff6764);
 
   /* Resolve the complete neutral palette together, including the System preference. */
-  --background: light-dark(oklch(0.9702 0 0), #181818);
+  --background: light-dark(var(--white), #181818);
   --foreground: light-dark(var(--eclipse), #eeede8);
-  --surface: light-dark(var(--white), #21211f);
+  --surface: light-dark(#f4f4f2, #21211f);
   --surface-foreground: var(--foreground);
   --surface-secondary: light-dark(oklch(0.9524 0.0013 286.37), #292927);
   --surface-secondary-foreground: var(--foreground);
@@ -33,7 +33,9 @@
   --overlay: light-dark(var(--white), #292924);
   --overlay-foreground: var(--foreground);
   --field-background: light-dark(var(--white), #2b2b26);
-  --field-border: light-dark(transparent, #45453d);
+  --field-border: light-dark(#8c8c86, #77776e);
+  --field-border-width: 1px;
+  --field-shadow: none;
   --field-foreground: var(--foreground);
   --field-placeholder: var(--muted);
   --default: light-dark(oklch(94% 0.001 286.375), #30302c);
@@ -44,7 +46,7 @@
   --default-foreground: var(--foreground);
   --segment: light-dark(var(--white), #292927);
   --segment-foreground: var(--foreground);
-  --muted: light-dark(oklch(0.5517 0.0138 285.94), #aaa9a2);
+  --muted: light-dark(#68686f, #aaa9a2);
   --border: light-dark(oklch(90% 0.004 286.32), #343432);
   --separator: light-dark(oklch(92% 0.004 286.32), #2a2a28);
   --focus: var(--accent);
@@ -149,6 +151,31 @@ input[type="radio"] {
   font-size: 14px;
 }
 
+/* Category tabs retain the vendor's selection, keyboard and scrolling behavior. */
+.swarmie-filter-tabs {
+  background: transparent;
+  border-radius: 0;
+}
+.swarmie-filter-tabs .tabs__list {
+  gap: 4px;
+  padding: 0;
+}
+.swarmie-filter-tabs .tabs__tab {
+  width: auto;
+  flex: none;
+  padding-inline: 10px;
+  border-radius: var(--field-radius);
+}
+.swarmie-filter-tabs .tabs__tab:not([data-disabled="true"]):is(:hover, [data-hovered="true"]) {
+  background: var(--default);
+  opacity: 1;
+}
+.swarmie-filter-tabs .tabs__indicator {
+  border-radius: var(--field-radius);
+  background: var(--default);
+  box-shadow: none;
+}
+
 /* Guided dialogs retain readable, outlined fields independently of compact app chrome. */
 [data-layout="guided"] {
   --border-width-field: 1px;
@@ -165,8 +192,7 @@ input[type="radio"] {
   border-radius: var(--field-radius);
 }
 
-/* Editable text retains its field boundary without a focus outline or halo while typing.
- * Other controls keep keyboard focus treatment; invalid fields retain their error signal. */
+/* Editable fields use a stronger inset boundary for focus without changing their size. */
 :is(
   input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not(
       [type="radio"]
@@ -184,5 +210,77 @@ input[type="radio"] {
   ) {
   outline: none;
   box-shadow: none;
-  border-color: var(--field-border);
+  border-color: var(--focus);
+}
+
+@media (forced-colors: active) {
+  :is(.input, .textarea, .input-group):is(
+    :focus,
+    :focus-within,
+    [data-focused="true"],
+    [data-focus-visible="true"]
+  ) {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}
+
+/* View tabs keep React Aria behavior and use the active chrome density. */
+.swarmie-view-tabs {
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  gap: 0;
+}
+.swarmie-view-tabs > [data-slot="view-toolbar"] > .tabs__list {
+  height: 100%;
+  width: auto;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: calc(var(--spacing) * 1);
+  padding: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.swarmie-view-tabs > [data-slot="view-toolbar"] > .tabs__list > div > .tabs__tab {
+  height: var(--spacing-chrome-row);
+  min-height: var(--spacing-chrome-row);
+  width: auto;
+  min-width: 0;
+  flex: 1;
+  justify-content: start;
+  gap: calc(var(--spacing) * 2);
+  border-radius: 0;
+  padding-inline: calc(var(--spacing) * 2);
+  font-size: var(--text-chrome);
+  line-height: var(--text-chrome--line-height);
+  font-weight: var(--font-weight-normal);
+  color: var(--foreground);
+}
+.swarmie-view-tabs
+  > [data-slot="view-toolbar"]
+  > .tabs__list
+  > div
+  > .tabs__tab[data-selected="true"] {
+  color: var(--foreground);
+}
+.swarmie-view-tabs
+  > [data-slot="view-toolbar"]
+  > .tabs__list
+  > div
+  > .tabs__tab[data-focus-visible="true"] {
+  outline-offset: -2px;
+}
+.swarmie-view-tabs > .tabs__panel {
+  min-height: 0;
+  flex: 1;
+  margin: 0;
+  padding: 0;
+}
+
+/* Shared outline icons use the same stroke in public components and capability views. */
+[data-theme] .lucide {
+  stroke-width: var(--stroke-chrome-icon);
 }

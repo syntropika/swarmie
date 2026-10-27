@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 
 import { ClientContext } from "./client/context";
 import { initializeClient } from "./client/initialize";
+import { desktopNode } from "./desktop-node";
 import { App } from "./shell/layout";
 
 import "./styles.css";
@@ -25,7 +26,12 @@ async function start() {
       console.error(failure);
     },
   });
+  const desktop = await desktopNode().catch((error: unknown) => {
+    reportFailure(error);
+    return null;
+  });
   const client = await initializeClient(host, {
+    ...(desktop ? { nodes: [desktop.node], connector: desktop.connector } : {}),
     dev: import.meta.env.DEV,
     projectsPersistence: browserProjectsPersistence("local"),
   });

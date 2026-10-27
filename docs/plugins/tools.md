@@ -47,6 +47,13 @@ Install `swarmie_tools::orb(host.clone(), catalog)` to expose the catalog throug
 `list` to obtain a `Selection`. `Selection::select` chooses named tools;
 `Selection::specs` returns their model-facing definitions.
 
+The ordinary `orb` exposes one intentionally shared metadata projection. For
+private catalogs, use `orb_with_catalog(host, select)`; its factory calls `select`
+with the Tembra service object's principal. Return that principal's own catalog
+or refuse acquisition. A catalog selected for one principal must not contain
+another principal's private descriptions or schemas. This visibility boundary is
+separate from the provider's dispatch and receipt authorization.
+
 `CatalogService` implements `Tools`, so Agent Loop can use it directly. To use one
 provider without a catalog, bind `ToolService` or implement `Tools` directly. None
 of these paths needs a scheduler, storage or Plugin Manager.

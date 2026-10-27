@@ -1,10 +1,10 @@
 import { useSource } from "@swarmie/client-ui";
 import type { ConversationControlProps } from "@swarmie/plugin-conversations-browser";
-import { Check, Monitor } from "lucide-react";
+import { Monitor } from "lucide-react";
 
 import { useClient } from "../../client/context";
 import { useSelection } from "../../client/use-selection";
-import { Caption, Item, Menu } from "../../controls";
+import { Caption, ChoiceList, Menu } from "../../controls";
 import { draftNode } from "./state";
 import { useComposerConversation } from "./use-conversation";
 
@@ -24,20 +24,17 @@ export function ComposerNode({ conversationId }: ConversationControlProps) {
       {(close) => (
         <>
           <Caption>{chat.node === null ? "Execution node" : "Conversation node"}</Caption>
-          {nodes
-            .filter((node) => chat.node === null || node.id === chat.node)
-            .map((node) => (
-              <Item
-                key={node.id}
-                icon={node.id === nodeId ? Check : Monitor}
-                onClick={() => {
-                  setConversationNode(chat, node.id);
-                  close();
-                }}
-              >
-                {node.label}
-              </Item>
-            ))}
+          <ChoiceList
+            label={chat.node === null ? "Execution node" : "Conversation node"}
+            value={nodeId}
+            items={nodes
+              .filter((node) => chat.node === null || node.id === chat.node)
+              .map((node) => ({ id: node.id, label: node.label, icon: Monitor }))}
+            onAction={(id) => {
+              setConversationNode(chat, id);
+              close();
+            }}
+          />
         </>
       )}
     </Menu>

@@ -16,7 +16,7 @@ export function ConversationSidebar({ preferences }: { preferences: NavigationPr
   );
   return (
     <>
-      <div className="flex h-9 shrink-0 items-center gap-0.5 border-b border-border px-1.5">
+      <div className="flex min-h-(--spacing-navigation-header) shrink-0 items-center gap-0.5 border-b border-border px-1.5">
         <ChromeButton
           size="action"
           className="min-w-0 flex-1"
@@ -28,13 +28,14 @@ export function ConversationSidebar({ preferences }: { preferences: NavigationPr
           }}
         >
           <Plus className={iconStyle} />
-          <span className="truncate">New conversation</span>
+          <span className="truncate text-navigation-heading">New conversation</span>
         </ChromeButton>
         {notificationsEnabled ? (
           <IconButton
             icon={Bell}
             label="Toggle notifications"
             active={preferences.mode === "notifications"}
+            aria-pressed={preferences.mode === "notifications"}
             onPress={() => {
               preferences.setMode(preferences.mode === "chats" ? "notifications" : "chats");
             }}

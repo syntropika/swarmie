@@ -26,7 +26,7 @@ export function Composer({ chat }: { chat: Conversation }) {
           <ComposerTopBar chat={chat} />
           <ComposerAttachments chat={chat} />
           <ComposerInput chat={chat} mode={mode} />
-          <div className="flex items-center gap-1 px-2 pb-2">
+          <div className="flex flex-wrap items-center gap-1 px-2 pb-2">
             <ComposerAddMenu chat={chat} executeAction={actions.executeAction} />
             <ComposerPermissions chat={chat} />
             <ComposerPluginActions chat={chat} slot="leading" actions={actions} />

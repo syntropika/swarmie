@@ -7,7 +7,7 @@ The desktop host does not implement another UI or state container.
 
 The Native SDK CLI is pinned in the root Bun workspace. Zig, Rust and packaging tools are
 pinned at the repository root. A small owned `build.zig` uses the SDK's public build helper
-and statically links the desktop updater. Its SDK dependency resolves the installed npm
+and statically links the desktop updater and local runtime. Its SDK dependency resolves the installed npm
 package; no upstream checkout, copied framework or separate plugin loader is used.
 
 ## Development and qualification
@@ -119,10 +119,32 @@ keychain, signs through Velopack, and removes temporary signing material. The va
 must remain unset until both secrets exist. Certificate export, installer signing,
 notarization and Windows Authenticode credentials are separate opt-in provisioning steps.
 
-## Current boundary
+## Local execution node
 
-This host prepares the native window, shared frontend and installation identity. It does
-not yet embed the Rust runtime or supply a native Tembra connection adapter. Backend
-availability remains explicit in the existing Connections and Providers APIs; packaging
-the frontend does not make inference or local execution available. No placeholder backend
-responses, credentials or development endpoints are bundled into the desktop application.
+`apps/desktop-client/runtime` supplies the embedded local node. The native host owns
+its worker thread, Tokio executor and state directory. The Tembra host composes node
+identity, Tools and MCP settings. Tembra owns capability resources and physical cleanup.
+No standalone runtime process or listener is required.
+
+The node has a persistent identity and a local `desktop-user` principal. A file lock
+permits one host to write its state directory. MCP definitions are stored per principal
+in a JSON file. Writes compare the expected inventory and replace the file through a
+temporary file. An unreadable file is reported; it is not replaced with empty settings.
+Connection state and tool receipts stay in memory. They do not survive a restart.
+
+The `swarmie.desktop.runtime` bridge command carries Tembra RPC frames. The main
+WebView is permitted to use this command from the bundled application origin or the
+managed development origin. Other windows and WebViews are refused. The browser
+adapter verifies node identity through the ordinary Connections interface. Channels
+have distinct generations. Old frames cannot enter a replacement channel.
+
+The bridge bounds frames, pending calls, references and output queues. It does not
+retry capability mutations. Page reload closes the old RPC channel. Capability
+resources remain under Tembra ownership; a page reload does not authorize tool replay.
+Application exit closes the channel and waits for the host to close.
+
+**Settings → Plugins → MCPs** configures local commands and remote HTTP servers on
+this node. See [MCP](../plugins/mcp.md). The host does not compose model providers or
+an Agent Loop execution adapter. Local MCP availability does not make inference or
+conversation execution available. Browser and mobile clients require an execution node
+that exposes the same settings capability.

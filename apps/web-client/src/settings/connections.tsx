@@ -1,5 +1,5 @@
 import { useSource } from "@swarmie/client-ui";
-import { Button, ChromeButton } from "@swarmie/ui-web";
+import { Button, ChromeButton, Input, Label, TextField } from "@swarmie/ui-web";
 import { Monitor } from "lucide-react";
 import { useState } from "react";
 
@@ -38,6 +38,7 @@ export function ConnectionSettings() {
                 <ChromeButton
                   size="action"
                   selected={connection.selected === node.id}
+                  aria-pressed={connection.selected === node.id}
                   onPress={() => {
                     selectNode(node.id);
                   }}
@@ -91,41 +92,29 @@ export function ConnectionSettings() {
           }}
         >
           <div className="grid gap-3">
-            <label className="grid gap-2 text-xs">
-              Node ID
-              <input
-                value={nodeId}
-                required
-                onChange={(event) => {
-                  setNodeId(event.target.value);
-                }}
-                className="rounded-lg border border-border bg-default px-3 py-2 text-base md:text-sm"
-              />
-            </label>
-            <label className="grid gap-2 text-xs">
-              Node user
-              <input
-                value={principal}
-                required
-                onChange={(event) => {
-                  setPrincipal(event.target.value);
-                }}
-                className="rounded-lg border border-border bg-default px-3 py-2 text-base md:text-sm"
-              />
-            </label>
-            <label className="grid gap-2 text-xs">
-              Node URL
-              <input
-                type="url"
-                value={url}
-                required
-                placeholder="ws://localhost:8080/rpc"
-                onChange={(event) => {
-                  setUrl(event.target.value);
-                }}
-                className="rounded-lg border border-border bg-default px-3 py-2 text-base md:text-sm"
-              />
-            </label>
+            <TextField value={nodeId} onChange={setNodeId} isRequired validationBehavior="native">
+              <Label>Node ID</Label>
+              <Input fullWidth />
+            </TextField>
+            <TextField
+              value={principal}
+              onChange={setPrincipal}
+              isRequired
+              validationBehavior="native"
+            >
+              <Label>Node user</Label>
+              <Input fullWidth />
+            </TextField>
+            <TextField
+              value={url}
+              onChange={setUrl}
+              type="url"
+              isRequired
+              validationBehavior="native"
+            >
+              <Label>Node URL</Label>
+              <Input fullWidth placeholder="ws://localhost:8080/rpc" />
+            </TextField>
           </div>
           <div className="mt-3 flex justify-end">
             <Button type="submit" variant="secondary">

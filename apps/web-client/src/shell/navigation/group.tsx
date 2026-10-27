@@ -1,4 +1,4 @@
-import { ChevronDown } from "lucide-react";
+import { NavigationGroup as SharedNavigationGroup } from "@swarmie/ui-web";
 import type { ReactNode } from "react";
 
 export function NavigationGroup({
@@ -13,19 +13,10 @@ export function NavigationGroup({
   children: ReactNode;
 }) {
   return (
-    <section className="mb-5">
-      <div className="mb-1 flex h-7 items-center gap-1 px-1">
-        <button
-          type="button"
-          aria-expanded={!folded}
-          onClick={onToggle}
-          className="flex flex-1 items-center gap-1 text-left text-chrome text-muted hover:text-foreground"
-        >
-          {title}
-          <ChevronDown className={`size-3 ${folded ? "-rotate-90" : ""}`} />
-        </button>
-      </div>
-      {folded ? null : children}
-    </section>
+    <div className="mb-5">
+      <SharedNavigationGroup title={title} expanded={!folded} onExpandedChange={onToggle}>
+        {children}
+      </SharedNavigationGroup>
+    </div>
   );
 }

@@ -1,7 +1,9 @@
 {
   "files": [],
   "references": [
-    { "path": "./scripts/distribution/tsconfig.json" },
+    {
+      "path": "./scripts/distribution/tsconfig.json"
+    },
     {
       "path": "./packages/ui/web/tsconfig.json"
     },
@@ -55,6 +57,9 @@
     },
     {
       "path": "plugins/projects/browser/tsconfig.json"
+    },
+    {
+      "path": "plugins/mcp/browser/tsconfig.json"
     }
   ]
 }

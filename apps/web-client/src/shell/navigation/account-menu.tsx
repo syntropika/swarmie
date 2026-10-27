@@ -6,7 +6,7 @@ import { Item, Menu } from "../../controls";
 export function AccountMenu() {
   const { navigate, openTab, shellState } = useClient();
   return (
-    <Menu label="Account menu" icon={Settings} size="application" placement="top start">
+    <Menu label="Account menu" icon={Settings} size="rail" placement="top start">
       {(close) => (
         <>
           <Item

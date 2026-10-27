@@ -1,5 +1,5 @@
 import { errorMessage } from "@swarmie/client-ui";
-import { Button } from "@swarmie/ui-web";
+import { Button, Input, Label, TextField } from "@swarmie/ui-web";
 import { useState } from "react";
 
 import type {
@@ -98,34 +98,19 @@ export function ProviderConfigurationForm({
     <div className="grid gap-5">
       {method.kind === "local" ? (
         <>
-          <label className="grid gap-2 text-sm">
-            Server URL
-            <input
-              type="url"
-              value={url}
-              onChange={(event) => {
-                setUrl(event.target.value);
-              }}
-              className="rounded-lg border border-border bg-default px-3 py-3"
-            />
-          </label>
+          <TextField type="url" value={url} onChange={setUrl}>
+            <Label>Server URL</Label>
+            <Input fullWidth />
+          </TextField>
           {discovery === null ? null : (
             <DetectServers api={discovery} busy={busy} onDetected={setUrl} onFailure={failed} />
           )}
         </>
       ) : (
-        <label className="grid gap-2 text-sm">
-          API key
-          <input
-            type="password"
-            autoComplete="off"
-            value={credential}
-            onChange={(event) => {
-              setCredential(event.target.value);
-            }}
-            className="rounded-lg border border-border bg-default px-3 py-3"
-          />
-        </label>
+        <TextField type="password" autoComplete="off" value={credential} onChange={setCredential}>
+          <Label>API key</Label>
+          <Input fullWidth />
+        </TextField>
       )}
       {failure === null ? null : (
         <p role="alert" className="text-sm text-danger">

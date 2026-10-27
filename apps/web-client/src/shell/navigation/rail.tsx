@@ -15,23 +15,26 @@ export function NavigationRail({ hidden }: { hidden: boolean }) {
   return (
     <nav
       aria-label="Application"
-      className={`flex w-10.5 shrink-0 flex-col items-center border-r border-border py-2 ${hidden ? "hidden md:flex" : ""}`}
+      className={`flex w-(--spacing-shell-rail) shrink-0 flex-col items-center gap-(--spacing-chrome-rail-gap) border-r border-border py-2 md:pt-0 ${hidden ? "hidden md:flex" : ""}`}
     >
-      <button
-        type="button"
-        aria-label="Swarmie conversations"
-        onClick={() => {
-          navigate({ section: "conversations" });
-        }}
-        className="mb-6 size-7"
-      >
-        <BrandMark className="size-7 [&_img]:size-7" />
-      </button>
+      <div className="flex h-(--spacing-chrome-rail-control) w-full shrink-0 items-center justify-center md:h-(--spacing-shell-rail)">
+        <button
+          type="button"
+          aria-label="Swarmie conversations"
+          onClick={() => {
+            navigate({ section: "conversations" });
+          }}
+          className="flex size-(--spacing-chrome-rail-control) items-center justify-center"
+        >
+          <BrandMark className="size-(--spacing-brand-mark) [&_img]:size-(--spacing-brand-mark)" />
+        </button>
+      </div>
       <IconButton
         size="rail"
         icon={MessageCircle}
         label="Conversations"
         active={sectionId === "conversations"}
+        aria-current={sectionId === "conversations" ? "page" : false}
         onPress={() => {
           navigate({ section: "conversations" });
         }}
@@ -43,6 +46,7 @@ export function NavigationRail({ hidden }: { hidden: boolean }) {
           icon={section.icon}
           label={section.label}
           active={sectionId === section.id}
+          aria-current={sectionId === section.id ? "page" : false}
           onPress={() => {
             navigate({ section: section.id, params: {} });
             if (window.innerWidth < 768) {

@@ -46,7 +46,7 @@
     "test:desktop": "bun scripts/distribution/desktop.ts test",
     "dev:desktop": "bun run ui:elements:prepare && bun run build:desktop:updater && bun scripts/distribution/desktop.ts dev",
     "build:desktop:web": "bun run ui:elements:prepare && bun run --filter @swarmie/client build --outDir ../desktop-client/dist",
-    "build:desktop:updater": "cargo +1.99.0 build --locked --release -p swarmie-desktop-updates",
+    "build:desktop:updater": "cargo +1.99.0 build --locked --release -p swarmie-desktop-updates -p swarmie-desktop-runtime",
     "build:desktop": "bun run build:desktop:web && bun scripts/distribution/desktop.ts build",
     "package:desktop:release": "bun scripts/distribution/desktop.ts package",
     "package:desktop": "cd apps/desktop-client && native package",

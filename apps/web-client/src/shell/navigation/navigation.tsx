@@ -42,7 +42,7 @@ export function Navigation() {
         {hidden ? null : (
           <aside
             id="client-navigation"
-            className="flex w-(--navigation-width) flex-col overflow-hidden"
+            className={`flex w-(--navigation-width) flex-col overflow-hidden ${layout.section === "conversations" ? "bg-conversation-navigation" : ""}`}
           >
             {layout.section === "settings" ? (
               <SettingsNavigation />

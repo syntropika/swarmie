@@ -1,0 +1,22 @@
+# Implementation guides
+
+Swarmie composes independent capabilities through Tembra. The embedding selects
+capabilities, supplies I/O and owns the executor.
+
+| Concept | Guide |
+| --- | --- |
+| Host startup and shutdown | [Runtime](runtime.md) |
+| Desired plugins and observed mounts | [PluginManager](plugins/plugin-manager.md) |
+| Write ownership and atomic preparation | [Storage](storage.md) |
+| Recoverable work and leases | [Durable Tasks](plugins/durable-tasks.md) |
+| Model and tool execution | [Agent Loop](plugins/agent-loop.md) |
+| Persistent history and branches | [Conversations](plugins/conversations.md) |
+| Provider requests and streaming | [Providers](plugins/providers.md) |
+| Tool discovery and provider routing | [Tools](plugins/tools.md) |
+| Local and HTTP MCP tool connections | [MCP](plugins/mcp.md) |
+| Node identity and remote destinations | [Node connections](client-runtime/node-connections.md) |
+| Browser composition and views | [Client UI](client-runtime/client-ui.md) |
+
+Frontend rules and design guidance remain in [Frontend](client-runtime/frontend.md) and
+[Design principles](client-runtime/design-principles.md). Setup and verification commands are in
+[Development](../DEVELOPMENT.md).

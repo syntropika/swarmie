@@ -26,7 +26,7 @@ export function SettingsPage() {
       aria-label="Settings"
       className="min-h-0 flex-1 overflow-auto bg-background px-6 py-10 md:px-12 md:py-14"
     >
-      <div className="mx-auto max-w-2xl">
+      <div className={layout.settings === "plugins" ? "mx-auto max-w-3xl" : "mx-auto max-w-2xl"}>
         <SettingsContent section={layout.settings} />
       </div>
     </section>

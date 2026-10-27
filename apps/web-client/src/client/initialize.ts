@@ -22,6 +22,7 @@ import {
   createConversationRecords,
   defaultConversationTitle,
 } from "@swarmie/plugin-conversations-browser";
+import { mcpOrb, createMcpApi } from "@swarmie/plugin-mcp-browser";
 import type { Notification } from "@swarmie/plugin-notifications-browser";
 import { notificationsOrb } from "@swarmie/plugin-notifications-browser";
 import { onboardingOrb } from "@swarmie/plugin-onboarding-browser";
@@ -88,6 +89,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     viewsOrb,
     providersOrb,
     settingsOrb,
+    mcpOrb,
     notificationsOrb,
     onboardingOrb,
     ...(options.dev ? [appStateOrb] : []),
@@ -106,6 +108,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     shellState,
     views,
     projectsState,
+    mcpState,
   ] = await Promise.all([
     stateOf(conversationsReference),
     stateOf(host.get(connectionsOrb.services["swarmie.connections.ui"], "main")),
@@ -115,6 +118,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     stateOf(shellReference),
     stateOf(host.get(viewsOrb.services["swarmie.views.ui"], "main")),
     stateOf(host.get(projectsDefinition.services["swarmie.projects.ui"], "main")),
+    stateOf(host.get(mcpOrb.services["swarmie.mcp.ui"], "main")),
   ]);
   const providers = createProvidersApi(providersState, providersState.commit, options.providers);
   detachSources.push(providers.dispose);
@@ -174,6 +178,10 @@ export async function initializeClient(host: Host, options: ClientOptions) {
         ),
       }));
     }
+  });
+  const mcp = createMcpApi(mcpState, connectionState, nodeConnections);
+  detachSources.push(() => {
+    mcp.dispose();
   });
   const submissions = createSubmissions(
     nodeConnections,
@@ -407,6 +415,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     conversationError,
     connectionState,
     providers,
+    mcp,
     settings,
     onboarding,
     shellState,

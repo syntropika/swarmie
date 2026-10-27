@@ -9,4 +9,4 @@ agent execution; the independent libraries also support execution without persis
 Storage is an independent interface, with a SQLite adapter for compatible atomic writes.
 
 See [development](DEVELOPMENT.md) for setup and verification, and the
-[concept guides](docs/client-runtime/index.md) for library composition and ownership.
+[concept guides](docs/index.md) for library composition and ownership.

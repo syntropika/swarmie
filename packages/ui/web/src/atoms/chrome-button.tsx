@@ -34,7 +34,7 @@ export function ChromeButton({
       "h-(--spacing-panel-switch) min-h-(--spacing-panel-switch) min-w-0 flex-1 justify-center gap-1.75 rounded-none p-0 text-(length:--text-panel-switch) [&_svg]:size-(--spacing-chrome-icon)",
     application:
       "h-(--spacing-chrome-action-height) min-h-(--spacing-chrome-action-height) w-(--spacing-chrome-action-width) min-w-(--spacing-chrome-action-width) rounded-small p-0 [&_svg]:size-(--spacing-chrome-icon)",
-    rail: "size-(--spacing-chrome-rail-control) min-h-(--spacing-chrome-rail-control) min-w-(--spacing-chrome-rail-control) rounded-md p-0 [&_svg]:size-(--spacing-chrome-icon)",
+    rail: "size-(--spacing-chrome-rail-control) min-h-(--spacing-chrome-rail-control) min-w-(--spacing-chrome-rail-control) rounded-md p-0 [&_svg]:size-(--spacing-chrome-rail-icon)",
     tabClose:
       "size-(--spacing-chrome-tab-close) min-h-(--spacing-chrome-tab-close) min-w-(--spacing-chrome-tab-close) rounded-small p-0 [&_svg]:size-3",
     tab: "h-(--spacing-chrome-tab) min-h-(--spacing-chrome-tab) min-w-0 flex-1 justify-start gap-1.5 rounded-t-md rounded-b-none px-2 py-0 text-chrome [&_svg]:size-(--spacing-chrome-icon)",

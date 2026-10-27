@@ -1,6 +1,6 @@
 import type { Conversation } from "@swarmie/plugin-conversations-browser";
 
-import { Item, Menu } from "../../controls";
+import { ChoiceList, Menu } from "../../controls";
 import { useComposerBusy } from "./state";
 import type { DeliveryMode } from "./state";
 
@@ -25,19 +25,18 @@ export function ComposerDelivery({
       placement="top end"
     >
       {(close) => (
-        <>
-          {(["queue", "steer"] as const).map((entry) => (
-            <Item
-              key={entry}
-              onClick={() => {
-                setMode(entry);
-                close();
-              }}
-            >
-              {entry === "queue" ? "Queue for the next turn" : "Steer at the next step"}
-            </Item>
-          ))}
-        </>
+        <ChoiceList
+          label="Message delivery"
+          value={mode}
+          items={(["queue", "steer"] as const).map((entry) => ({
+            id: entry,
+            label: entry === "queue" ? "Queue for the next turn" : "Steer at the next step",
+          }))}
+          onAction={(entry) => {
+            setMode(entry);
+            close();
+          }}
+        />
       )}
     </Menu>
   );

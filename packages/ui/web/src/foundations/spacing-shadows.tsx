@@ -121,7 +121,7 @@ export function ShadowsReference({ theme }: { theme: "light" | "dark" }) {
             theme={theme}
             label="Field"
             classes="bg-field text-field-foreground shadow-field"
-            description="The field shadow supports the control’s boundary."
+            description="Fields use a border. The shared field shadow is none."
           />
           <ShadowSample
             theme={theme}

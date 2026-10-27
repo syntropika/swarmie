@@ -34,7 +34,7 @@ export function ComposerInput({ chat, mode }: { chat: Conversation; mode: Delive
           }
         }}
         placeholder="Ask anything…"
-        className="block min-h-20 w-full resize-none border-0 bg-transparent px-3 pt-3 pb-2 text-base leading-6 text-foreground placeholder:text-muted @min-[640px]/composer:text-conversation"
+        className="block min-h-(--spacing-composer-input) w-full resize-none border-0 bg-transparent px-(--spacing-composer-x) pt-(--spacing-composer-top) pb-(--spacing-composer-bottom) text-conversation text-foreground placeholder:text-muted"
       />
     </>
   );

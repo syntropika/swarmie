@@ -59,17 +59,20 @@ and catalogs. These checks do not qualify device-specific native runtime behavio
 - `packages/config`, `packages/ui/web` and `packages/ui/native`: shared configuration
   and separate platform component libraries.
 - `vendor/`: the licensed provider dependency snapshot and its recorded patch.
-- `docs/client-runtime/`: technical capability guides.
+- `docs/runtime.md`: runtime composition and lifecycle.
+- `docs/plugins/`: independent capability guides.
+- `docs/client-runtime/`: client and frontend guides.
 
 ## Capability guides
 
-Start with the [concept index](docs/client-runtime/index.md).
+Start with the [concept index](docs/index.md).
 
-- [Runtime and orb administration](docs/client-runtime/runtime-foundation.md)
-- [Storage and durable execution](docs/client-runtime/durable-tasks.md)
-- [Independent Agent Loop and lifecycle hooks](docs/client-runtime/agent-loop.md)
-- [Tool registration and provider routing](docs/client-runtime/tools.md)
-- [Providers and the genai adapter](docs/client-runtime/providers.md)
+- [Runtime and orb administration](docs/runtime.md)
+- [Storage and durable execution](docs/plugins/durable-tasks.md)
+- [Independent Agent Loop and lifecycle hooks](docs/plugins/agent-loop.md)
+- [Tool registration and provider routing](docs/plugins/tools.md)
+- [MCP connections and tool execution](docs/plugins/mcp.md)
+- [Providers and the genai adapter](docs/plugins/providers.md)
 - [Desktop development and packaging](docs/client-runtime/desktop.md)
 
 Durable Tasks and Conversations remain optional Agent Loop dependencies. The

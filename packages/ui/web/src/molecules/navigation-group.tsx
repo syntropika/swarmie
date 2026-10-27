@@ -25,9 +25,9 @@ export function NavigationGroup({
       <Disclosure isExpanded={expanded} onExpandedChange={onExpandedChange}>
         <div className="flex min-w-0 items-center gap-0.5">
           <Disclosure.Heading level={2} className="min-w-0 flex-1">
-            <Disclosure.Trigger className="flex h-(--spacing-navigation-group) w-full min-w-0 items-center gap-1 rounded-small px-(--spacing-navigation-row-x) text-left text-(length:--text-navigation-label) font-normal text-muted hover:text-foreground">
-              <Icon name="chevron" className={cn("size-3 shrink-0", !expanded && "-rotate-90")} />
+            <Disclosure.Trigger className="flex min-h-(--spacing-navigation-group) w-full min-w-0 items-center gap-1 rounded-small px-(--spacing-navigation-row-x) text-left text-navigation-heading font-normal text-muted hover:text-foreground">
               <span className="truncate">{title}</span>
+              <Icon name="chevron" className={cn("size-3 shrink-0", !expanded && "-rotate-90")} />
             </Disclosure.Trigger>
           </Disclosure.Heading>
           {actions}

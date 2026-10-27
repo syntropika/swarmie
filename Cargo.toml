@@ -1,12 +1,14 @@
 [workspace]
 members = [
     "apps/desktop-client/updater",
+    "apps/desktop-client/runtime",
     "runtime",
     "storage",
     "storage/core",
     "plugins/providers",
     "plugins/plugin-manager",
     "plugins/tools",
+    "plugins/mcp",
     "plugins/model-provider-genai",
     "plugins/durable-tasks",
     "plugins/agent-loop",
@@ -14,6 +16,8 @@ members = [
     "tests/fixtures/foundation-counter",
     "tests/fixtures/durable-documents",
     "tests/fixtures/atomic-journal",
+    "tests/fixtures/mcp-server",
+    "tests/fixtures/mcp-settings-host",
 ]
 exclude = ["vendor/genai-0.7.0"]
 resolver = "2"
@@ -35,6 +39,7 @@ thiserror = "2"
 rusqlite = { version = "0.37", features = ["bundled"] }
 tempfile = "3"
 swarmie-tools = { path = "plugins/tools" }
+swarmie-mcp = { path = "plugins/mcp" }
 swarmie-providers = { path = "plugins/providers" }
 swarmie-storage = { path = "storage" }
 swarmie-storage-core = { path = "storage/core" }

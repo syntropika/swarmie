@@ -74,7 +74,7 @@ export function MessageRow({ message, chat }: { message: Message; chat: Conversa
         </div>
       ) : null}
       <div
-        className={`min-w-0 text-conversation leading-7 break-words ${message.role === "user" ? "max-w-[85%] rounded-xl bg-row-selected px-4 py-2.5" : "w-full"}`}
+        className={`min-w-0 text-conversation break-words ${message.role === "user" ? "max-w-[85%] rounded-xl bg-row-selected px-4 py-2.5" : "w-full"}`}
       >
         {(() => {
           if (Renderer) {
@@ -89,7 +89,7 @@ export function MessageRow({ message, chat }: { message: Message; chat: Conversa
       {message.interrupted === true ? (
         <span className="mt-2 text-xs text-muted">Response interrupted</span>
       ) : null}
-      <div className="mt-1 flex h-6 items-center gap-0.5 opacity-0 group-focus-within/message:opacity-100 group-hover/message:opacity-100 [@media(hover:none)]:opacity-100">
+      <div className="mt-1 flex min-h-(--spacing-chrome-tab-close) flex-wrap items-center gap-0.5 opacity-0 group-focus-within/message:opacity-100 group-hover/message:opacity-100 [@media(hover:none)]:opacity-100">
         <IconButton
           icon={Copy}
           size="tabClose"

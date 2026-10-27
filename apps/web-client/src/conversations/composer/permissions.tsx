@@ -1,8 +1,8 @@
 import type { Conversation } from "@swarmie/plugin-conversations-browser";
-import { Check, ShieldCheck } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 
 import { useSelection } from "../../client/use-selection";
-import { Item, Menu } from "../../controls";
+import { ChoiceList, Menu } from "../../controls";
 import { draftPermission, patchDraft } from "./state";
 
 export function ComposerPermissions({ chat }: { chat: Conversation }) {
@@ -16,20 +16,19 @@ export function ComposerPermissions({ chat }: { chat: Conversation }) {
       placement="top start"
     >
       {(close) => (
-        <>
-          {["Ask", "Full access"].map((permission) => (
-            <Item
-              key={permission}
-              icon={permission === selected ? Check : ShieldCheck}
-              onClick={() => {
-                patchDraft(chat, { permission });
-                close();
-              }}
-            >
-              {permission}
-            </Item>
-          ))}
-        </>
+        <ChoiceList
+          label="Permissions"
+          value={selected}
+          items={["Ask", "Full access"].map((permission) => ({
+            id: permission,
+            label: permission,
+            icon: ShieldCheck,
+          }))}
+          onAction={(permission) => {
+            patchDraft(chat, { permission });
+            close();
+          }}
+        />
       )}
     </Menu>
   );

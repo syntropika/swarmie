@@ -10,7 +10,7 @@ mod provider;
 mod routing;
 
 pub use catalog::{Catalog, Registration, Selection, ToolDefinition};
-pub use client::{CatalogMethod, CatalogService, INSTANCE_KEY, SERVICE, orb};
+pub use client::{CatalogMethod, CatalogService, INSTANCE_KEY, SERVICE, orb, orb_with_catalog};
 pub use error::Reason;
 pub(crate) use error::invalid;
 pub use provider::{

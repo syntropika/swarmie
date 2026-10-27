@@ -21,6 +21,25 @@ describe("semantic typography class merging", () => {
       "text-ink text-body leading-body",
     );
   });
+
+  test("chrome type overrides preserve foregrounds in both composition orders", () => {
+    const roles = [
+      { base: "text-navigation-heading", hover: "hover:text-navigation-heading" },
+      { base: "text-navigation-label", hover: "hover:text-navigation-label" },
+      { base: "text-panel-switch", hover: "hover:text-panel-switch" },
+    ];
+    for (const role of roles) {
+      expect(cn(role.base, "text-muted").split(" ")).toEqual([role.base, "text-muted"]);
+      expect(cn("text-caption text-foreground", role.base).split(" ")).toEqual([
+        "text-foreground",
+        role.base,
+      ]);
+      expect(cn("hover:text-muted", role.hover).split(" ")).toEqual([
+        "hover:text-muted",
+        role.hover,
+      ]);
+    }
+  });
 });
 
 describe("semantic control class merging", () => {

@@ -4,8 +4,11 @@ import {
   ClaudeLogo,
   CopilotLogo,
   KimiLogo,
+  Label,
+  ListBox,
   LoadingRows,
   OpenAILogo,
+  Select,
 } from "@swarmie/ui-web";
 import { ArrowLeft, Monitor } from "lucide-react";
 import { useState } from "react";
@@ -22,7 +25,7 @@ const marks = {
 };
 function ProviderMark({ id }: { id: string }) {
   const Mark = Object.entries(marks).find(([key]) => key === id)?.[1] ?? Monitor;
-  return <Mark className="size-7" />;
+  return <Mark className="size-7 shrink-0" />;
 }
 export function ProvidersPanel({
   providers,
@@ -72,23 +75,31 @@ export function ProvidersPanel({
           </div>
         </div>
         {provider.methods.length > 1 ? (
-          <label className="grid gap-2 text-sm">
-            Connection method
-            <select
-              className="rounded-lg border border-border bg-default p-3"
-              value={method}
-              disabled={busy}
-              onChange={(event) => {
-                setMethod(event.target.value);
-              }}
-            >
-              {provider.methods.map((entry) => (
-                <option key={entry.id} value={entry.id}>
-                  {entry.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Select
+            value={method}
+            isDisabled={busy}
+            onChange={(value) => {
+              if (typeof value === "string") {
+                setMethod(value);
+              }
+            }}
+          >
+            <Label>Connection method</Label>
+            <Select.Trigger>
+              <Select.Value />
+              <Select.Indicator />
+            </Select.Trigger>
+            <Select.Popover>
+              <ListBox>
+                {provider.methods.map((entry) => (
+                  <ListBox.Item key={entry.id} id={entry.id} textValue={entry.label}>
+                    {entry.label}
+                    <ListBox.ItemIndicator />
+                  </ListBox.Item>
+                ))}
+              </ListBox>
+            </Select.Popover>
+          </Select>
         ) : null}
         {selectedMethod === undefined ? (
           <p className="text-sm text-muted">No connection method is available for this provider.</p>
@@ -107,20 +118,20 @@ export function ProvidersPanel({
   }
   return (
     <div className="@container/provider-configuration grid gap-5">
-      <div className="grid grid-cols-2 gap-4 @min-[540px]/provider-configuration:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 @min-[384px]/provider-configuration:grid-cols-2 @min-[600px]/provider-configuration:grid-cols-3">
         {catalog.choices.map((choice) => (
-          <div key={choice.id} className="overflow-hidden rounded-xl border border-border">
+          <div key={choice.id} className="min-w-0 rounded-xl border border-border">
             <Button
               variant="tertiary"
               shape="tile"
-              className="h-auto w-full justify-start text-left"
+              className="h-auto w-full min-w-0 justify-start text-left whitespace-normal"
               onPress={() => {
                 choose(choice);
               }}
             >
-              <span className="flex min-h-20 items-center gap-3 p-4">
+              <span className="flex min-h-20 min-w-0 items-center gap-3 p-4">
                 <ProviderMark id={choice.id} />
-                <span className="grid gap-1">
+                <span className="grid min-w-0 gap-1 wrap-anywhere">
                   <span className="text-sm">{choice.label}</span>
                   <span className="text-chrome text-muted">By {choice.publisher}</span>
                 </span>

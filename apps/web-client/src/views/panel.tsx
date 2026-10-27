@@ -1,12 +1,14 @@
 import { useSource } from "@swarmie/client-ui";
 import type { Tab } from "@swarmie/plugin-views-browser";
-import { Globe, GripVertical, Maximize2, MessageCircle, Minimize2, Plus, X } from "lucide-react";
+import { Tabs } from "@swarmie/ui-web";
+import { GripVertical, Maximize2, Minimize2, Plus } from "lucide-react";
 
 import { useClient } from "../client/context";
 import { IconButton } from "../controls";
 import { ConversationPanel } from "../conversations/conversation";
 import { startPanelDrag } from "../shell/panel-drag";
 import { StateView } from "./inspector";
+import { ViewTabList } from "./view-tabs";
 
 function ViewContent({ tab }: { tab: Tab | undefined }) {
   const { openTab, plugins } = useClient();
@@ -52,72 +54,50 @@ export function ViewPanel() {
   const active = layout.tabs.find((tab) => tab.id === layout.tab) ?? layout.tabs[0];
   return (
     <section aria-label="View" className="flex h-full min-h-0 min-w-0 flex-col bg-pane">
-      <div
-        draggable={layout.conversationVisible && !layout.expanded}
-        title={
-          layout.conversationVisible && !layout.expanded ? "Drag to move the view panel" : undefined
-        }
-        onDragStart={(event) => {
-          startPanelDrag(event.dataTransfer, "view");
+      <Tabs
+        appearance="view"
+        selectedKey={active?.id ?? ""}
+        onSelectionChange={(key) => {
+          const tab = layout.tabs.find((entry) => entry.id === key);
+          if (tab) {
+            views.update((current) => ({ ...current, tab: tab.id }));
+          }
         }}
-        className="flex h-9 shrink-0 items-center gap-1 border-b border-border bg-chrome-surface px-1.5"
       >
-        {layout.conversationVisible && !layout.expanded ? (
-          <GripVertical className="hidden size-3 cursor-grab text-muted md:block" />
-        ) : null}
         <div
-          role="tablist"
-          aria-label="View tabs"
-          className="flex h-full min-w-0 flex-1 [scrollbar-width:none] items-end gap-1 overflow-x-auto overflow-y-hidden"
-        >
-          {layout.tabs.map((tab) => (
-            <div
-              key={tab.id}
-              className={`flex h-7 max-w-48 shrink-0 items-center rounded-t-md ${tab.id === active?.id ? "bg-row-selected" : "hover:bg-row-hover"}`}
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={tab.id === active?.id}
-                onClick={() => {
-                  views.update((current) => ({ ...current, tab: tab.id }));
-                }}
-                className="flex min-w-0 items-center gap-2 px-2 text-chrome"
-              >
-                {tab.kind === "conversation" ? (
-                  <MessageCircle className="size-3 text-muted" />
-                ) : (
-                  <Globe className="size-3 text-muted" />
-                )}
-                <span className="truncate">{tab.title}</span>
-              </button>
-              <IconButton
-                icon={X}
-                size="tabClose"
-                label={`Close ${tab.title}`}
-                onPress={() => {
-                  closeTab(tab.id);
-                }}
-              />
-            </div>
-          ))}
-        </div>
-        <IconButton
-          icon={Plus}
-          label="New view tab"
-          onPress={() => {
-            openTab();
+          data-slot="view-toolbar"
+          draggable={layout.conversationVisible && !layout.expanded}
+          title={
+            layout.conversationVisible && !layout.expanded
+              ? "Drag to move the view panel"
+              : undefined
+          }
+          onDragStart={(event) => {
+            startPanelDrag(event.dataTransfer, "view");
           }}
-        />
-        <IconButton
-          icon={layout.expanded ? Minimize2 : Maximize2}
-          label={layout.expanded ? "Restore split view" : "Expand view"}
-          onPress={expandView}
-        />
-      </div>
-      <div role="tabpanel" aria-label={active?.title ?? "New tab"} className="min-h-0 flex-1">
-        <ViewContent tab={active} />
-      </div>
+          className="flex h-[calc(var(--spacing-chrome-row)+1px)] shrink-0 items-center gap-1 border-b border-border bg-chrome-surface px-1.5"
+        >
+          {layout.conversationVisible && !layout.expanded ? (
+            <GripVertical className="hidden size-3 cursor-grab text-muted md:block" />
+          ) : null}
+          <ViewTabList tabs={layout.tabs} selected={active?.id ?? ""} close={closeTab} />
+          <IconButton
+            icon={Plus}
+            label="New view tab"
+            onPress={() => {
+              openTab();
+            }}
+          />
+          <IconButton
+            icon={layout.expanded ? Minimize2 : Maximize2}
+            label={layout.expanded ? "Restore split view" : "Expand view"}
+            onPress={expandView}
+          />
+        </div>
+        <Tabs.Panel key={active?.id ?? ""} id={active?.id ?? ""}>
+          <ViewContent tab={active} />
+        </Tabs.Panel>
+      </Tabs>
     </section>
   );
 }

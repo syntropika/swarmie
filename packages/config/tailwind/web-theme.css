@@ -194,13 +194,14 @@
   }
 }
 
-/* Phone typography and touch geometry change together; wider clients retain compact chrome. */
-@media (max-width: 639px) {
+/* Drawer layouts and coarse pointers use one touch density for controls and their rows. */
+@media (max-width: 767px), (pointer: coarse) {
   :root {
     --text-caption: 0.875rem;
     --text-chrome: 0.8125rem;
     --text-navigation: 0.875rem;
-    --text-navigation-label: 0.75rem;
+    --text-navigation-label: var(--text-caption);
+    --text-navigation-heading: var(--text-navigation);
     --text-conversation: 1rem;
     --text-code: 0.875rem;
     --text-panel-switch: 0.8125rem;
@@ -212,9 +213,12 @@
     --spacing-chrome-action-width: 2.5rem;
     --spacing-chrome-icon: 1.125rem;
     --spacing-chrome-rail-control: 2.5rem;
+    --spacing-chrome-rail-icon: 1.25rem;
+    --spacing-brand-mark: 1.75rem;
     --spacing-chrome-row: 2.75rem;
     --spacing-chrome-navigation-row: 2.75rem;
     --spacing-chrome-menu-row: 2.75rem;
+    --spacing-composer-label: 8rem;
     --spacing-composer-control: 2.5rem;
     --spacing-chrome-tab: 2.5rem;
     --spacing-chrome-tab-close: 2.5rem;
@@ -222,7 +226,7 @@
   }
 }
 
-@media (max-width: 639px) {
+@media (max-width: 767px), (pointer: coarse) {
   .button,
   .input,
   .select__trigger,
@@ -233,5 +237,14 @@
   .switch {
     align-items: center;
     justify-content: center;
+  }
+}
+
+/* Header labels and icons have one shared compact context. */
+@media (min-width: 768px) and (pointer: fine) {
+  .swarmie-header {
+    --spacing-chrome-icon: 1rem;
+    --spacing-chrome-row: 2rem;
+    --text-panel-switch: 0.6875rem;
   }
 }

@@ -41,7 +41,7 @@ pool.run_until(async {
 The empty catalog and inventory start only PluginManager. `Runtime::configure`
 stores desired plugin state before reconciliation. `Runtime::refresh` reloads it.
 `Runtime::plugins` returns the last confirmed inventory and observed mount state.
-See [PluginManager](plugin-manager.md).
+See [PluginManager](plugins/plugin-manager.md).
 
 `Runtime::host` exposes the normal Tembra host. Capability calls use Tembra
 references directly. PluginManager is outside their invocation path. An independent
@@ -68,9 +68,9 @@ Loop library consumers may use ordinary execution without storage. The generic
 runtime takes the embedding's catalog; it does not install product capabilities
 on its own.
 
-[Durable Tasks](durable-tasks.md) owns assignments and checkpoints.
-[Conversations](conversations.md) owns persistent branches and history.
-[Agent Loop](agent-loop.md) coordinates model and tool work through these optional
+[Durable Tasks](plugins/durable-tasks.md) owns assignments and checkpoints.
+[Conversations](plugins/conversations.md) owns persistent branches and history.
+[Agent Loop](plugins/agent-loop.md) coordinates model and tool work through these optional
 adapters. Compatible history writes and checkpoints share one storage owner commit.
 Final task completion can be confirmed later by the scheduler.
 
@@ -82,7 +82,7 @@ an external effect.
 
 The `rpc` feature re-exports `tembra::rpc` directly. The embedding owns transport,
 authentication and byte queues. `node_orb` supplies read-only node identity when
-explicitly composed. See [Node connections](node-connections.md).
+explicitly composed. See [Node connections](client-runtime/node-connections.md).
 
 Rust dependencies and their exact source are recorded in the root Cargo manifest
 and lockfile. Browser dependencies have their own root Bun resolution. Changing

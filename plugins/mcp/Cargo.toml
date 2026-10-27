@@ -1,0 +1,20 @@
+[package]
+name = "swarmie-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Independent MCP connections with Tembra-owned tool providers"
+
+[dependencies]
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+swarmie-tools.workspace = true
+tembra.workspace = true
+rmcp = { version = "=3.8.0", default-features = false, features = ["client", "transport-async-rw", "transport-streamable-http-client-reqwest", "reqwest"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+tokio = { version = "1", features = ["time", "process", "macros"] }
+
+[lints]
+workspace = true

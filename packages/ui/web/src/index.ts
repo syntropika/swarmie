@@ -32,6 +32,7 @@ export {
 } from "./molecules/virtual-list";
 export { GlobeIcon, type GlobeIconProps } from "./atoms/globe-icon";
 export { Select, ListBox, Header, type SelectProps } from "./atoms/select";
+export type { ListBoxProps } from "./atoms/list-box";
 export { Alert, type AlertProps } from "./atoms/alert";
 
 export { TextArea, type TextAreaProps } from "./atoms/textarea";
@@ -298,7 +299,6 @@ export type {
   ListBoxItemIndicatorProps,
   ListBoxItemProps,
   ListBoxItemRootProps,
-  ListBoxProps,
   ListBoxRootProps,
   ListBoxSectionProps,
   ListBoxSectionRootProps,

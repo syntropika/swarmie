@@ -72,11 +72,25 @@ repository owns hosted identity, enrollment, relay routing, allocations, collabo
 hosted synchronization, billing and entitlements. It is not a submodule or workspace member.
 Do not add relative cross-repository dependencies or automatic hosted checkouts.
 
-Keep technical project documentation under root `docs/`, with client/runtime guides in
-`docs/client-runtime/`. Do not create package-local technical READMEs or documentation trees.
+Keep technical project documentation under root `docs/`: runtime composition in
+`docs/runtime.md`, capability guides in `docs/plugins/` and client guides in
+`docs/client-runtime/`. Keep the guide index in `docs/index.md`. Do not create package-local
+technical READMEs or documentation trees.
 Keep root README focused on purpose and capabilities, and setup/commands in DEVELOPMENT.md.
-Describe accepted behavior and open limits without external comparison products. Preserve
-licenses, third-party notices and source provenance with the dependencies they describe.
+
+### Documentation content and language
+
+Explain how Swarmie works in all project documentation. Describe the current behavior,
+public interfaces, configuration, procedures, ownership and limits. Check these descriptions
+against the current source code. Keep decision history, design rationale, alternatives,
+product comparisons and future plans outside the source repository, in research or planning
+artifacts. Do not present proposed behavior as implemented behavior.
+
+Use [ASD-STE100 Simplified Technical English](https://www.asd-ste100.org/about_STE.html)
+for all English documentation. Follow its writing rules and approved dictionary. Use the
+permitted project technical nouns and verbs consistently. Keep API names, identifiers and
+code examples exact. Write short, complete sentences. Use one instruction in each procedural
+sentence. Check the language and terminology before you finish a documentation change.
 
 Architecture task Pages in the verified Swarmie Space remain authoritative for scope, human
 review, execution state and evidence. Refresh Pages and comments before guarded changes,

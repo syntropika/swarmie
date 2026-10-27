@@ -27,11 +27,11 @@ export function ComposerTopBar({ chat }: { chat: Conversation }) {
   const items = useSource(conversationsUi.composer.topBar.items);
   const topBar = [...baseTopBar, ...items];
   return (
-    <div className="flex h-8 items-center justify-between gap-2 border-b border-border bg-composer-context px-2 text-chrome text-muted">
+    <div className="flex min-h-(--spacing-chrome-menu-row) flex-wrap items-center justify-between gap-(--spacing-control-group) border-b border-border bg-composer-context px-(--spacing-chrome-inset) text-chrome text-muted">
       {(["left", "right"] as const).map((side) => (
         <div
           key={side}
-          className={`flex min-w-0 items-center gap-0.5 ${side === "right" ? "ml-auto shrink-0 flex-row-reverse" : "overflow-x-auto"}`}
+          className={`flex max-w-full min-w-0 flex-wrap items-center gap-(--spacing-control-group) ${side === "right" ? "ml-auto flex-row-reverse" : ""}`}
         >
           {topBar
             .filter((item) => item.side === side)

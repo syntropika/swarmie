@@ -82,7 +82,7 @@ storage owner. It cannot be retried as if nothing happened.
 The callback used by `commit_with` prepares logical writes, not a live SQL
 transaction. A successful nested call only acknowledges staging. External effects,
 detached calls and writes from another owner are outside this atomic commit.
-See [Storage](storage.md).
+See [Storage](../storage.md).
 
 ## Wait and receive
 

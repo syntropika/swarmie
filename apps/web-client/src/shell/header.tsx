@@ -14,9 +14,12 @@ import {
 } from "lucide-react";
 
 import { useClient } from "../client/context";
-import { IconButton, Item, Menu, copyText, iconStyle, useChat } from "../controls";
+import { IconButton, Item, Menu, copyText, useChat } from "../controls";
 import { ConversationMenu } from "../conversations/conversation-menu";
 import { startPanelDrag } from "./panel-drag";
+
+const headerIconStyle =
+  "size-(--spacing-chrome-icon) shrink-0 stroke-(length:--stroke-chrome-icon)";
 
 export function Header() {
   const {
@@ -42,9 +45,9 @@ export function Header() {
     layout.conversationVisible &&
     !layout.expanded;
   return (
-    <header className="relative z-40 flex h-11 shrink-0 items-center border-b border-border bg-transparent md:h-8 md:bg-chrome-surface">
+    <header className="swarmie-header relative z-40 flex h-(--spacing-shell-bar) shrink-0 items-center border-b border-border bg-transparent md:bg-chrome-surface">
       <div
-        className={`flex h-full shrink-0 items-center gap-1 px-2 md:border-r md:border-border ${layout.navigation ? "md:w-[calc(var(--navigation-width)+2.625rem)]" : ""}`}
+        className={`flex h-full shrink-0 items-center gap-1 px-2 md:border-r md:border-border ${layout.navigation ? "md:w-[calc(var(--navigation-width)+var(--spacing-shell-rail)+1px)]" : ""}`}
       >
         <span className="hidden items-center gap-1 md:flex">
           <IconButton
@@ -158,7 +161,7 @@ export function Header() {
           title={`Local · ${status}`}
           className="mr-2 hidden items-center gap-1.5 text-panel-switch text-muted md:flex"
         >
-          <Monitor className={iconStyle} />
+          <Monitor className={headerIconStyle} />
           <span>Local</span>
           <span
             className={`size-1.5 rounded-full ${status === "connected" ? "bg-brand-accent" : "animate-pulse bg-muted"}`}
@@ -171,6 +174,7 @@ export function Header() {
               icon={Pin}
               label="Toggle pinned context"
               active={layout.summary}
+              aria-pressed={layout.summary}
               onPress={() => {
                 shellState.update((s) => ({ ...s, summary: !s.summary }));
               }}
@@ -179,6 +183,7 @@ export function Header() {
               icon={layout.tabs.length ? PanelRight : Plus}
               label={layout.tabs.length ? "Toggle conversation panel" : "Open a new view"}
               active={layout.tabs.length > 0 && layout.conversationVisible}
+              {...(layout.tabs.length > 0 ? { "aria-pressed": layout.conversationVisible } : {})}
               onPress={() => {
                 if (layout.tabs.length > 0) {
                   toggleConversation();
@@ -224,7 +229,7 @@ function HeaderTitle() {
         ))
       ) : (
         <>
-          <MessageCircle className={`${iconStyle} text-muted`} />
+          <MessageCircle className={`${headerIconStyle} text-muted`} />
           <span className="hidden text-muted sm:inline">Chat</span>
           <span className="hidden text-muted sm:inline">/</span>
         </>
@@ -241,6 +246,8 @@ function NavigationToggle() {
       icon={PanelLeft}
       label="Toggle navigation"
       active={layout.navigation}
+      aria-expanded={layout.navigation}
+      aria-controls="client-navigation"
       onPress={() => {
         shellState.update((current) => ({ ...current, navigation: !current.navigation }));
       }}

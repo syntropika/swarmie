@@ -1,0 +1,5 @@
+{
+  "extends": "@swarmie/config/ts/react.json",
+  "compilerOptions": { "allowImportingTsExtensions": true, "types": ["bun", "vite/client"] },
+  "include": ["src", "test"]
+}

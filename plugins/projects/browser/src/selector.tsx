@@ -1,7 +1,7 @@
 import { useSource } from "@swarmie/client-ui";
 import type { ConversationControlProps } from "@swarmie/plugin-conversations-browser";
-import { ChromeButton, Popover } from "@swarmie/ui-web";
-import { Check, Folder, MessageCircle, Plus } from "lucide-react";
+import { ChromeButton, ListBox, Popover } from "@swarmie/ui-web";
+import { Folder, MessageCircle, Plus } from "lucide-react";
 import { useState } from "react";
 
 import { useProjects } from "./context";
@@ -12,6 +12,8 @@ export function ProjectSelector({ conversationId, isDraft }: ConversationControl
   const [open, setOpen] = useState(false);
   const selected = (isDraft ? state.draftLinks : state.links)[conversationId];
   const project = state.records.find((entry) => entry.id === selected);
+  const projectLabel =
+    project?.name ?? (selected === undefined ? "No project" : "Unavailable project");
   async function choose(projectId: string | null) {
     try {
       if (isDraft) {
@@ -30,44 +32,55 @@ export function ProjectSelector({ conversationId, isDraft }: ConversationControl
     <Popover isOpen={open} onOpenChange={setOpen}>
       <ChromeButton
         size="composerCap"
-        aria-label="Select project"
-        title={project?.name ?? "No project"}
+        aria-label={`${projectLabel}: Select project`}
+        title={projectLabel}
         selected={open}
       >
         <Folder className="size-3 shrink-0" />
-        <span className="max-w-32 truncate">
-          {project?.name ?? (selected === undefined ? "No project" : "Unavailable project")}
-        </span>
+        <span className="max-w-32 truncate">{projectLabel}</span>
       </ChromeButton>
       <Popover.Content placement="top start" kind="composer" className="z-50">
         <Popover.Dialog aria-label="Choose a project">
           <p className="px-2 py-1 text-chrome text-muted">Project</p>
-          <button
-            type="button"
-            onClick={() => {
-              choose(null).catch(api.fail);
-            }}
-            className="flex min-h-8 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-row-hover"
+          <ListBox
+            aria-label="Project"
+            selectionMode="single"
+            selectionBehavior="toggle"
+            disallowEmptySelection
+            selectedKeys={[selected === undefined ? "unassigned" : `project:${selected}`]}
+            kind="composer"
           >
-            <span className="flex-1">No project</span>
-            {selected === undefined ? <Check className="size-3 text-brand-accent" /> : null}
-          </button>
-          {state.records
-            .filter((entry) => !entry.archived)
-            .map((entry) => (
-              <button
-                key={entry.id}
-                type="button"
-                onClick={() => {
-                  choose(entry.id).catch(api.fail);
-                }}
-                className="flex min-h-8 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-row-hover"
-              >
-                <Folder className="size-3 text-muted" />
-                <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-                {entry.id === selected ? <Check className="size-3 text-brand-accent" /> : null}
-              </button>
-            ))}
+            <ListBox.Item
+              id="unassigned"
+              textValue="No project"
+              aria-label="No project"
+              kind="composer"
+              onPress={() => {
+                choose(null).catch(api.fail);
+              }}
+            >
+              <span className="flex-1">No project</span>
+              <ListBox.ItemIndicator />
+            </ListBox.Item>
+            {state.records
+              .filter((entry) => !entry.archived)
+              .map((entry) => (
+                <ListBox.Item
+                  key={entry.id}
+                  id={`project:${entry.id}`}
+                  textValue={entry.name}
+                  aria-label={entry.name}
+                  kind="composer"
+                  onPress={() => {
+                    choose(entry.id).catch(api.fail);
+                  }}
+                >
+                  <Folder className="size-3 text-muted" />
+                  <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+                  <ListBox.ItemIndicator />
+                </ListBox.Item>
+              ))}
+          </ListBox>
           <div className="my-1 border-t border-border" />
           <ChromeButton
             size="action"

@@ -27,6 +27,7 @@ export function SettingsNavigation() {
             key={id}
             size="navigation"
             selected={selected === id}
+            aria-current={selected === id ? "page" : false}
             onPress={() => {
               navigate({ settings: id });
               if (window.innerWidth < 768) {

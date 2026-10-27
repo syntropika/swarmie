@@ -11,7 +11,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 export const Geometry: Story = {
   render: () => (
-    <div className="flex items-center gap-4">
+    <div className="flex flex-wrap items-center gap-4">
       <ChromeButton aria-label="Show navigation">
         <Icon name="sidebar" />
       </ChromeButton>

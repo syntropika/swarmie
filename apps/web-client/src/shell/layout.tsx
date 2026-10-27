@@ -4,7 +4,7 @@ import { ProjectsContext } from "@swarmie/plugin-projects-browser/views";
 import { ProvidersPanel } from "@swarmie/plugin-providers-browser/views";
 import { ChromeButton } from "@swarmie/ui-web";
 import { Globe, MessageCircle } from "lucide-react";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { ReactElement } from "react";
 
 import { useClient } from "../client/context";
@@ -96,6 +96,27 @@ function ApplicationLayout() {
 
   const [dragging, setDragging] = useState<"conversation" | "view" | null>(null);
   const views = layout.tabs.length > 0;
+  const viewArea = useRef<HTMLDivElement>(null);
+  const panels = useRef<HTMLElement>(null);
+  const focusedViewElement = useRef<Element | null>(null);
+  const hadViews = useRef(views);
+  useLayoutEffect(() => {
+    const closedLastView = hadViews.current && !views;
+    hadViews.current = views;
+    if (
+      closedLastView &&
+      focusedViewElement.current !== null &&
+      !focusedViewElement.current.isConnected &&
+      document.activeElement === document.body
+    ) {
+      const input = panels.current?.querySelector<HTMLTextAreaElement>(
+        'section[aria-label="Conversation"] textarea',
+      );
+      if (input && input.getClientRects().length > 0) {
+        input.focus();
+      }
+    }
+  }, [views]);
   const showConversation = !views || layout.conversationVisible;
   function dropPanel(side: "left" | "right", event: React.DragEvent) {
     const panel = draggedPanel(event.dataTransfer);
@@ -109,6 +130,15 @@ function ApplicationLayout() {
   }
   return (
     <div
+      onFocusCapture={(event) => {
+        focusedViewElement.current =
+          (viewArea.current?.contains(event.target) ?? false) ? event.target : null;
+      }}
+      onBlurCapture={(event) => {
+        if (event.relatedTarget === null && focusedViewElement.current?.isConnected === true) {
+          focusedViewElement.current = null;
+        }
+      }}
       onDragStart={(event) => {
         setDragging(draggedPanel(event.dataTransfer));
       }}
@@ -122,7 +152,7 @@ function ApplicationLayout() {
       <Header />
       <div className="flex min-h-0 flex-1">
         <Navigation />
-        <main id="client-panels" className="relative flex min-h-0 min-w-0 flex-1">
+        <main ref={panels} id="client-panels" className="relative flex min-h-0 min-w-0 flex-1">
           <SectionContent>
             <>
               {showConversation ? (
@@ -139,6 +169,7 @@ function ApplicationLayout() {
               ) : null}
               {views ? (
                 <div
+                  ref={viewArea}
                   className={`min-h-0 min-w-0 flex-1 ${layout.mobile === "conversation" && showConversation ? "hidden md:block" : ""} ${layout.conversationFirst ? "order-2" : "order-0"}`}
                 >
                   <ViewPanel />

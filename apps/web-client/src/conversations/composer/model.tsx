@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { useClient } from "../../client/context";
 import { useSelection } from "../../client/use-selection";
-import { Item, Menu } from "../../controls";
+import { ChoiceList, Item, Menu } from "../../controls";
 import { patchDraft } from "./state";
 
 const modelSelection = ({ account, model, effort }: Draft) => ({ account, model, effort });
@@ -30,24 +30,24 @@ export function ComposerModel({ chat }: { chat: Conversation }) {
     >
       {(close) => (
         <>
-          {models.map((model) => (
-            <Item
-              key={model.id}
-              detail={model.id === draft.model ? "✓" : ""}
-              onClick={() => {
-                const selection = providers.selectModel(chat.draft.getSnapshot(), model.id);
+          {models.length > 0 ? (
+            <ChoiceList
+              label="Model"
+              value={draft.model}
+              items={models.map((model) => ({
+                id: model.id,
+                label: model.label,
+                description: model.description,
+              }))}
+              onAction={(id) => {
+                const selection = providers.selectModel(chat.draft.getSnapshot(), id);
                 if (selection) {
                   patchDraft(chat, selection);
                 }
                 close();
               }}
-            >
-              <span className="block">{model.label}</span>
-              {model.description === undefined ? null : (
-                <span className="block text-xs text-muted">{model.description}</span>
-              )}
-            </Item>
-          ))}
+            />
+          ) : null}
           {models.length === 0 ? (
             <p className="px-2 py-3 text-xs text-muted">
               No models are available for this account.
@@ -58,25 +58,23 @@ export function ComposerModel({ chat }: { chat: Conversation }) {
               <div className="my-1 border-t border-border" />
               <Item
                 detail={draft.effort}
+                expanded={effortOpen}
                 onClick={() => {
                   setEffortOpen((value) => !value);
                 }}
               >
                 Effort
               </Item>
-              {effortOpen
-                ? selectedModel.efforts.map((effort) => (
-                    <Item
-                      key={effort}
-                      detail={effort === draft.effort ? "✓" : ""}
-                      onClick={() => {
-                        patchDraft(chat, { effort });
-                      }}
-                    >
-                      {effort}
-                    </Item>
-                  ))
-                : null}
+              {effortOpen ? (
+                <ChoiceList
+                  label="Effort"
+                  value={draft.effort}
+                  items={selectedModel.efforts.map((effort) => ({ id: effort, label: effort }))}
+                  onAction={(effort) => {
+                    patchDraft(chat, { effort });
+                  }}
+                />
+              ) : null}
             </>
           ) : null}
         </>
