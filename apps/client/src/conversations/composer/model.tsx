@@ -1,20 +1,24 @@
-import type { Draft } from "@swarmie/plugin-conversations-browser";
-import type { ProviderModel } from "@swarmie/plugin-providers-browser";
+import { useSource } from "@swarmie/client-ui";
+import type { Conversation, Draft } from "@swarmie/plugin-conversations-browser";
 import { useState } from "react";
 
+import { useClient } from "../../client/context";
+import { useSelection } from "../../client/use-selection";
 import { Item, Menu } from "../../controls";
+import { patchDraft } from "./state";
 
-export function ComposerModel({
-  draft,
-  models,
-  onSelectModel,
-  onSelectEffort,
-}: {
-  draft: Draft;
-  models: readonly ProviderModel[];
-  onSelectModel: (id: string) => void;
-  onSelectEffort: (effort: string) => void;
-}) {
+const modelSelection = ({ account, model, effort }: Draft) => ({ account, model, effort });
+const sameSelection = (
+  a: ReturnType<typeof modelSelection>,
+  b: ReturnType<typeof modelSelection>,
+) => a.account === b.account && a.model === b.model && a.effort === b.effort;
+
+export function ComposerModel({ chat }: { chat: Conversation }) {
+  const { providers } = useClient();
+  const providerState = useSource(providers.state);
+  const draft = useSelection(chat.draft, modelSelection, sameSelection);
+  const models =
+    providerState.accounts.find((account) => account.id === draft.account)?.models ?? [];
   const [effortOpen, setEffortOpen] = useState(false);
   const selectedModel = models.find((model) => model.id === draft.model);
   return (
@@ -31,7 +35,10 @@ export function ComposerModel({
               key={model.id}
               detail={model.id === draft.model ? "✓" : ""}
               onClick={() => {
-                onSelectModel(model.id);
+                const selection = providers.selectModel(chat.draft.getSnapshot(), model.id);
+                if (selection) {
+                  patchDraft(chat, selection);
+                }
                 close();
               }}
             >
@@ -63,7 +70,7 @@ export function ComposerModel({
                       key={effort}
                       detail={effort === draft.effort ? "✓" : ""}
                       onClick={() => {
-                        onSelectEffort(effort);
+                        patchDraft(chat, { effort });
                       }}
                     >
                       {effort}

@@ -4,7 +4,11 @@ import type { ViewsState } from "@swarmie/plugin-views-browser";
 
 export type Shell = ShellState & ViewsState;
 
-export function selectSnapshot<T, R>(source: Snapshot<T>, read: (value: T) => R): Snapshot<R> {
+export function selectSnapshot<T, R>(
+  source: Snapshot<T>,
+  read: (value: T) => R,
+  equal: (previous: R, next: R) => boolean = Object.is,
+): Snapshot<R> {
   let previous = source.getSnapshot();
   let selected = read(previous);
   return {
@@ -13,7 +17,10 @@ export function selectSnapshot<T, R>(source: Snapshot<T>, read: (value: T) => R)
       const current = source.getSnapshot();
       if (current !== previous) {
         previous = current;
-        selected = read(current);
+        const next = read(current);
+        if (!equal(selected, next)) {
+          selected = next;
+        }
       }
       return selected;
     },

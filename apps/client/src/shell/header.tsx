@@ -27,7 +27,7 @@ export function Header() {
     plugins,
     shell,
     shellState,
-    views,
+    toggleConversation,
     travel,
   } = useClient();
 
@@ -36,6 +36,11 @@ export function Header() {
   const status = useSource(connection);
   const enabled = useSource(plugins);
   const history = useSource(navigationHistory);
+  const movable =
+    layout.section === "conversations" &&
+    layout.tabs.length > 0 &&
+    layout.conversationVisible &&
+    !layout.expanded;
   return (
     <header className="relative z-40 flex h-11 shrink-0 items-center border-b border-border bg-transparent md:h-8 md:bg-chrome-surface">
       <div
@@ -127,7 +132,7 @@ export function Header() {
                 <Item
                   icon={PanelRight}
                   onClick={() => {
-                    views.update((s) => ({ ...s, conversationVisible: !s.conversationVisible }));
+                    toggleConversation();
                     close();
                   }}
                 >
@@ -139,7 +144,8 @@ export function Header() {
         </div>
       </div>
       <div
-        draggable={layout.section === "conversations" && layout.tabs.length > 0}
+        draggable={movable}
+        title={movable ? "Drag to move the conversation panel" : undefined}
         onDragStart={(event) => {
           startPanelDrag(event.dataTransfer, "conversation");
         }}
@@ -175,7 +181,7 @@ export function Header() {
               active={layout.tabs.length > 0 && layout.conversationVisible}
               onPress={() => {
                 if (layout.tabs.length > 0) {
-                  views.update((s) => ({ ...s, conversationVisible: !s.conversationVisible }));
+                  toggleConversation();
                 } else {
                   openTab();
                 }

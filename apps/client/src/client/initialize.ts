@@ -428,6 +428,8 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     archive,
     openTab,
     closeTab: viewCommands.close,
+    showConversation: viewCommands.showConversation,
+    toggleConversation: viewCommands.toggleConversation,
     expandView: () => {
       viewCommands.expand(activeConversation());
     },

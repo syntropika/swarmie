@@ -34,6 +34,12 @@ Keep record commands in Conversations, navigation history in Application Shell, 
 commands in Views. The application coordinates them. Combined presentation snapshots
 are read-only; write through the owner State or its commands.
 
+Keep screen entry components focused on composition. Group cohesive controls and their
+hooks beside the screen they belong to, and subscribe near the control that reads the value.
+Use cached read-only selections when a control needs only part of an owner snapshot; retain
+the selected identity when its visible fields are unchanged. Keep shared interaction state
+at the nearest common owner instead of introducing another global store.
+
 Register executable contributions when their plugin activates. Remove them through the
 owning Tembra resource. Closing a view or observer must not stop backend work.
 

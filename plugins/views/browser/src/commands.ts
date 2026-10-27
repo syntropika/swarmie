@@ -4,9 +4,34 @@ import type { Tab, ViewsState } from "./index";
 
 type Conversation = { id: string; title: string };
 
+/** Returns the conversation from its temporary tab to the dedicated panel. */
+function restoreConversation(current: Readonly<ViewsState>): ViewsState {
+  const tabs = current.tabs.filter((tab) => tab.kind !== "conversation");
+  return {
+    ...current,
+    tabs,
+    tab: tabs.some((tab) => tab.id === current.tab) ? current.tab : (tabs.at(-1)?.id ?? ""),
+    expanded: false,
+    conversationVisible: true,
+  };
+}
+
 /** Tab commands update Views without changing application navigation. */
 export function createViewsApi(state: UiStore<Readonly<ViewsState>>, nextId: () => string) {
   return {
+    showConversation: (): void => {
+      state.update((current) => ({ ...restoreConversation(current), mobile: "conversation" }));
+    },
+    toggleConversation: (): void => {
+      state.update((current) =>
+        current.expanded
+          ? restoreConversation(current)
+          : {
+              ...current,
+              conversationVisible: current.tabs.length === 0 || !current.conversationVisible,
+            },
+      );
+    },
     open: (kind: Tab["kind"], conversation: Conversation): void => {
       state.update((current) => {
         const existing =
@@ -33,13 +58,13 @@ export function createViewsApi(state: UiStore<Readonly<ViewsState>>, nextId: () 
       state.update((current) => {
         const removed = current.tabs.find((tab) => tab.id === id);
         const tabs = current.tabs.filter((tab) => tab.id !== id);
-        const restoreConversation = removed?.kind === "conversation" || tabs.length === 0;
+        const restoringConversation = removed?.kind === "conversation" || tabs.length === 0;
         return {
           ...current,
           tabs,
           tab: current.tab === id ? (tabs.at(-1)?.id ?? "") : current.tab,
-          conversationVisible: restoreConversation ? true : current.conversationVisible,
-          expanded: restoreConversation ? false : current.expanded,
+          conversationVisible: restoringConversation ? true : current.conversationVisible,
+          expanded: restoringConversation ? false : current.expanded,
           mobile: tabs.length === 0 ? "conversation" : current.mobile,
         };
       });
@@ -47,13 +72,7 @@ export function createViewsApi(state: UiStore<Readonly<ViewsState>>, nextId: () 
     expand: (conversation: Conversation): void => {
       state.update((current) => {
         if (current.expanded) {
-          return {
-            ...current,
-            tabs: current.tabs.filter((tab) => tab.kind !== "conversation"),
-            tab: current.tabs.find((tab) => tab.kind !== "conversation")?.id ?? "",
-            expanded: false,
-            conversationVisible: true,
-          };
+          return restoreConversation(current);
         }
         const tab: Tab = {
           id: nextId(),

@@ -13,8 +13,9 @@ import { ConversationPanel } from "../conversations/conversation";
 import { SettingsPage } from "../settings/page";
 import { ViewPanel } from "../views/panel";
 import { Header } from "./header";
-import { Navigation } from "./navigation";
+import { Navigation } from "./navigation/navigation";
 import { draggedPanel } from "./panel-drag";
+import { PanelDropOverlay } from "./panel-drop";
 import { PinnedContext } from "./pinned-context";
 import { ResizeHandle } from "./resize";
 
@@ -44,7 +45,7 @@ function ApplicationGuide() {
   );
 }
 function MobilePanels() {
-  const { shell, views: viewState } = useClient();
+  const { shell, views: viewState, showConversation } = useClient();
   const layout = useSource(shell);
   const views = layout.tabs.length > 0;
   return (
@@ -58,6 +59,7 @@ function MobilePanels() {
           <ChromeButton
             size="panelSwitch"
             selected={layout.mobile === "view"}
+            aria-pressed={layout.mobile === "view"}
             onPress={() => {
               viewState.update((s) => ({ ...s, mobile: "view" }));
             }}
@@ -68,13 +70,8 @@ function MobilePanels() {
           <ChromeButton
             size="panelSwitch"
             selected={layout.mobile === "conversation"}
-            onPress={() => {
-              viewState.update((s) => ({
-                ...s,
-                mobile: "conversation",
-                conversationVisible: true,
-              }));
-            }}
+            aria-pressed={layout.mobile === "conversation"}
+            onPress={showConversation}
           >
             <MessageCircle className={iconStyle} />
             Conversation
@@ -97,8 +94,7 @@ function ApplicationLayout() {
   const sections = useSource(shellUi.sections);
   const layout = useSource(shell);
 
-  const [drop, setDrop] = useState<"left" | "right" | null>(null);
-  const [dragging, setDragging] = useState(false);
+  const [dragging, setDragging] = useState<"conversation" | "view" | null>(null);
   const views = layout.tabs.length > 0;
   const showConversation = !views || layout.conversationVisible;
   function dropPanel(side: "left" | "right", event: React.DragEvent) {
@@ -109,17 +105,15 @@ function ApplicationLayout() {
         conversationFirst: panel === "conversation" ? side === "left" : side === "right",
       }));
     }
-    setDrop(null);
-    setDragging(false);
+    setDragging(null);
   }
   return (
     <div
       onDragStart={(event) => {
-        setDragging(draggedPanel(event.dataTransfer) !== null);
+        setDragging(draggedPanel(event.dataTransfer));
       }}
       onDragEnd={() => {
-        setDragging(false);
-        setDrop(null);
+        setDragging(null);
       }}
       className="flex h-dvh flex-col overflow-hidden bg-background font-sans text-foreground"
     >
@@ -151,37 +145,8 @@ function ApplicationLayout() {
                 </div>
               ) : null}
               <PinnedContext />
-              {views && showConversation && dragging ? (
-                <div className="pointer-events-none absolute inset-0 z-40 hidden md:flex">
-                  <div
-                    onDragOver={(event) => {
-                      event.preventDefault();
-                      setDrop("left");
-                    }}
-                    onDragLeave={() => {
-                      setDrop(null);
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      dropPanel("left", event);
-                    }}
-                    className={`pointer-events-auto w-1/2 ${drop === "left" ? "border-l-2 border-brand-accent bg-brand-accent/10" : ""}`}
-                  />
-                  <div
-                    onDragOver={(event) => {
-                      event.preventDefault();
-                      setDrop("right");
-                    }}
-                    onDragLeave={() => {
-                      setDrop(null);
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      dropPanel("right", event);
-                    }}
-                    className={`pointer-events-auto w-1/2 ${drop === "right" ? "border-r-2 border-brand-accent bg-brand-accent/10" : ""}`}
-                  />
-                </div>
+              {views && showConversation && !layout.expanded && dragging !== null ? (
+                <PanelDropOverlay panel={dragging} onDrop={dropPanel} />
               ) : null}
             </>
           </SectionContent>

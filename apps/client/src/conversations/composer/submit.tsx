@@ -4,11 +4,14 @@ import { ChromeButton } from "@swarmie/ui-web";
 import { ArrowUp, Square } from "lucide-react";
 
 import { useClient } from "../../client/context";
+import type { DeliveryMode } from "./state";
 
-export function ComposerSubmit({ chat, mode }: { chat: Conversation; mode: "queue" | "steer" }) {
-  const { canSend, send, stop } = useClient();
+export function ComposerSubmit({ chat, mode }: { chat: Conversation; mode: DeliveryMode }) {
+  const { canSend, send, stop, connectionState, providers } = useClient();
   const draft = useSource(chat.draft);
   const execution = useSource(chat.execution);
+  useSource(connectionState);
+  useSource(providers.state);
   const busy = ["queued", "working", "stopping"].includes(execution.phase);
   if (busy && draft.text.trim() === "") {
     return (

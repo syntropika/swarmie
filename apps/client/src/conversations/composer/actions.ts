@@ -1,4 +1,3 @@
-import { useSource } from "@swarmie/client-ui";
 import type {
   ActionContext,
   ComposerAction,
@@ -10,10 +9,7 @@ import { useClient } from "../../client/context";
 
 /** Keep plugin actions within this Composer's lifetime. */
 export function useComposerActions(chat: Conversation) {
-  const { conversationState, conversationsUi, conversationNode } = useClient();
-  const actions = useSource(conversationsUi.composer.actions);
-  const commands = useSource(conversationsUi.composer.slashCommands);
-  const attachments = useSource(conversationsUi.composer.attachmentActions);
+  const { conversationState, conversationNode } = useClient();
   const scope = useMemo(() => new AbortController(), []);
   useEffect(
     () => () => {
@@ -51,5 +47,7 @@ export function useComposerActions(chat: Conversation) {
     run(action).catch(failed);
   }
 
-  return { actions, commands, attachments, actionContext, executeAction };
+  return { actionContext, executeAction };
 }
+
+export type ComposerActions = ReturnType<typeof useComposerActions>;

@@ -1,0 +1,47 @@
+import { useSource } from "@swarmie/client-ui";
+import type { Conversation } from "@swarmie/plugin-conversations-browser";
+
+import { useClient } from "../../client/context";
+import { useSelection } from "../../client/use-selection";
+import { Caption, Item } from "../../controls";
+import type { ComposerActions } from "./actions";
+import { draftText, isSlashCommand, patchDraft } from "./state";
+
+export function ComposerSlashMenu({
+  chat,
+  executeAction,
+}: { chat: Conversation } & Pick<ComposerActions, "executeAction">) {
+  const { conversationsUi } = useClient();
+  const text = useSelection(chat.draft, draftText);
+  const commands = useSource(conversationsUi.composer.slashCommands);
+  const slash = isSlashCommand(text);
+  if (!slash) {
+    return null;
+  }
+  return (
+    <section
+      aria-label="Slash commands"
+      className="absolute inset-x-0 bottom-full z-30 mb-2 max-h-72 overflow-y-auto rounded-xl border border-border bg-overlay p-1.5 shadow-lg"
+    >
+      <Caption>Commands</Caption>
+      {commands
+        .filter((command) => command.command.includes(text.slice(1)))
+        .map((command) => (
+          <Item
+            key={command.id}
+            icon={command.icon}
+            detail={`/${command.command}`}
+            onClick={() => {
+              patchDraft(chat, { text: "" });
+              executeAction(command);
+            }}
+          >
+            {command.label}
+          </Item>
+        ))}
+      {commands.length === 0 ? (
+        <p className="px-2 py-3 text-xs text-muted">No commands are available.</p>
+      ) : null}
+    </section>
+  );
+}

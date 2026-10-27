@@ -1,6 +1,6 @@
 import { useSource } from "@swarmie/client-ui";
 import type { Tab } from "@swarmie/plugin-views-browser";
-import { Globe, GripVertical, Maximize2, Minimize2, Plus, X } from "lucide-react";
+import { Globe, GripVertical, Maximize2, MessageCircle, Minimize2, Plus, X } from "lucide-react";
 
 import { useClient } from "../client/context";
 import { IconButton } from "../controls";
@@ -53,17 +53,22 @@ export function ViewPanel() {
   return (
     <section aria-label="View" className="flex h-full min-h-0 min-w-0 flex-col bg-pane">
       <div
-        draggable
+        draggable={layout.conversationVisible && !layout.expanded}
+        title={
+          layout.conversationVisible && !layout.expanded ? "Drag to move the view panel" : undefined
+        }
         onDragStart={(event) => {
           startPanelDrag(event.dataTransfer, "view");
         }}
         className="flex h-9 shrink-0 items-center gap-1 border-b border-border bg-chrome-surface px-1.5"
       >
-        <GripVertical className="hidden size-3 cursor-grab text-muted md:block" />
+        {layout.conversationVisible && !layout.expanded ? (
+          <GripVertical className="hidden size-3 cursor-grab text-muted md:block" />
+        ) : null}
         <div
           role="tablist"
           aria-label="View tabs"
-          className="flex h-full min-w-0 flex-1 items-end gap-1 overflow-x-auto"
+          className="flex h-full min-w-0 flex-1 [scrollbar-width:none] items-end gap-1 overflow-x-auto overflow-y-hidden"
         >
           {layout.tabs.map((tab) => (
             <div
@@ -79,7 +84,11 @@ export function ViewPanel() {
                 }}
                 className="flex min-w-0 items-center gap-2 px-2 text-chrome"
               >
-                <Globe className="size-3 text-muted" />
+                {tab.kind === "conversation" ? (
+                  <MessageCircle className="size-3 text-muted" />
+                ) : (
+                  <Globe className="size-3 text-muted" />
+                )}
                 <span className="truncate">{tab.title}</span>
               </button>
               <IconButton

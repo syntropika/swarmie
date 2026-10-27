@@ -22,6 +22,7 @@ export default defineConfig({
   ],
   resolve: { dedupe: ["react", "react-dom"], tsconfigPaths: true },
   server: {
+    watch: { ignored: ["**/target/**"] },
     fs: {
       allow: [searchForWorkspaceRoot(process.cwd()), nodePath.dirname(sdk), nodePath.dirname(wasm)],
     },
