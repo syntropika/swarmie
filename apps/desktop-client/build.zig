@@ -39,4 +39,9 @@ pub fn build(b: *std.Build) void {
             for ([_][]const u8{ "gcc_s", "util", "rt", "pthread", "m", "dl" }) |name| artifact.root_module.linkSystemLibrary(name, .{});
         }
     }
+    if (windows) {
+        app.exe.root_module.addCSourceFile(.{ .file = b.path("src/windows_guids.cpp"), .flags = &.{"-std=c++17"} });
+        // Keep the GUI subsystem while the CRT initializes and calls Zig's C main.
+        app.exe.entry = .{ .symbol_name = "mainCRTStartup" };
+    }
 }
