@@ -34,6 +34,14 @@ export function releaseTarget(platform = process.platform, arch = process.arch) 
   };
 }
 
+export async function stageDesktopPackage(packaged: string, stage: string) {
+  await rm(stage, { recursive: true, force: true });
+  await mkdir(stage, { recursive: true });
+  await cp(packaged, stage, { recursive: true });
+  await cp(path.join(packaged, "bin"), stage, { recursive: true });
+  await rm(path.join(stage, "bin"), { recursive: true, force: true });
+}
+
 async function run(arguments_: string[], cwd = root) {
   const child = Bun.spawn(arguments_, {
     cwd,
@@ -117,7 +125,6 @@ async function packageRelease(tag: string) {
   const output = path.join(root, "target/desktop-release", target.rid);
   const stage = path.join(root, "target/desktop-stage", target.rid);
   await mkdir(output, { recursive: true });
-  await mkdir(stage, { recursive: true });
   await native(["package", "--target", target.native, "--signing", "adhoc"]);
   const packaged = path.join(
     desktop,
@@ -129,11 +136,7 @@ async function packageRelease(tag: string) {
   if (target.os === "osx") {
     icon = path.join(packaged, "Contents/Resources/AppIcon.icns");
   } else {
-    await cp(packaged, stage, { recursive: true });
-    if (target.os === "linux") {
-      await cp(path.join(packaged, "bin/swarmie"), path.join(stage, "swarmie"));
-      await rm(path.join(stage, "bin"), { recursive: true, force: true });
-    }
+    await stageDesktopPackage(packaged, stage);
     packDirectory = stage;
     if (target.os === "win") {
       const files = await readdir(stage, { recursive: true });
