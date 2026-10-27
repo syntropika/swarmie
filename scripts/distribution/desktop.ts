@@ -177,6 +177,9 @@ async function packageRelease(tag: string) {
     output,
   ];
   const signingIdentity = process.env.DESKTOP_MACOS_SIGNING_IDENTITY;
+  if (target.os === "win") {
+    arguments_.push("--framework", `vcredist144-${process.arch},webview2`);
+  }
   if (target.os === "osx" && signingIdentity !== undefined && signingIdentity.length > 0) {
     arguments_.push("--signAppIdentity", signingIdentity);
   }

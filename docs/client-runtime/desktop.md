@@ -72,7 +72,10 @@ Velopack owns installation and updates on all three operating systems. Linux use
 AppImage, Windows an installer/portable distribution, and macOS an application installer
 and portable bundle. The full package contains the executable and frontend assets, so
 replacement cannot leave the old UI paired with the new host. Linux still requires the
-system GTK 4 and WebKitGTK 6 runtime libraries.
+system GTK 4 and WebKitGTK 6 runtime libraries. The Windows installer bootstraps the
+Visual C++ 2022 runtime and Edge WebView2 when missing. Windows executables use the
+same dynamic Microsoft C runtime as the Rust library. Portable Windows packages require
+these system dependencies to be installed already.
 
 Installed applications check the stable GitHub Release source in the background when
 launched. A native prompt offers **Update** or **Later**. Only Update downloads and stages
