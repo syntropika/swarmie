@@ -7,6 +7,12 @@ pub fn build(b: *std.Build) void {
         .manifest = "app.json",
     });
     const windows = b.graph.host.result.os.tag == .windows;
+    const winrt = if (windows) path: {
+        const sdk = std.zig.WindowsSdk.find(b.allocator, b.graph.io, b.graph.host.result.cpu.arch, &b.graph.environ_map) catch @panic("A Windows SDK with WinRT headers is required");
+        defer sdk.free(b.allocator);
+        const installed = sdk.windows10sdk orelse @panic("A Windows SDK with WinRT headers is required");
+        break :path b.pathJoin(&.{ installed.path, "Include", installed.version, "winrt" });
+    } else null;
     const archive = b.path(if (windows) "../../target/release/swarmie_desktop_updates.lib" else "../../target/release/libswarmie_desktop_updates.a");
     for ([_]*std.Build.Step.Compile{ app.exe, app.tests }) |artifact| {
         // The SDK reuses the app module for semantic analysis and contract emission.
@@ -27,7 +33,8 @@ pub fn build(b: *std.Build) void {
             artifact.root_module.link_libc = true;
             artifact.root_module.link_libcpp = false;
             artifact.root_module.addCMacro("NOMINMAX", "1");
-            for ([_][]const u8{ "advapi32", "bcrypt", "crypt32", "ncrypt", "ntdll", "ole32", "secur32", "userenv", "ws2_32", "synchronization", "msvcprt" }) |name| artifact.root_module.linkSystemLibrary(name, .{});
+            artifact.root_module.addSystemIncludePath(.{ .cwd_relative = winrt.? });
+            for ([_][]const u8{ "advapi32", "bcrypt", "crypt32", "ncrypt", "ntdll", "ole32", "secur32", "userenv", "ws2_32", "synchronization", "msvcprt", "uuid" }) |name| artifact.root_module.linkSystemLibrary(name, .{});
         } else if (b.graph.host.result.os.tag == .linux) {
             for ([_][]const u8{ "gcc_s", "util", "rt", "pthread", "m", "dl" }) |name| artifact.root_module.linkSystemLibrary(name, .{});
         }
