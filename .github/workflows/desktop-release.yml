@@ -182,5 +182,5 @@ jobs:
               gh release create "$RELEASE_TAG" --verify-tag --draft --latest=false --title "Swarmie $RELEASE_TAG" --generate-notes
           fi
           gh release upload "$RELEASE_TAG" release/* --clobber
-          release_id=$(gh release view "$RELEASE_TAG" --json databaseId --jq .databaseId)
+          release_id=$(gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" --jq .id)
           gh api --method PATCH "repos/$GH_REPO/releases/$release_id" -F draft=false -F prerelease="$prerelease" -f make_latest=legacy
