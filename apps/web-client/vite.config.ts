@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { THEME_PREFERENCE_BOOTSTRAP } from "@swarmie/ui-web/theme";
 import tailwind from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
 import { defineConfig, searchForWorkspaceRoot } from "vite";
 
 const sdk = fileURLToPath(import.meta.resolve("@syntropika/tembra-sdk/browser"));
@@ -11,6 +12,7 @@ const sdkRequire = createRequire(sdk);
 const wasm = sdkRequire.resolve("@syntropika/tembra-engine-wasm/tembra_bg.wasm");
 export default defineConfig({
   plugins: [
+    react(),
     tailwind(),
     {
       name: "swarmie-theme",

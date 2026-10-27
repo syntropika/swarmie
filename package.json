@@ -42,11 +42,18 @@
     "dev:client": "bun run --filter @swarmie/client dev",
     "build:client": "bun run --filter @swarmie/client build",
     "test:client": "bun test ./apps/web-client/test ./plugins/conversations/browser/test ./plugins/connections/browser/test ./plugins/notifications/browser/test ./plugins/read-aloud/browser/test",
+    "check:desktop": "native check apps/desktop-client && native validate apps/desktop-client/app.json",
+    "test:desktop": "native test apps/desktop-client --yes -Dplatform=null",
+    "dev:desktop": "bun run ui:elements:prepare && native dev apps/desktop-client --yes",
+    "build:desktop:web": "bun run ui:elements:prepare && bun run --filter @swarmie/client build --outDir ../desktop-client/dist",
+    "build:desktop": "bun run build:desktop:web && native build apps/desktop-client --yes",
+    "package:desktop": "cd apps/desktop-client && native package",
     "ui:elements:prepare": "bun scripts/ui-elements/prepare.mjs",
     "ui:elements:verify": "bun scripts/ui-elements/verify.mjs"
   },
   "devDependencies": {
     "@babel/parser": "7.29.2",
+    "@native-sdk/cli": "0.10.1",
     "@shadcn/lint": "0.2.0",
     "@swarmie/config": "workspace:*",
     "@swarmie/ui-web": "workspace:*",

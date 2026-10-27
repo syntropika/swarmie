@@ -96,6 +96,8 @@ Reuse public shared components. Native vendor selection remains provisional. Pre
 accessibility, localization and reduced motion.
 The website belongs in `apps/web`, the web client in `apps/web-client`, and the mobile client
 in `apps/mobile-client`. Keep hosted authority outside clients.
+The desktop host belongs in `apps/desktop-client` and reuses `apps/web-client`. Keep its
+identity and icon in the Native SDK manifest; do not duplicate presentation or runtime state.
 
 Use strict TypeScript, precise discriminated values, type-only imports and owning-boundary
 validation. Do not replace rejected promises or unsafe casts with lint suppressions. Check

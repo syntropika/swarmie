@@ -1,0 +1,46 @@
+{
+  "$schema": "https://schema.native-sdk.dev/app/v1.json",
+  "id": "app.swarmie.desktop",
+  "name": "swarmie",
+  "display_name": "Swarmie",
+  "description": "Your conversations and tools, on your computer.",
+  "version": "0.1.0",
+  "icons": ["assets/icon.png"],
+  "platforms": ["macos", "linux", "windows"],
+  "permissions": [],
+  "capabilities": ["webview"],
+  "frontend": {
+    "dist": "dist",
+    "entry": "index.html",
+    "spa_fallback": true,
+    "dev": {
+      "url": "http://127.0.0.1:5175/",
+      "command": [
+        "bun",
+        "run",
+        "--cwd",
+        "../..",
+        "--filter",
+        "@swarmie/client",
+        "dev",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "5175",
+        "--strictPort"
+      ],
+      "ready_path": "/",
+      "timeout_ms": 30000
+    }
+  },
+  "security": {
+    "navigation": {
+      "allowed_origins": ["zero://app", "http://127.0.0.1:5175"],
+      "external_links": { "action": "deny" }
+    }
+  },
+  "web_engine": "system",
+  "windows": [
+    { "label": "main", "title": "Swarmie", "width": 1280, "height": 800, "restore_state": true }
+  ]
+}

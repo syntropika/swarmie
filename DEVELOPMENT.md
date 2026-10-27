@@ -54,6 +54,7 @@ and catalogs. These checks do not qualify device-specific native runtime behavio
 - `tests/fixtures/`: synthetic behavior and SDK authoring fixtures.
 - `apps/web-client`: the independently composed node client.
 - `apps/mobile-client`: the mobile client.
+- `apps/desktop-client`: the Native SDK desktop host for the shared web client.
 - `apps/web`: the website.
 - `packages/config`, `packages/ui/web` and `packages/ui/native`: shared configuration
   and separate platform component libraries.
@@ -69,6 +70,7 @@ Start with the [concept index](docs/client-runtime/index.md).
 - [Independent Agent Loop and lifecycle hooks](docs/client-runtime/agent-loop.md)
 - [Tool registration and provider routing](docs/client-runtime/tools.md)
 - [Providers and the genai adapter](docs/client-runtime/providers.md)
+- [Desktop development and packaging](docs/client-runtime/desktop.md)
 
 Durable Tasks and Conversations remain optional Agent Loop dependencies. The
 normal library does not require PluginManager, a task scheduler, a conversation

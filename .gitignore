@@ -38,6 +38,9 @@
 **/storybook-static/
 **/coverage/
 *.tsbuildinfo
+**/.native/
+**/.zig-cache/
+**/zig-out/
 
 # Editor-specific local configuration.
 /.vscode/

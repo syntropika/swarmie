@@ -1,7 +1,7 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 set positional-arguments
 
-rust_version := `python3 -c 'import tomllib; print(tomllib.load(open("mise.toml", "rb"))["tools"]["rust"])'`
+rust_version := `sed -n 's/^rust = "\([^"]*\)"$/\1/p' mise.toml`
 
 default:
     @just --list
@@ -147,6 +147,21 @@ client-build:
 client-check:
     bun run --filter @swarmie/client typecheck
     bun run test:client
+
+# Desktop hosts the shared web client through the pinned Native SDK.
+desktop-dev:
+    bun run dev:desktop
+
+desktop-build:
+    bun run build:desktop
+
+desktop-check:
+    bun run check:desktop
+    bun run test:desktop
+
+desktop-package platform:
+    bun run build:desktop
+    bun run package:desktop --target {{ quote(platform) }}
 
 
 # Qualify the optional upstream byte RPC entry without adding a transport engine.

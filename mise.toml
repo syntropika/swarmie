@@ -3,6 +3,7 @@ rust = "1.99.0"
 bun = "1.4.3"
 node = "24.14.0"
 just = "1.58.0"
+zig = "0.16.0"
 ruby = "3.3.12"
 "aqua:orhun/git-cliff" = "2.14.2"
 
