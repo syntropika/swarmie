@@ -1,0 +1,15 @@
+[package]
+name = "swarmie-desktop-updates"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+velopack = "=1.2.161"
+
+[lints]
+workspace = true

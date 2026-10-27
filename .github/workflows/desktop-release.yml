@@ -1,0 +1,183 @@
+name: Desktop releases
+
+on:
+  push:
+    tags: ["v*"]
+    branches: [develop, "feat/**"]
+    paths:
+      - "apps/desktop-client/**"
+      - "apps/web-client/**"
+      - "packages/**"
+      - "plugins/*/browser/**"
+      - "scripts/distribution/desktop*"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
+      - "bun.lock"
+      - "mise.toml"
+      - "justfile"
+      - ".github/workflows/desktop-release.yml"
+  pull_request:
+    paths:
+      - "apps/desktop-client/**"
+      - "apps/web-client/**"
+      - "packages/**"
+      - "plugins/*/browser/**"
+      - "scripts/distribution/desktop*"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
+      - "bun.lock"
+      - "mise.toml"
+      - "justfile"
+      - ".github/workflows/desktop-release.yml"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package tag for a build-only qualification (does not publish a release)
+        default: v0.0.0-ci
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CI: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  SWARMIE_UPDATE_URL: https://github.com/${{ github.repository }}/releases/latest/download
+  RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.version || 'v0.0.0-ci' }}
+
+jobs:
+  build:
+    name: Package ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: linux-x64
+          - runner: windows-2025
+            target: win-x64
+          - runner: macos-26
+            target: osx-arm64
+          - runner: macos-15-intel
+            target: osx-x64
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Read root toolchain
+        id: tools
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import tomllib
+          from pathlib import Path
+          for name, version in tomllib.loads(Path("mise.toml").read_text())["tools"].items():
+              if name in ("node", "bun", "rust", "just", "dotnet"):
+                  print(f"{name}={version}")
+          PY
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ steps.tools.outputs.node }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ steps.tools.outputs.bun }}
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: ${{ steps.tools.outputs.dotnet }}
+      - uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
+        with:
+          just-version: ${{ steps.tools.outputs.just }}
+      - name: Install pinned Rust
+        env:
+          RUST_VERSION: ${{ steps.tools.outputs.rust }}
+        run: rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy,rustfmt
+      - name: Install Linux WebView build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev libfuse2t64
+      - name: Install locked packages and release tooling
+        run: |
+          bun install --frozen-lockfile
+          dotnet tool install vpk --version 1.2.161 --tool-path target/desktop-tools
+      - name: Set the release version
+        run: bun scripts/distribution/desktop.ts prepare "$RELEASE_TAG"
+      - name: Check and build the complete desktop application
+        run: |
+          just desktop-check
+          just desktop-build
+          bun scripts/distribution/desktop.ts activation
+      - name: Prepare optional macOS signing identity
+        if: runner.os == 'macOS' && github.event_name != 'pull_request' && vars.DESKTOP_MACOS_SIGNING_IDENTITY != ''
+        env:
+          CERTIFICATE: ${{ secrets.DESKTOP_MACOS_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DESKTOP_MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          test -n "$CERTIFICATE" && test -n "$CERTIFICATE_PASSWORD"
+          keychain="$RUNNER_TEMP/desktop-signing.keychain-db"
+          password=$(openssl rand -hex 32)
+          echo "::add-mask::$password"
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/desktop-signing.p12"
+          security create-keychain -p "$password" "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security import "$RUNNER_TEMP/desktop-signing.p12" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
+      - name: Package installers and update feeds
+        env:
+          DESKTOP_MACOS_SIGNING_IDENTITY: ${{ github.event_name != 'pull_request' && vars.DESKTOP_MACOS_SIGNING_IDENTITY || '' }}
+        run: bun run package:desktop:release "$RELEASE_TAG"
+      - name: Remove temporary macOS signing material
+        if: always() && runner.os == 'macOS'
+        run: |
+          rm -f "$RUNNER_TEMP/desktop-signing.p12"
+          if test -f "$RUNNER_TEMP/desktop-signing.keychain-db"; then
+              security delete-keychain "$RUNNER_TEMP/desktop-signing.keychain-db"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: desktop-${{ matrix.target }}
+          path: target/desktop-release/${{ matrix.target }}/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish the completed release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: desktop-*
+          path: release
+          merge-multiple: true
+      - name: Publish only after every target succeeds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          prerelease=false
+          if [[ "$RELEASE_TAG" == *-* ]]; then prerelease=true; fi
+          if gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > existing-release.txt; then
+              test "$(cat existing-release.txt)" = true || { echo 'Published releases are immutable.' >&2; exit 1; }
+          else
+              gh release create "$RELEASE_TAG" --verify-tag --draft --latest=false --title "Swarmie $RELEASE_TAG" --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" release/* --clobber
+          release_id=$(gh release view "$RELEASE_TAG" --json databaseId --jq .databaseId)
+          gh api --method PATCH "repos/$GH_REPO/releases/$release_id" -F draft=false -F prerelease="$prerelease" -f make_latest=legacy

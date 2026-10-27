@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "apps/desktop-client/updater",
     "runtime",
     "storage",
     "storage/core",
