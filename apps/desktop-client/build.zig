@@ -18,9 +18,12 @@ pub fn build(b: *std.Build) void {
         artifact.root_module = linked;
         artifact.root_module.addObjectFile(archive);
         if (windows) {
-            // The Rust archive supplies compiler builtins on MSVC targets.
+            // Use Rust's builtins and the MSVC CRT. Zig's bundled COFF runtimes
+            // conflict with those builtins, including unused UBSan float helpers.
             artifact.bundle_compiler_rt = false;
-            for ([_][]const u8{ "advapi32", "bcrypt", "crypt32", "ncrypt", "ntdll", "ole32", "secur32", "userenv", "ws2_32", "synchronization" }) |name| artifact.root_module.linkSystemLibrary(name, .{});
+            artifact.bundle_ubsan_rt = false;
+            artifact.root_module.link_libc = true;
+            for ([_][]const u8{ "advapi32", "bcrypt", "crypt32", "ncrypt", "ntdll", "ole32", "secur32", "userenv", "ws2_32", "synchronization", "vcruntime" }) |name| artifact.root_module.linkSystemLibrary(name, .{});
         } else if (b.graph.host.result.os.tag == .linux) {
             for ([_][]const u8{ "gcc_s", "util", "rt", "pthread", "m", "dl" }) |name| artifact.root_module.linkSystemLibrary(name, .{});
         }
