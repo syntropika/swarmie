@@ -68,7 +68,7 @@ jobs:
         include:
           - runner: ubuntu-24.04
             target: linux-x64
-          - runner: windows-2025
+          - runner: windows-2022
             target: win-x64
           - runner: macos-26
             target: osx-arm64

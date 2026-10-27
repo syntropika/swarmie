@@ -14,6 +14,7 @@ pub fn build(b: *std.Build) void {
         const linked = b.allocator.create(std.Build.Module) catch @panic("OOM");
         linked.init(b, .{ .existing = artifact.root_module });
         linked.link_objects = linked.link_objects.clone(b.allocator) catch @panic("OOM");
+        linked.c_macros = linked.c_macros.clone(b.allocator) catch @panic("OOM");
         linked.cached_graph = .{ .modules = &.{}, .names = &.{} };
         artifact.root_module = linked;
         artifact.root_module.addObjectFile(archive);
@@ -24,7 +25,9 @@ pub fn build(b: *std.Build) void {
             artifact.bundle_ubsan_rt = false;
             artifact.linkage = .dynamic;
             artifact.root_module.link_libc = true;
-            for ([_][]const u8{ "advapi32", "bcrypt", "crypt32", "ncrypt", "ntdll", "ole32", "secur32", "userenv", "ws2_32", "synchronization" }) |name| artifact.root_module.linkSystemLibrary(name, .{});
+            artifact.root_module.link_libcpp = false;
+            artifact.root_module.addCMacro("NOMINMAX", "1");
+            for ([_][]const u8{ "advapi32", "bcrypt", "crypt32", "ncrypt", "ntdll", "ole32", "secur32", "userenv", "ws2_32", "synchronization", "msvcprt" }) |name| artifact.root_module.linkSystemLibrary(name, .{});
         } else if (b.graph.host.result.os.tag == .linux) {
             for ([_][]const u8{ "gcc_s", "util", "rt", "pthread", "m", "dl" }) |name| artifact.root_module.linkSystemLibrary(name, .{});
         }
