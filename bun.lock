@@ -28,7 +28,7 @@
         "vite": "8.3.0",
       },
     },
-    "apps/client": {
+    "apps/web-client": {
       "name": "@swarmie/client",
       "version": "1.0.0",
       "dependencies": {
@@ -56,7 +56,7 @@
         "vite": "8.3.0",
       },
     },
-    "apps/mobile": {
+    "apps/mobile-client": {
       "name": "swarmie-mobile",
       "version": "0.1.0",
       "dependencies": {
@@ -1190,7 +1190,7 @@
 
     "@storybook/react-vite": ["@storybook/react-vite@10.6.0", "", { "dependencies": { "@joshwooding/vite-plugin-react-docgen-typescript": "^0.7.0", "@rollup/pluginutils": "^5.0.2", "@storybook/builder-vite": "10.6.0", "@storybook/react": "10.6.0", "empathic": "^2.0.0", "magic-string": "^1.1.0", "react-docgen": "^8.0.2", "resolve": "^1.22.8", "tsconfig-paths": "^4.2.0" }, "peerDependencies": { "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "storybook": "^10.6.0", "typescript": ">= 4.9.x", "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0" }, "optionalPeers": ["typescript"] }, "sha512-nc1dqnmjGOcDJvPCkAn4Hmu1gi7dNHHoibNmlBp0d1adosejELZxuNjHBkPl/KxZjbzP3jljQHnHB/guxd8e2g=="],
 
-    "@swarmie/client": ["@swarmie/client@workspace:apps/client"],
+    "@swarmie/client": ["@swarmie/client@workspace:apps/web-client"],
 
     "@swarmie/client-ui": ["@swarmie/client-ui@workspace:packages/client-ui"],
 
@@ -2550,7 +2550,7 @@
 
     "supports-preserve-symlinks-flag": ["supports-preserve-symlinks-flag@1.0.0", "", {}, "sha512-ot0WnXS9fgdkgIcePe6RHNk1WA8+muPa6cSjeR3V8K27q9BB1rTE3R1p7Hv0z1ZyAc8s6Vvv8DIyWf681MAt0w=="],
 
-    "swarmie-mobile": ["swarmie-mobile@workspace:apps/mobile"],
+    "swarmie-mobile": ["swarmie-mobile@workspace:apps/mobile-client"],
 
     "synckit": ["synckit@0.11.13", "", { "dependencies": { "@pkgr/core": "^0.3.6" } }, "sha512-eNRKgb3z66Yp3D2CixVujOUvXLFUTij/zVnV8KRyvFdQwpz7I5DS8UfRkTeLzb64u+dkzDSdelE24izu+zSSUg=="],
 

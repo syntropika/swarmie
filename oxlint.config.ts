@@ -8,7 +8,7 @@ import tanstack from "ultracite/oxlint/tanstack";
 const frontendSources = [
   "packages/ui/{web,native}/src/**/*.{ts,tsx}",
   "apps/web/src/**/*.{ts,tsx}",
-  "apps/client/src/**/*.{ts,tsx}",
+  "apps/web-client/src/**/*.{ts,tsx}",
   "plugins/*/browser/src/**/*.{ts,tsx}",
   "packages/client-ui/src/**/*.{ts,tsx}",
 ];
@@ -136,7 +136,7 @@ export default defineConfig({
   overrides: [
     {
       // The client document entry owns its stylesheet.
-      files: ["apps/client/src/main.tsx"],
+      files: ["apps/web-client/src/main.tsx"],
       rules: {
         "no-restricted-imports": [
           "error",
@@ -151,7 +151,7 @@ export default defineConfig({
     },
     {
       // The native Router root owns its single Tailwind stylesheet.
-      files: ["apps/mobile/src/app/_layout.tsx"],
+      files: ["apps/mobile-client/src/app/_layout.tsx"],
       rules: {
         "no-restricted-imports": [
           "error",

@@ -3,11 +3,11 @@ name: Shared frontend
 on:
   pull_request:
     paths:
-      - "apps/client/**"
+      - "apps/web-client/**"
       - "plugins/*/browser/**"
       - "packages/client-ui/**"
       - "scripts/ui-elements/**"
-      - "apps/mobile/**"
+      - "apps/mobile-client/**"
       - "apps/web/**"
       - "scripts/tembra/**"
       - "tests/fixtures/tembra-sdk/**"
@@ -24,11 +24,11 @@ on:
   push:
     branches: [develop, main]
     paths:
-      - "apps/client/**"
+      - "apps/web-client/**"
       - "plugins/*/browser/**"
       - "packages/client-ui/**"
       - "scripts/ui-elements/**"
-      - "apps/mobile/**"
+      - "apps/mobile-client/**"
       - "apps/web/**"
       - "scripts/tembra/**"
       - "tests/fixtures/tembra-sdk/**"

@@ -8,7 +8,7 @@
       "path": "./packages/ui/native/tsconfig.json"
     },
     {
-      "path": "./apps/mobile/tsconfig.json"
+      "path": "./apps/mobile-client/tsconfig.json"
     },
     {
       "path": "./apps/web/tsconfig.json"
@@ -17,7 +17,7 @@
       "path": "./apps/web/tsconfig.test.json"
     },
     {
-      "path": "./apps/client/tsconfig.json"
+      "path": "./apps/web-client/tsconfig.json"
     },
     {
       "path": "plugins/app-state/browser/tsconfig.json"

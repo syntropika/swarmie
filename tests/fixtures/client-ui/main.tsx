@@ -1,9 +1,9 @@
 import { createHost } from "@syntropika/tembra-sdk/browser";
 import { createRoot } from "react-dom/client";
-import { ClientContext } from "../../../apps/client/src/client/context";
-import { App } from "../../../apps/client/src/shell/layout";
-import { initializeClient } from "../../../apps/client/src/client/initialize";
-import "../../../apps/client/src/styles.css";
+import { ClientContext } from "../../../apps/web-client/src/client/context";
+import { App } from "../../../apps/web-client/src/shell/layout";
+import { initializeClient } from "../../../apps/web-client/src/client/initialize";
+import "../../../apps/web-client/src/styles.css";
 
 // Explicit authoring fixture: no credentials, model request, server or durable task is simulated as production.
 const host = await createHost();

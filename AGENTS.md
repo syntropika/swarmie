@@ -94,7 +94,8 @@ Shared compiler settings, fonts, Tailwind setup and tokens belong in `packages/c
 Keep `packages/ui/web` and `packages/ui/native` dependencies, projects and Storybooks separate.
 Reuse public shared components. Native vendor selection remains provisional. Preserve
 accessibility, localization and reduced motion.
-Web belongs in `apps/web`; Mobile belongs in `apps/mobile`. Keep hosted authority outside clients.
+The website belongs in `apps/web`, the web client in `apps/web-client`, and the mobile client
+in `apps/mobile-client`. Keep hosted authority outside clients.
 
 Use strict TypeScript, precise discriminated values, type-only imports and owning-boundary
 validation. Do not replace rejected promises or unsafe casts with lint suppressions. Check

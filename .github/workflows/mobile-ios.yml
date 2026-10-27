@@ -3,7 +3,7 @@ name: Mobile UI validation
 on:
   pull_request:
     paths:
-      - "apps/mobile/**"
+      - "apps/mobile-client/**"
       - "packages/ui/native/**"
       - "packages/config/**"
       - "bun.lock"
@@ -47,6 +47,6 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mobile-ui-${{ github.run_number }}-${{ github.run_attempt }}
-          path: apps/mobile/dist
+          path: apps/mobile-client/dist
           retention-days: 7
           if-no-files-found: error

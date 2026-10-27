@@ -52,8 +52,9 @@ and catalogs. These checks do not qualify device-specific native runtime behavio
 - `plugins/providers/`: shared model/provider types and its browser presentation.
 - `plugins/`: independent capability libraries and their optional Tembra orb composition.
 - `tests/fixtures/`: synthetic behavior and SDK authoring fixtures.
-- `apps/client`: the independently composed node client.
-- `apps/web` and `apps/mobile`: website and mobile clients.
+- `apps/web-client`: the independently composed node client.
+- `apps/mobile-client`: the mobile client.
+- `apps/web`: the website.
 - `packages/config`, `packages/ui/web` and `packages/ui/native`: shared configuration
   and separate platform component libraries.
 - `vendor/`: the licensed provider dependency snapshot and its recorded patch.

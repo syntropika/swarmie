@@ -12,7 +12,8 @@ qualification fixtures use the same published Tembra SDK version.
 
 | Owner | Responsibility |
 | --- | --- |
-| `apps/client` | Compose the node client and coordinate its screens. |
+| `apps/web-client` | Compose the node client and coordinate its screens. |
+| `apps/mobile-client` | Present the mobile client and its platform integrations. |
 | `plugins/*/browser` | Provide frontend capabilities and local extension contracts. |
 | `packages/client-ui` | Adapt Tembra values for subscribed UI rendering. |
 | `packages/config` | Share compiler settings, fonts, theme behavior, and semantic tokens. |

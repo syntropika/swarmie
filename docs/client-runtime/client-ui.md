@@ -1,6 +1,6 @@
 # Node client UI
 
-`apps/client` composes the frontend. Its screens use capabilities in `plugins/*/browser`.
+`apps/web-client` composes the frontend. Its screens use capabilities in `plugins/*/browser`.
 The application coordinates owner commands, presentation, and backend adapters.
 The backend owns authoritative history, model operations, and execution.
 
@@ -18,7 +18,7 @@ The backend owns authoritative history, model operations, and execution.
 
 ## Source organization
 
-Application composition and backend coordination live in `apps/client/src/client`.
+Application composition and backend coordination live in `apps/web-client/src/client`.
 Screens are grouped under `shell`, `conversations`, `settings`, and `views`.
 Composer action lifetime stays beside the Composer. Shared app controls remain at the
 application root.

@@ -41,16 +41,16 @@ dev-mobile:
     EXPO_NO_TELEMETRY=1 bun run dev:mobile
 
 mobile-export:
-    EXPO_NO_TELEMETRY=1 bun run --cwd apps/mobile export
+    EXPO_NO_TELEMETRY=1 bun run --cwd apps/mobile-client export
 
 mobile-check:
     bun run check:mobile
 
 mobile-config:
-    EXPO_NO_TELEMETRY=1 bun run --cwd apps/mobile config:public
+    EXPO_NO_TELEMETRY=1 bun run --cwd apps/mobile-client config:public
 
 mobile-runtime platform:
-    EXPO_NO_TELEMETRY=1 bun run --cwd apps/mobile expo-updates runtimeversion:resolve --platform {{platform}}
+    EXPO_NO_TELEMETRY=1 bun run --cwd apps/mobile-client expo-updates runtimeversion:resolve --platform {{platform}}
 
 # Signing maintenance remains independent of the suspended native SDK build.
 mobile-signing operation="inspect" variant="development" profile="appstore":

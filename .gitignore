@@ -16,8 +16,8 @@
 !.env.sample
 *.pem
 # Public OTA verification certificates are embedded in native builds.
-!/apps/mobile/certs/development.pem
-!/apps/mobile/certs/production.pem
+!/apps/mobile-client/certs/development.pem
+!/apps/mobile-client/certs/production.pem
 *.key
 *.p8
 *.p12
@@ -43,9 +43,9 @@
 /.vscode/
 
 # Generated mobile native projects.
-/apps/mobile/.expo/
-/apps/mobile/ios/
-/apps/mobile/android/
+/apps/mobile-client/.expo/
+/apps/mobile-client/ios/
+/apps/mobile-client/android/
 
 # Local website Worker variables.
 .dev.vars
