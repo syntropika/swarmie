@@ -6,7 +6,7 @@
 
 // Some Windows SDK import libraries omit these declarations' definitions.
 // Resolve each interface and class identity from its SDK declaration.
-extern "C" const CLSID CLSID_AccPropServices = __uuidof(AccPropServices);
+extern "C" const CLSID CLSID_AccPropServices = {0xb5f8350b, 0x0548, 0x48b1, {0xa6, 0xee, 0x88, 0xbd, 0x00, 0xb4, 0xa5, 0xe7}};
 extern "C" const IID IID_IMFMediaSource = __uuidof(IMFMediaSource);
 extern "C" const IID IID_IMFAudioStreamVolume = __uuidof(IMFAudioStreamVolume);
 extern "C" const CLSID CLSID_MMDeviceEnumerator = __uuidof(MMDeviceEnumerator);
