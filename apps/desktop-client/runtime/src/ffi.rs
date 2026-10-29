@@ -95,6 +95,27 @@ pub unsafe extern "C" fn swarmie_desktop_runtime_exchange(
     bytes.len()
 }
 
+/// Authorize a directory returned by an embedding-owned native directory picker.
+/// This is a host operation, separate from the untrusted byte-exchange requests.
+/// # Safety
+/// Handle must be live. Path must be a valid NUL-terminated UTF-8 string for this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn swarmie_desktop_runtime_grant_directory(
+    handle: *const DesktopNode,
+    path: *const c_char,
+) -> bool {
+    let Some(node) = (unsafe { handle.as_ref() }) else {
+        return false;
+    };
+    if path.is_null() {
+        return false;
+    }
+    let Ok(path) = (unsafe { CStr::from_ptr(path) }).to_str() else {
+        return false;
+    };
+    node.grant_directory(std::path::Path::new(path)).is_ok()
+}
+
 /// Close the native worker and await Tembra's physical cleanup.
 /// # Safety
 /// Handle must be null or one live owned handle. Release it once.
@@ -108,6 +129,16 @@ pub unsafe extern "C" fn swarmie_desktop_runtime_close(handle: *mut DesktopNode)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn byte_transport_requests_cannot_grant_a_directory() {
+        assert!(
+            serde_json::from_value::<Input>(
+                serde_json::json!({"action":"grant_directory","path":"/"})
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn a_small_poll_buffer_does_not_consume_pending_frames() {

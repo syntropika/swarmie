@@ -178,6 +178,13 @@ export function createNodeExecution(
     return {
       async submit(input, signal) {
         signal.throwIfAborted();
+        if (input.executionContext !== undefined || input.draft.executionContext !== undefined) {
+          return {
+            accepted: false,
+            reason:
+              "This node cannot yet execute a conversation in its captured checkout. Use an unbound conversation until the node supports Git execution contexts.",
+          };
+        }
         const admitted = Promise.withResolvers<
           { accepted: true } | { accepted: false; reason: string }
         >();

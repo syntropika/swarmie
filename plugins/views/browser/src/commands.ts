@@ -1,6 +1,6 @@
 import type { UiStore } from "@swarmie/client-ui";
 
-import type { Tab, ViewsState } from "./index";
+import type { BuiltinTab, CapabilityView, Tab, ViewsState, ViewValue } from "./index";
 
 type Conversation = { id: string; title: string };
 
@@ -20,6 +20,23 @@ function restoreConversation(current: Readonly<ViewsState>): ViewsState {
   };
 }
 
+function valueKey(value: ViewValue): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(valueKey).join(",")}]`;
+  }
+  return `{${Object.entries<ViewValue>(value)
+    .toSorted(([left], [right]) => left.localeCompare(right))
+    .map(([key, item]) => `${JSON.stringify(key)}:${valueKey(item)}`)
+    .join(",")}}`;
+}
+
+// Property order is not identity: capability owners supply a stable explicit target.
+const sameTarget = (left: CapabilityView["target"], right: CapabilityView["target"]) =>
+  valueKey(left) === valueKey(right);
+
 /** Tab commands update Views without changing application navigation. */
 export function createViewsApi(state: UiStore<Readonly<ViewsState>>, nextId: () => string) {
   return {
@@ -36,7 +53,7 @@ export function createViewsApi(state: UiStore<Readonly<ViewsState>>, nextId: () 
             },
       );
     },
-    open: (kind: Tab["kind"], conversation: Conversation): void => {
+    open: (kind: BuiltinTab["kind"], conversation: Conversation): void => {
       state.update((current) => {
         const existing = current.tabs.find((tab) =>
           kind === "conversation"
@@ -66,6 +83,31 @@ export function createViewsApi(state: UiStore<Readonly<ViewsState>>, nextId: () 
         };
       });
     },
+    openCapability: (view: CapabilityView & { title: string }): void => {
+      state.update((current) => {
+        const existing = current.tabs.find(
+          (tab) =>
+            tab.kind === "capability" &&
+            tab.owner === view.owner &&
+            tab.view === view.view &&
+            sameTarget(tab.target, view.target),
+        );
+        const starting = current.tabs.find((tab) => tab.id === current.tab && tab.kind === "start");
+        const remaining = current.tabs.filter((tab) => tab.id !== starting?.id);
+        const tab: Tab = existing ?? {
+          ...view,
+          id: starting?.id ?? nextId(),
+          kind: "capability",
+          target: structuredClone(view.target),
+        };
+        return {
+          ...current,
+          tabs: existing ? remaining : [...remaining, tab],
+          tab: tab.id,
+          mobile: "view",
+        };
+      });
+    },
     close: (id: string): void => {
       state.update((current) => {
         const removed = current.tabs.find((tab) => tab.id === id);
@@ -87,6 +129,9 @@ export function createViewsApi(state: UiStore<Readonly<ViewsState>>, nextId: () 
         if (current.expanded) {
           return restoreConversation(current);
         }
+        if (current.tabs.some((tab) => tab.id === current.tab && tab.kind === "capability")) {
+          return { ...current, expanded: true, conversationVisible: false };
+        }
         const tab: Tab = {
           id: nextId(),
           kind: "conversation",
@@ -97,6 +142,7 @@ export function createViewsApi(state: UiStore<Readonly<ViewsState>>, nextId: () 
         return {
           ...current,
           tabs: [...current.tabs.filter((entry) => !isTemporaryConversation(entry)), tab],
+          tab: current.tab || tab.id,
           expanded: true,
           conversationVisible: false,
         };

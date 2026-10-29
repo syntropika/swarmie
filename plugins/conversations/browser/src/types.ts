@@ -1,3 +1,12 @@
+/** Captured execution directory; selecting it never grants access on the node. */
+export type ConversationExecutionContext = {
+  nodeId: string;
+  principal?: string;
+  path: string;
+  owner?: string;
+  identity?: MessageValue;
+};
+
 export type Draft = {
   text: string;
   attachments: string[];
@@ -5,6 +14,7 @@ export type Draft = {
   account: string | null;
   effort: string;
   node: string;
+  executionContext?: ConversationExecutionContext | undefined;
 };
 export type MessageValue =
   | null
@@ -50,6 +60,8 @@ export type ConversationData = {
   started: boolean;
   /** Bound before the first dispatch; retained while admission is unknown or confirmed. */
   node: string | null;
+  /** Bound together with the first dispatch and retained for unknown admission. */
+  executionContext?: ConversationExecutionContext | undefined;
   pinned: boolean;
   archived: boolean;
   draft: Draft;
@@ -70,6 +82,7 @@ export type ConversationExecutionApi = {
       createConversation: boolean;
       draft: Draft;
       mode: "queue" | "steer";
+      executionContext?: ConversationExecutionContext;
     },
     signal: AbortSignal,
   ) => Promise<{ accepted: true } | { accepted: false; reason: string }>;

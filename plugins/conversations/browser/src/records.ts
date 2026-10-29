@@ -53,6 +53,9 @@ export function createConversationRecords(
       get started() {
         return record.getSnapshot().started;
       },
+      get executionContext() {
+        return record.getSnapshot().executionContext;
+      },
       get pinned() {
         return record.getSnapshot().pinned;
       },
@@ -95,6 +98,7 @@ export function createConversationRecords(
             previous.title === record.title &&
             previous.started === record.started &&
             previous.node === record.node &&
+            previous.executionContext === record.executionContext &&
             previous.pinned === record.pinned &&
             previous.archived === record.archived
           );

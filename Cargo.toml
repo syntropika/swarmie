@@ -11,6 +11,7 @@ members = [
     "plugins/plugin-manager",
     "plugins/tools",
     "plugins/mcp",
+    "plugins/git",
     "plugins/model-provider-genai",
     "plugins/durable-tasks",
     "plugins/agent-loop",
@@ -42,6 +43,7 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 tempfile = "3"
 swarmie-tools = { path = "plugins/tools" }
 swarmie-mcp = { path = "plugins/mcp" }
+swarmie-git = { path = "plugins/git" }
 swarmie-providers = { path = "plugins/providers" }
 swarmie-storage = { path = "storage" }
 swarmie-storage-core = { path = "storage/core" }

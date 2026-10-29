@@ -35,12 +35,13 @@ import { providersOrb } from "@swarmie/plugin-providers-browser";
 import { readAloudOrb } from "@swarmie/plugin-read-aloud-browser";
 import { loadToolDetails, settingsOrb } from "@swarmie/plugin-settings-browser";
 import type { ToolDetailsPersistence } from "@swarmie/plugin-settings-browser";
-import type { Tab } from "@swarmie/plugin-views-browser";
+import type { BuiltinTab, CapabilityView } from "@swarmie/plugin-views-browser";
 import { createViewsApi, viewsOrb } from "@swarmie/plugin-views-browser";
 import type { ReferenceBase } from "@syntropika/tembra-sdk";
 import type { Host } from "@syntropika/tembra-sdk/runtime";
 
 import { createDirectoryBrowser } from "./directories";
+import { admitGitContext } from "./git-admission";
 import { createNodeExecution } from "./node-execution";
 import { observeOnboarding } from "./onboarding";
 import { createPluginControls } from "./plugins";
@@ -254,6 +255,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     conversationsUi.lifecycle,
     nextId,
     nodeExecution,
+    admitGitContext,
   );
   let firstConversation: Conversation | undefined;
   function activeConversation(): Conversation {
@@ -267,7 +269,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
   }
   function openConversation(id: string) {
     navigate({ active: id, section: "conversations" });
-    views.update((current) => ({ ...current, conversationVisible: true, mobile: "conversation" }));
+    viewCommands.showConversation();
     const chat = roster.getSnapshot().find((entry) => entry.id === id);
     if (nodeExecution !== null && chat?.node !== null && chat?.node !== undefined) {
       nodeExecution.observe(chat.node, id).catch(records.fail);
@@ -331,9 +333,13 @@ export async function initializeClient(host: Host, options: ClientOptions) {
       }
     }
   }
-  function openTab(kind: Tab["kind"] = "start") {
+  function openTab(kind: BuiltinTab["kind"] = "start") {
     navigate({ section: "conversations" });
     viewCommands.open(kind, activeConversation());
+  }
+  function openCapabilityTab(descriptor: CapabilityView & { title: string }) {
+    navigate({ section: "conversations" });
+    viewCommands.openCapability(descriptor);
   }
   const projectsPresentation: ProjectsPresentation = {
     api: projects,
@@ -521,6 +527,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     togglePin,
     archive,
     openTab,
+    openCapabilityTab,
     closeTab: viewCommands.close,
     showConversation: viewCommands.showConversation,
     toggleConversation: viewCommands.toggleConversation,

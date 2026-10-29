@@ -270,7 +270,7 @@
   [data-slot="composer-surface"] {
     border: 1px solid CanvasText;
   }
-  [data-slot="composer-panel"]:focus-within [data-slot="composer-surface"] {
+  [data-slot="composer-panel"]:has([data-focus-visible="true"]) [data-slot="composer-surface"] {
     outline: 2px solid Highlight;
     outline-offset: -2px;
   }
@@ -368,4 +368,53 @@
 /* The responsive application sheet keeps its content above the device safe area. */
 .drawer__dialog[data-swarmie-modal] {
   padding-bottom: max(calc(var(--spacing) * 6), env(safe-area-inset-bottom, 0px));
+}
+
+/* React Aria supplies keyboard modality, including text inputs where the browser's
+ * :focus-visible heuristic also matches pointer focus. Do not replace that signal
+ * with :focus or :focus-within when drawing an interaction ring. */
+:is([data-rac], [data-swarmie-focus])[data-focused="true"]:not([data-focus-visible="true"]),
+:focus:not(:focus-visible) {
+  outline: none;
+  --tw-ring-shadow: 0 0 #0000;
+}
+
+/* Pointer focus removes a former keyboard ring immediately, without a fading halo. */
+:is(.button, .input, .textarea, .select__trigger, .dropdown__trigger)[data-focused="true"]:not(
+    [data-focus-visible="true"]
+  ),
+.input-group:has(:is(input, textarea):focus):not(:has([data-focus-visible="true"])) {
+  transition-property: background-color, border-color, color, opacity, transform, scale;
+}
+
+[data-swarmie-focus][data-focus-visible="true"] {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+:is(.input, .textarea):is(:focus, [data-focused="true"]):not([data-focus-visible="true"]),
+.input-group:has(:is(input, textarea):focus):not(:has([data-focus-visible="true"])) {
+  outline: none;
+  box-shadow: none;
+}
+
+:is(.input, .textarea, .input-group):not([data-invalid="true"]):is(
+    :focus,
+    :focus-within,
+    [data-focused="true"]
+  ) {
+  border-color: var(--field-border);
+}
+
+:is(.input, .textarea):not([data-appearance="composer"])[data-focus-visible="true"],
+.input-group:has(:is(input, textarea)[data-focus-visible="true"]) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* An input group has one focus boundary, rather than rings on both the group and input. */
+.input-group :is(input, textarea)[data-focus-visible="true"] {
+  outline: none;
+  box-shadow: none;
 }

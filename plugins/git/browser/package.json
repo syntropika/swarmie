@@ -1,0 +1,21 @@
+{
+  "name": "@swarmie/plugin-git-browser",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@swarmie/plugin-connections-browser": "workspace:*",
+    "@swarmie/ui-web": "workspace:*",
+    "@syntropika/tembra-sdk": "0.2.0",
+    "lucide-react": "1.61.0"
+  },
+  "peerDependencies": {
+    "react": "19.3.0"
+  }
+}

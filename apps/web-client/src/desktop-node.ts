@@ -3,6 +3,12 @@ import { NodeProtocol, connectWebSocket } from "@swarmie/plugin-connections-brow
 import { RemoteHost } from "@syntropika/tembra-sdk/rpc";
 import type { Transport } from "@syntropika/tembra-sdk/rpc";
 
+let desktopNodeId: string | null = null;
+
+export function isDesktopNode(nodeId: string): boolean {
+  return desktopNodeId !== null && desktopNodeId === nodeId;
+}
+
 type Native = (payload: unknown) => Promise<unknown>;
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
@@ -187,5 +193,29 @@ export async function desktopNode(): Promise<{ node: Node; connector: Connector 
       throw error;
     }
   };
+  desktopNodeId = node.id;
   return { node, connector };
+}
+
+export function desktopDirectorySelectionAvailable(): boolean {
+  return bridge() !== null;
+}
+
+/** A native user selection grants Git access independently of the browser target. */
+export async function selectDesktopGitDirectory(): Promise<string | null> {
+  if (!("zero" in window) || !object(window.zero)) {
+    return null;
+  }
+  const owner = window.zero;
+  const { invoke } = owner;
+  if (typeof invoke !== "function") {
+    return null;
+  }
+  const selected: unknown = await Reflect.apply(invoke, owner, [
+    "swarmie.desktop.git.selectDirectory",
+  ]);
+  if (selected === null || typeof selected === "string") {
+    return selected;
+  }
+  throw new Error("The desktop directory picker returned an invalid path.");
 }

@@ -157,9 +157,9 @@ desktop-build:
 
 desktop-check:
     cargo +{{rust_version}} fmt --all --check
-    cargo +{{rust_version}} clippy --locked -p swarmie-desktop-updates --all-targets -- -D warnings
-    cargo +{{rust_version}} test --locked -p swarmie-desktop-updates
-    RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo +{{rust_version}} doc --locked -p swarmie-desktop-updates --no-deps
+    cargo +{{rust_version}} clippy --locked -p swarmie-desktop-updates -p swarmie-desktop-runtime -p swarmie-git --all-features --all-targets -- -D warnings
+    cargo +{{rust_version}} test --locked -p swarmie-desktop-updates -p swarmie-desktop-runtime -p swarmie-git --all-features
+    RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo +{{rust_version}} doc --locked -p swarmie-desktop-updates -p swarmie-desktop-runtime -p swarmie-git --all-features --no-deps
     bun test scripts/distribution/desktop.test.ts
     bun run build:desktop:updater
     bun run check:desktop

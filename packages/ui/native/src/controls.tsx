@@ -14,6 +14,22 @@ type ButtonProps = Omit<PressableProps, "children"> & {
   loading?: boolean;
 };
 
+/** Web may retain :focus-visible after clicking an already focused action. */
+function useActionFocus(props: Pick<PressableProps, "onBlur" | "onPressIn">) {
+  const [pointerFocus, setPointerFocus] = useState(false);
+  const handlers: Pick<PressableProps, "onBlur" | "onPressIn"> = {
+    onBlur(event) {
+      setPointerFocus(false);
+      props.onBlur?.(event);
+    },
+    onPressIn(event) {
+      setPointerFocus(event.type !== "keydown");
+      props.onPressIn?.(event);
+    },
+  };
+  return { pointerFocus, handlers };
+}
+
 /** Platform controls share neutral tokens without loading the DOM component entry. */
 export function NativeButton({
   label,
@@ -23,9 +39,11 @@ export function NativeButton({
   ...props
 }: ButtonProps) {
   const unavailable = (disabled ?? false) || loading;
+  const focus = useActionFocus(props);
   return (
     <Button
       {...props}
+      {...focus.handlers}
       accessibilityRole="button"
       accessibilityLabel={props.accessibilityLabel ?? label}
       accessibilityState={{ ...props.accessibilityState, disabled: unavailable, busy: loading }}
@@ -33,7 +51,7 @@ export function NativeButton({
       variant={tone}
       size="lg"
       background={null}
-      className="h-auto min-h-native-control gap-3 rounded-full px-6 py-4 focus:outline-2 focus:outline-offset-4 focus:outline-native-ink"
+      className={`native:focus:outline-2 native:focus:outline-offset-4 native:focus:outline-native-ink h-auto min-h-native-control gap-3 rounded-full px-6 py-4 ${focus.pointerFocus ? "web:outline-none" : "web:focus-visible:outline-2 web:focus-visible:outline-offset-4 web:focus-visible:outline-native-ink"}`}
     >
       <Button.Label
         className={
@@ -53,15 +71,17 @@ export function NativeIconAction({
   disabled,
   ...props
 }: PressableProps & { accessibilityLabel: string; children: ReactNode }) {
+  const focus = useActionFocus(props);
   return (
     <Button
       {...props}
+      {...focus.handlers}
       accessibilityRole="button"
       accessibilityState={{ ...props.accessibilityState, disabled: Boolean(disabled) }}
       isDisabled={Boolean(disabled)}
       variant="ghost"
       isIconOnly
-      className="h-native-touch w-native-touch rounded-full focus:outline-2 focus:outline-offset-2 focus:outline-native-ink"
+      className={`native:focus:outline-2 native:focus:outline-offset-2 native:focus:outline-native-ink h-native-touch w-native-touch rounded-full ${focus.pointerFocus ? "web:outline-none" : "web:focus-visible:outline-2 web:focus-visible:outline-offset-2 web:focus-visible:outline-native-ink"}`}
     >
       {children}
     </Button>
@@ -73,16 +93,18 @@ export function NativeTextAction({
   disabled,
   ...props
 }: Omit<PressableProps, "children"> & { label: string }) {
+  const focus = useActionFocus(props);
   return (
     <Button
       {...props}
+      {...focus.handlers}
       accessibilityRole="button"
       accessibilityLabel={props.accessibilityLabel ?? label}
       accessibilityState={{ ...props.accessibilityState, disabled: Boolean(disabled) }}
       isDisabled={Boolean(disabled)}
       variant="ghost"
       feedbackVariant="none"
-      className="h-auto min-h-native-touch min-w-native-touch rounded-full px-1 focus:outline-2 focus:outline-offset-2 focus:outline-native-ink"
+      className={`native:focus:outline-2 native:focus:outline-offset-2 native:focus:outline-native-ink h-auto min-h-native-touch min-w-native-touch rounded-full px-1 ${focus.pointerFocus ? "web:outline-none" : "web:focus-visible:outline-2 web:focus-visible:outline-offset-2 web:focus-visible:outline-native-ink"}`}
     >
       <Button.Label className="font-native text-sm font-normal text-native-muted underline">
         {label}

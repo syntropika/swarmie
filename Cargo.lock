@@ -3199,6 +3199,7 @@ dependencies = [
  "swarmie-agent-loop",
  "swarmie-client-node",
  "swarmie-conversations",
+ "swarmie-git",
  "swarmie-runtime",
  "swarmie-storage",
  "tembra",
@@ -3277,6 +3278,22 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "tembra",
+]
+
+[[package]]
+name = "swarmie-git"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "swarmie-plugin-manager",
+ "swarmie-tools",
+ "tembra",
+ "tempfile",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

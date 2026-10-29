@@ -12,3 +12,158 @@
 @source "./**/*.{ts,tsx}";
 
 @source "../target/assistant-elements/**/*.{ts,tsx}";
+
+@theme static {
+  --color-code-keyword: light-dark(#7440ac, #d2a8ff);
+  --color-code-function: light-dark(#6f42c1, #d2a8ff);
+  --color-code-type: light-dark(#00648c, #79c0ff);
+  --color-code-string: light-dark(#116329, #a5d6a7);
+  --color-code-literal: light-dark(#0759a3, #79c0ff);
+  --color-code-comment: light-dark(#53616c, #9ca6b1);
+}
+
+[data-git-workspace] {
+  --git-added: color-mix(in oklab, var(--success-soft-foreground) 60%, var(--foreground));
+  --git-removed: color-mix(in oklab, var(--danger-soft-foreground) 60%, var(--foreground));
+  --git-modified: color-mix(in oklab, var(--warning-soft-foreground) 80%, var(--foreground));
+}
+[data-git-diff] {
+  & [data-change="added"] {
+    background: var(--success-soft);
+  }
+  & [data-change="removed"] {
+    background: var(--danger-soft);
+  }
+  & [data-change="added"] [data-diff-marker],
+  & [data-diff-marker][data-change="added"],
+  & [data-change="added"] [data-diff-number],
+  & [data-diff-number][data-change="added"] {
+    color: var(--git-added);
+    background: color-mix(in oklab, var(--success-soft) 85%, var(--git-added));
+  }
+  & [data-change="removed"] [data-diff-marker],
+  & [data-diff-marker][data-change="removed"],
+  & [data-change="removed"] [data-diff-number],
+  & [data-diff-number][data-change="removed"] {
+    color: var(--git-removed);
+    background: color-mix(in oklab, var(--danger-soft) 88%, var(--git-removed));
+  }
+  & [data-change="header"] {
+    background: var(--surface-secondary);
+    color: var(--muted);
+  }
+}
+[data-diff-number] {
+  color: var(--muted);
+}
+[data-diff-marker] {
+  color: var(--muted);
+}
+[data-diff-code] {
+  color: var(--foreground);
+}
+[data-git-status="added"] {
+  color: var(--git-added);
+}
+[data-git-status="removed"] {
+  color: var(--git-removed);
+}
+[data-git-status="modified"] {
+  color: var(--git-modified);
+}
+[data-git-segments] {
+  flex-shrink: 0;
+}
+
+[data-git-compact="true"] {
+  & button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  & [data-git-segments] > button {
+    min-height: 44px;
+  }
+  & [data-git-file-picker] {
+    width: calc(100% - 24px);
+    min-height: 48px;
+    margin: 8px 12px 0;
+    padding: 0 8px;
+    font-size: 13px;
+    justify-content: flex-start;
+  }
+  & [data-git-diff] table {
+    font-size: 13px;
+    line-height: 26px;
+  }
+  & [data-git-diff] table[data-git-split] {
+    min-width: 48rem;
+  }
+  & [data-diff-number] {
+    min-width: 28px;
+    width: 28px;
+    padding-inline: 4px;
+    font-size: 11px;
+  }
+  & [data-diff-marker] {
+    min-width: 22px;
+    width: 22px;
+  }
+  & [data-git-file-row] {
+    min-height: 56px;
+  }
+  & [data-git-file-row] > button:last-child {
+    min-width: 44px;
+  }
+  & [data-git-file-row] > button:first-child {
+    min-height: 56px;
+    font-size: 13px;
+  }
+}
+[data-git-compact="true"][data-git-short="true"] {
+  & header h2 {
+    display: none;
+  }
+  & header {
+    padding-block: 2px;
+  }
+  & [data-git-file-controls] {
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+  }
+  & [data-git-file-picker] {
+    width: auto;
+    min-width: 0;
+    flex: 1;
+    margin-block: 0;
+  }
+  & [data-git-document-toolbar] {
+    border-bottom: 0;
+  }
+  & [data-git-commit-bar] {
+    padding-block: 4px;
+  }
+}
+
+[data-git-file-sheet] {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+[data-code-tone="keyword"] {
+  color: var(--color-code-keyword);
+}
+[data-code-tone="function"] {
+  color: var(--color-code-function);
+}
+[data-code-tone="type"] {
+  color: var(--color-code-type);
+}
+[data-code-tone="string"] {
+  color: var(--color-code-string);
+}
+[data-code-tone="literal"] {
+  color: var(--color-code-literal);
+}
+[data-code-tone="comment"] {
+  color: var(--color-code-comment);
+}

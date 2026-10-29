@@ -1,5 +1,5 @@
 import { ChromeButton, SearchField } from "@swarmie/ui-web";
-import { MessageCircle, Monitor, Puzzle, Settings } from "lucide-react";
+import { GitBranch, MessageCircle, Monitor, Puzzle, Settings } from "lucide-react";
 import { useState } from "react";
 
 import { useClient } from "../../client/context";
@@ -16,6 +16,7 @@ const sections = [
     terms: "chat tool tools results activity display grouped separate hidden thinking",
   },
   { id: "connections", icon: Monitor, title: "Connections", terms: "nodes connect url user" },
+  { id: "git", icon: GitBranch, title: "Git", terms: "repository worktree changes setup script" },
   { id: "providers", icon: Puzzle, title: "Providers", terms: "models accounts" },
   { id: "plugins", icon: Puzzle, title: "Plugins", terms: "integrations mcp servers" },
 ] as const;

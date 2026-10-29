@@ -122,6 +122,7 @@
         "@swarmie/plugin-application-shell-browser": "workspace:*",
         "@swarmie/plugin-connections-browser": "workspace:*",
         "@swarmie/plugin-conversations-browser": "workspace:*",
+        "@swarmie/plugin-git-browser": "workspace:*",
         "@swarmie/plugin-mcp-browser": "workspace:*",
         "@swarmie/plugin-notifications-browser": "workspace:*",
         "@swarmie/plugin-onboarding-browser": "workspace:*",
@@ -218,6 +219,7 @@
         "heat-graph": "0.0.26",
         "leaflet": "1.9.4",
         "lucide-react": "1.61.0",
+        "react-aria": "3.53.1",
         "react-markdown": "10.1.0",
         "react-shiki": "0.11.2",
         "remark-gfm": "4.0.1",
@@ -292,6 +294,19 @@
       "version": "1.0.0",
       "dependencies": {
         "@swarmie/client-ui": "workspace:*",
+        "@swarmie/ui-web": "workspace:*",
+        "@syntropika/tembra-sdk": "0.2.0",
+        "lucide-react": "1.61.0",
+      },
+      "peerDependencies": {
+        "react": "19.3.0",
+      },
+    },
+    "plugins/git/browser": {
+      "name": "@swarmie/plugin-git-browser",
+      "version": "1.0.0",
+      "dependencies": {
+        "@swarmie/plugin-connections-browser": "workspace:*",
         "@swarmie/ui-web": "workspace:*",
         "@syntropika/tembra-sdk": "0.2.0",
         "lucide-react": "1.61.0",
@@ -1237,6 +1252,8 @@
     "@swarmie/plugin-connections-browser": ["@swarmie/plugin-connections-browser@workspace:plugins/connections/browser"],
 
     "@swarmie/plugin-conversations-browser": ["@swarmie/plugin-conversations-browser@workspace:plugins/conversations/browser"],
+
+    "@swarmie/plugin-git-browser": ["@swarmie/plugin-git-browser@workspace:plugins/git/browser"],
 
     "@swarmie/plugin-mcp-browser": ["@swarmie/plugin-mcp-browser@workspace:plugins/mcp/browser"],
 

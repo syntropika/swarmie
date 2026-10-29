@@ -13,6 +13,7 @@ futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 swarmie-client-node.workspace = true
+swarmie-git = { path = "../../../plugins/git", features = ["tembra"] }
 swarmie-runtime = { workspace = true, features = ["rpc"] }
 tembra.workspace = true
 tokio = { version = "1", features = ["rt", "time", "net", "sync"] }

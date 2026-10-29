@@ -31,6 +31,7 @@ const Desktop = struct {
 
     fn start(context: *anyopaque, runtime: *native_sdk.Runtime) anyerror!void {
         const self: *Desktop = @ptrCast(@alignCast(context));
+        self.local_runtime.start(runtime);
         try self.updates.start(runtime);
     }
 
