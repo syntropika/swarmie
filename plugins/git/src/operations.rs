@@ -126,6 +126,50 @@ impl Git {
         )
     }
 
+    fn native_history(
+        &self,
+        target: &RepositoryTarget,
+        limit: u32,
+        cancellation: &Cancellation,
+    ) -> Result<Vec<Commit>> {
+        // Git owns recoding for non-UTF-8 commit declarations and metadata.
+        let bytes = self.run_checked(
+            cwd(target),
+            &[
+                "log".into(),
+                format!("-n{}", limit.clamp(1, 200)),
+                "--format=%H%x00%P%x00%an%x00%aI%x00%s%x00".into(),
+                target.head.clone().ok_or(Error::Stale)?,
+                "--".into(),
+            ],
+            false,
+            cancellation,
+        )?;
+        let mut fields = bytes.split(|byte| *byte == 0);
+        let mut commits = Vec::new();
+        while let Some(oid) = fields.next() {
+            let oid = utf8(oid)?.trim_matches('\n');
+            if oid.is_empty() {
+                continue;
+            }
+            let mut next = || {
+                fields
+                    .next()
+                    .ok_or_else(|| Error::Invalid("malformed history record".into()))
+                    .and_then(utf8)
+                    .map(str::to_owned)
+            };
+            commits.push(Commit {
+                oid: oid.into(),
+                parents: next()?.split_whitespace().map(str::to_owned).collect(),
+                author: next()?,
+                authored_at: next()?,
+                subject: next()?,
+            });
+        }
+        Ok(commits)
+    }
+
     pub(crate) fn run_checked(
         &self,
         cwd: &Path,
@@ -311,7 +355,8 @@ impl Git {
                         let root = target.root.as_ref().ok_or_else(|| {
                             Error::Invalid("untracked diff requires a checkout".into())
                         })?;
-                        crate::worktrees::read_file(Path::new(root), path)?.ok_or(Error::Stale)?;
+                        crate::worktrees::read_git_file(Path::new(root), path)?
+                            .ok_or(Error::Stale)?;
                         let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
                         let output = self.run(
                             cwd(&target),
@@ -385,40 +430,25 @@ impl Git {
                         commits: Vec::new(),
                     });
                 }
+                // Native revision selection retains shallow and replacement behavior.
+                // Immutable commit metadata is decoded through the isolated library reader.
                 let bytes = self.run_checked(
                     cwd(&target),
                     &[
-                        "log".into(),
-                        format!("-n{}", limit.clamp(1, 200)),
-                        "--format=%H%x00%P%x00%an%x00%aI%x00%s%x00".into(),
-                        "HEAD".into(),
+                        "rev-list".into(),
+                        "--parents".into(),
+                        format!("--max-count={}", limit.clamp(1, 200)),
+                        target.head.clone().ok_or(Error::Stale)?,
                         "--".into(),
                     ],
                     false,
                     cancellation,
                 )?;
-                let mut fields = bytes.split(|byte| *byte == 0);
-                let mut commits = Vec::new();
-                while let Some(oid) = fields.next() {
-                    let oid = utf8(oid)?.trim_matches('\n');
-                    if oid.is_empty() {
-                        continue;
-                    }
-                    let mut next = || {
-                        fields
-                            .next()
-                            .ok_or_else(|| Error::Invalid("malformed history record".into()))
-                            .and_then(utf8)
-                            .map(str::to_owned)
-                    };
-                    commits.push(Commit {
-                        oid: oid.into(),
-                        parents: next()?.split_whitespace().map(str::to_owned).collect(),
-                        author: next()?,
-                        authored_at: next()?,
-                        subject: next()?,
-                    });
-                }
+                let ids: Vec<_> = utf8(&bytes)?.lines().collect();
+                let commits = match crate::objects::history(&target, &ids, cancellation)? {
+                    Some(commits) => commits,
+                    None => self.native_history(&target, limit, cancellation)?,
+                };
                 Ok(Response::History { commits })
             }
             Request::Remotes { target } => Ok(Response::Remotes {
@@ -697,7 +727,7 @@ impl Git {
         {
             match self.committed_index(&target, &Cancellation::default()) {
                     Ok(actual) if actual == reviewed => {},
-                    Ok(_) => message.push_str("\nNative hooks changed the committed tree from the reviewed index. The commit exists; inspect it before continuing."),
+                    Ok(_) => message.push_str("\nThe committed tree differs from the reviewed index. The commit exists; inspect it before continuing."),
                     Err(error) => message.push_str(&format!("\nCommit exists but its reviewed tree could not be verified: {error}")),
                 }
         }
@@ -824,8 +854,8 @@ impl Git {
                     )
                     .into());
                 }
-                if let Some(file) = crate::worktrees::read_file(Path::new(root), path)? {
-                    crate::worktrees::write_file(&snapshot, &file)?;
+                if let Some(file) = crate::worktrees::read_git_file(Path::new(root), path)? {
+                    crate::worktrees::write_git_file(&snapshot, &file)?;
                 }
                 let mut parent = Path::new(path).parent();
                 while let Some(directory) = parent {
@@ -839,8 +869,8 @@ impl Git {
                 let path = path
                     .to_str()
                     .ok_or_else(|| Error::Invalid("non-UTF-8 attributes path".into()))?;
-                if let Some(file) = crate::worktrees::read_file(Path::new(root), path)? {
-                    crate::worktrees::write_file(&snapshot, &file)?;
+                if let Some(file) = crate::worktrees::read_git_file(Path::new(root), path)? {
+                    crate::worktrees::write_git_file(&snapshot, &file)?;
                 }
             }
             env.insert(
@@ -906,6 +936,7 @@ impl Git {
             Operation::Commit {
                 message,
                 reviewed_index,
+                run_hooks,
             } => {
                 if target.bare || message.trim().is_empty() || message.contains('\0') {
                     return Err(Error::Invalid(
@@ -915,7 +946,20 @@ impl Git {
                 if reviewed_index != &target.index_fingerprint {
                     return Err(Error::Stale);
                 }
-                vec!["commit".into(), "-m".into(), message.clone()]
+                let mut args = Vec::new();
+                if !run_hooks {
+                    // Disable every native commit hook for this invocation only.
+                    // --no-verify does not suppress prepare-commit-msg or post-commit.
+                    args.extend([
+                        "-c".into(),
+                        format!(
+                            "core.hooksPath={}",
+                            if cfg!(windows) { "NUL" } else { "/dev/null" }
+                        ),
+                    ]);
+                }
+                args.extend(["commit".into(), "-m".into(), message.clone()]);
+                args
             }
             Operation::CreateBranch { name } => {
                 if target.bare || name.starts_with('-') || name.contains('\0') {
@@ -1613,11 +1657,8 @@ impl IndexSession {
         lock.write_all(&bytes)?;
         lock.sync_all()?;
         drop(self.lock.take());
-        fs::rename(&self.lock_path, &self.live_index)?;
+        crate::persistence::replace_file(&self.lock_path, &self.live_index)?;
         self.owns_lock = false;
-        if let Some(parent) = self.live_index.parent() {
-            fs::File::open(parent)?.sync_all()?;
-        }
         Ok(())
     }
 }

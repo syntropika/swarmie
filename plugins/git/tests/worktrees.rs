@@ -1,10 +1,12 @@
 use std::{fs, path::Path, process::Command, sync::Arc};
 use swarmie_git::{
     ArchiveDirectory, ArchiveRestoreRequest, Authority, Cancellation, DirectoryJournal, Git,
-    Intent, NativeProcess, RepositoryTarget, Request, Response, Result, SetupScript,
-    WorktreeRequest,
+    Intent, NativeProcess, RepositoryTarget, Request, Response, Result, WorktreeRequest,
 };
 use tempfile::TempDir;
+
+#[cfg(unix)]
+use swarmie_git::SetupScript;
 
 struct Allow;
 impl Authority for Allow {

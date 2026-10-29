@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use std::{
     io::Read,
     process::{Command, Stdio},
@@ -17,6 +17,9 @@ use std::{
 };
 
 use crate::{Error, Result};
+
+#[cfg(windows)]
+mod windows;
 
 /// Cancellation is cooperative before spawn and kills and reaps a running child.
 #[derive(Clone, Default)]
@@ -51,6 +54,8 @@ pub struct CommandOutput {
 
 /// A host may replace native execution; it must settle the child before returning.
 /// Return `Error::NotStarted` only when no process or external effect was dispatched.
+/// Native cancellation and timeout results require observed process settlement.
+/// A platform cleanup error is an unconfirmed outcome, not permission to retry.
 pub trait ProcessExecutor: Send + Sync {
     fn run(&self, command: &CommandSpec, cancellation: &Cancellation) -> Result<CommandOutput>;
 }
@@ -110,7 +115,11 @@ impl ProcessExecutor for NativeProcess {
         {
             run_native(command, cancellation)
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            windows::run(command, cancellation)
+        }
+        #[cfg(not(any(unix, windows)))]
         {
             let _ = (command, cancellation);
             Err(Error::Invalid(
@@ -127,44 +136,9 @@ fn run_native(command: &CommandSpec, cancellation: &Cancellation) -> Result<Comm
             "operation cancelled before process dispatch".into(),
         ));
     }
-    let mut process = Command::new(&command.program);
-    process
-        .args(&command.args)
-        .current_dir(&command.cwd)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        process.process_group(0);
-    }
-    if command.program == "git" {
-        for key in [
-            "GIT_DIR",
-            "GIT_COMMON_DIR",
-            "GIT_WORK_TREE",
-            "GIT_INDEX_FILE",
-            "GIT_OBJECT_DIRECTORY",
-            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-            "GIT_NAMESPACE",
-            "GIT_CONFIG_COUNT",
-            "GIT_CONFIG_PARAMETERS",
-            "GIT_CONFIG",
-            "GIT_CONFIG_GLOBAL",
-            "GIT_CONFIG_SYSTEM",
-            "GIT_CONFIG_NOSYSTEM",
-            "GIT_CEILING_DIRECTORIES",
-            "GIT_DISCOVERY_ACROSS_FILESYSTEM",
-            "GIT_ATTR_SOURCE",
-            "GIT_SHALLOW_FILE",
-            "GIT_REPLACE_REF_BASE",
-        ] {
-            process.env_remove(key);
-        }
-    }
-    // Explicit host-provided overrides are applied after inherited Git routing is removed.
-    process.envs(&command.env);
+    let mut process = configured_process(command);
+    use std::os::unix::process::CommandExt;
+    process.process_group(0);
     let mut child = process
         .spawn()
         .map_err(|error| Error::NotStarted(error.to_string()))?;
@@ -227,4 +201,42 @@ fn run_native(command: &CommandSpec, cancellation: &Cancellation) -> Result<Comm
         stderr,
         truncated: out_truncated || err_truncated,
     })
+}
+
+#[cfg(any(unix, windows))]
+fn configured_process(command: &CommandSpec) -> Command {
+    let mut process = Command::new(&command.program);
+    process
+        .args(&command.args)
+        .current_dir(&command.cwd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if command.program == "git" {
+        for key in [
+            "GIT_DIR",
+            "GIT_COMMON_DIR",
+            "GIT_WORK_TREE",
+            "GIT_INDEX_FILE",
+            "GIT_OBJECT_DIRECTORY",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+            "GIT_NAMESPACE",
+            "GIT_CONFIG_COUNT",
+            "GIT_CONFIG_PARAMETERS",
+            "GIT_CONFIG",
+            "GIT_CONFIG_GLOBAL",
+            "GIT_CONFIG_SYSTEM",
+            "GIT_CONFIG_NOSYSTEM",
+            "GIT_CEILING_DIRECTORIES",
+            "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+            "GIT_ATTR_SOURCE",
+            "GIT_SHALLOW_FILE",
+            "GIT_REPLACE_REF_BASE",
+        ] {
+            process.env_remove(key);
+        }
+    }
+    // Explicit host-provided overrides are applied after inherited Git routing is removed.
+    process.envs(&command.env);
+    process
 }

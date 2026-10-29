@@ -81,9 +81,11 @@ fn request(service: &GitService, value: ManagedRequest) -> WireResponse {
 
 #[test]
 fn preferences_survive_reopen_and_cannot_configure_another_system() {
+    assert!(!GitSettings::default().run_commit_hooks);
     let (directory, service, target) = setup();
     let settings = GitSettings {
         branch_prefix: "feat/".into(),
+        run_commit_hooks: true,
         ..GitSettings::default()
     };
     request(
@@ -111,6 +113,17 @@ fn preferences_survive_reopen_and_cannot_configure_another_system() {
         panic!("wrong response")
     };
     assert_eq!(settings.branch_prefix, "feat/");
+    assert!(settings.run_commit_hooks);
+    let other = request(
+        &reopened,
+        ManagedRequest::SettingsGet {
+            target: target.clone(),
+            project_id: Some("other-project".into()),
+        },
+    );
+    assert!(
+        matches!(other, WireResponse::Managed(ManagedResponse::Settings {settings, ..}) if !settings.run_commit_hooks)
+    );
     assert_eq!(execution_platform, std::env::consts::OS);
     let mut invalid = settings;
     invalid.setup_by_platform.insert(
@@ -148,9 +161,27 @@ fn detached_worktree_runs_saved_setup_once_and_retains_failed_preparation() {
         std::env::consts::OS.into(),
         SetupScript {
             enabled: true,
-            shell: "sh".into(),
-            arguments: vec!["-c".into()],
-            script: "printf marker >> setup-marker; exit 7".into(),
+            shell: if cfg!(windows) {
+                "powershell.exe"
+            } else {
+                "sh"
+            }
+            .into(),
+            arguments: if cfg!(windows) {
+                vec![
+                    "-NoProfile".into(),
+                    "-NonInteractive".into(),
+                    "-Command".into(),
+                ]
+            } else {
+                vec!["-c".into()]
+            },
+            script: if cfg!(windows) {
+                "[IO.File]::AppendAllText('setup-marker','marker'); exit 7"
+            } else {
+                "printf marker >> setup-marker; exit 7"
+            }
+            .into(),
             working_directory: ".".into(),
         },
     );
@@ -592,7 +623,7 @@ fn capability_probe_reports_the_complete_interface_without_granting_a_repository
     let (_directory, service, _) = setup();
     let response = request(&service, ManagedRequest::CapabilityInfo);
     assert!(
-        matches!(response,WireResponse::Managed(ManagedResponse::CapabilityInfo{api_version:1,execution_available:true,operations}) if operations.contains(&"capability_info".into()) && operations.contains(&"operations".into()))
+        matches!(response,WireResponse::Managed(ManagedResponse::CapabilityInfo{api_version:2,execution_available:true,operations}) if operations.contains(&"capability_info".into()) && operations.contains(&"operations".into()))
     );
     assert!(
         service
@@ -669,4 +700,23 @@ fn archive_catalog_paginates_both_valid_and_incomplete_entries_under_the_frame_b
     }
     assert_eq!(count, 350);
     assert!(pages > 1);
+}
+
+#[test]
+fn retained_commit_records_keep_their_original_hook_behavior() {
+    let operation: swarmie_git::Operation = serde_json::from_value(serde_json::json!({
+        "kind": "commit", "message": "feat: retained", "reviewed_index": "captured"
+    }))
+    .unwrap();
+    assert!(matches!(
+        operation,
+        swarmie_git::Operation::Commit {
+            run_hooks: true,
+            ..
+        }
+    ));
+    let mut settings = serde_json::to_value(GitSettings::default()).unwrap();
+    settings.as_object_mut().unwrap().remove("run_commit_hooks");
+    let settings: GitSettings = serde_json::from_value(settings).unwrap();
+    assert!(!settings.run_commit_hooks);
 }

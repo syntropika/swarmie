@@ -20,7 +20,11 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 sha2 = "0.10"
+gix = { version = "=0.90.0", default-features = false, features = ["sha1", "sha256"] }
 tempfile.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Threading"] }

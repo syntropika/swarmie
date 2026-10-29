@@ -101,13 +101,7 @@ impl DirectoryJournal {
         temporary.as_file().sync_all()?;
         // Publish only a fully written inode. Admission and settlement are both
         // immutable, including when two journal adapters race on one directory.
-        match fs::hard_link(temporary.path(), path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
-            Err(error) => return Err(error.into()),
-        }
-        fs::File::open(parent)?.sync_all()?;
-        Ok(true)
+        crate::persistence::publish_new(temporary.path(), path)
     }
 }
 

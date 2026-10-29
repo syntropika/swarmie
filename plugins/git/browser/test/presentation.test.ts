@@ -84,7 +84,7 @@ async function fixture(response: () => unknown) {
 }
 const complete = () => ({
   kind: "capability_info",
-  api_version: 1,
+  api_version: 2,
   execution_available: true,
   operations: gitRequestKinds,
 });
@@ -98,6 +98,7 @@ test("Git availability requires the complete observed interface and current exec
     [
       complete,
       () => ({ ...complete(), execution_available: false }),
+      () => ({ ...complete(), api_version: 1 }),
       () => ({ ...complete(), operations: ["discover"] }),
     ].map(async (response) => {
       const value = await fixture(response);

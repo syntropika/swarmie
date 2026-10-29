@@ -282,6 +282,20 @@ function GeneralSettings({
           change({ ...settings, branch_prefix });
         }}
       />
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={settings.run_commit_hooks}
+          onChange={(event) => {
+            change({ ...settings, run_commit_hooks: event.target.checked });
+          }}
+        />
+        Run Git hooks on commit
+      </label>
+      <p className="text-xs leading-5 text-muted">
+        Off by default. Applies to commits prepared here. Commit signing follows the configured Git
+        settings on the execution node.
+      </p>
       <TextField>
         <Label>Commit message guidance</Label>
         <TextArea

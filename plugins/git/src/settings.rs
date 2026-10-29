@@ -28,6 +28,9 @@ pub struct GitSettings {
     pub managed_root: Option<PathBuf>,
     pub branch_prefix: String,
     pub commit_guidance: String,
+    /// Default for commits prepared by the project UI; each operation captures its choice.
+    #[serde(default)]
+    pub run_commit_hooks: bool,
     pub cleanup_enabled: bool,
     /// No implicit retention count is selected on behalf of the user.
     pub retained_worktrees: Option<usize>,

@@ -38,7 +38,7 @@ export type GitReceipt = {
 };
 export type GitOperation =
   | { kind: "stage" | "unstage"; paths: string[] }
-  | { kind: "commit"; message: string; reviewed_index: string }
+  | { kind: "commit"; message: string; reviewed_index: string; run_hooks: boolean }
   | { kind: "create_branch"; name: string }
   | { kind: "fetch"; remote: string }
   | { kind: "push"; remote: string; source_oid: string; destination_ref: string };
@@ -55,6 +55,7 @@ export type GitSettingsValue = {
   managed_root: string | null;
   branch_prefix: string;
   commit_guidance: string;
+  run_commit_hooks: boolean;
   cleanup_enabled: boolean;
   retained_worktrees: number | null;
   setup_by_platform: Record<string, SetupScript>;
@@ -175,6 +176,7 @@ export function settingsValue(input: unknown): GitSettingsValue {
     managed_root: nullableString(value.managed_root),
     branch_prefix: string(value.branch_prefix),
     commit_guidance: string(value.commit_guidance),
+    run_commit_hooks: boolean(value.run_commit_hooks),
     cleanup_enabled: boolean(value.cleanup_enabled),
     retained_worktrees: value.retained_worktrees === null ? null : number(value.retained_worktrees),
     setup_by_platform: setupByPlatform,

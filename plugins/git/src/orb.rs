@@ -432,8 +432,8 @@ pub fn tool_definitions() -> tembra::Result<Vec<swarmie_tools::ToolDefinition>> 
             "properties": {"kind": {"const": kind}, "paths": {"type": "array", "items": {"type": "string"}}},
             "additionalProperties": false}));
     }
-    mutations.push(json!({"type": "object", "required": ["kind", "message", "reviewed_index"],
-        "properties": {"kind": {"const": "commit"}, "message": {"type": "string"}, "reviewed_index": {"type": "string"}},
+    mutations.push(json!({"type": "object", "required": ["kind", "message", "reviewed_index", "run_hooks"],
+        "properties": {"kind": {"const": "commit"}, "message": {"type": "string"}, "reviewed_index": {"type": "string"}, "run_hooks": {"type": "boolean", "description": "Whether to run native commit hooks. Choose explicitly; false disables hooks for this invocation only."}},
         "additionalProperties": false}));
     mutations.push(json!({"type": "object", "required": ["kind", "name"],
         "properties": {"kind": {"const": "create_branch"}, "name": {"type": "string"}}, "additionalProperties": false}));

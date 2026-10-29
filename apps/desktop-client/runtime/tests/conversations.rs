@@ -128,6 +128,7 @@ fn answer(text: &str) -> Reply {
 }
 
 fn read_request(stream: &mut TcpStream) -> String {
+    stream.set_nonblocking(false).unwrap();
     stream.set_read_timeout(Some(WAIT)).unwrap();
     let mut data = Vec::new();
     let (end, length) = loop {

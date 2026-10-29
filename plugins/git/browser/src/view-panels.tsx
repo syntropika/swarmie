@@ -65,6 +65,7 @@ function ActionContent({
     close,
     branchPrefix: state.settings?.branch_prefix ?? "",
     commitGuidance: state.settings?.commit_guidance ?? "",
+    runCommitHooks: state.settings?.run_commit_hooks ?? false,
     drafts,
     updateDraft,
   };

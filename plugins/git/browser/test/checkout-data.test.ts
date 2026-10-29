@@ -20,6 +20,7 @@ const settings: GitSettingsValue = {
   managed_root: null,
   branch_prefix: "",
   commit_guidance: "",
+  run_commit_hooks: false,
   cleanup_enabled: false,
   retained_worktrees: null,
   setup_by_platform: {},

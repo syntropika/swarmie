@@ -12,6 +12,7 @@ type ActionProps = DraftProps & {
   close: () => void;
   branchPrefix: string;
   commitGuidance: string;
+  runCommitHooks: boolean;
 };
 function useSubmit({ mutate, close, updateDraft }: ActionProps) {
   const [failure, setFailure] = useState<string | null>(null);
@@ -241,7 +242,12 @@ export function CommitPanel(props: ActionProps) {
       className="grid max-w-xl gap-3"
       onSubmit={(event) => {
         event.preventDefault();
-        submit({ kind: "commit", message, reviewed_index: checkout.target.index_fingerprint });
+        submit({
+          kind: "commit",
+          message,
+          reviewed_index: checkout.target.index_fingerprint,
+          run_hooks: props.runCommitHooks,
+        });
       }}
     >
       {error === null ? null : (
@@ -257,7 +263,10 @@ export function CommitPanel(props: ActionProps) {
       )}
       <p className="text-xs leading-5 text-muted">
         This commit includes every staged change listed here. Unstaged files remain in the checkout.
-        Git hooks and signing run on the execution node.
+        {props.runCommitHooks
+          ? " Git hooks will run for this commit."
+          : " Git hooks are disabled for this commit."}
+        {" Commit signing follows the Git configuration on the execution node."}
       </p>
       <VirtualList
         items={staged}

@@ -229,13 +229,7 @@ impl GitService {
             let mut file = options.open(&temporary)?;
             file.write_all(&serde_json::to_vec(hold).map_err(invalid_json)?)?;
             file.sync_all()?;
-            fs::rename(&temporary, path)?;
-            #[cfg(unix)]
-            fs::File::open(
-                path.parent()
-                    .ok_or_else(|| Error::Journal("missing hold directory".into()))?,
-            )?
-            .sync_all()?;
+            crate::persistence::replace_file(&temporary, path)?;
             Ok(())
         })();
         if result.is_err() {

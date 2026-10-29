@@ -473,6 +473,51 @@ fn apply_selection(
 }
 
 pub(crate) fn read_file(root: &Path, relative: &str) -> Result<Option<FileEntry>> {
+    read_file_for(root, relative, FilePurpose::Preservation)
+}
+
+/// Git records content and an executable flag, not filesystem ownership or ACLs.
+pub(crate) fn read_git_file(root: &Path, relative: &str) -> Result<Option<FileEntry>> {
+    read_file_for(root, relative, FilePurpose::GitSnapshot)
+}
+
+#[derive(Clone, Copy)]
+enum FilePurpose {
+    Preservation,
+    GitSnapshot,
+}
+
+impl FilePurpose {
+    fn mode(self, path: &Path, metadata: &fs::Metadata) -> Result<u32> {
+        if matches!(self, Self::Preservation) {
+            return preservation_mode(path, metadata);
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            Ok(if metadata.permissions().mode() & 0o111 != 0 {
+                0o755
+            } else {
+                0o644
+            })
+        }
+        #[cfg(not(unix))]
+        Ok(0o644)
+    }
+
+    fn restore(self, path: &Path, mode: u32) -> Result<()> {
+        if matches!(self, Self::Preservation) {
+            return restore_mode(path, mode);
+        }
+        #[cfg(unix)]
+        restore_mode(path, mode)?;
+        // A Windows Git snapshot is a new private file, not an archive restore.
+        // Its inherited ACL is never claimed to preserve the source metadata.
+        Ok(())
+    }
+}
+
+fn read_file_for(root: &Path, relative: &str, purpose: FilePurpose) -> Result<Option<FileEntry>> {
     validate_relative(Path::new(relative))?;
     let path = root.join(relative);
     let parent = path
@@ -490,7 +535,9 @@ pub(crate) fn read_file(root: &Path, relative: &str) -> Result<Option<FileEntry>
     };
     if metadata.is_symlink() {
         #[cfg(unix)]
-        reject_extended_metadata(&path)?;
+        if matches!(purpose, FilePurpose::Preservation) {
+            reject_extended_metadata(&path)?;
+        }
         return Ok(Some(FileEntry {
             path: relative.into(),
             bytes: path_string(&fs::read_link(&path)?)?.into_bytes(),
@@ -509,7 +556,7 @@ pub(crate) fn read_file(root: &Path, relative: &str) -> Result<Option<FileEntry>
         ));
     }
     let file = crate::repository::open_regular_file(&path)?;
-    let mode = preservation_mode(&path, &file.metadata()?)?;
+    let mode = purpose.mode(&path, &file.metadata()?)?;
     use std::io::Read;
     let mut bytes = Vec::new();
     file.take(64 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
@@ -527,6 +574,14 @@ pub(crate) fn read_file(root: &Path, relative: &str) -> Result<Option<FileEntry>
 }
 
 pub(crate) fn write_file(root: &Path, entry: &FileEntry) -> Result<()> {
+    write_file_for(root, entry, FilePurpose::Preservation)
+}
+
+pub(crate) fn write_git_file(root: &Path, entry: &FileEntry) -> Result<()> {
+    write_file_for(root, entry, FilePurpose::GitSnapshot)
+}
+
+fn write_file_for(root: &Path, entry: &FileEntry, purpose: FilePurpose) -> Result<()> {
     validate_relative(Path::new(&entry.path))?;
     let path = root.join(&entry.path);
     let parent = path
@@ -566,7 +621,7 @@ pub(crate) fn write_file(root: &Path, entry: &FileEntry) -> Result<()> {
         let mut file = options.open(&path)?;
         file.write_all(&entry.bytes)?;
         file.sync_all()?;
-        restore_mode(&path, entry.mode)?;
+        purpose.restore(&path, entry.mode)?;
     }
     Ok(())
 }
@@ -596,12 +651,19 @@ fn validate_parent_chain(root: &Path, parent: &Path) -> Result<()> {
 }
 
 pub(crate) fn create_private_directory(path: &Path) -> Result<()> {
-    let mut builder = fs::DirBuilder::new();
+    let builder = fs::DirBuilder::new();
     #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;
+        let mut builder = builder;
         builder.mode(0o700);
+        create_directory(builder, path)
     }
+    #[cfg(not(unix))]
+    create_directory(builder, path)
+}
+
+fn create_directory(builder: fs::DirBuilder, path: &Path) -> Result<()> {
     match builder.create(path) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -755,13 +817,13 @@ pub(crate) fn restore_mode(path: &Path, mode: u32) -> Result<()> {
             return Err(Error::Invalid("invalid preserved permission bits".into()));
         }
         fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+        Ok(())
     }
     #[cfg(not(unix))]
     {
         let _ = (path, mode);
-        return Err(Error::Invalid(
+        Err(Error::Invalid(
             "filesystem permission preservation is not qualified on this platform".into(),
-        ));
+        ))
     }
-    Ok(())
 }

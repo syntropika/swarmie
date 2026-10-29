@@ -19,7 +19,23 @@ pub(crate) fn open_regular_file(path: &Path) -> Result<fs::File> {
         // Validate the opened descriptor without waiting for a replacement FIFO.
         options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
     }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
     let file = options.open(path)?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+        if file.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(Error::Invalid(
+                "file observation does not follow reparse points".into(),
+            ));
+        }
+    }
     if !file.metadata()?.is_file() {
         return Err(Error::Invalid("only regular files can be read".into()));
     }

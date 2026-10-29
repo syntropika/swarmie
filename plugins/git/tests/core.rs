@@ -110,19 +110,24 @@ fn discovery_status_and_path_selection_preserve_other_changes() {
     let canonical_root = directory.path().canonicalize().expect("canonical root");
     assert_eq!(target.root.as_deref(), canonical_root.to_str());
     fs::write(directory.path().join("first.txt"), "edited\n").expect("edit");
-    fs::write(directory.path().join("space name\nfile.txt"), "new\n").expect("new");
+    let selected = if cfg!(windows) {
+        "space name file.txt"
+    } else {
+        "space name\nfile.txt"
+    };
+    fs::write(directory.path().join(selected), "new\n").expect("new");
     let receipt = mutate(
         &git,
         directory.path(),
         "stage-one",
         Operation::Stage {
-            paths: vec!["space name\nfile.txt".into()],
+            paths: vec![selected.into()],
         },
     );
     assert_eq!(receipt.state, Outcome::Completed);
     assert_eq!(
         command(directory.path(), &["diff", "--cached", "--name-only", "-z"]),
-        "space name\nfile.txt\0"
+        format!("{selected}\0")
     );
     assert!(command(directory.path(), &["diff", "--name-only"]).contains("first.txt"));
     let target = git
@@ -194,6 +199,7 @@ fn reviewed_index_commits_all_and_duplicate_id_never_replays() {
         operation: Operation::Commit {
             message: "feat: reviewed staged state".into(),
             reviewed_index: target.index_fingerprint.clone(),
+            run_hooks: true,
         },
     };
     let first = git
@@ -456,13 +462,14 @@ fn native_commit_hooks_are_preserved_and_report_tree_changes() {
         Operation::Commit {
             message: "feat: hook".into(),
             reviewed_index: target.index_fingerprint,
+            run_hooks: true,
         },
     );
     assert_eq!(receipt.state, Outcome::Completed);
     assert!(
         receipt
             .message
-            .contains("Native hooks changed the committed tree")
+            .contains("The committed tree differs from the reviewed index")
     );
     assert_eq!(
         command(directory.path(), &["show", "HEAD:first.txt"]),
@@ -485,6 +492,7 @@ fn native_commit_hooks_are_preserved_and_report_tree_changes() {
         Operation::Commit {
             message: "feat: subsequent commit".into(),
             reviewed_index: target.index_fingerprint,
+            run_hooks: true,
         },
     );
     assert_ne!(receipt.state, Outcome::Completed);
@@ -683,6 +691,7 @@ fn split_index_staging_and_commit_preserve_working_and_unrelated_staged_content(
         Operation::Commit {
             message: "feat: reviewed split index".into(),
             reviewed_index: target.index_fingerprint,
+            run_hooks: true,
         },
     );
     assert_eq!(commit.state, Outcome::Completed, "{}", commit.message);
@@ -867,7 +876,11 @@ fn large_inventories_are_complete_bounded_and_reject_changed_continuations() {
     fs::create_dir(&folder).unwrap();
     for index in 0..1400 {
         fs::write(
-            folder.join(format!("{index:04}-{}\".txt", "long".repeat(15))),
+            folder.join(format!(
+                "{index:04}-{}{}.txt",
+                "long".repeat(15),
+                if cfg!(windows) { "雪" } else { "\"" }
+            )),
             "",
         )
         .unwrap();
@@ -1088,6 +1101,7 @@ fn failing_native_hooks_keep_their_staged_edits_without_creating_a_commit() {
         Operation::Commit {
             message: "feat: rejected by hook".into(),
             reviewed_index: target.index_fingerprint,
+            run_hooks: true,
         },
     );
     assert_eq!(receipt.state, Outcome::Failed);
@@ -1791,4 +1805,170 @@ fn recovery_refuses_a_rebound_checkout_root() {
     fs::remove_file(directory.path()).unwrap();
     fs::rename(saved, directory.path()).unwrap();
     assert!(matches!(result, Err(Error::Stale)));
+}
+
+#[cfg(unix)]
+#[test]
+fn git_staging_does_not_require_archive_metadata_preservation() {
+    use std::os::unix::fs::MetadataExt;
+    let (directory, git) = fixture();
+    let file = directory.path().join("first.txt");
+    let other = directory.path().join("other-link.txt");
+    fs::hard_link(&file, &other).unwrap();
+    fs::write(&file, "linked edit\n").unwrap();
+    let receipt = mutate(
+        &git,
+        directory.path(),
+        "stage-linked",
+        Operation::Stage {
+            paths: vec!["first.txt".into()],
+        },
+    );
+    assert_eq!(receipt.state, Outcome::Completed, "{}", receipt.message);
+    assert_eq!(
+        command(directory.path(), &["show", ":first.txt"]),
+        "linked edit"
+    );
+    assert_eq!(fs::read_to_string(&other).unwrap(), "linked edit\n");
+    assert_eq!(fs::metadata(&file).unwrap().nlink(), 2);
+}
+
+#[test]
+fn disabled_commit_hooks_leave_config_and_the_reviewed_snapshot_unchanged() {
+    let (directory, git) = fixture();
+    let hooks = directory.path().join("custom-hooks");
+    fs::create_dir(&hooks).unwrap();
+    for (name, script) in [
+        (
+            "pre-commit",
+            "#!/bin/sh\nprintf 'pre' >> hook-marker\nexit 1\n",
+        ),
+        (
+            "prepare-commit-msg",
+            "#!/bin/sh\nprintf 'prepare' >> hook-marker\nprintf 'replaced message' > \"$1\"\n",
+        ),
+        ("post-commit", "#!/bin/sh\nprintf 'post' >> hook-marker\n"),
+    ] {
+        let path = hooks.join(name);
+        fs::write(&path, script).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+    command(
+        directory.path(),
+        &["config", "core.hooksPath", hooks.to_str().unwrap()],
+    );
+    // Prove the fixture is active before checking suppression. Ordinary Git keeps
+    // the saved hook path; only the plugin's selected commit disables it.
+    let rejected = Command::new("git")
+        .args(["commit", "--allow-empty", "-m", "test: native hook"])
+        .current_dir(directory.path())
+        .output()
+        .unwrap();
+    assert!(!rejected.status.success());
+    assert_eq!(
+        fs::read_to_string(directory.path().join("hook-marker")).unwrap(),
+        "pre"
+    );
+    fs::remove_file(directory.path().join("hook-marker")).unwrap();
+    fs::write(directory.path().join("first.txt"), "reviewed\n").unwrap();
+    command(directory.path(), &["add", "first.txt"]);
+    let target = git
+        .discover(directory.path(), &Cancellation::default())
+        .unwrap()
+        .unwrap();
+    let receipt = mutate(
+        &git,
+        directory.path(),
+        "without-hooks",
+        Operation::Commit {
+            message: "feat: reviewed commit".into(),
+            reviewed_index: target.index_fingerprint,
+            run_hooks: false,
+        },
+    );
+    assert_eq!(receipt.state, Outcome::Completed, "{}", receipt.message);
+    assert!(!directory.path().join("hook-marker").exists());
+    assert_eq!(
+        command(directory.path(), &["show", "HEAD:first.txt"]),
+        "reviewed"
+    );
+    assert_eq!(
+        command(directory.path(), &["log", "-1", "--format=%s"]),
+        "feat: reviewed commit"
+    );
+    assert_eq!(
+        command(directory.path(), &["config", "core.hooksPath"]),
+        hooks.to_str().unwrap()
+    );
+    assert!(matches!(
+        receipt.operation,
+        Operation::Commit {
+            run_hooks: false,
+            ..
+        }
+    ));
+    assert!(
+        git.execute(
+            "user",
+            Request::Mutate {
+                operation_id: "without-hooks".into(),
+                target: receipt.target.clone(),
+                operation: Operation::Commit {
+                    message: "feat: reviewed commit".into(),
+                    reviewed_index: receipt.target.index_fingerprint,
+                    run_hooks: true
+                },
+            },
+            &Cancellation::default()
+        )
+        .is_err()
+    );
+    assert!(!directory.path().join("hook-marker").exists());
+}
+
+#[test]
+fn disabling_commit_hooks_does_not_disable_configured_signing() {
+    let (directory, git) = fixture();
+    fs::write(directory.path().join("first.txt"), "reviewed\n").unwrap();
+    command(directory.path(), &["add", "first.txt"]);
+    command(directory.path(), &["config", "gpg.format", "openpgp"]);
+    command(
+        directory.path(),
+        &["config", "gpg.program", "swarmie-missing-signing-fixture"],
+    );
+    command(directory.path(), &["config", "commit.gpgsign", "true"]);
+    let target = git
+        .discover(directory.path(), &Cancellation::default())
+        .unwrap()
+        .unwrap();
+    let head = target.head.clone();
+    let receipt = mutate(
+        &git,
+        directory.path(),
+        "sign-without-hooks",
+        Operation::Commit {
+            message: "feat: requires signing".into(),
+            reviewed_index: target.index_fingerprint,
+            run_hooks: false,
+        },
+    );
+    assert_eq!(receipt.state, Outcome::Failed, "{}", receipt.message);
+    assert_eq!(receipt.head, head);
+    assert!(
+        receipt.message.contains("swarmie-missing-signing-fixture"),
+        "{}",
+        receipt.message
+    );
+    assert_eq!(
+        command(directory.path(), &["config", "commit.gpgsign"]),
+        "true"
+    );
+    assert_eq!(
+        command(directory.path(), &["show", ":first.txt"]),
+        "reviewed"
+    );
 }

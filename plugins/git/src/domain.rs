@@ -128,6 +128,9 @@ pub enum Operation {
     Commit {
         message: String,
         reviewed_index: String,
+        /// Capture the effective hook choice before authorization and admission.
+        #[serde(default = "stored_commit_hooks")]
+        run_hooks: bool,
     },
     CreateBranch {
         name: String,
@@ -140,6 +143,12 @@ pub enum Operation {
         source_oid: String,
         destination_ref: String,
     },
+}
+
+// Commit records admitted before this field existed used native hooks. Retain
+// that meaning when reading the user's journal; new callers specify the choice.
+fn stored_commit_hooks() -> bool {
+    true
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]

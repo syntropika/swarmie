@@ -264,7 +264,7 @@ impl GitService {
                 )
                 .is_ok();
             return Ok(WireResponse::Managed(ManagedResponse::CapabilityInfo {
-                api_version: 1,
+                api_version: 2,
                 execution_available,
                 operations: [
                     "capability_info",
@@ -575,13 +575,7 @@ impl GitService {
             .open(&temporary)?;
         file.write_all(&serde_json::to_vec(settings).map_err(invalid_json)?)?;
         file.sync_all()?;
-        fs::rename(&temporary, &path)?;
-        #[cfg(unix)]
-        fs::File::open(
-            path.parent()
-                .ok_or_else(|| Error::Invalid("missing settings directory".into()))?,
-        )?
-        .sync_all()?;
+        crate::persistence::replace_file(&temporary, &path)?;
         Ok(())
     }
 }
