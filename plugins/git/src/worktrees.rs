@@ -48,14 +48,14 @@ pub(crate) struct IndexEntry {
 pub(crate) struct FileEntry {
     pub path: String,
     pub bytes: Vec<u8>,
-    pub mode: u32,
+    pub mode: crate::permissions::Permissions,
     pub symlink: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) struct DirectoryEntry {
     pub path: String,
-    pub mode: u32,
+    pub mode: crate::permissions::Permissions,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -151,10 +151,12 @@ impl Git {
             ));
         }
         let discovered = self.discover(&request.destination, &Cancellation::default())?;
+        // Compare native canonical identities, independently of Git's argv spelling.
+        let destination_identity = fs::canonicalize(&request.destination)?;
         let target = match discovered {
             Some(target)
-                if target.root.as_deref()
-                    == Some(path_string(&fs::canonicalize(&request.destination)?)?.as_str())
+                if target.root.as_deref().map(Path::new)
+                    == Some(destination_identity.as_path())
                     && target.common_dir == source.common_dir
                     && target.head.as_deref() == Some(commit.as_str())
                     && target.branch.is_none() =>
@@ -266,9 +268,40 @@ pub(crate) fn strings(values: &[&str]) -> Vec<String> {
 }
 
 pub(crate) fn path_string(path: &Path) -> Result<String> {
-    path.to_str()
-        .map(str::to_owned)
-        .ok_or_else(|| Error::Invalid("this profile requires UTF-8 paths".into()))
+    let value = path
+        .to_str()
+        .ok_or_else(|| Error::Invalid("this profile requires UTF-8 paths".into()))?;
+    #[cfg(windows)]
+    {
+        use std::path::Prefix;
+        // Git for Windows cannot use Rust's verbatim namespace as a bundle path.
+        // Relative inventory paths also use Git's slash convention, so nested
+        // working files and index entries retain the same identity.
+        let value = match path.components().next() {
+            Some(Component::Prefix(prefix)) => match prefix.kind() {
+                Prefix::VerbatimDisk(_) => value
+                    .get(4..)
+                    .ok_or_else(|| Error::Invalid("invalid verbatim drive path".into()))?
+                    .to_owned(),
+                Prefix::VerbatimUNC(_, _) => format!(
+                    "//{}",
+                    value
+                        .get(8..)
+                        .ok_or_else(|| Error::Invalid("invalid verbatim UNC path".into()))?
+                ),
+                Prefix::Verbatim(_) | Prefix::DeviceNS(_) => {
+                    return Err(Error::Invalid(
+                        "Git does not support this device namespace".into(),
+                    ));
+                }
+                _ => value.to_owned(),
+            },
+            _ => value.to_owned(),
+        };
+        Ok(value.replace('\\', "/"))
+    }
+    #[cfg(not(windows))]
+    Ok(value.to_owned())
 }
 
 pub(crate) fn validate_relative(path: &Path) -> Result<()> {
@@ -429,7 +462,7 @@ fn apply_selection(
     for file in included {
         for directory in &file.directories {
             create_private_directory(&root.join(&directory.path))?;
-            directories.insert(directory.path.clone(), directory.mode);
+            directories.insert(directory.path.clone(), directory.mode.clone());
         }
         match &file.index {
             Some(index) => {
@@ -466,8 +499,32 @@ fn apply_selection(
             }
         }
     }
+    #[cfg(not(windows))]
     for (path, mode) in directories.iter().rev() {
-        restore_mode(&root.join(path), *mode)?;
+        restore_mode(&root.join(path), mode)?;
+    }
+    #[cfg(windows)]
+    {
+        // Protected temporary children prevent parent inheritance from changing
+        // their contents' access while each captured ACL is restored in order.
+        for (path, mode) in &directories {
+            restore_mode(&root.join(path), mode)?;
+        }
+        for file in included {
+            if let Some(entry) = &file.working {
+                restore_mode(&root.join(&entry.path), &entry.mode)?;
+            }
+        }
+    }
+    let paths = included
+        .iter()
+        .map(|file| file.path.clone())
+        .collect::<Vec<_>>();
+    if !included.is_empty() && capture_selection(git, root, &paths, cancel)? != included {
+        return Err(Error::Invalid(
+            "selected content or permissions could not be restored exactly; checkout retained"
+                .into(),
+        ));
     }
     Ok(())
 }
@@ -488,27 +545,36 @@ enum FilePurpose {
 }
 
 impl FilePurpose {
-    fn mode(self, path: &Path, metadata: &fs::Metadata) -> Result<u32> {
+    fn mode(self, path: &Path, metadata: &fs::Metadata) -> Result<crate::permissions::Permissions> {
         if matches!(self, Self::Preservation) {
             return preservation_mode(path, metadata);
         }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            Ok(if metadata.permissions().mode() & 0o111 != 0 {
-                0o755
-            } else {
-                0o644
-            })
+            Ok(crate::permissions::Permissions::Unix(
+                if metadata.permissions().mode() & 0o111 != 0 {
+                    0o755
+                } else {
+                    0o644
+                },
+            ))
         }
         #[cfg(not(unix))]
-        Ok(0o644)
+        Ok(crate::permissions::Permissions::Unix(0o644))
     }
 
-    fn restore(self, path: &Path, mode: u32) -> Result<()> {
+    fn restore(self, path: &Path, mode: &crate::permissions::Permissions) -> Result<()> {
         if matches!(self, Self::Preservation) {
+            #[cfg(not(windows))]
             return restore_mode(path, mode);
+            // Windows callers restore the completed hierarchy from parents to
+            // children after all payload files have a protected temporary ACL.
+            #[cfg(windows)]
+            return Ok(());
         }
+        #[cfg(windows)]
+        let _ = (path, mode);
         #[cfg(unix)]
         restore_mode(path, mode)?;
         // A Windows Git snapshot is a new private file, not an archive restore.
@@ -534,6 +600,12 @@ fn read_file_for(root: &Path, relative: &str, purpose: FilePurpose) -> Result<Op
         Err(error) => return Err(error.into()),
     };
     if metadata.is_symlink() {
+        #[cfg(windows)]
+        if matches!(purpose, FilePurpose::Preservation) {
+            return Err(Error::Invalid(
+                "reparse points require another preservation profile".into(),
+            ));
+        }
         #[cfg(unix)]
         if matches!(purpose, FilePurpose::Preservation) {
             reject_extended_metadata(&path)?;
@@ -541,7 +613,7 @@ fn read_file_for(root: &Path, relative: &str, purpose: FilePurpose) -> Result<Op
         return Ok(Some(FileEntry {
             path: relative.into(),
             bytes: path_string(&fs::read_link(&path)?)?.into_bytes(),
-            mode: 0,
+            mode: crate::permissions::Permissions::Unix(0),
             symlink: true,
         }));
     }
@@ -619,9 +691,11 @@ fn write_file_for(root: &Path, entry: &FileEntry, purpose: FilePurpose) -> Resul
             options.mode(0o600);
         }
         let mut file = options.open(&path)?;
+        #[cfg(windows)]
+        crate::permissions::windows::protect_file(&path)?;
         file.write_all(&entry.bytes)?;
         file.sync_all()?;
-        purpose.restore(&path, entry.mode)?;
+        purpose.restore(&path, &entry.mode)?;
     }
     Ok(())
 }
@@ -659,10 +733,16 @@ pub(crate) fn create_private_directory(path: &Path) -> Result<()> {
         builder.mode(0o700);
         create_directory(builder, path)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        let _ = builder;
+        crate::permissions::windows::create_private_directory(path)
+    }
+    #[cfg(not(any(unix, windows)))]
     create_directory(builder, path)
 }
 
+#[cfg(not(windows))]
 fn create_directory(builder: fs::DirBuilder, path: &Path) -> Result<()> {
     match builder.create(path) {
         Ok(()) => Ok(()),
@@ -719,31 +799,15 @@ fn capture_parents(root: &Path, path: &Path) -> Result<Vec<DirectoryEntry>> {
     Ok(directories)
 }
 
-pub(crate) fn preservation_mode(path: &Path, metadata: &fs::Metadata) -> Result<u32> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        let mode = metadata.permissions().mode();
-        if mode & 0o7000 != 0 || (metadata.is_file() && metadata.nlink() != 1) {
-            return Err(Error::Invalid(
-                "special permission bits and hard links require another preservation profile"
-                    .into(),
-            ));
-        }
-        reject_extended_metadata(path)?;
-        Ok(mode & 0o777)
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (path, metadata);
-        Err(Error::Invalid(
-            "filesystem permission preservation is not qualified on this platform".into(),
-        ))
-    }
+pub(crate) fn preservation_mode(
+    path: &Path,
+    metadata: &fs::Metadata,
+) -> Result<crate::permissions::Permissions> {
+    crate::permissions::Permissions::capture(path, metadata)
 }
 
 #[cfg(unix)]
-fn reject_extended_metadata(path: &Path) -> Result<()> {
+pub(crate) fn reject_extended_metadata(path: &Path) -> Result<()> {
     use std::{ffi::CString, os::unix::ffi::OsStrExt};
     let path = CString::new(path.as_os_str().as_bytes())
         .map_err(|_| Error::Invalid("invalid filesystem path".into()))?;
@@ -809,21 +873,26 @@ fn reject_extended_metadata(path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn restore_mode(path: &Path, mode: u32) -> Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if mode & !0o777 != 0 {
-            return Err(Error::Invalid("invalid preserved permission bits".into()));
+pub(crate) fn restore_mode(path: &Path, mode: &crate::permissions::Permissions) -> Result<()> {
+    mode.restore(path)
+}
+
+#[cfg(all(test, windows))]
+mod path_tests {
+    use super::path_string;
+    use std::path::Path;
+
+    #[test]
+    fn git_paths_preserve_drive_unc_and_nested_identity_without_device_namespaces() {
+        for (native, git) in [
+            (r"C:\checkout\file", "C:/checkout/file"),
+            (r"\\?\C:\checkout\file", "C:/checkout/file"),
+            (r"\\server\share\file", "//server/share/file"),
+            (r"\\?\UNC\server\share\file", "//server/share/file"),
+            (r"nested\file", "nested/file"),
+        ] {
+            assert_eq!(path_string(Path::new(native)).unwrap(), git);
         }
-        fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
-        Ok(())
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (path, mode);
-        Err(Error::Invalid(
-            "filesystem permission preservation is not qualified on this platform".into(),
-        ))
+        assert!(path_string(Path::new(r"\\.\PhysicalDrive0")).is_err());
     }
 }

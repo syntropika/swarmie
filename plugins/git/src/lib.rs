@@ -19,6 +19,7 @@ mod domain;
 mod journal;
 mod objects;
 mod operations;
+mod permissions;
 mod persistence;
 mod process;
 mod repository;

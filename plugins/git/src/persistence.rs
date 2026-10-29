@@ -44,7 +44,7 @@ fn sync_parent(path: &Path) -> Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| crate::Error::Invalid("missing file parent".into()))?;
-    fs::File::open(parent)?.sync_all()?;
+    sync_directory(parent)?;
     Ok(())
 }
 
@@ -74,11 +74,30 @@ fn move_file(source: &Path, destination: &Path, replace: bool) -> std::io::Resul
             0
         };
     // SAFETY: both paths are live, null-terminated UTF-16. No cross-volume copy
-    // or delayed operation is permitted. Windows has no Unix directory fsync;
-    // use the documented write-through move instead, without a power-loss claim.
+    // or delayed operation is permitted. Use the documented write-through move without a power-loss claim.
     if unsafe { MoveFileExW(source.as_ptr(), destination.as_ptr(), flags) } == 0 {
         Err(std::io::Error::last_os_error())
     } else {
         Ok(())
     }
+}
+
+/// Flush an owner-controlled directory through a handle with platform-required access.
+/// This requests OS persistence; it does not establish power-loss durability.
+pub(crate) fn sync_directory(path: &Path) -> Result<()> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        };
+        std::fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)?
+            .sync_all()?;
+    }
+    #[cfg(not(windows))]
+    std::fs::File::open(path)?.sync_all()?;
+    Ok(())
 }

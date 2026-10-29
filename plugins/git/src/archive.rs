@@ -1,4 +1,4 @@
-//! Complete local preservation with verified restoration. Cleanup remains blocked
+//! Bounded checkout preservation with verified restoration. Cleanup remains blocked
 //! until an embedding host qualifies external-writer quiescence and removal.
 
 use crate::{
@@ -28,7 +28,7 @@ struct PreservedIndex {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct ContentManifest {
     head: String,
-    root_mode: u32,
+    root_mode: crate::permissions::Permissions,
     index: Vec<PreservedIndex>,
     files: Vec<PreservedFile>,
     directories: Vec<DirectoryEntry>,
@@ -39,7 +39,7 @@ struct PreservedFile {
     path: String,
     blob: String,
     size: usize,
-    mode: u32,
+    mode: crate::permissions::Permissions,
     symlink: bool,
 }
 
@@ -112,6 +112,8 @@ impl ArchiveDirectory {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
         }
+        #[cfg(windows)]
+        crate::permissions::windows::protect_directory(&directory)?;
         Ok(Self {
             directory: fs::canonicalize(directory)?,
         })
@@ -188,7 +190,10 @@ impl ArchiveDirectory {
             return Err(Error::Stale);
         }
         git.verify(target, cancel)?;
-        fs::File::open(&bundle)?.sync_all()?;
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&bundle)?
+            .sync_all()?;
         let manifest = ArchiveManifest {
             version: 2,
             principal: principal.into(),
@@ -209,8 +214,8 @@ impl ArchiveDirectory {
             &directory.join("manifest.sha256"),
             format!("{:x}", Sha256::digest(&manifest_bytes)).as_bytes(),
         )?;
-        fs::File::open(&directory)?.sync_all()?;
-        fs::File::open(&self.directory)?.sync_all()?;
+        crate::persistence::sync_directory(&directory)?;
+        crate::persistence::sync_directory(&self.directory)?;
         Ok(receipt(archive_id, &manifest, false))
     }
 
@@ -384,16 +389,32 @@ impl ArchiveDirectory {
                 &FileEntry {
                     path: file.path.clone(),
                     bytes: load_blob(&directory, &file.blob, file.size)?,
-                    mode: file.mode,
+                    mode: file.mode.clone(),
                     symlink: file.symlink,
                 },
             )?;
         }
-        for entry in manifest.content.directories.iter().rev() {
-            restore_mode(&destination.join(&entry.path), entry.mode)?;
+        #[cfg(not(windows))]
+        {
+            for entry in manifest.content.directories.iter().rev() {
+                restore_mode(&destination.join(&entry.path), &entry.mode)?;
+            }
+            restore_mode(destination, &manifest.content.root_mode)?;
         }
-        restore_mode(destination, manifest.content.root_mode)?;
-        if capture_content(git, destination, cancel, None)? != manifest.content {
+        #[cfg(windows)]
+        {
+            // Files and directories remain protected until their captured parent
+            // ACLs are in place. Final leaf ACLs cannot inherit from temporary parents.
+            restore_mode(destination, &manifest.content.root_mode)?;
+            for entry in &manifest.content.directories {
+                restore_mode(&destination.join(&entry.path), &entry.mode)?;
+            }
+            for file in &manifest.content.files {
+                restore_mode(&destination.join(&file.path), &file.mode)?;
+            }
+        }
+        let observed = capture_content(git, destination, cancel, None)?;
+        if observed != manifest.content {
             return Err(Error::Invalid(
                 "restoration verification failed; destination retained for inspection".into(),
             ));
@@ -423,7 +444,7 @@ impl ArchiveDirectory {
                 }
             }
         }
-        fs::File::open(&directory)?.sync_all()?;
+        crate::persistence::sync_directory(&directory)?;
         Ok(result)
     }
 
@@ -602,10 +623,13 @@ fn durable_write(path: &Path, bytes: &[u8]) -> Result<()> {
     // NamedTempFile creates Unix files as 0600 before any content is written.
     temporary.write_all(bytes)?;
     temporary.as_file().sync_all()?;
-    temporary
-        .persist_noclobber(path)
-        .map_err(|error| Error::Io(error.error))?;
-    fs::File::open(parent)?.sync_all()?;
+    if !crate::persistence::publish_new(temporary.path(), path)? {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "archive file already exists",
+        )
+        .into());
+    }
     Ok(())
 }
 
@@ -806,20 +830,14 @@ fn validate_manifest(manifest: &ArchiveManifest) -> Result<()> {
     {
         return Err(Error::Invalid("archive inventory exceeds its limit".into()));
     }
-    if manifest.content.root_mode & !0o777 != 0 {
-        return Err(Error::Invalid("invalid root permission bits".into()));
-    }
+    manifest.content.root_mode.validate()?;
     for directory in &manifest.content.directories {
         crate::worktrees::validate_relative(Path::new(&directory.path))?;
-        if directory.mode & !0o777 != 0 {
-            return Err(Error::Invalid("invalid directory permission bits".into()));
-        }
+        directory.mode.validate()?;
     }
     for file in &manifest.content.files {
         crate::worktrees::validate_relative(Path::new(&file.path))?;
-        if file.mode & !0o777 != 0 {
-            return Err(Error::Invalid("invalid file permission bits".into()));
-        }
+        file.mode.validate()?;
     }
     for entry in &manifest.content.index {
         crate::worktrees::validate_relative(Path::new(&entry.entry.path))?;
