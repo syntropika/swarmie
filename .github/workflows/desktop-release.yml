@@ -107,9 +107,11 @@ jobs:
         env:
           RUST_VERSION: ${{ steps.tools.outputs.rust }}
         run: rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy,rustfmt
-      - name: Install Linux WebView build dependencies
+      - name: Install Linux native build dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev libfuse2t64
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev libfuse2t64 libdbus-1-dev pkg-config
       - name: Install locked packages and release tooling
         run: |
           bun install --frozen-lockfile

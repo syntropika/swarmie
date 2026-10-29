@@ -8,6 +8,15 @@ the root owns Cargo/Bun lockfiles, formatting, linting and compiler configuratio
 Install the pinned Rust toolchain with Clippy and rustfmt, and the pinned Just.
 The Rust workspace builds without frontend dependencies or documentation contents.
 
+On Linux, the client node uses the Secret Service credential store. Install the
+D-Bus development files and `pkg-config` before you build the workspace.
+On Debian and Ubuntu, use:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y libdbus-1-dev pkg-config
+```
+
 ```sh
 just rust-check
 just foundation-check
