@@ -38,7 +38,8 @@ pub fn build(b: *std.Build) void {
             artifact.root_module.addSystemIncludePath(.{ .cwd_relative = winrt.? });
             for ([_][]const u8{ "advapi32", "bcrypt", "crypt32", "ncrypt", "ntdll", "ole32", "secur32", "userenv", "ws2_32", "synchronization", "msvcprt", "uuid" }) |name| artifact.root_module.linkSystemLibrary(name, .{});
         } else if (b.graph.host.result.os.tag == .linux) {
-            for ([_][]const u8{ "gcc_s", "util", "rt", "pthread", "m", "dl" }) |name| artifact.root_module.linkSystemLibrary(name, .{});
+            // Rust's Secret Service adapter requires an explicit D-Bus link.
+            for ([_][]const u8{ "gcc_s", "util", "rt", "pthread", "m", "dl", "dbus-1" }) |name| artifact.root_module.linkSystemLibrary(name, .{});
         }
     }
     if (windows) {
