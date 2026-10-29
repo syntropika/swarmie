@@ -1,5 +1,6 @@
 import { useSource } from "@swarmie/client-ui";
 import type { Conversation, Message, MessageAction } from "@swarmie/plugin-conversations-browser";
+import { Button } from "@swarmie/ui-web";
 import { MarkdownText } from "@swarmie/ui-web/elements/conversation";
 import { Check, ChevronDown, Copy, FileText, MoreHorizontal, Share } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -50,31 +51,33 @@ export function MessageRow({ message, chat }: { message: Message; chat: Conversa
     >
       {message.tool ? (
         <div className="mb-4 max-w-full">
-          <button
+          <Button
             type="button"
+            size="sm"
+            variant="ghost"
             aria-expanded={toolOpen}
-            onClick={() => {
+            onPress={() => {
               setToolOpen((value) => !value);
             }}
-            className="flex items-center gap-2 text-xs text-muted hover:text-foreground"
+            className="max-w-full justify-start"
           >
             {message.tool === "working" ? (
-              <span className="size-3 animate-pulse rounded-full border border-brand-accent" />
+              <span className="size-3 animate-pulse rounded-full border border-brand-accent motion-reduce:animate-none" />
             ) : (
-              <Check className="size-3 text-brand-accent" />
+              <Check />
             )}
             <span>Tool call</span>
-            <ChevronDown className="size-3" />
-          </button>
+            <ChevronDown />
+          </Button>
           {toolOpen ? (
-            <div className="mt-2 max-w-full rounded-lg border border-border p-3 text-xs">
+            <div className="mt-2 max-w-full rounded-group bg-group p-3 text-conversation">
               <MarkdownText text={message.text} />
             </div>
           ) : null}
         </div>
       ) : null}
       <div
-        className={`min-w-0 text-conversation break-words ${message.role === "user" ? "max-w-[85%] rounded-xl bg-row-selected px-4 py-2.5" : "w-full"}`}
+        className={`min-w-0 text-conversation break-words ${message.role === "user" ? "max-w-[85%] rounded-group bg-group px-4 py-2.5" : "w-full"}`}
       >
         {(() => {
           if (Renderer) {
@@ -87,7 +90,12 @@ export function MessageRow({ message, chat }: { message: Message; chat: Conversa
         })()}
       </div>
       {message.interrupted === true ? (
-        <span className="mt-2 text-xs text-muted">Response interrupted</span>
+        <span className="mt-2 text-caption text-muted">Response interrupted</span>
+      ) : null}
+      {message.truncated === true ? (
+        <span className="mt-2 text-caption text-muted">
+          This preview is shortened. The full message remains in the conversation history.
+        </span>
       ) : null}
       <div className="mt-1 flex min-h-(--spacing-chrome-tab-close) flex-wrap items-center gap-0.5 opacity-0 group-focus-within/message:opacity-100 group-hover/message:opacity-100 [@media(hover:none)]:opacity-100">
         <IconButton

@@ -14,14 +14,18 @@ const tabs: Tab[] = [
 
 function markup(selected: string) {
   return renderToStaticMarkup(
-    <Tabs appearance="view" selectedKey={selected}>
-      <ViewTabList tabs={tabs} selected={selected} close={() => {}} />
-      <Tabs.Panel id={selected}>Selected content</Tabs.Panel>
+    <Tabs selectedKey={selected}>
+      <header>
+        <ViewTabList tabs={tabs} selected={selected} close={() => {}} />
+      </header>
+      <main>
+        <Tabs.Panel id={selected}>Selected content</Tabs.Panel>
+      </main>
     </Tabs>,
   );
 }
 
-test("view tabs preserve selected state and associate the selected tab with its panel", () => {
+test("header view tabs preserve selected state and associate with the content panel", () => {
   const html = markup("second");
   const tabElements = [...html.matchAll(/<div[^>]*role="tab"[^>]*>/gu)].map(([element]) => element);
   expect(tabElements).toHaveLength(3);
@@ -47,5 +51,13 @@ test("only the active close action enters the tab order and remains outside its 
   expect(closeButtons.find((element) => element.includes('tabindex="0"'))).toContain(
     'aria-label="Close Third view"',
   );
-  expect(html).toMatch(/Third view<\/span><\/div><button[^>]*aria-label="Close Third view"/u);
+  let nestedButtons = 0;
+  new HTMLRewriter()
+    .on('[role="tab"] button', {
+      element() {
+        nestedButtons += 1;
+      },
+    })
+    .transform(html);
+  expect(nestedButtons).toBe(0);
 });

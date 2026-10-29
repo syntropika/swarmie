@@ -40,7 +40,6 @@ export function createPluginControls(
     ],
     ["views", "Views", "Tabs and tools beside the conversation.", true, []],
     ["providers", "Providers", "Provider accounts and available models.", true, []],
-    ["onboarding", "Getting started", "Configure your AI provider.", false, ["Providers"]],
     [
       "notifications",
       "Notifications",

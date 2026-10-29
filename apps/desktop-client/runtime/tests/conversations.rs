@@ -1,0 +1,971 @@
+use serde_json::{Value, json};
+use std::{
+    io::{Read, Write},
+    net::{TcpListener, TcpStream},
+    path::Path,
+    sync::mpsc,
+    thread,
+    time::{Duration, Instant},
+};
+use swarmie_conversations::ConversationStorage;
+use swarmie_desktop_runtime::DesktopNode;
+
+const WAIT: Duration = Duration::from_secs(10);
+
+fn send(node: &DesktopNode, channel: u64, id: u64, op: &str, payload: Value) {
+    node.frame(
+        channel,
+        serde_json::to_vec(&json!({"id":id,"op":op,"payload":payload})).unwrap(),
+    )
+    .unwrap();
+}
+
+fn response(node: &DesktopNode, channel: u64, id: u64) -> Value {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        for frame in node.poll(channel).unwrap() {
+            assert!(
+                frame.len() <= 64 * 1024,
+                "native output exceeded its frame budget"
+            );
+            let value: Value = serde_json::from_slice(&frame).unwrap();
+            if value["id"] == id {
+                return value;
+            }
+        }
+        assert!(Instant::now() < deadline, "native RPC response timed out");
+        thread::sleep(Duration::from_millis(1));
+    }
+}
+
+fn get(node: &DesktopNode, channel: u64, service: &str, key: &str) -> Value {
+    send(
+        node,
+        channel,
+        1,
+        "get",
+        json!({"service":service,"key":[key]}),
+    );
+    let value = response(node, channel, 1);
+    assert!(value.get("error").is_none(), "{value}");
+    value["ok"].clone()
+}
+
+fn peek(node: &DesktopNode, channel: u64, id: &str) -> Value {
+    let object = get(node, channel, "swarmie.conversation.session", id);
+    send(
+        node,
+        channel,
+        3,
+        "release",
+        json!({"reference":object["reference"]}),
+    );
+    let result = response(node, channel, 3);
+    assert!(result.get("error").is_none(), "{result}");
+    object
+}
+
+fn start(
+    node: &DesktopNode,
+    channel: u64,
+    id: u64,
+    reference: &Value,
+    method: &str,
+    arguments: Value,
+) {
+    send(
+        node,
+        channel,
+        id,
+        "call",
+        json!({"reference":reference,"method":method,"arguments":arguments}),
+    );
+}
+
+fn call(
+    node: &DesktopNode,
+    channel: u64,
+    reference: &Value,
+    method: &str,
+    arguments: Value,
+) -> Value {
+    start(node, channel, 2, reference, method, arguments);
+    response(node, channel, 2)
+}
+
+fn session(node: &DesktopNode, channel: u64, id: &str) -> Value {
+    let object = get(node, channel, "swarmie.conversation.session", id);
+    let refreshed = call(node, channel, &object["reference"], "snapshot", json!([]));
+    assert!(refreshed.get("error").is_none(), "{refreshed}");
+    get(node, channel, "swarmie.conversation.session", id)
+}
+
+fn submission(node: &DesktopNode, account: &Value, id: &str, receipt: &str) -> Value {
+    json!({"conversationId":id,"submissionId":receipt,"createConversation":true,"draft":{"text":"Hello","attachments":[],"account":account["id"],"model":"fixture-model","effort":"","node":node.descriptor()["id"]},"mode":"queue"})
+}
+
+struct Reply {
+    status: u16,
+    first: String,
+    tail: String,
+    gate: Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>,
+}
+
+fn delta(text: &str, done: bool) -> String {
+    format!(
+        "{}\n",
+        json!({"model":"fixture-model","created_at":"2026-01-01T00:00:00Z","message":{"role":"assistant","content":text},"done":done,"done_reason":"stop","prompt_eval_count":3,"eval_count":5})
+    )
+}
+
+fn answer(text: &str) -> Reply {
+    Reply {
+        status: 200,
+        first: delta(text, false),
+        tail: delta("", true),
+        gate: None,
+    }
+}
+
+fn read_request(stream: &mut TcpStream) -> String {
+    stream.set_read_timeout(Some(WAIT)).unwrap();
+    let mut data = Vec::new();
+    let (end, length) = loop {
+        let mut bytes = [0; 4096];
+        let count = stream.read(&mut bytes).unwrap();
+        assert!(count > 0);
+        data.extend_from_slice(&bytes[..count]);
+        if let Some(at) = data.windows(4).position(|part| part == b"\r\n\r\n") {
+            let headers = String::from_utf8_lossy(&data[..at]);
+            let length = headers
+                .lines()
+                .find_map(|line| {
+                    line.split_once(':')
+                        .filter(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                        .map(|(_, value)| value.trim().parse::<usize>().unwrap())
+                })
+                .unwrap_or(0);
+            break (at + 4, length);
+        }
+    };
+    while data.len() < end + length {
+        let mut bytes = [0; 4096];
+        let count = stream.read(&mut bytes).unwrap();
+        assert!(count > 0);
+        data.extend_from_slice(&bytes[..count]);
+    }
+    String::from_utf8(data).unwrap()
+}
+
+fn provider(replies: Vec<Reply>) -> (String, thread::JoinHandle<Vec<String>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let server = thread::spawn(move || {
+        let mut requests = Vec::new();
+        let catalog = Reply {
+            status: 200,
+            first: r#"{"models":[{"name":"fixture-model"}]}"#.into(),
+            tail: String::new(),
+            gate: None,
+        };
+        for (index, reply) in std::iter::once(catalog).chain(replies).enumerate() {
+            let deadline = Instant::now() + WAIT;
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(Instant::now() < deadline, "provider request timed out");
+                        thread::sleep(Duration::from_millis(1));
+                    }
+                    Err(error) => panic!("{error}"),
+                }
+            };
+            requests.push(read_request(&mut stream));
+            let mime = if index == 0 || reply.status != 200 {
+                "application/json"
+            } else {
+                "application/x-ndjson"
+            };
+            write!(stream, "HTTP/1.1 {} fixture\r\ncontent-type: {mime}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}", reply.status, reply.first.len() + reply.tail.len(), reply.first).unwrap();
+            stream.flush().unwrap();
+            if let Some((started, release)) = reply.gate {
+                started.send(()).unwrap();
+                release.recv_timeout(WAIT).unwrap();
+            }
+            // A cancelled consumer may already have closed the socket.
+            let _ = stream.write_all(reply.tail.as_bytes());
+        }
+        requests
+    });
+    (endpoint, server)
+}
+
+fn configure(node: &DesktopNode, channel: u64, endpoint: &str) -> Value {
+    let object = get(node, channel, "swarmie.providers.settings", "main");
+    let result = call(
+        node,
+        channel,
+        &object["reference"],
+        "configure",
+        json!([{"providerId":"ollama","method":"local","url":endpoint}]),
+    );
+    assert!(result.get("error").is_none(), "{result}");
+    result["ok"].clone()
+}
+
+fn canonical_messages(path: &Path, node: &Value, id: &str) -> Vec<Value> {
+    let history =
+        swarmie_storage::sqlite::SqliteConversationStorage::open(path.join("conversations.sqlite"))
+            .unwrap();
+    let principal = node["principal"].as_str().unwrap();
+    let identity = uuid::Uuid::new_v5(
+        &uuid::Uuid::NAMESPACE_URL,
+        format!("{}/{principal}/{id}", node["id"].as_str().unwrap()).as_bytes(),
+    )
+    .to_string()
+    .parse()
+    .unwrap();
+    futures::executor::block_on(async {
+        let conversation = history.get(principal, identity).await.unwrap().unwrap();
+        let mut read = swarmie_conversations::Read::new(conversation.head);
+        let mut entries = Vec::new();
+        loop {
+            let page = history.read(principal, read.clone()).await.unwrap();
+            entries.extend(page.entries.into_iter().map(|entry| entry.data));
+            let Some(next) = page.next else {
+                break;
+            };
+            read.after = Some(next);
+        }
+        entries
+    })
+}
+
+#[test]
+fn escaped_large_answers_have_bounded_readable_projections_and_complete_canonical_history() {
+    let text = "\"\\\n".repeat(30 * 1024);
+    let (endpoint, server) = provider(vec![answer(&text), answer("Next answer")]);
+    let directory = tempfile::tempdir().unwrap();
+    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let account = configure(&node, channel, &endpoint);
+    let object = session(&node, channel, "large");
+    for receipt in ["large-first", "large-next"] {
+        let result = call(
+            &node,
+            channel,
+            &object["reference"],
+            "run",
+            json!([submission(&node, &account, "large", receipt)]),
+        );
+        assert_eq!(result["ok"]["status"], "settled", "{result}");
+        let snapshot = session(&node, channel, "large");
+        assert_eq!(snapshot["state"]["phase"], "completed", "{snapshot}");
+        assert!(serde_json::to_vec(&snapshot["state"]).unwrap().len() <= 48 * 1024);
+        assert!(
+            snapshot["state"]["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|message| message["truncated"] == true)
+        );
+    }
+    let descriptor = node.descriptor();
+    drop(node);
+    let reopened = DesktopNode::open(directory.path().into()).unwrap();
+    let reconnected = reopened.open_shared_channel().unwrap();
+    let restored = session(&reopened, reconnected, "large");
+    assert_eq!(restored["state"]["phase"], "completed");
+    assert!(serde_json::to_vec(&restored["state"]).unwrap().len() <= 48 * 1024);
+    assert!(
+        restored["state"]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| message["truncated"] == true)
+    );
+    drop(reopened);
+    let entries = canonical_messages(directory.path(), &descriptor, "large");
+    let encoded = serde_json::to_string(&entries).unwrap();
+    assert!(encoded.len() > 48 * 1024);
+    assert!(entries.iter().any(|entry| {
+        serde_json::to_string(entry)
+            .unwrap()
+            .contains(&serde_json::to_string(&text).unwrap())
+    }));
+    assert!(encoded.contains("Next answer"));
+    assert_eq!(server.join().unwrap().len(), 3);
+}
+
+#[test]
+fn explicit_pre_admission_refusals_do_not_admit_or_lock_the_next_submission() {
+    let (endpoint, server) = provider(vec![answer("Accepted")]);
+    let directory = tempfile::tempdir().unwrap();
+    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let account = configure(&node, channel, &endpoint);
+    let object = session(&node, channel, "refused");
+    let mut rejected = submission(&node, &account, "refused", "unsupported-file");
+    rejected["draft"]["attachments"] = json!(["fixture.txt"]);
+    let result = call(
+        &node,
+        channel,
+        &object["reference"],
+        "run",
+        json!([rejected]),
+    );
+    assert_eq!(result["ok"]["status"], "refused", "{result}");
+    assert!(
+        result["ok"]["reason"]
+            .as_str()
+            .is_some_and(|reason| !reason.is_empty())
+    );
+    assert_eq!(
+        session(&node, channel, "refused")["state"]["admitted"],
+        json!([])
+    );
+    let result = call(
+        &node,
+        channel,
+        &object["reference"],
+        "run",
+        json!([submission(&node, &account, "refused", "accepted")]),
+    );
+    assert_eq!(result["ok"]["status"], "settled", "{result}");
+    let snapshot = session(&node, channel, "refused");
+    assert_eq!(snapshot["state"]["phase"], "completed");
+    assert_eq!(snapshot["state"]["admitted"], json!(["accepted"]));
+    assert_eq!(server.join().unwrap().len(), 2);
+}
+
+#[test]
+fn rejected_provider_response_settles_failed_and_allows_a_new_explicit_message() {
+    let rejected = Reply {
+        status: 400,
+        first: json!({"error":"synthetic provider rejection"}).to_string(),
+        tail: String::new(),
+        gate: None,
+    };
+    let (endpoint, server) = provider(vec![rejected, answer("Recovered")]);
+    let directory = tempfile::tempdir().unwrap();
+    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let account = configure(&node, channel, &endpoint);
+    let object = session(&node, channel, "failure");
+    for (receipt, phase) in [("failed", "failed"), ("new-input", "completed")] {
+        let result = call(
+            &node,
+            channel,
+            &object["reference"],
+            "run",
+            json!([submission(&node, &account, "failure", receipt)]),
+        );
+        assert_eq!(result["ok"]["status"], "settled", "{result}");
+        assert_eq!(session(&node, channel, "failure")["state"]["phase"], phase);
+    }
+    let requests = server.join().unwrap();
+    assert_eq!(
+        requests.len(),
+        3,
+        "a failed request must not be replayed automatically"
+    );
+}
+
+fn interrupted_stream(kind: &str) {
+    let (started, observed) = mpsc::channel();
+    let (release, wait) = mpsc::channel();
+    let mut held = answer("Uncommitted preview");
+    held.gate = Some((started, wait));
+    let (endpoint, server) = provider(vec![held, answer("New explicit message")]);
+    let directory = tempfile::tempdir().unwrap();
+    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let first = node.open_shared_channel().unwrap();
+    let observer = node.open_shared_channel().unwrap();
+    let account = configure(&node, first, &endpoint);
+    let object = session(&node, first, kind);
+    start(
+        &node,
+        first,
+        90,
+        &object["reference"],
+        "run",
+        json!([submission(&node, &account, kind, "interrupted")]),
+    );
+    observed.recv_timeout(WAIT).unwrap();
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let snapshot = peek(&node, observer, kind);
+        if snapshot["state"]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| message["id"] == "preview")
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline, "stream preview was not observed");
+        thread::sleep(Duration::from_millis(1));
+    }
+    let remote = session(&node, observer, kind);
+    match kind {
+        "disconnect" => node.close_channel(first),
+        "stop" => start(&node, observer, 91, &remote["reference"], "stop", json!([])),
+        "steer" => {
+            let mut next = submission(&node, &account, kind, "new-explicit");
+            next["mode"] = json!("steer");
+            start(
+                &node,
+                observer,
+                91,
+                &remote["reference"],
+                "run",
+                json!([next]),
+            );
+        }
+        _ => unreachable!(),
+    }
+    // The command is queued before the provider finishes. No cancellation assumes rollback.
+    thread::sleep(Duration::from_millis(20));
+    release.send(()).unwrap();
+    if kind != "disconnect" {
+        let result = response(&node, first, 90);
+        assert!(
+            result.get("error").is_none() || result["error"]["code"] == "cancelled",
+            "{result}"
+        );
+        let result = response(&node, observer, 91);
+        assert!(result.get("error").is_none(), "{result}");
+    }
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let snapshot = session(&node, observer, kind);
+        if snapshot["state"]["phase"] != "working" {
+            assert_eq!(
+                snapshot["state"]["phase"],
+                if kind == "steer" {
+                    "completed"
+                } else {
+                    "stopped"
+                },
+                "{snapshot}"
+            );
+            assert!(
+                !snapshot["state"]["messages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|message| message["id"] == "preview")
+            );
+            assert!(
+                !snapshot["state"]["messages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|message| message["text"] == "Uncommitted preview")
+            );
+            break;
+        }
+        assert!(Instant::now() < deadline, "cancelled stream did not settle");
+        thread::sleep(Duration::from_millis(1));
+    }
+    if kind != "steer" {
+        let result = call(
+            &node,
+            observer,
+            &remote["reference"],
+            "run",
+            json!([submission(&node, &account, kind, "new-explicit")]),
+        );
+        assert_eq!(result["ok"]["status"], "settled", "{result}");
+    }
+    assert_eq!(
+        session(&node, observer, kind)["state"]["phase"],
+        "completed"
+    );
+    assert_eq!(
+        server.join().unwrap().len(),
+        3,
+        "only explicit user submissions may run"
+    );
+}
+
+#[test]
+fn closing_the_observer_settles_stopped_and_allows_a_new_explicit_message() {
+    interrupted_stream("disconnect");
+}
+
+#[test]
+fn stopping_clears_uncommitted_stream_preview_after_physical_settlement() {
+    interrupted_stream("stop");
+}
+
+#[test]
+fn steering_waits_for_cancelled_execution_and_admits_only_the_new_explicit_message() {
+    interrupted_stream("steer");
+}
+
+#[test]
+fn conversation_catalog_pages_stay_bounded_and_refuse_a_stale_revision_cursor() {
+    let directory = tempfile::tempdir().unwrap();
+    let records: Vec<Value> = (0..350).map(|index| json!({"id":format!("conversation-{index}"),"title":"\\\"".repeat(200),"principal":"desktop-user","node":"synthetic-node","account":"synthetic-account","model":"fixture-model","effort":"","archived":false,"pinned":false,"receipts":[],"phase":"completed"})).collect();
+    std::fs::write(
+        directory.path().join("conversations.json"),
+        serde_json::to_vec(&records).unwrap(),
+    )
+    .unwrap();
+    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let catalog = get(&node, channel, "swarmie.conversation.catalog", "main");
+    let mut cursor = Value::Null;
+    let mut ids = std::collections::BTreeSet::new();
+    let mut first_cursor = Value::Null;
+    loop {
+        let page = call(
+            &node,
+            channel,
+            &catalog["reference"],
+            "list",
+            json!([cursor]),
+        );
+        assert!(page.get("error").is_none(), "{page}");
+        assert!(serde_json::to_vec(&page["ok"]).unwrap().len() < 48 * 1024);
+        for entry in page["ok"]["entries"].as_array().unwrap() {
+            assert!(ids.insert(entry["id"].as_str().unwrap().to_owned()));
+            assert!(entry.get("principal").is_none());
+            assert!(entry.get("receipts").is_none());
+        }
+        cursor = page["ok"]["nextCursor"].clone();
+        if first_cursor.is_null() {
+            first_cursor = cursor.clone();
+            let index = directory.path().join("conversations.json");
+            let mut metadata: Vec<Value> =
+                serde_json::from_slice(&std::fs::read(&index).unwrap()).unwrap();
+            metadata[0]["phase"] = json!("working");
+            metadata[0]["receipts"] = json!([{"id":"progress-only","digest":"synthetic-digest"}]);
+            let head = json!({"conversation":uuid::Uuid::new_v4().to_string(),"entry":null});
+            let checkpoint = json!({"input":{"at":head,"instructions":"","tools":[],"max_turns":1},"head":head,"turn":0,"usage":{"input_tokens":0,"output_tokens":0},"available_tools":[],"phase":{"kind":"prepare_turn"}});
+            let _: swarmie_agent_loop::conversation::Checkpoint =
+                serde_json::from_value(checkpoint.clone()).unwrap();
+            metadata[0]["checkpoint"] = checkpoint;
+            std::fs::write(index, serde_json::to_vec(&metadata).unwrap()).unwrap();
+        }
+        if cursor.is_null() {
+            break;
+        }
+    }
+    assert_eq!(ids.len(), 350);
+    let update = call(
+        &node,
+        channel,
+        &catalog["reference"],
+        "update",
+        json!(["conversation-0", "Updated", false, false]),
+    );
+    assert!(update.get("error").is_none(), "{update}");
+    let stale = call(
+        &node,
+        channel,
+        &catalog["reference"],
+        "list",
+        json!([first_cursor]),
+    );
+    assert!(
+        stale.get("error").is_some(),
+        "a revision change must refuse mixed-page results: {stale}"
+    );
+    let fresh = call(&node, channel, &catalog["reference"], "list", json!([null]));
+    assert!(fresh.get("error").is_none(), "{fresh}");
+    let index = directory.path().join("conversations.json");
+    let mut inventory: Vec<Value> =
+        serde_json::from_slice(&std::fs::read(&index).unwrap()).unwrap();
+    let mut additional = inventory[1].clone();
+    additional["id"] = json!("new-inventory-entry");
+    inventory.push(additional);
+    std::fs::write(index, serde_json::to_vec(&inventory).unwrap()).unwrap();
+    let stale = call(
+        &node,
+        channel,
+        &catalog["reference"],
+        "list",
+        json!([fresh["ok"]["nextCursor"]]),
+    );
+    assert!(
+        stale.get("error").is_some(),
+        "inventory changes must refuse mixed-page results: {stale}"
+    );
+}
+
+fn seed_history(
+    path: &Path,
+    node: &Value,
+    account: &Value,
+    id: &str,
+    phase: &str,
+    messages: Vec<swarmie_agent_loop::Message>,
+) {
+    use futures::{FutureExt, executor::LocalPool};
+    use std::rc::Rc;
+    use swarmie_agent_loop::conversation::Record;
+    use swarmie_conversations::{Conversations, EntryDraft, WriteConfirmation};
+
+    let principal = node["principal"].as_str().unwrap();
+    let identity = uuid::Uuid::new_v5(
+        &uuid::Uuid::NAMESPACE_URL,
+        format!("{}/{principal}/{id}", node["id"].as_str().unwrap()).as_bytes(),
+    )
+    .to_string()
+    .parse()
+    .unwrap();
+    let storage = Rc::new(
+        swarmie_storage::sqlite::SqliteConversationStorage::open(path.join("conversations.sqlite"))
+            .unwrap(),
+    );
+    let history = Conversations::new(storage);
+    let mut pool = LocalPool::new();
+    let host = tembra::Host::new(pool.spawner());
+    pool.run_until(host.root(principal, move |context| {
+        async move {
+            let created = history.create(&context, identity).await?;
+            assert_eq!(created.confirmation, WriteConfirmation::Committed);
+            let entries = messages
+                .into_iter()
+                .map(|message| EntryDraft::encode(Record::Message(message)))
+                .collect::<Result<Vec<_>, _>>()?;
+            let appended = history.append(&context, created.head, entries).await?;
+            assert_eq!(appended.confirmation, WriteConfirmation::Committed);
+            Ok(())
+        }
+        .boxed_local()
+    }))
+    .unwrap();
+    let index = path.join("conversations.json");
+    let mut records: Vec<Value> = match std::fs::read(&index) {
+        Ok(bytes) => serde_json::from_slice(&bytes).unwrap(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => vec![],
+        Err(error) => panic!("{error}"),
+    };
+    records.push(json!({"id":id,"title":"Persisted tool fixture","principal":principal,"node":node["id"],"account":account["id"],"model":"fixture-model","effort":"","archived":false,"pinned":false,"receipts":[],"phase":phase,"checkpoint":null}));
+    std::fs::write(index, serde_json::to_vec(&records).unwrap()).unwrap();
+}
+
+fn pending_tool_messages() -> Vec<swarmie_agent_loop::Message> {
+    use swarmie_agent_loop::{AssistantMessage, Message, ToolCall, ToolCallId, ToolName};
+
+    vec![
+        Message::User {
+            content: "Run the synthetic tool".into(),
+        },
+        Message::Assistant(AssistantMessage {
+            content: String::new(),
+            tool_calls: vec![ToolCall {
+                id: ToolCallId::new("pending-call").unwrap(),
+                name: ToolName::new("mcp.synthetic.effect").unwrap(),
+                arguments: json!({"synthetic":true}),
+            }],
+        }),
+    ]
+}
+
+#[test]
+fn persisted_unknown_tool_outcome_requires_explicit_acknowledgement_without_dispatch() {
+    use swarmie_agent_loop::{Message, ToolResult, conversation::Record};
+
+    let (endpoint, server) = provider(vec![answer("Fresh response after acknowledgement")]);
+    let directory = tempfile::tempdir().unwrap();
+    let initial = DesktopNode::open(directory.path().into()).unwrap();
+    let channel = initial.open_shared_channel().unwrap();
+    let account = configure(&initial, channel, &endpoint);
+    let descriptor = initial.descriptor();
+    drop(initial);
+    seed_history(
+        directory.path(),
+        &descriptor,
+        &account,
+        "interrupted-tool",
+        "unknown",
+        pending_tool_messages(),
+    );
+    let before = canonical_messages(directory.path(), &descriptor, "interrupted-tool");
+    assert_eq!(before.len(), 2);
+    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let object = session(&node, channel, "interrupted-tool");
+    assert_eq!(object["state"]["phase"], "unknown");
+    assert_eq!(object["state"]["canAcknowledge"], true);
+    let stopped = call(&node, channel, &object["reference"], "stop", json!([]));
+    assert!(stopped.get("error").is_none(), "{stopped}");
+    assert_eq!(
+        peek(&node, channel, "interrupted-tool")["state"]["phase"],
+        "unknown"
+    );
+    let refused = call(
+        &node,
+        channel,
+        &object["reference"],
+        "run",
+        json!([submission(
+            &node,
+            &account,
+            "interrupted-tool",
+            "before-acknowledgement"
+        )]),
+    );
+    assert_eq!(refused["ok"]["status"], "refused", "{refused}");
+    assert_eq!(
+        canonical_messages(directory.path(), &descriptor, "interrupted-tool"),
+        before
+    );
+    let acknowledged = call(
+        &node,
+        channel,
+        &object["reference"],
+        "acknowledge",
+        json!([]),
+    );
+    assert!(acknowledged.get("error").is_none(), "{acknowledged}");
+    let acknowledged = peek(&node, channel, "interrupted-tool");
+    assert_eq!(acknowledged["state"]["phase"], "stopped");
+    assert_eq!(acknowledged["state"]["canAcknowledge"], false);
+    let annotated = canonical_messages(directory.path(), &descriptor, "interrupted-tool");
+    assert_eq!(&annotated[..2], before);
+    assert_eq!(
+        annotated.len(),
+        3,
+        "acknowledgement must only append a terminal annotation"
+    );
+    let annotation: Record = serde_json::from_value(annotated[2].clone()).unwrap();
+    assert!(
+        matches!(annotation, Record::Message(Message::Tool { call, result: ToolResult::Failed(reason) }) if call.as_str() == "pending-call" && reason == "outcome unknown; not replayed")
+    );
+    let repeated = call(
+        &node,
+        channel,
+        &object["reference"],
+        "acknowledge",
+        json!([]),
+    );
+    assert!(repeated.get("error").is_none(), "{repeated}");
+    assert_eq!(
+        canonical_messages(directory.path(), &descriptor, "interrupted-tool"),
+        annotated
+    );
+    let result = call(
+        &node,
+        channel,
+        &object["reference"],
+        "run",
+        json!([submission(
+            &node,
+            &account,
+            "interrupted-tool",
+            "fresh-explicit-message"
+        )]),
+    );
+    assert_eq!(result["ok"]["status"], "settled", "{result}");
+    assert_eq!(
+        peek(&node, channel, "interrupted-tool")["state"]["phase"],
+        "completed"
+    );
+    let requests = server.join().unwrap();
+    assert_eq!(
+        requests.len(),
+        2,
+        "acknowledgement cannot invoke a model or a tool"
+    );
+    assert!(requests[1].contains("outcome unknown; not replayed"));
+}
+
+#[test]
+fn large_canonical_tool_result_has_a_bounded_readable_projection_without_rewriting_history() {
+    use swarmie_agent_loop::{Message, ToolCallId, ToolResult};
+
+    let directory = tempfile::tempdir().unwrap();
+    let initial = DesktopNode::open(directory.path().into()).unwrap();
+    let descriptor = initial.descriptor();
+    drop(initial);
+    let text = "\"\\\n暖".repeat(30 * 1024);
+    let mut messages = pending_tool_messages();
+    messages.push(Message::Tool {
+        call: ToolCallId::new("pending-call").unwrap(),
+        result: ToolResult::Success(json!({"payload":text})),
+    });
+    seed_history(
+        directory.path(),
+        &descriptor,
+        &json!({"id":"synthetic-account"}),
+        "large-tool",
+        "completed",
+        messages,
+    );
+    let before = canonical_messages(directory.path(), &descriptor, "large-tool");
+    assert!(serde_json::to_vec(&before).unwrap().len() > 48 * 1024);
+    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let object = session(&node, channel, "large-tool");
+    assert_eq!(object["state"]["phase"], "completed");
+    assert!(serde_json::to_vec(&object["state"]).unwrap().len() <= 48 * 1024);
+    let tool = object["state"]["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|message| message["role"] == "tool")
+        .unwrap();
+    assert_eq!(tool["truncated"], true);
+    assert!(!tool["text"].as_str().unwrap().is_empty());
+    assert!(tool["text"].as_str().unwrap().len() < text.len());
+    drop(node);
+    assert_eq!(
+        canonical_messages(directory.path(), &descriptor, "large-tool"),
+        before
+    );
+}
+
+#[test]
+fn confirmed_duplicate_stays_admitted_when_its_provider_account_becomes_unavailable() {
+    let (endpoint, server) = provider(vec![answer("Committed answer")]);
+    let directory = tempfile::tempdir().unwrap();
+    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let account = configure(&node, channel, &endpoint);
+    let object = session(&node, channel, "duplicate-without-provider");
+    let input = submission(
+        &node,
+        &account,
+        "duplicate-without-provider",
+        "confirmed-receipt",
+    );
+    let first = call(
+        &node,
+        channel,
+        &object["reference"],
+        "run",
+        json!([input.clone()]),
+    );
+    assert_eq!(first["ok"]["status"], "settled", "{first}");
+    let confirmed = peek(&node, channel, "duplicate-without-provider");
+    assert_eq!(confirmed["state"]["phase"], "completed");
+    assert_eq!(confirmed["state"]["admitted"], json!(["confirmed-receipt"]));
+    let before = canonical_messages(
+        directory.path(),
+        &node.descriptor(),
+        "duplicate-without-provider",
+    );
+    assert_eq!(
+        server.join().unwrap().len(),
+        2,
+        "the initial submission must invoke exactly one model request"
+    );
+    // Remove only metadata created by this synthetic fixture. Confirmed admission
+    // remains authoritative when its former provider can no longer be resolved.
+    std::fs::write(directory.path().join("providers.json"), b"[]").unwrap();
+    let duplicate = call(&node, channel, &object["reference"], "run", json!([input]));
+    assert_eq!(
+        canonical_messages(
+            directory.path(),
+            &node.descriptor(),
+            "duplicate-without-provider"
+        ),
+        before,
+        "observing a confirmed duplicate cannot append or replay history"
+    );
+    assert_eq!(
+        peek(&node, channel, "duplicate-without-provider")["state"]["admitted"],
+        json!(["confirmed-receipt"])
+    );
+    assert_eq!(
+        duplicate["ok"]["status"], "settled",
+        "confirmed admission cannot become a pre-admission refusal when provider resolution fails: {duplicate}"
+    );
+}
+
+#[test]
+fn repeating_a_live_steer_submission_observes_admission_without_cancelling_or_replaying() {
+    use swarmie_agent_loop::{Message, conversation::Record};
+
+    let (started, observed) = mpsc::channel();
+    let (release, wait) = mpsc::channel();
+    let mut held = answer("Original live response");
+    held.gate = Some((started, wait));
+    let (endpoint, server) = provider(vec![held]);
+    let directory = tempfile::tempdir().unwrap();
+    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let first = node.open_shared_channel().unwrap();
+    let observer = node.open_shared_channel().unwrap();
+    let account = configure(&node, first, &endpoint);
+    let object = session(&node, first, "duplicate-live-steer");
+    let remote = session(&node, observer, "duplicate-live-steer");
+    let mut input = submission(
+        &node,
+        &account,
+        "duplicate-live-steer",
+        "live-steer-receipt",
+    );
+    input["mode"] = json!("steer");
+    start(
+        &node,
+        first,
+        90,
+        &object["reference"],
+        "run",
+        json!([input.clone()]),
+    );
+    observed.recv_timeout(WAIT).unwrap();
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let snapshot = peek(&node, observer, "duplicate-live-steer");
+        if snapshot["state"]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| message["id"] == "preview")
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "live stream preview did not arrive"
+        );
+        thread::sleep(Duration::from_millis(1));
+    }
+    let duplicate = call(&node, observer, &remote["reference"], "run", json!([input]));
+    assert_eq!(duplicate["ok"]["status"], "settled", "{duplicate}");
+    let still_running = peek(&node, observer, "duplicate-live-steer");
+    assert_eq!(
+        still_running["state"]["phase"], "working",
+        "observing a duplicate cannot cancel its original invocation"
+    );
+    assert_eq!(
+        still_running["state"]["admitted"],
+        json!(["live-steer-receipt"])
+    );
+    release.send(()).unwrap();
+    let original = response(&node, first, 90);
+    assert_eq!(original["ok"]["status"], "settled", "{original}");
+    let completed = session(&node, observer, "duplicate-live-steer");
+    assert_eq!(completed["state"]["phase"], "completed");
+    let entries = canonical_messages(directory.path(), &node.descriptor(), "duplicate-live-steer");
+    let messages: Vec<Message> = entries
+        .into_iter()
+        .filter_map(
+            |entry| match serde_json::from_value::<Record>(entry).unwrap() {
+                Record::Message(message) => Some(message),
+                _ => None,
+            },
+        )
+        .collect();
+    assert_eq!(
+        messages.len(),
+        2,
+        "a duplicate cannot append another canonical user or assistant message"
+    );
+    assert!(matches!(&messages[0], Message::User { content } if content == "Hello"));
+    assert!(
+        matches!(&messages[1], Message::Assistant(assistant) if assistant.content == "Original live response")
+    );
+    assert_eq!(
+        server.join().unwrap().len(),
+        2,
+        "only the original submission may invoke inference"
+    );
+}

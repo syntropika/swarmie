@@ -1,50 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { Icon } from "./icon";
-import type { IconName } from "./icon";
-
-const catalog = [
-  "workspaces",
-  "home",
-  "chat",
-  "task",
-  "project",
-  "agent",
-  "memory",
-  "people",
-  "mention",
-  "microphone",
-  "search",
-  "bell",
-  "inbox",
-  "file",
-  "grid",
-  "settings",
-  "panel",
-  "sidebar",
-  "pin",
-  "clock",
-  "history",
-  "menu",
-  "chevron",
-  "arrow",
-  "back",
-  "arrows-exchange",
-  "plus",
-  "close",
-  "stop",
-  "mail",
-  "key",
-  "lock",
-  "eye",
-  "eye-off",
-  "world",
-  "check",
-  "circle-check",
-  "circle-attention",
-  "triangle-attention",
-  "circle-close",
-] as const satisfies readonly IconName[];
+import { Icon, iconNames } from "./icon";
 
 const meta = {
   title: "Atoms/Icon",
@@ -70,7 +26,7 @@ export const Compact: Story = { args: { name: "check", className: "size-4" } };
 export const Catalog: Story = {
   render: () => (
     <ul className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
-      {catalog.map((name) => (
+      {iconNames.map((name) => (
         <li key={name} className="flex items-center gap-3 text-ui">
           <Icon name={name} />
           <span>{name}</span>

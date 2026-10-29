@@ -10,7 +10,7 @@ import { cn } from "../classes";
 import { Reference, Section } from "./reference";
 
 const topics = [
-  ["brand", "Brand", "Canonical monochrome and orange-dot logos."],
+  ["brand", "Brand", "Canonical monochrome and coral-dot logos."],
   [
     "responsive-design",
     "Responsive Design",
@@ -42,19 +42,19 @@ export function FoundationOverview() {
               target="_top"
               className="grid gap-2 rounded-small py-4 text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary @lg:grid-cols-3"
             >
-              <span className="text-body font-medium underline underline-offset-4">{title}</span>
-              <span className="text-ui text-ink @lg:col-span-2">{description}</span>
+              <span className="text-base font-medium underline underline-offset-4">{title}</span>
+              <span className="text-sm text-foreground @lg:col-span-2">{description}</span>
             </a>
           ))}
         </nav>
       </Section>
       <Section title="One system, shared building blocks">
-        <p className="max-w-3xl text-body">
+        <p className="max-w-3xl text-base">
           Fonts, semantic tokens and theme definitions belong to @swarmie/config. Atoms expose
           HeroUI controls. Molecules compose those controls into fields, menus and application
           patterns. Web and desktop consume the same public components and typography scale.
         </p>
-        <p className="max-w-3xl text-ui text-text-muted">
+        <p className="max-w-3xl text-sm text-muted">
           Application features own content, data and layout. Native keeps its platform renderer and
           its own qualification; it does not introduce another web component collection.
         </p>
@@ -79,25 +79,25 @@ const brandVariants = [
     group: "monochrome",
   },
   {
-    name: "Dark ink + orange dot",
+    name: "Dark ink + coral dot",
     logo: inkCoralLogo,
     mark: inkCoralMark,
     theme: "light",
-    group: "orange",
+    group: "coral",
   },
   {
-    name: "White + orange dot",
+    name: "White + coral dot",
     logo: whiteCoralLogo,
     mark: whiteCoralMark,
     theme: "dark",
-    group: "orange",
+    group: "coral",
   },
 ] as const;
 
 function brandPreview(theme: "light" | "dark") {
   return cn(
-    "grid gap-6 rounded-panel p-6 text-ink @lg:p-8",
-    theme === "light" ? "border border-border-subtle bg-surface-muted" : "bg-canvas",
+    "grid gap-6 rounded-3xl p-6 text-foreground @lg:p-8",
+    theme === "light" ? "border border-border-subtle bg-surface-muted" : "bg-background",
   );
 }
 
@@ -131,12 +131,12 @@ export function BrandReference() {
         </div>
       </Section>
       <Section
-        title="Orange-dot logos"
-        description="The same dark and white versions with the canonical orange (coral) dot."
+        title="Coral-dot logos"
+        description="The same dark and white versions with the canonical coral dot."
       >
         <div className="grid gap-6 @lg:grid-cols-2">
           {brandVariants
-            .filter((variant) => variant.group === "orange")
+            .filter((variant) => variant.group === "coral")
             .map((variant) => (
               <figure
                 key={variant.name}
@@ -155,7 +155,7 @@ export function BrandReference() {
       </Section>
       <Section
         title="Mark and full logo"
-        description="The standalone symbol and the complete logo containing the swarmie wordmark, in monochrome and orange-dot treatments."
+        description="The standalone symbol and the complete logo containing the swarmie wordmark, in monochrome and coral-dot treatments."
       >
         <div className="grid gap-6">
           {brandVariants.map((variant) => (
@@ -167,7 +167,7 @@ export function BrandReference() {
               <h3 className="text-label">{variant.name}</h3>
               <div className="grid gap-6 @lg:grid-cols-2">
                 <figure className="grid content-start gap-4">
-                  <figcaption className="text-caption text-text-muted">Symbol only</figcaption>
+                  <figcaption className="text-xs text-muted">Symbol only</figcaption>
                   <img
                     src={variant.mark}
                     alt={`Swarmie ${variant.name} standalone mark`}
@@ -175,7 +175,7 @@ export function BrandReference() {
                   />
                 </figure>
                 <figure className="grid content-start gap-4">
-                  <figcaption className="text-caption text-text-muted">Symbol + swarmie</figcaption>
+                  <figcaption className="text-xs text-muted">Symbol + swarmie</figcaption>
                   <img
                     src={variant.logo}
                     alt={`Swarmie ${variant.name} full logo comparison`}

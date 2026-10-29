@@ -86,7 +86,7 @@ function HistoryExample({
         </Button>
         <Button
           variant="secondary"
-          disabled={entries.length > 1000}
+          isDisabled={entries.length > 1000}
           onClick={() => {
             setEntries((current) => [...createEntries(0, 100), ...current]);
           }}

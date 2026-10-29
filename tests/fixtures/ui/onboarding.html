@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en" data-theme="dark" class="dark">
+  <head>
+    <script type="module">
+      import { injectIntoGlobalHook } from "/@react-refresh";
+      injectIntoGlobalHook(window);
+      window.$RefreshReg$ = () => {};
+      window.$RefreshSig$ = () => (type) => type;
+    </script>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Onboarding presentation fixture</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./onboarding.tsx"></script>
+  </body>
+</html>

@@ -31,27 +31,34 @@ import { createProjectsApi, projectsOrb } from "@swarmie/plugin-projects-browser
 import { projectsIntegrationOrb } from "@swarmie/plugin-projects-browser/integration";
 import type { ProjectsPresentation } from "@swarmie/plugin-projects-browser/views";
 import type { ProvidersBackend } from "@swarmie/plugin-providers-browser";
-import { createProvidersApi, providersOrb } from "@swarmie/plugin-providers-browser";
+import { providersOrb } from "@swarmie/plugin-providers-browser";
 import { readAloudOrb } from "@swarmie/plugin-read-aloud-browser";
-import { settingsOrb } from "@swarmie/plugin-settings-browser";
+import { loadToolDetails, settingsOrb } from "@swarmie/plugin-settings-browser";
+import type { ToolDetailsPersistence } from "@swarmie/plugin-settings-browser";
 import type { Tab } from "@swarmie/plugin-views-browser";
 import { createViewsApi, viewsOrb } from "@swarmie/plugin-views-browser";
 import type { ReferenceBase } from "@syntropika/tembra-sdk";
 import type { Host } from "@syntropika/tembra-sdk/runtime";
 
+import { createDirectoryBrowser } from "./directories";
+import { createNodeExecution } from "./node-execution";
+import { observeOnboarding } from "./onboarding";
 import { createPluginControls } from "./plugins";
 import { layoutSnapshot, selectSnapshot } from "./projections";
 import { loadProjects, persistProjects } from "./projects";
+import { createProvidersPresentation } from "./provider-node";
 import { createSubmissions } from "./submissions";
 import type { ExecutionFactory } from "./submissions";
 
 export type ClientOptions = {
   dev: boolean;
+  nodeServices?: boolean;
   connector?: Connector;
   nodes?: Node[];
   execution?: ExecutionFactory;
   providers?: ProvidersBackend;
   projectsPersistence?: ProjectsPersistence;
+  toolDetailsPersistence?: ToolDetailsPersistence;
 };
 
 /** Mounts local capabilities without waiting for node networking. */
@@ -120,8 +127,29 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     stateOf(host.get(projectsDefinition.services["swarmie.projects.ui"], "main")),
     stateOf(host.get(mcpOrb.services["swarmie.mcp.ui"], "main")),
   ]);
-  const providers = createProvidersApi(providersState, providersState.commit, options.providers);
-  detachSources.push(providers.dispose);
+  await settings.commit((current) => ({
+    ...current,
+    toolDetails: loadToolDetails(options.toolDetailsPersistence),
+  }));
+  if (options.toolDetailsPersistence) {
+    const persistence = options.toolDetailsPersistence;
+    let previous = settings.getSnapshot().toolDetails;
+    detachSources.push(
+      settings.subscribe(() => {
+        const current = settings.getSnapshot().toolDetails;
+        if (current === previous) {
+          return;
+        }
+        previous = current;
+        try {
+          persistence.save(current);
+        } catch {
+          // A blocked store does not prevent this session's display choice.
+          console.warn("The tool display preference could not be saved.");
+        }
+      }),
+    );
+  }
   const conversationsOwner = await conversationsReference;
   const shellOwner = await shellReference;
   const conversationsUi = conversationsOwner.opaque<ConversationsUiApi>("ui");
@@ -172,25 +200,60 @@ export async function initializeClient(host: Host, options: ClientOptions) {
             ? {
                 ...record,
                 messages: [],
-                execution: { ...record.execution, phase: "unknown", label: "Node access changed." },
+                execution: {
+                  ...record.execution,
+                  phase: "unknown",
+                  label: "Node access changed.",
+                  canAcknowledge: false,
+                },
               }
             : record,
         ),
       }));
     }
   });
+  const providerPresentation = createProvidersPresentation(
+    providersState,
+    providersState.commit,
+    connectionState,
+    nodeConnections,
+    options.providers,
+    options.nodeServices,
+  );
+  const providers = providerPresentation.api;
+  detachSources.push(
+    () => {
+      providerPresentation.dispose();
+    },
+    observeOnboarding(onboarding, providers.state),
+  );
   const mcp = createMcpApi(mcpState, connectionState, nodeConnections);
   detachSources.push(() => {
     mcp.dispose();
   });
+  const nodeExecution =
+    options.nodeServices === true && options.execution === undefined
+      ? createNodeExecution(
+          connectionState,
+          nodeConnections,
+          records,
+          () => shellState.getSnapshot().active,
+        )
+      : null;
+  if (nodeExecution !== null) {
+    detachSources.push(() => {
+      nodeExecution.dispose();
+    });
+  }
   const submissions = createSubmissions(
     nodeConnections,
     connectionState,
     records,
     providers,
-    options.execution,
+    options.execution ?? nodeExecution?.factory,
     conversationsUi.lifecycle,
     nextId,
+    nodeExecution,
   );
   let firstConversation: Conversation | undefined;
   function activeConversation(): Conversation {
@@ -205,6 +268,10 @@ export async function initializeClient(host: Host, options: ClientOptions) {
   function openConversation(id: string) {
     navigate({ active: id, section: "conversations" });
     views.update((current) => ({ ...current, conversationVisible: true, mobile: "conversation" }));
+    const chat = roster.getSnapshot().find((entry) => entry.id === id);
+    if (nodeExecution !== null && chat?.node !== null && chat?.node !== undefined) {
+      nodeExecution.observe(chat.node, id).catch(records.fail);
+    }
   }
   function createConversation(node = connectionState.getSnapshot().selected): Conversation {
     const selection = providers.defaultSelection();
@@ -222,7 +289,6 @@ export async function initializeClient(host: Host, options: ClientOptions) {
         model: selection?.model ?? "",
         effort: selection?.effort ?? "",
         node,
-        permission: "Ask",
       },
       messages: [],
       execution: { phase: "idle", label: "", queue: [], steering: [] },
@@ -231,14 +297,31 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     openConversation(chat.id);
     return chat;
   }
+  function newSideChat(chat: Conversation): Conversation {
+    viewCommands.showConversation();
+    viewCommands.open("conversation", chat);
+    return createConversation();
+  }
+  function changeMetadata(
+    chat: Conversation,
+    change: (
+      record: Pick<Conversation, "title" | "pinned" | "archived">,
+    ) => Partial<Pick<Conversation, "title" | "pinned" | "archived">>,
+  ) {
+    if (chat.node !== null && nodeExecution !== null) {
+      nodeExecution.metadata(chat.node, chat.id, change).catch(records.fail);
+    } else {
+      records.commit(chat.id, (record) => ({ ...record, ...change(record) })).catch(records.fail);
+    }
+  }
   function renameConversation(chat: Conversation, title: string) {
-    records.update(chat.id, (record) => ({ ...record, title }));
+    changeMetadata(chat, () => ({ title }));
   }
   function togglePin(chat: Conversation) {
-    records.update(chat.id, (record) => ({ ...record, pinned: !record.pinned }));
+    changeMetadata(chat, (record) => ({ pinned: !record.pinned }));
   }
   function archive(chat: Conversation) {
-    records.update(chat.id, (record) => ({ ...record, archived: true }));
+    changeMetadata(chat, () => ({ archived: true }));
     if (shellState.getSnapshot().active === chat.id) {
       const next = roster.getSnapshot().find((item) => item.id !== chat.id && !item.archived);
       if (next) {
@@ -254,6 +337,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
   }
   const projectsPresentation: ProjectsPresentation = {
     api: projects,
+    directories: createDirectoryBrowser(nodeConnections),
     conversations: roster,
     nodes: selectSnapshot(connectionState, (value) => value.nodes),
     open: (projectId) => {
@@ -429,6 +513,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     nextId,
     activeConversation,
     createConversation,
+    newSideChat,
     navigate,
     travel,
     openConversation,

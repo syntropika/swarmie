@@ -41,7 +41,7 @@ function FragmentedWorkspace() {
   return (
     <div
       data-motion-scene="problem"
-      className="mx-auto w-full max-w-[520px] rounded-4xl bg-primary-soft/55 p-3 sm:p-6"
+      className="mx-auto w-full max-w-[520px] rounded-marketing-shell bg-primary-soft/55 p-3 sm:p-6"
       aria-hidden="true"
     >
       <svg viewBox="0 0 520 284" className="h-auto w-full" fill="none">
@@ -152,7 +152,7 @@ export function ProblemSection() {
   return (
     <section aria-labelledby="problem-title" className="bg-surface-muted/45 py-20 md:py-28">
       <div className="mx-auto w-[min(1248px,calc(100%_-_48px))] md:w-[min(1248px,calc(100%_-_96px))]">
-        <div className="overflow-hidden rounded-4xl bg-surface shadow-raised">
+        <div className="overflow-hidden rounded-marketing-shell bg-surface shadow-raised">
           <div className="grid items-center gap-10 px-6 py-10 sm:px-10 md:py-14 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.95fr)] lg:gap-14 lg:px-14 lg:py-16">
             <div>
               <h2
@@ -171,7 +171,7 @@ export function ProblemSection() {
             {fragments.map(({ title, description, color, kind }) => (
               <li key={title} className="p-6 sm:p-8 lg:p-10">
                 <span
-                  className={`flex size-12 items-center justify-center rounded-2xl text-ink ${color}`}
+                  className={`flex size-12 items-center justify-center rounded-panel text-ink ${color}`}
                 >
                   <FragmentIcon kind={kind} />
                 </span>

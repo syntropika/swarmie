@@ -20,9 +20,21 @@ pub struct Counter {
     catalog_reads: Arc<AtomicU64>,
     catalog_started: Arc<tokio::sync::Notify>,
     catalog_delay: std::time::Duration,
+    invalid_input_schema: bool,
+    effect_gate: Option<std::path::PathBuf>,
 }
 
 impl Counter {
+    pub fn with_effect_gate(mut self, path: std::path::PathBuf) -> Self {
+        self.effect_gate = Some(path);
+        self
+    }
+
+    pub fn with_invalid_input_schema(mut self) -> Self {
+        self.invalid_input_schema = true;
+        self
+    }
+
     pub fn effects(&self) -> u64 {
         self.effects.load(Ordering::SeqCst)
     }
@@ -62,7 +74,16 @@ impl ServerHandler for Counter {
             Some("third") => ("counter.lose", None),
             _ => return Err(ErrorData::invalid_params("unknown cursor", None)),
         };
-        let tool = Tool::new(name, "Synthetic counter operation", Arc::new(json!({"type":"object","properties":{"amount":{"type":"integer"}},"required":["amount"],"additionalProperties":false}).as_object().unwrap().clone()));
+        let schema = if self.invalid_input_schema && name == "counter.fail" {
+            json!({"type":"array","items":{"type":"string"}})
+        } else {
+            json!({"type":"object","properties":{"amount":{"type":"integer"}},"required":["amount"],"additionalProperties":false})
+        };
+        let tool = Tool::new(
+            name,
+            "Synthetic counter operation",
+            Arc::new(schema.as_object().unwrap().clone()),
+        );
         let mut page = ListToolsResult::with_all_items(vec![tool]);
         page.next_cursor = next.map(str::to_owned);
         Ok(page)
@@ -88,6 +109,23 @@ impl ServerHandler for Counter {
             .and_then(serde_json::Value::as_u64)
             .ok_or_else(|| ErrorData::invalid_params("amount must be an unsigned integer", None))?;
         let count = self.effects.fetch_add(1, Ordering::SeqCst) + 1;
+        if let Some(path) = &self.effect_gate {
+            std::fs::write(
+                path,
+                json!({"effect_count":count,"pid":std::process::id()}).to_string(),
+            )
+            .map_err(|_| ErrorData::internal_error("synthetic effect marker failed", None))?;
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+            while !path.with_extension("release").exists() {
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(ErrorData::internal_error(
+                        "synthetic effect gate timed out",
+                        None,
+                    ));
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            }
+        }
         if params.name == "counter.lose" {
             return std::future::pending().await;
         }

@@ -6,7 +6,7 @@ import { cn } from "../classes";
 export { Dropdown } from "@heroui/react";
 export type { DropdownProps } from "@heroui/react";
 
-/** Action menus keep compact application typography while the vendor owns keyboard and dismissal. */
+/** Application menus add width and scrolling layout to the stock vendor surface. */
 export function ActionMenuPopover({
   className,
   kind = "application",
@@ -15,19 +15,19 @@ export function ActionMenuPopover({
   className?: string;
   kind?: "application" | "composer" | "composerPanel";
 }) {
-  let width = "w-[210px]";
+  let width = "w-max min-w-0 md:min-w-0";
   if (kind === "composer") {
-    width = "w-[260px]";
+    width = "w-(--spacing-menu-wide)";
   }
   if (kind === "composerPanel") {
-    width =
-      "w-(--trigger-width) rounded-composer p-1.5 [&_[role=menu]]:max-h-72 [&_[role=menu]]:overflow-y-auto [&_[data-slot=header]]:px-2 [&_[data-slot=header]]:py-1 [&_[data-slot=header]]:text-chrome [&_[data-slot=header]]:font-normal [&_[data-slot=header]]:text-muted";
+    width = "w-(--trigger-width) [&_[role=menu]]:max-h-72 [&_[role=menu]]:overflow-y-auto";
   }
   return (
     <HeroDropdown.Popover
       {...props}
+      data-action-menu=""
       className={cn(
-        "max-w-[calc(100vw-24px)] rounded-md border border-composer-border bg-overlay p-1 text-foreground [&_.label]:text-chrome [&_.label]:font-normal [&_[role=menu]]:p-0 [&_[role=menuitem]]:min-h-(--spacing-chrome-menu-row) [&_[role=menuitem]]:gap-2 [&_[role=menuitem]]:rounded-small [&_[role=menuitem]]:px-2.5 [&_[role=menuitem]]:py-2 [&_[role=menuitem]]:text-chrome [&_[role=menuitem]]:font-normal [&_[role=menuitem]]:data-[focused=true]:bg-default-hover [&_[role=menuitem]]:data-[hovered=true]:bg-default-hover [&_svg]:size-3.5",
+        "max-w-[calc(100vw-24px)] overflow-y-auto overscroll-contain",
         width,
         className,
       )}

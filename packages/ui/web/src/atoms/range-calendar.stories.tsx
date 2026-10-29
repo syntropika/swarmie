@@ -20,5 +20,9 @@ export const Default: Story = {
   parameters: {
     docs: { source: { code: officialExampleSource("range-calendar"), language: "tsx" } },
   },
-  render: () => <HeroUIDocumentationExample />,
+  render: () => (
+    <div className="max-w-full min-w-0 overflow-x-auto">
+      <HeroUIDocumentationExample />
+    </div>
+  ),
 };

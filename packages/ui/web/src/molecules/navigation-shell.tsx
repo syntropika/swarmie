@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
-import { Button } from "../atoms/button";
+import { ChromeButton } from "../atoms/chrome-button";
 import { Icon } from "../atoms/icon";
 import {
   NAVIGATION_DEFAULT_WIDTH,
@@ -109,8 +109,7 @@ export function NavigationShell({
   const resize = (totalWidth: number) => {
     setLayout((current) => navigationLayout(current, { type: "resize", totalWidth, collapsible }));
   };
-  const resizeOrigin = () =>
-    (shell?.getBoundingClientRect().left ?? 0) + (layout.mode === "temporary" ? 4 : 0);
+  const resizeOrigin = () => shell?.getBoundingClientRect().left ?? 0;
 
   useLayoutEffect(() => {
     let width = NAVIGATION_DEFAULT_WIDTH;
@@ -196,28 +195,26 @@ export function NavigationShell({
   );
 
   return (
-    <div ref={setShell} className="relative flex h-dvh min-h-0 bg-canvas text-ink">
-      <div className="hidden h-dvh min-h-0 shrink-0 bg-rail md:flex">
+    <div ref={setShell} className="relative flex h-dvh min-h-0 bg-workspace text-foreground">
+      <div className="hidden h-dvh min-h-0 shrink-0 bg-workspace md:flex">
         {renderRail(railControls)}
         {layout.mode === "pinned" || !collapsible ? (
           <div className="relative h-full w-[var(--navigation-width,288px)] shrink-0">
             <div
               id={desktopId}
-              className="h-full overflow-hidden rounded-l-marketing-card border border-transparent bg-canvas"
+              className="h-full overflow-hidden rounded-l-shell-frame bg-navigation-surface"
             >
               {renderSidebar({
                 closeNavigation,
                 revealSidebar,
                 navigationControl: collapsible ? (
-                  <Button
-                    variant="tertiary"
-                    isIconOnly
+                  <ChromeButton
                     onClick={closeSidebar}
                     aria-label={labels.collapseNavigation}
                     title={labels.collapseNavigation}
                   >
                     <Icon name="sidebar" />
-                  </Button>
+                  </ChromeButton>
                 ) : null,
               })}
             </div>
@@ -227,9 +224,7 @@ export function NavigationShell({
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="absolute top-3 left-4 z-20 md:hidden">
-          <Button
-            variant="tertiary"
-            isIconOnly
+          <ChromeButton
             aria-label={labels.openNavigation}
             title={labels.openNavigation}
             aria-haspopup="dialog"
@@ -237,7 +232,7 @@ export function NavigationShell({
             onClick={() => mobileDialog?.showModal()}
           >
             <Icon name="sidebar" />
-          </Button>
+          </ChromeButton>
         </div>
         {children}
       </div>
@@ -246,7 +241,7 @@ export function NavigationShell({
         id={temporaryId}
         popover="auto"
         aria-label={labels.navigation}
-        className="fixed inset-y-1 left-[56px] m-0 h-auto w-[var(--navigation-width,288px)] overflow-visible rounded-l-marketing-card rounded-r-panel border-0 bg-canvas p-0 text-ink shadow-overlay"
+        className="fixed inset-y-0 left-(--spacing-shell-rail) m-0 h-auto w-[var(--navigation-width,288px)] overflow-visible rounded-panel border-0 bg-navigation-surface p-0 text-foreground shadow-overlay"
         onPointerEnter={preview.retain}
         onPointerLeave={preview.leave}
         onBlurCapture={(event) => {
@@ -279,20 +274,18 @@ export function NavigationShell({
           }
         }}
       >
-        <div className="h-full overflow-hidden rounded-l-marketing-card rounded-r-panel">
+        <div className="h-full overflow-hidden rounded-panel">
           {renderSidebar({
             closeNavigation,
             revealSidebar,
             navigationControl: (
-              <Button
-                variant="tertiary"
-                isIconOnly
+              <ChromeButton
                 onClick={revealSidebar}
                 aria-label={labels.pinNavigation}
                 title={labels.pinNavigation}
               >
                 <Icon name="pin" />
-              </Button>
+              </ChromeButton>
             ),
           })}
         </div>
@@ -302,7 +295,7 @@ export function NavigationShell({
         ref={setMobileDialog}
         id={mobileId}
         aria-label={labels.navigation}
-        className="fixed inset-y-0 left-0 m-0 h-dvh max-h-none w-[min(360px,calc(100vw-16px))] max-w-none overflow-hidden rounded-r-marketing-card border-0 bg-rail p-0 text-ink shadow-overlay backdrop:bg-inverse/40"
+        className="fixed inset-y-0 left-0 m-0 h-dvh max-h-none w-[min(360px,calc(100vw-16px))] max-w-none overflow-hidden rounded-r-workspace-upper border-0 bg-workspace p-0 text-foreground shadow-overlay backdrop:bg-black/40"
       >
         <div className="flex h-full min-h-0">
           {renderRail(railControls)}
@@ -310,15 +303,13 @@ export function NavigationShell({
             closeNavigation,
             revealSidebar,
             navigationControl: (
-              <Button
-                variant="tertiary"
-                isIconOnly
+              <ChromeButton
                 onClick={closeNavigation}
                 aria-label={labels.closeNavigation}
                 title={labels.closeNavigation}
               >
                 <Icon name="close" />
-              </Button>
+              </ChromeButton>
             ),
           })}
         </div>

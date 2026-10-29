@@ -26,6 +26,7 @@ pub struct Scenario {
     pub tool_count: Cell<u32>,
     pub uncertain_at: Cell<usize>,
     pub unknown_tool: Cell<bool>,
+    pub unavailable_recovery: Cell<bool>,
     pub block: Cell<bool>,
     pub known_failure: Cell<bool>,
     model_receipts: RefCell<BTreeMap<String, ModelResponse>>,
@@ -185,6 +186,13 @@ impl Tools for Scenario {
             } = execution;
             self.recovered_inputs.borrow_mut().push(call.clone());
             self.reconciled_tools.borrow_mut().push(operation);
+            if self.unavailable_recovery.get() {
+                return Err(Error::new(
+                    Code::Unavailable,
+                    "fixture.recovery_unavailable",
+                    "tool provider is unavailable",
+                ));
+            }
             Ok(if self.safe_retry.replace(false) {
                 Recovery::SafeToRetry
             } else if self.unknown_tool.get() {

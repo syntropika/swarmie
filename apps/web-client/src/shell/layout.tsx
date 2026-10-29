@@ -8,7 +8,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import type { ReactElement } from "react";
 
 import { useClient } from "../client/context";
-import { iconStyle } from "../controls";
+import { iconStyle, useChat } from "../controls";
 import { ConversationPanel } from "../conversations/conversation";
 import { SettingsPage } from "../settings/page";
 import { ViewPanel } from "../views/panel";
@@ -25,7 +25,7 @@ function ApplicationGuide() {
   return (
     <>
       {" "}
-      {guide.open && window.matchMedia("(min-width: 768px)").matches ? (
+      {guide.open ? (
         <OnboardingGuide
           onComplete={() => {
             onboarding.update(() => ({ completed: true, open: false }));
@@ -54,7 +54,7 @@ function MobilePanels() {
       {layout.section === "conversations" && views ? (
         <nav
           aria-label="Mobile panels"
-          className="flex h-11 shrink-0 border-t border-border bg-chrome-surface pb-safe-area-bottom md:hidden"
+          className="flex h-(--spacing-panel-switch) shrink-0 bg-chrome-surface md:hidden"
         >
           <ChromeButton
             size="panelSwitch"
@@ -90,10 +90,12 @@ export function App() {
   );
 }
 function ApplicationLayout() {
+  const chat = useChat();
   const { shell, shellUi, views: viewState } = useClient();
   const sections = useSource(shellUi.sections);
   const layout = useSource(shell);
 
+  const [viewToolbarHost, setViewToolbarHost] = useState<HTMLDivElement | null>(null);
   const [dragging, setDragging] = useState<"conversation" | "view" | null>(null);
   const views = layout.tabs.length > 0;
   const viewArea = useRef<HTMLDivElement>(null);
@@ -132,7 +134,10 @@ function ApplicationLayout() {
     <div
       onFocusCapture={(event) => {
         focusedViewElement.current =
-          (viewArea.current?.contains(event.target) ?? false) ? event.target : null;
+          (viewArea.current?.contains(event.target) ?? false) ||
+          event.target.closest('[data-slot="view-toolbar"]') !== null
+            ? event.target
+            : null;
       }}
       onBlurCapture={(event) => {
         if (event.relatedTarget === null && focusedViewElement.current?.isConnected === true) {
@@ -145,21 +150,25 @@ function ApplicationLayout() {
       onDragEnd={() => {
         setDragging(null);
       }}
-      className="flex h-dvh flex-col overflow-hidden bg-background font-sans text-foreground"
+      className="bg-client-page flex h-dvh flex-col overflow-hidden pr-(--spacing-shell-frame) pb-(--spacing-shell-bottom) font-sans text-foreground md:bg-workspace md:pb-(--spacing-shell-frame)"
     >
       <ApplicationGuide />
       {sections.map(({ id, overlay: Overlay }) => (Overlay ? <Overlay key={id} /> : null))}
-      <Header />
-      <div className="flex min-h-0 flex-1">
+      <Header onViewToolbarHost={setViewToolbarHost} />
+      <div className="flex min-h-0 flex-1 overflow-hidden bg-workspace p-(--spacing-workspace-inset)">
         <Navigation />
-        <main ref={panels} id="client-panels" className="relative flex min-h-0 min-w-0 flex-1">
+        <main
+          ref={panels}
+          id="client-panels"
+          className={`relative flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-t-(--radius-workspace-upper) rounded-b-none bg-workspace md:rounded-br-(--radius-shell-frame) ${layout.navigation ? "md:rounded-l-none" : "md:rounded-bl-(--radius-shell-frame)"}`}
+        >
           <SectionContent>
             <>
               {showConversation ? (
                 <div
-                  className={`min-h-0 min-w-0 ${views && !layout.expanded ? "w-full md:w-(--conversation-share) md:grow-0" : "flex-1"} ${views && layout.mobile === "view" ? "hidden md:block" : ""} ${layout.conversationFirst ? "order-0" : "order-2"}`}
+                  className={`min-h-0 min-w-0 ${views && !layout.expanded ? "w-full md:w-(--conversation-share) md:shrink md:grow-0" : "flex-1"} ${views && layout.mobile === "view" ? "hidden md:block" : ""} ${layout.conversationFirst ? "order-0" : "order-2"}`}
                 >
-                  <ConversationPanel />
+                  <ConversationPanel chat={chat} />
                 </div>
               ) : null}
               {views && showConversation ? (
@@ -172,7 +181,7 @@ function ApplicationLayout() {
                   ref={viewArea}
                   className={`min-h-0 min-w-0 flex-1 ${layout.mobile === "conversation" && showConversation ? "hidden md:block" : ""} ${layout.conversationFirst ? "order-2" : "order-0"}`}
                 >
-                  <ViewPanel />
+                  <ViewPanel toolbarHost={viewToolbarHost} />
                 </div>
               ) : null}
               <PinnedContext />
@@ -197,7 +206,11 @@ function SectionContent({ children }: { children: ReactElement }) {
     return <SettingsPage />;
   }
   if (Screen) {
-    return <Screen params={layout.params} />;
+    return (
+      <section className="min-h-0 min-w-0 flex-1 overflow-auto bg-pane shadow-sheet">
+        <Screen params={layout.params} />
+      </section>
+    );
   }
   return children;
 }

@@ -177,7 +177,7 @@ export function Icon({
   tone = "default",
   className,
   stroke = "currentColor",
-  strokeWidth = 1.6,
+  strokeWidth = "var(--stroke-chrome-icon, 1.6)",
   ...props
 }: IconProps) {
   const Glyph = icons[name];
@@ -189,6 +189,7 @@ export function Icon({
       strokeWidth={strokeWidth}
       {...props}
       aria-hidden="true"
+      focusable="false"
       className={cn("size-5 shrink-0", tone === "brand" && "text-brand-accent", className)}
     />
   );

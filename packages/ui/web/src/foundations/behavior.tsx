@@ -1,9 +1,11 @@
-import { Button, Input, Label, TextField } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
 
 import { HeroUIPreview } from "../../.storybook/heroui-preview";
+import { Button } from "../atoms/button";
 import { Icon, iconNames } from "../atoms/icon";
+import { Input } from "../atoms/input";
 import { Table } from "../atoms/table";
+import { Label, TextField } from "../atoms/text-field";
 import { Reference } from "./reference";
 
 function MotionExamples({ theme }: { theme: "light" | "dark" }) {
@@ -70,7 +72,7 @@ function MotionExamples({ theme }: { theme: "light" | "dark" }) {
       </section>
       <Table>
         <Table.ScrollContainer>
-          <Table.Content aria-label="behavior reference">
+          <Table.Content aria-label="Control transitions">
             <Table.Header>
               <Table.Column isRowHeader>Control</Table.Column>
               <Table.Column>Properties</Table.Column>
@@ -96,8 +98,8 @@ function MotionExamples({ theme }: { theme: "light" | "dark" }) {
           </Table.Content>
         </Table.ScrollContainer>
         <Table.Footer>
-          Transitions measured from the rendered vendor controls, including the current
-          reduced-motion setting.
+          Transitions read from the rendered shared controls, including the current reduced-motion
+          setting.
         </Table.Footer>
       </Table>
     </>
@@ -132,7 +134,7 @@ export function IconsReference({ theme }: { theme: "light" | "dark" }) {
           <h2 className="text-xl font-semibold">Size and accessibility</h2>
           <Table>
             <Table.ScrollContainer>
-              <Table.Content aria-label="behavior reference">
+              <Table.Content aria-label="Icon size roles">
                 <Table.Header>
                   <Table.Column isRowHeader>Role</Table.Column>
                   <Table.Column>Size</Table.Column>
@@ -140,22 +142,22 @@ export function IconsReference({ theme }: { theme: "light" | "dark" }) {
                 </Table.Header>
                 <Table.Body>
                   <Table.Row>
-                    <Table.Cell>Compact supporting icon</Table.Cell>
-                    <Table.Cell>16px · size-4</Table.Cell>
+                    <Table.Cell>Compact icon</Table.Cell>
+                    <Table.Cell>size-4</Table.Cell>
                     <Table.Cell>
                       <Icon name="search" className="size-4" />
                     </Table.Cell>
                   </Table.Row>
                   <Table.Row>
-                    <Table.Cell>Standard action</Table.Cell>
-                    <Table.Cell>20px · size-5</Table.Cell>
+                    <Table.Cell>Default shared icon</Table.Cell>
+                    <Table.Cell>size-5</Table.Cell>
                     <Table.Cell>
                       <Icon name="settings" className="size-5" />
                     </Table.Cell>
                   </Table.Row>
                   <Table.Row>
-                    <Table.Cell>Prominent action</Table.Cell>
-                    <Table.Cell>24px · size-6</Table.Cell>
+                    <Table.Cell>Larger icon</Table.Cell>
+                    <Table.Cell>size-6</Table.Cell>
                     <Table.Cell>
                       <Icon name="plus" className="size-6" />
                     </Table.Cell>
@@ -165,11 +167,11 @@ export function IconsReference({ theme }: { theme: "light" | "dark" }) {
             </Table.ScrollContainer>
           </Table>
           <div className="flex flex-wrap gap-3">
-            <Button aria-label="Search">
-              <Icon name="search" className="size-5" />
+            <Button isIconOnly aria-label="Search">
+              <Icon name="search" />
             </Button>
             <Button variant="secondary">
-              <Icon name="plus" className="size-5" />
+              <Icon name="plus" />
               New project
             </Button>
           </div>
@@ -183,7 +185,7 @@ export function IconsReference({ theme }: { theme: "light" | "dark" }) {
           <h2 className="text-xl font-semibold">Available icons</h2>
           <Table>
             <Table.ScrollContainer>
-              <Table.Content aria-label="behavior reference">
+              <Table.Content aria-label="Shared icon catalog">
                 <Table.Header>
                   <Table.Column isRowHeader>Shared name</Table.Column>
                   <Table.Column>Icon</Table.Column>

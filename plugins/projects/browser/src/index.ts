@@ -164,7 +164,7 @@ export function createProjectsApi(
       if (!present(projectId)) {
         throw new Error("The project is unavailable.");
       }
-      const paths = [...new Set(input.paths.map((path) => path.trim()).filter(Boolean))];
+      const paths = [...new Set(input.paths.filter((path) => path !== ""))];
       await commit((current) => ({
         ...current,
         personalFolders: [
@@ -193,3 +193,5 @@ export function createProjectsApi(
   };
 }
 export type ProjectsSource = Snapshot<Readonly<ProjectsState>>;
+
+export type { DirectoryBrowser, DirectoryPage, DirectoryReader } from "./directories";

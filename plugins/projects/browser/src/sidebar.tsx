@@ -49,6 +49,8 @@ export function ProjectsSidebar({ conversations, renderConversations }: Conversa
             <div key={project.id} className="mb-1">
               <div className="flex items-center">
                 <ChromeButton
+                  size="tabClose"
+                  appearance="bare"
                   aria-label={`Toggle ${project.name} conversations`}
                   aria-expanded={!folded.includes(project.id)}
                   aria-controls={`project-conversations-${project.id}`}
@@ -63,7 +65,8 @@ export function ProjectsSidebar({ conversations, renderConversations }: Conversa
                 </ChromeButton>
                 <div className="min-w-0 flex-1">
                   <ChromeButton
-                    size="navigation"
+                    size="project"
+                    appearance="bare"
                     title={project.name}
                     onPress={() => {
                       open(project.id);

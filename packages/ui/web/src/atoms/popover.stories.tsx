@@ -28,11 +28,11 @@ export const Default: Story = {
   ),
 };
 
-export const Composer: Story = {
+export const SliderContent: Story = {
   render: () => (
     <Popover>
       <Button variant="tertiary">Thinking effort</Button>
-      <Popover.Content kind="composer" placement="top end">
+      <Popover.Content placement="top end">
         <Popover.Dialog aria-label="Thinking effort">
           <Slider minValue={0} maxValue={2} step={1} defaultValue={1}>
             <Label>Thinking effort</Label>

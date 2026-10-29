@@ -4,6 +4,7 @@
 
 @theme static {
   --spacing-reading-column: 45rem;
+  --color-client-page: var(--surface-secondary);
 }
 
 /* Geometry changes continuously during a drag; presentation uses the shared tokens. */
@@ -20,26 +21,20 @@ body,
 body {
   overflow: hidden;
 }
+@media (max-width: 767px) {
+  html,
+  body,
+  #root {
+    background-color: var(--color-client-page);
+  }
+}
 ::selection {
-  background: var(--color-brand-accent);
-  color: var(--color-brand-accent-foreground);
+  background: var(--color-selection-background);
+  color: var(--color-selection-foreground);
 }
-textarea,
-input {
-  caret-color: var(--color-brand-accent);
-}
-textarea:focus,
-input:focus {
+[data-slot="composer-panel"] textarea:focus-visible {
   outline: none;
-  box-shadow: none;
 }
-/* Text fields indicate focus through fill and caret, without the rejected outline. */
-textarea:focus-visible,
-input:focus-visible {
-  background-color: var(--color-row-hover);
-}
-button:focus-visible,
-summary:focus-visible,
 [role="separator"]:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
@@ -53,10 +48,14 @@ summary:focus-visible,
   outline: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
+  html:focus-within {
+    scroll-behavior: auto;
   }
+}
+
+.swarmie-header .breadcrumbs__link {
+  display: inline-flex;
+  min-height: var(--spacing-control-touch);
+  min-width: var(--spacing-control-touch);
+  align-items: center;
 }

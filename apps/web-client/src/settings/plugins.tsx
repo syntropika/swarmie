@@ -1,18 +1,9 @@
 import { useSource } from "@swarmie/client-ui";
-import {
-  ActionMenuPopover,
-  Button,
-  ChromeButton,
-  Dropdown,
-  Label,
-  SearchField,
-  Tabs,
-} from "@swarmie/ui-web";
-import { ArrowLeft, ChevronDown, Globe, Terminal } from "lucide-react";
+import { ActionMenuPopover, Button, Dropdown, Label, SearchField, Tabs } from "@swarmie/ui-web";
+import { ChevronDown, Globe, Terminal } from "lucide-react";
 import { useState } from "react";
 
 import { useClient } from "../client/context";
-import { iconStyle } from "../controls";
 import { McpEditor } from "./mcp-editor";
 import { McpList } from "./mcp-list";
 import { PluginDetail } from "./plugin-detail";
@@ -20,7 +11,6 @@ import { PluginList } from "./plugin-list";
 
 type View =
   | { kind: "list" }
-  | { kind: "directory" }
   | { kind: "plugin"; id: string }
   | { kind: "mcp"; id: string }
   | { kind: "add"; transport: "http" | "local" };
@@ -75,19 +65,6 @@ export function PluginSettings() {
       />
     );
   }
-  if (view.kind === "directory") {
-    pluginContent = (
-      <>
-        <ChromeButton size="action" onPress={back}>
-          <ArrowLeft className={iconStyle} />
-          Back
-        </ChromeButton>
-        <h2 className="mt-6 text-lg font-medium">Plugin directory</h2>
-        <p className="mt-2 text-sm text-muted">Built-in plugins available in this client.</p>
-        <PluginList query={query} open={openPlugin} />
-      </>
-    );
-  }
   let mcpContent = (
     <McpList
       query={query}
@@ -120,19 +97,8 @@ export function PluginSettings() {
           <p className="mt-2 text-sm text-muted">Manage plugins and MCP servers.</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            shape="panel"
-            onPress={() => {
-              setFilter("plugins");
-              setView({ kind: "directory" });
-            }}
-          >
-            Browse directory
-          </Button>
           <Dropdown>
-            <Button aria-label="Add integration" size="sm" shape="panel">
+            <Button aria-label="Add integration" size="sm">
               Add
               <ChevronDown />
             </Button>
@@ -160,7 +126,7 @@ export function PluginSettings() {
       </header>
       <Tabs selectedKey={filter} onSelectionChange={select} className="mt-9 w-full">
         <div className="flex flex-col gap-4 @lg:flex-row @lg:items-center @lg:justify-between">
-          <Tabs.ListContainer appearance="filters">
+          <Tabs.ListContainer>
             <Tabs.List aria-label="Integration types">
               <Tabs.Tab id="plugins">
                 Plugins <span className="ml-1 text-muted">{list.length}</span>

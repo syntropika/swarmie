@@ -1,16 +1,26 @@
-use crate::definitions::Definitions;
 use futures::task::{LocalFutureObj, LocalSpawn, SpawnError};
-use std::{collections::VecDeque, path::PathBuf, rc::Rc, sync::mpsc, thread};
-use swarmie_runtime::{NodeId, node_orb, rpc};
-use swarmie_tools::Catalog;
+use std::{
+    collections::{BTreeMap, VecDeque},
+    path::PathBuf,
+    rc::Rc,
+    sync::mpsc,
+    thread,
+};
+use swarmie_runtime::{NodeId, rpc};
 use tembra::Host;
 
 pub const PRINCIPAL: &str = "desktop-user";
 const MAX_FRAME: usize = 64 * 1024;
-const MAX_FRAMES: usize = 32;
+const MAX_OUTPUT_FRAMES: usize = 256;
+const MAX_OUTPUT_BYTES: usize = 2 * 1024 * 1024;
+const MAX_POLL_FRAMES: usize = 128;
+const MAX_POLL_BYTES: usize = 96 * 1024;
 
 enum Command {
-    Open(mpsc::SyncSender<u64>),
+    Open {
+        shared: bool,
+        response: mpsc::SyncSender<Result<u64, String>>,
+    },
     Frame(u64, Vec<u8>),
     Poll(u64, mpsc::SyncSender<Result<Vec<Vec<u8>>, String>>),
     Close(u64),
@@ -36,6 +46,14 @@ pub struct DesktopNode {
 
 impl DesktopNode {
     pub fn open(state: PathBuf) -> Result<Self, String> {
+        let root = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
+        Self::with_directory_root(state, root.map(PathBuf::from))
+    }
+
+    fn with_directory_root(
+        state: PathBuf,
+        directory_root: Option<PathBuf>,
+    ) -> Result<Self, String> {
         std::fs::create_dir_all(&state).map_err(|_| "native state directory is unavailable")?;
         #[cfg(unix)]
         {
@@ -71,6 +89,11 @@ impl DesktopNode {
             Err(_) => return Err("native identity could not be read".into()),
         };
         NodeId::new(id.clone()).map_err(|_| "native identity is invalid")?;
+        let oauth_host = id
+            .strip_prefix("desktop-")
+            .and_then(|value| uuid::Uuid::parse_str(value).ok())
+            .filter(|value| !value.is_nil())
+            .ok_or("native OAuth host identity is invalid")?;
         let (sender, receiver) = mpsc::sync_channel(64);
         let (ready, started) = mpsc::sync_channel(1);
         let worker_id = id.clone();
@@ -87,10 +110,14 @@ impl DesktopNode {
                         return;
                     }
                 };
-                runtime.block_on(
-                    tokio::task::LocalSet::new()
-                        .run_until(serve(receiver, ready, state, worker_id)),
-                );
+                runtime.block_on(tokio::task::LocalSet::new().run_until(serve(
+                    receiver,
+                    ready,
+                    state,
+                    worker_id,
+                    oauth_host,
+                    directory_root,
+                )));
             })
             .map_err(|_| "native runtime could not start")?;
         started
@@ -109,13 +136,25 @@ impl DesktopNode {
     }
 
     pub fn open_channel(&self) -> Result<u64, String> {
+        self.channel(false)
+    }
+
+    /// Open an independent channel without replacing other embedding-owned clients.
+    pub fn open_shared_channel(&self) -> Result<u64, String> {
+        self.channel(true)
+    }
+
+    fn channel(&self, shared: bool) -> Result<u64, String> {
         let (send, receive) = mpsc::sync_channel(1);
         self.sender
-            .try_send(Command::Open(send))
+            .try_send(Command::Open {
+                shared,
+                response: send,
+            })
             .map_err(|_| "native input budget exhausted")?;
         receive
             .recv_timeout(std::time::Duration::from_secs(2))
-            .map_err(|_| "native channel did not open".into())
+            .map_err(|_| "native channel did not open".to_owned())?
     }
 
     pub fn frame(&self, generation: u64, frame: Vec<u8>) -> Result<(), String> {
@@ -156,39 +195,21 @@ async fn serve(
     ready: mpsc::SyncSender<Result<(), String>>,
     state: PathBuf,
     id: String,
+    oauth_host: uuid::Uuid,
+    directory_root: Option<PathBuf>,
 ) {
     let host = Host::new(Executor);
-    let catalog = Catalog::default();
-    let settings_catalog = catalog.clone();
-    let node = match NodeId::new(id) {
-        Ok(node) => node,
-        Err(error) => {
-            let _ = ready.send(Err(error.to_string()));
-            return;
-        }
-    };
-    let installed = host.install(vec![
-        node_orb(node),
-        swarmie_tools::orb_with_catalog(host.clone(), move |principal| {
-            if principal == PRINCIPAL {
-                Ok(catalog.clone())
-            } else {
-                Err(tembra::Error::invalid("desktop.principal", "unbound user"))
-            }
-        }),
-        swarmie_mcp::settings::settings_orb(
-            host.clone(),
-            Rc::new(Definitions(state.join("mcp.json"))),
-            move |principal| {
-                if principal == PRINCIPAL {
-                    Ok(settings_catalog.clone())
-                } else {
-                    Err(tembra::Error::invalid("desktop.principal", "unbound user"))
-                }
-            },
-        ),
-    ]);
+    let configuration = NodeId::new(id).map(|node| swarmie_client_node::NodeConfiguration {
+        state,
+        node,
+        oauth_host,
+        principal: PRINCIPAL.into(),
+        directory_root,
+    });
+    let installed =
+        configuration.and_then(|configuration| swarmie_client_node::install(&host, configuration));
     if let Err(error) = installed {
+        let _ = host.close().await;
         let _ = ready.send(Err(error.to_string()));
         return;
     }
@@ -196,9 +217,8 @@ async fn serve(
         let _ = host.close().await;
         return;
     }
-    let output = Rc::new(std::cell::RefCell::new(VecDeque::<Vec<u8>>::new()));
     let mut generation: u64 = 0;
-    let mut channel = None::<rpc::Connection>;
+    let mut channels = BTreeMap::<u64, Channel>::new();
     let mut tick = tokio::time::interval(std::time::Duration::from_millis(2));
     'running: loop {
         tick.tick().await;
@@ -209,74 +229,179 @@ async fn serve(
                 Err(mpsc::TryRecvError::Disconnected) => break 'running,
             };
             match command {
-                Command::Open(response) => {
-                    if let Some(channel) = channel.take() {
-                        channel.close();
+                Command::Open { shared, response } => {
+                    if !shared {
+                        for channel in channels.values() {
+                            channel.connection.close();
+                        }
+                        channels.clear();
+                    }
+                    channels.retain(|_, channel| !channel.connection.is_closed());
+                    if channels.len() >= 8 {
+                        let _ = response.send(Err("native client limit reached".into()));
+                        continue;
                     }
                     generation += 1;
-                    output.borrow_mut().clear();
-                    let mut options = rpc::Options::new(PRINCIPAL.into(), |service, key| {
-                        matches!(
-                            service,
-                            "swarmie.node" | "swarmie.mcp.settings" | "swarmie.tools"
-                        ) && key.is_none_or(|key| key == ["main"])
-                    });
-                    options.max_frame = MAX_FRAME;
-                    options.max_pending = 16;
-                    options.max_references = 16;
-                    let outgoing = output.clone();
-                    channel = Some(rpc::serve(host.clone(), options, move |frame| {
-                        let mut output = outgoing.borrow_mut();
-                        if output.len() >= MAX_FRAMES {
-                            return Err(tembra::Error::new(
-                                tembra::Code::Exhausted,
-                                "desktop.output",
-                                "native output budget exhausted",
-                            ));
-                        }
-                        output.push_back(frame);
-                        Ok(())
-                    }));
-                    let _ = response.send(generation);
+                    channels.insert(generation, Channel::new(&host));
+                    let _ = response.send(Ok(generation));
                 }
-                Command::Frame(version, frame) if version == generation => {
-                    if let Some(channel) = &channel {
-                        let _ = channel.receive(&frame);
+                Command::Frame(version, frame) => {
+                    if let Some(channel) = channels.get(&version) {
+                        let _ = channel.connection.receive(&frame);
                     }
                 }
                 Command::Poll(version, response) => {
-                    let result = if version != generation
-                        || channel.as_ref().is_none_or(rpc::Connection::is_closed)
-                    {
-                        Err("native channel ended".into())
-                    } else {
-                        {
-                            let count = output.borrow().len().min(1);
-                            Ok(output.borrow_mut().drain(..count).collect())
+                    let result = match channels.get(&version) {
+                        Some(channel) if !channel.connection.is_closed() => {
+                            Ok(channel.output.borrow_mut().drain())
                         }
+                        _ => Err("native channel ended".into()),
                     };
                     let _ = response.send(result);
                 }
-                Command::Close(version) if version == generation => {
-                    if let Some(channel) = channel.take() {
-                        channel.close();
+                Command::Close(version) => {
+                    if let Some(channel) = channels.remove(&version) {
+                        channel.connection.close();
                     }
                 }
                 Command::Stop => break 'running,
-                _ => {}
             }
         }
     }
-    if let Some(channel) = channel.take() {
-        channel.close();
+    for channel in channels.values() {
+        channel.connection.close();
     }
     let _ = host.close().await;
+}
+
+struct Channel {
+    connection: rpc::Connection,
+    output: Rc<std::cell::RefCell<Output>>,
+}
+
+#[derive(Default)]
+struct Output {
+    frames: VecDeque<Vec<u8>>,
+    bytes: usize,
+}
+
+impl Output {
+    fn push(&mut self, frame: Vec<u8>) -> tembra::Result<()> {
+        if frame.len() > MAX_FRAME
+            || self.frames.len() >= MAX_OUTPUT_FRAMES
+            || frame.len() > MAX_OUTPUT_BYTES.saturating_sub(self.bytes)
+        {
+            return Err(tembra::Error::new(
+                tembra::Code::Exhausted,
+                "desktop.output",
+                "native output budget exhausted",
+            ));
+        }
+        self.bytes += frame.len();
+        self.frames.push_back(frame);
+        Ok(())
+    }
+
+    fn drain(&mut self) -> Vec<Vec<u8>> {
+        let mut frames = Vec::new();
+        let mut bytes = 0;
+        while frames.len() < MAX_POLL_FRAMES {
+            let Some(next) = self.frames.front() else {
+                break;
+            };
+            if next.len() > MAX_POLL_BYTES - bytes {
+                break;
+            }
+            bytes += next.len();
+            frames.push(self.frames.pop_front().expect("the front frame exists"));
+        }
+        self.bytes -= bytes;
+        frames
+    }
+}
+
+impl Channel {
+    fn new(host: &Host) -> Self {
+        let output = Rc::new(std::cell::RefCell::new(Output::default()));
+        let outgoing = output.clone();
+        let mut options = rpc::Options::new(PRINCIPAL.into(), permits_service);
+        options.max_frame = MAX_FRAME;
+        options.max_pending = 16;
+        options.max_references = 16;
+        let connection = rpc::serve(host.clone(), options, move |frame| {
+            outgoing.borrow_mut().push(frame)
+        });
+        Self { connection, output }
+    }
+}
+
+fn permits_service(service: &str, key: Option<&[String]>) -> bool {
+    (service == swarmie_client_node::AUTHORIZATION_SERVICE
+        && key.is_none_or(|key| matches!(key.len(), 2 | 3)))
+        || (matches!(
+            service,
+            "swarmie.node"
+                | "swarmie.providers.settings"
+                | "swarmie.conversation.catalog"
+                | "swarmie.conversation.session"
+                | "swarmie.mcp.settings"
+                | "swarmie.tools"
+                | "swarmie.directories"
+        ) && key.is_none_or(|key| {
+            if service == "swarmie.conversation.session" {
+                key.len() == 1
+            } else {
+                key == ["main"]
+            }
+        }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::{Value, json};
+
+    #[test]
+    fn authorization_allows_new_and_returning_sessions_only() {
+        let service = swarmie_client_node::AUTHORIZATION_SERVICE;
+        assert!(permits_service(service, None));
+        for size in 0..=4 {
+            let key = vec!["value".to_owned(); size];
+            assert_eq!(permits_service(service, Some(&key)), matches!(size, 2 | 3));
+        }
+        assert!(!permits_service("swarmie.mcp.configured", None));
+    }
+
+    #[test]
+    fn output_budgets_bound_each_poll_and_retain_frame_order() {
+        let mut output = Output::default();
+        assert!(output.push(vec![0; MAX_FRAME + 1]).is_err());
+        for marker in 0..32 {
+            output.push(vec![marker; MAX_FRAME]).unwrap();
+        }
+        assert!(output.push(vec![0]).is_err());
+        for marker in 0..32 {
+            assert_eq!(output.drain(), vec![vec![marker; MAX_FRAME]]);
+        }
+        assert_eq!(output.bytes, 0);
+        for _ in 0..MAX_OUTPUT_FRAMES {
+            output.push(vec![1]).unwrap();
+        }
+        assert!(output.push(vec![1]).is_err());
+        assert_eq!(output.drain().len(), MAX_POLL_FRAMES);
+        assert_eq!(output.drain().len(), MAX_POLL_FRAMES);
+        assert!(output.drain().is_empty());
+        assert_eq!(output.bytes, 0);
+        output.push(vec![255; MAX_FRAME]).unwrap();
+        output.push(vec![255; MAX_POLL_BYTES - MAX_FRAME]).unwrap();
+        output.push(vec![255; MAX_FRAME]).unwrap();
+        let batch = output.drain();
+        assert_eq!(batch.iter().map(Vec::len).sum::<usize>(), MAX_POLL_BYTES);
+        let exchange = serde_json::json!({"ok": true, "value": batch});
+        assert!(serde_json::to_vec(&exchange).unwrap().len() < 512 * 1024);
+        assert_eq!(output.bytes, MAX_FRAME);
+        assert_eq!(output.drain(), vec![vec![255; MAX_FRAME]]);
+    }
 
     fn request(node: &DesktopNode, generation: u64, id: u64, op: &str, payload: Value) -> Value {
         node.frame(
@@ -359,6 +484,44 @@ mod tests {
     }
 
     #[test]
+    fn native_rpc_lists_the_configured_directory_root_and_refuses_an_outside_path() {
+        let state = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("Projects")).unwrap();
+        let node = DesktopNode::with_directory_root(state.path().into(), Some(root.path().into()))
+            .unwrap();
+        let generation = node.open_channel().unwrap();
+        let acquired = request(
+            &node,
+            generation,
+            1,
+            "get",
+            json!({"service":"swarmie.directories","key":["main"]}),
+        );
+        let reference = acquired["ok"]["reference"].as_u64().unwrap();
+        let listed = request(
+            &node,
+            generation,
+            2,
+            "call",
+            json!({"reference":reference,"method":"list","arguments":[{"path":null,"cursor":null}]}),
+        );
+        assert_eq!(
+            listed["ok"]["directories"][0]["name"], "Projects",
+            "{listed}"
+        );
+        assert_eq!(listed["ok"]["parent"], Value::Null);
+        let refused = request(
+            &node,
+            generation,
+            3,
+            "call",
+            json!({"reference":reference,"method":"list","arguments":[{"path":state.path().to_str().unwrap(),"cursor":null}]}),
+        );
+        assert_eq!(refused["error"]["code"], "forbidden");
+    }
+
+    #[test]
     fn corrupt_settings_are_reported_without_overwriting_the_saved_file() {
         let directory = tempfile::tempdir().unwrap();
         let contents = b"invalid existing settings";
@@ -384,5 +547,49 @@ mod tests {
             std::fs::read(directory.path().join("mcp.json")).unwrap(),
             contents
         );
+    }
+
+    #[test]
+    fn polling_batches_bursts_and_keeps_shared_generations_separate() {
+        let directory = tempfile::tempdir().unwrap();
+        let node = DesktopNode::open(directory.path().into()).unwrap();
+        let first = node.open_shared_channel().unwrap();
+        let second = node.open_shared_channel().unwrap();
+        for (generation, offset) in [(first, 0), (second, 100)] {
+            for id in 1..=8 {
+                node.frame(
+                    generation,
+                    serde_json::to_vec(&json!({
+                        "id": offset + id,
+                        "op": "get",
+                        "payload": {"service": "swarmie.node", "key": ["main"]}
+                    }))
+                    .unwrap(),
+                )
+                .unwrap();
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        for (generation, offset) in [(first, 0), (second, 100)] {
+            let frames = node.poll(generation).unwrap();
+            assert_eq!(frames.len(), 8, "one poll must drain this bounded burst");
+            let mut ids: Vec<_> = frames
+                .iter()
+                .map(|frame| {
+                    serde_json::from_slice::<Value>(frame).unwrap()["id"]
+                        .as_u64()
+                        .unwrap()
+                })
+                .collect();
+            ids.sort_unstable();
+            assert_eq!(ids, (1..=8).map(|id| offset + id).collect::<Vec<_>>());
+            assert!(node.poll(generation).unwrap().is_empty());
+        }
+        node.close_channel(first);
+        assert!(node.poll(first).is_err());
+        assert!(node.poll(second).is_ok());
+        let replacement = node.open_channel().unwrap();
+        assert!(node.poll(second).is_err());
+        assert!(node.poll(replacement).is_ok());
     }
 }

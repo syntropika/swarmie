@@ -11,14 +11,14 @@ import type { NavigationLayout } from "./navigation-layout";
 describe("navigation layout", () => {
   test("closed and temporary navigation leave the reading canvas at the rail edge", () => {
     const pinned: NavigationLayout = { mode: "pinned", width: NAVIGATION_DEFAULT_WIDTH };
-    expect(navigationCanvasOffset(pinned)).toBe(340);
+    expect(navigationCanvasOffset(pinned)).toBe(333);
     expect(navigationLayout(pinned, { type: "preview" })).toBe(pinned);
     const closed = navigationLayout(pinned, { type: "close" });
-    expect(navigationCanvasOffset(closed)).toBe(52);
+    expect(navigationCanvasOffset(closed)).toBe(45);
     const temporary = navigationLayout(closed, { type: "preview" });
     expect(temporary.mode).toBe("temporary");
-    expect(navigationCanvasOffset(temporary)).toBe(52);
-    expect(navigationCanvasOffset(navigationLayout(temporary, { type: "pin" }))).toBe(340);
+    expect(navigationCanvasOffset(temporary)).toBe(45);
+    expect(navigationCanvasOffset(navigationLayout(temporary, { type: "pin" }))).toBe(333);
   });
 
   test("resize bounds include the rail and reserve hysteresis before collapsing", () => {
@@ -28,7 +28,7 @@ describe("navigation layout", () => {
     ).toBe(468);
     const narrow = navigationLayout(layout, { type: "resize", collapsible: true, totalWidth: 270 });
     expect(narrow).toEqual({ mode: "pinned", width: 238 });
-    const closed = navigationLayout(layout, { type: "resize", collapsible: true, totalWidth: 257 });
+    const closed = navigationLayout(layout, { type: "resize", collapsible: true, totalWidth: 250 });
     expect(closed).toEqual({ mode: "closed", width: 320 });
     expect(
       navigationLayout(layout, { type: "resize", collapsible: true, totalWidth: Number.NaN }),
@@ -38,10 +38,10 @@ describe("navigation layout", () => {
   test("non-collapsible navigation clamps an overdrag and retains the chosen width", () => {
     const layout: NavigationLayout = { mode: "pinned", width: 288 };
     const wide = navigationLayout(layout, { type: "resize", totalWidth: 440, collapsible: false });
-    expect(wide).toEqual({ mode: "pinned", width: 388 });
+    expect(wide).toEqual({ mode: "pinned", width: 395 });
     const minimum = navigationLayout(wide, { type: "resize", totalWidth: 100, collapsible: false });
     expect(minimum).toEqual({ mode: "pinned", width: 238 });
-    expect(navigationCanvasOffset(minimum)).toBe(290);
+    expect(navigationCanvasOffset(minimum)).toBe(283);
     expect(navigationLayout(minimum, { type: "restore-width", width: wide.width })).toEqual(wide);
   });
 
@@ -51,10 +51,10 @@ describe("navigation layout", () => {
       { type: "resize", collapsible: true, totalWidth: 440 },
     );
     const dismissed = navigationLayout(resized, { type: "dismiss" });
-    expect(dismissed).toEqual({ mode: "closed", width: 388 });
+    expect(dismissed).toEqual({ mode: "closed", width: 395 });
     expect(navigationLayout(dismissed, { type: "preview" })).toEqual({
       mode: "temporary",
-      width: 388,
+      width: 395,
     });
     const pinned = navigationLayout(dismissed, { type: "pin" });
     expect(navigationLayout(pinned, { type: "dismiss" })).toBe(pinned);

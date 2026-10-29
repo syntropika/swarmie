@@ -1,9 +1,11 @@
 import { browserProjectsPersistence } from "@swarmie/plugin-projects-browser/persistence";
+import { browserToolDetailsPersistence } from "@swarmie/plugin-settings-browser";
 import { ApplicationSkeleton } from "@swarmie/ui-web";
-import { getThemePreferenceSnapshot } from "@swarmie/ui-web/theme";
+import { getThemePreferenceSnapshot, subscribeThemePreference } from "@swarmie/ui-web/theme";
 import { createHost } from "@syntropika/tembra-sdk/browser";
 import { createRoot } from "react-dom/client";
 
+import { browserNode } from "./browser-node";
 import { ClientContext } from "./client/context";
 import { initializeClient } from "./client/initialize";
 import { desktopNode } from "./desktop-node";
@@ -30,18 +32,36 @@ async function start() {
     reportFailure(error);
     return null;
   });
+  const browser =
+    desktop === null
+      ? await browserNode(window.location.href).catch((error: unknown) => {
+          reportFailure(error);
+          return null;
+        })
+      : null;
+  const initialNode = desktop?.node ?? browser;
   const client = await initializeClient(host, {
-    ...(desktop ? { nodes: [desktop.node], connector: desktop.connector } : {}),
+    ...(initialNode === null ? {} : { nodes: [initialNode] }),
+    ...(desktop === null ? {} : { connector: desktop.connector }),
     dev: import.meta.env.DEV,
+    nodeServices: true,
     projectsPersistence: browserProjectsPersistence("local"),
+    toolDetailsPersistence: browserToolDetailsPersistence(),
   });
   client.settings.update((current) => ({ ...current, theme: getThemePreferenceSnapshot() }));
+  const stopTheme = subscribeThemePreference(() => {
+    const theme = getThemePreferenceSnapshot();
+    client.settings.update((current) =>
+      current.theme === theme ? current : { ...current, theme },
+    );
+  });
   root.render(
     <ClientContext value={client}>
       <App />
     </ClientContext>,
   );
   function stop() {
+    stopTheme();
     root.unmount();
     client.close().catch(reportFailure);
   }

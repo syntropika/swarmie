@@ -12,10 +12,10 @@ export function Reference({
   children: ReactNode;
 }) {
   return (
-    <main className="@container mx-auto grid w-full max-w-6xl gap-10 p-4 font-sans text-ink sm:p-8">
+    <main className="@container mx-auto grid w-full max-w-6xl gap-10 p-4 font-sans text-foreground sm:p-8">
       <header className="max-w-3xl">
-        <h1 className="font-brand text-headline">{title}</h1>
-        <p className="mt-3 text-body text-text-muted">{intro}</p>
+        <h1 className="font-sans text-3xl font-semibold">{title}</h1>
+        <p className="mt-3 text-base text-muted">{intro}</p>
       </header>
       {children}
     </main>
@@ -36,9 +36,9 @@ export function Section({
   return (
     <section className={cn("grid min-w-0 gap-4", className)}>
       <header>
-        <h2 className="font-brand text-title">{title}</h2>
+        <h2 className="font-sans text-xl font-semibold">{title}</h2>
         {description !== undefined && description !== "" ? (
-          <p className="mt-2 max-w-3xl text-ui text-text-muted">{description}</p>
+          <p className="mt-2 max-w-3xl text-sm text-muted">{description}</p>
         ) : null}
       </header>
       {children}

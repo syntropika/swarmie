@@ -3,6 +3,16 @@ import { updatePresentation } from "@swarmie/client-ui";
 import { orb } from "@syntropika/tembra-sdk";
 
 export type ProviderModel = { id: string; label: string; description?: string; efforts: string[] };
+export type ModelDefaults = {
+  model: string | null;
+  effort: string | null;
+  auxiliaryModel: string | null;
+};
+export const automaticModelDefaults: ModelDefaults = {
+  model: null,
+  effort: null,
+  auxiliaryModel: null,
+};
 export type ProviderAccount = {
   id: string;
   providerId: string;
@@ -10,6 +20,10 @@ export type ProviderAccount = {
   label: string;
   models: ProviderModel[];
   available: boolean;
+  defaults?: ModelDefaults;
+  /** The mutation response contains a bounded preview. Load the catalog for all models. */
+  modelsTruncated?: boolean;
+  authorizationMethod?: string;
 };
 export type ProviderConfigurationMethod = {
   id: string;
@@ -23,6 +37,7 @@ export type ProviderChoice = {
   methods: ProviderConfigurationMethod[];
 };
 export type ProvidersState = {
+  scope: { nodeId: string; principal: string; generation: number } | null;
   choices: ProviderChoice[];
   accounts: ProviderAccount[];
   error: string | null;
@@ -38,9 +53,12 @@ export type ProviderConfigurationApi = {
 export type ProviderDiscoveryApi = {
   detect: (signal: AbortSignal) => Promise<string[]>;
 };
+export type ModelDefaultsApi = {
+  save: (accountId: string, defaults: ModelDefaults, signal: AbortSignal) => Promise<ModelDefaults>;
+};
 export type ProviderAuthorizationApi = {
   begin: (
-    input: { providerId: string; method: string },
+    input: { providerId: string; method: string; accountId?: string },
     signal: AbortSignal,
   ) => Promise<ProviderAuthorizationSession>;
 };
@@ -50,7 +68,13 @@ export const providersOrb = orb({
   services: {
     "swarmie.providers.ui": {
       create: (self) =>
-        self.state<ProvidersState>({ choices: [], accounts: [], error: null, ready: false }),
+        self.state<ProvidersState>({
+          scope: null,
+          choices: [],
+          accounts: [],
+          error: null,
+          ready: false,
+        }),
       methods: { update: updatePresentation<ProvidersState> },
     },
   },
@@ -65,13 +89,16 @@ export type ProviderAuthorizationState =
       callbackUri: string | null;
     }
   | { kind: "connected"; account: ProviderAccount }
-  | { kind: "failed"; error: string };
+  | { kind: "failed"; error: string; retryable?: boolean };
 export type ProviderAuthorizationSession = Snapshot<ProviderAuthorizationState> & {
   complete: (callbackUrl: string) => Promise<void>;
   cancel: () => Promise<void>;
   dispose: () => void;
+  retry?: () => Promise<void>;
 };
 
 export { createProvidersApi } from "./api";
+export { providerCatalog } from "./catalog";
 export type { ProvidersApi, ProvidersBackend } from "./api";
 export type { ProviderSelection } from "./selection";
+export { providerDisplayName } from "./presentation";

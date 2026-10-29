@@ -14,7 +14,7 @@ export function HeroUIPreview({
       data-heroui-preview
       data-testid="hero-preview-host"
       data-heroui-palette="swarmie"
-      className="@container grid min-w-0 gap-8 rounded-2xl bg-background p-6 font-sans text-foreground"
+      className="@container grid min-w-0 gap-8 rounded-3xl bg-background p-4 font-sans text-foreground @lg:p-6"
     >
       {children}
     </div>

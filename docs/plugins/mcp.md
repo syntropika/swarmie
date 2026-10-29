@@ -179,12 +179,18 @@ saved result without another MCP call. An uncertain operation is never replayed
 automatically. Recovery returns a saved result or `Unknown`.
 
 A known tool or protocol error is a confirmed failed outcome. Transport failures,
-timeouts, cancellation and unsupported continuations leave an uncertain outcome.
-Cancellation does not reverse external effects. Caller cancellation preserves the
-original cancellation error. A healthy connection remains available for other calls.
+timeouts and unsupported continuations can leave an uncertain outcome. Cancellation
+does not reverse external effects. A dispatched call retains its physical reply waiter
+until a response, error or configured deadline. A correlated final response remains
+available for recovery even when its caller was cancelled. Caller cancellation preserves
+the original cancellation error; it does not replace a retained tool receipt.
+Physical settlement can keep Stop, steer or host shutdown pending until the configured
+request timeout, which defaults to 30 seconds. A deadline never authorizes replay.
 
-Transport errors and timeouts mark the connection unavailable. New calls are
-blocked before dispatch. The mounted provider removes catalog registrations after
+Transport errors and ordinary request timeouts mark the connection unavailable. A deadline
+after logical cancellation retains an unknown receipt while leaving a still-open transport
+available for other calls. An uncertain operation is never dispatched again. An unavailable
+connection blocks new calls before dispatch. The mounted provider removes catalog registrations after
 Execute settles. If a transport closes while idle, entries remain until the next
 Execute attempt. That attempt is blocked before dispatch and removes the entries.
 Recovery still reaches the original provider after catalog removal.

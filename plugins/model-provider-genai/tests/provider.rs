@@ -13,6 +13,112 @@ use tembra::{Code, Host};
 use tokio::task::LocalSet;
 
 #[tokio::test(flavor = "current_thread")]
+async fn canonical_mcp_names_round_trip_through_all_six_provider_boundaries() {
+    LocalSet::new()
+        .run_until(async {
+            for kind in PROVIDERS {
+                let canonical = "mcp.fixture.remote_tool";
+                let first = serde_json::from_str(
+                    &wire(kind, true)
+                        .to_string()
+                        .replace("counter_add", "mcp__fixture__remote_tool"),
+                )
+                .unwrap();
+                let server =
+                    Server::new(vec![Reply::ok(first), Reply::ok(wire(kind, false))]).await;
+                let host = Host::new(LocalExecutor);
+                let config = configuration(kind, &server.endpoint);
+                let model = Rc::new(
+                    GenaiModel::new(config.connections[0].clone(), key().model, &Secrets).unwrap(),
+                );
+                let mut request = input(true);
+                request.tools[0].name = swarmie_providers::ToolName::new(canonical).unwrap();
+                request.tools[0].description.clear();
+                for turn in 0..2 {
+                    let model = model.clone();
+                    let copy = request.clone();
+                    let output = host
+                        .root("alice", move |ctx| {
+                            async move { model.complete(&ctx, OperationId::new(), &copy).await }
+                                .boxed_local()
+                        })
+                        .await
+                        .unwrap();
+                    if turn == 0 {
+                        assert_eq!(
+                            output.message.tool_calls[0].name.as_str(),
+                            canonical,
+                            "{kind:?}"
+                        );
+                        let call = output.message.tool_calls[0].id.clone();
+                        request
+                            .context
+                            .messages
+                            .push(swarmie_providers::Message::Assistant(output.message));
+                        request
+                            .context
+                            .messages
+                            .push(swarmie_providers::Message::Tool {
+                                call,
+                                result: swarmie_providers::ToolResult::Success(json!({"ok":true})),
+                            });
+                    } else {
+                        assert_eq!(output.message.content, "Done");
+                    }
+                }
+                let calls = server.calls.borrow().clone();
+                assert_eq!(calls.len(), 2);
+                for call in calls {
+                    let body = call.body.to_string();
+                    assert!(!body.contains(canonical));
+                    assert!(body.contains("mcp__fixture__remote_tool"));
+                }
+                close(&host).await;
+                server.finish().await;
+            }
+        })
+        .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn catalog_model_suffix_is_not_an_implicit_reasoning_setting() {
+    LocalSet::new()
+        .run_until(async {
+            for kind in PROVIDERS {
+                let server = Server::new(vec![Reply::ok(wire(kind, false))]).await;
+                let mut config = configuration(kind, &server.endpoint);
+                let id = provider::ModelId::new("fixture-model-max").unwrap();
+                config.connections[0].models = vec![id.clone()];
+                let model =
+                    Rc::new(GenaiModel::new(config.connections[0].clone(), id, &Secrets).unwrap());
+                let host = Host::new(LocalExecutor);
+                host.root("alice", move |ctx| {
+                    async move {
+                        model
+                            .complete(&ctx, OperationId::new(), &input(false))
+                            .await
+                    }
+                    .boxed_local()
+                })
+                .await
+                .unwrap();
+                let calls = server.calls.borrow().clone();
+                let call = &calls[0];
+                if kind == Provider::Gemini {
+                    assert!(call.path.contains("fixture-model-max:"), "{}", call.path);
+                } else {
+                    assert_eq!(call.body["model"], "fixture-model-max", "{kind:?}");
+                }
+                assert!(call.body.get("reasoning").is_none());
+                assert!(call.body.get("reasoning_effort").is_none());
+                close(&host).await;
+                server.finish().await;
+            }
+        })
+        .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn six_explicit_provider_routes_use_actual_http_and_normalize_usage() {
     LocalSet::new()
         .run_until(async {
@@ -164,10 +270,7 @@ async fn malformed_requests_and_unadmitted_models_fail_before_network_dispatch()
                             call: swarmie_providers::ToolCallId::new("unknown").unwrap(),
                             result: swarmie_providers::ToolResult::Success(json!(1)),
                         }),
-                    _ => {
-                        request.tools[0].name =
-                            swarmie_providers::ToolName::new("not.portable").unwrap()
-                    }
+                    _ => request.tools[0].input_schema = json!({"type":"array"}),
                 }
                 let model = model.clone();
                 let error = host

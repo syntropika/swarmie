@@ -16,7 +16,7 @@ export function ConversationSidebar({ preferences }: { preferences: NavigationPr
   );
   return (
     <>
-      <div className="flex min-h-(--spacing-navigation-header) shrink-0 items-center gap-0.5 border-b border-border px-1.5">
+      <div className="flex min-h-(--spacing-navigation-header) shrink-0 items-center gap-0.5 border-b border-navigation-divider bg-navigation-surface px-1.5">
         <ChromeButton
           size="action"
           className="min-w-0 flex-1"
@@ -42,7 +42,7 @@ export function ConversationSidebar({ preferences }: { preferences: NavigationPr
           />
         ) : null}
       </div>
-      <div className="min-h-0 flex-1 overflow-auto px-2 py-4">
+      <div className="min-h-0 flex-1 overflow-auto p-2">
         {preferences.mode === "notifications" && notificationsEnabled ? (
           <NotificationsNavigation
             onClose={() => {

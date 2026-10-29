@@ -3,10 +3,11 @@ import { orb } from "@syntropika/tembra-sdk";
 
 export type Tab = {
   id: string;
-  kind: "start" | "notes" | "state" | "conversation";
   title: string;
-  conversationId?: string;
-};
+} & (
+  | { kind: "start" | "notes" | "state" }
+  | { kind: "conversation"; conversationId: string; temporary?: true }
+);
 export type ViewsState = {
   tabs: Tab[];
   tab: string;

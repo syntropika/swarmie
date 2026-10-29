@@ -1,5 +1,5 @@
 import { useSource } from "@swarmie/client-ui";
-import { ChromeButton } from "@swarmie/ui-web";
+import { Tabs } from "@swarmie/ui-web";
 import { setThemePreference } from "@swarmie/ui-web/theme";
 
 import { useClient } from "../client/context";
@@ -19,24 +19,29 @@ export function GeneralSettings() {
   return (
     <>
       <h1 className="text-2xl font-medium">General</h1>
-      <div className="mt-8 rounded-xl border border-border bg-chrome-surface p-4">
+      <div className="mt-8 rounded-group bg-group p-4">
         <h2 className="text-sm">Appearance</h2>
-        <fieldset aria-label="Appearance" className="mt-3 flex gap-2">
-          {(["system", "dark", "light"] as const).map((theme) => (
-            <ChromeButton
-              key={theme}
-              size="action"
-              selected={preferences.theme === theme}
-              aria-pressed={preferences.theme === theme}
-              onPress={() => {
-                settings.update((current) => ({ ...current, theme }));
-                setThemePreference(theme);
-              }}
-            >
-              {themeLabel(theme)}
-            </ChromeButton>
-          ))}
-        </fieldset>
+        <Tabs
+          selectedKey={preferences.theme}
+          onSelectionChange={(theme) => {
+            if (theme === "system" || theme === "dark" || theme === "light") {
+              settings.update((current) => ({ ...current, theme }));
+              setThemePreference(theme);
+            }
+          }}
+          className="mt-3"
+        >
+          <Tabs.ListContainer>
+            <Tabs.List aria-label="Appearance">
+              {(["system", "dark", "light"] as const).map((theme) => (
+                <Tabs.Tab key={theme} id={theme}>
+                  {themeLabel(theme)}
+                  <Tabs.Indicator />
+                </Tabs.Tab>
+              ))}
+            </Tabs.List>
+          </Tabs.ListContainer>
+        </Tabs>
       </div>
     </>
   );

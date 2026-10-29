@@ -71,7 +71,7 @@ function dispatch(view: ActionView, value: unknown) {
 function CardView({ title, children, confirm, cancel, asForm, ...action }: CardRenderProps) {
   const footer =
     confirm || cancel ? (
-      <Card.Footer>
+      <Card.Footer className="flex-wrap gap-2">
         {confirm ? (
           <Button
             type={asForm === true ? "submit" : "button"}
@@ -176,7 +176,7 @@ export const styledGenerativeUILibrary: GenerativeUILibrary = {
       return (
         <Button
           variant={variant}
-          {...(props.disabled === undefined ? {} : { disabled: props.disabled })}
+          {...(props.disabled === undefined ? {} : { isDisabled: props.disabled })}
           onPress={() => {
             dispatch(props, undefined);
           }}

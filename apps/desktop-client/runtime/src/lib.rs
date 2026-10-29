@@ -1,5 +1,4 @@
-//! Native host execution and I/O for the ordinary Tembra MCP services.
-mod definitions;
+//! Desktop-owned worker, byte channels and C ABI for reusable client node services.
 mod ffi;
 mod node;
 

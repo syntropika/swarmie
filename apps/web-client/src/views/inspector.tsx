@@ -21,8 +21,8 @@ export function JsonValue({
     const entries = Object.entries(value);
     return (
       <details open={expanded || depth === 0} className="pl-3">
-        <summary className="cursor-pointer py-0.5 text-foreground">
-          <span className="text-brand-accent">{name}</span>
+        <summary className="min-h-(--spacing-chrome-menu-row) cursor-pointer py-0.5 text-foreground">
+          <span className="text-brand-accent-text">{name}</span>
           {name === undefined ? "" : ": "}
           {Array.isArray(value) ? "[" : "{"}
           <span className="ml-2 text-muted">
@@ -41,7 +41,7 @@ export function JsonValue({
   return (
     <div className="pl-6 leading-6">
       <span className="text-muted">{name}</span>:{" "}
-      <span className={typeof value === "string" ? "text-brand-accent" : "text-foreground"}>
+      <span className={typeof value === "string" ? "text-brand-accent-text" : "text-foreground"}>
         {JSON.stringify(value)}
       </span>
     </div>
@@ -106,7 +106,7 @@ export function StateView() {
   };
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-4 text-xs">
+      <div className="flex min-h-(--spacing-navigation-header) shrink-0 flex-wrap items-center justify-between gap-x-2 border-b border-navigation-divider px-4 text-chrome">
         <span className="flex items-center gap-2">
           App state
           <span

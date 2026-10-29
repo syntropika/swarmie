@@ -1,4 +1,5 @@
-import { HeadContent, Link, Scripts, createRootRoute } from "@tanstack/react-router";
+import { Link } from "@swarmie/ui-web";
+import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
 import {
@@ -31,7 +32,7 @@ export const Route = createRootRoute({
         { name: "viewport", content: "width=device-width, initial-scale=1" },
         { title: t("meta.title") },
         { name: "description", content: t("meta.description") },
-        { name: "theme-color", content: "#F4F1EC" },
+        { name: "theme-color", content: "#ffffff" },
         { property: "og:title", content: t("meta.title") },
         { property: "og:description", content: t("meta.socialDescription") },
         { property: "og:type", content: "website" },
@@ -62,7 +63,7 @@ function Root({ children }: { children: ReactNode }) {
       <head>
         <HeadContent />
       </head>
-      <body className="bg-canvas font-sans leading-relaxed text-ink antialiased selection:bg-primary-soft selection:text-ink [&_:focus-visible]:outline-2 [&_:focus-visible]:outline-offset-2 [&_:focus-visible]:outline-primary [&_a]:underline-offset-4 [&_a:focus-visible]:rounded-pill [&_a:focus-visible]:outline-offset-4 [&_h1]:text-balance [&_h2]:text-balance [&_h3]:text-balance [&_summary:focus-visible]:outline-offset-4">
+      <body className="bg-canvas font-sans leading-relaxed text-ink antialiased selection:bg-primary-soft selection:text-ink [&_h1]:text-balance [&_h2]:text-balance [&_h3]:text-balance">
         <LocaleProvider locale={locale}>{children}</LocaleProvider>
         <Scripts />
       </body>
@@ -77,9 +78,7 @@ function NotFound() {
       <main className="flex flex-1 flex-col items-start justify-center gap-6">
         <h1 className="text-title font-medium">{t("common.notFoundTitle")}</h1>
         <p className="text-text-muted">{t("common.notFound")}</p>
-        <Link to="/" className="text-primary underline underline-offset-4">
-          {t("common.backHome")}
-        </Link>
+        <Link href="/">{t("common.backHome")}</Link>
       </main>
     </div>
   );

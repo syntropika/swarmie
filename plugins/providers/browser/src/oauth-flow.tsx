@@ -1,5 +1,5 @@
 import { useSource, errorMessage } from "@swarmie/client-ui";
-import { Button, Icon, Link, Spinner, copyText } from "@swarmie/ui-web";
+import { Button, Icon, Link, Spinner, Surface, copyText } from "@swarmie/ui-web";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type {
@@ -14,15 +14,18 @@ function AuthorizationSession({
   session,
   provider,
   onConnected,
+  onCancel,
 }: {
   session: ProviderAuthorizationSession;
   provider: ProviderChoice;
   onConnected: (account: ProviderAccount) => void;
+  onCancel: () => void;
 }) {
   const state = useSource(session);
   const delivered = useRef<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
   useEffect(() => {
     if (state.kind === "connected" && delivered.current !== state.account.id) {
       delivered.current = state.account.id;
@@ -41,9 +44,41 @@ function AuthorizationSession({
   }
   if (state.kind === "failed") {
     return (
-      <p role="alert" className="text-sm text-danger">
-        {state.error}
-      </p>
+      <div className="grid gap-3">
+        <p role="alert" className="text-sm text-danger">
+          {state.error}
+        </p>
+        {state.retryable === true && session.retry !== undefined ? (
+          <Button
+            variant="secondary"
+            isPending={retrying}
+            isDisabled={retrying}
+            onPress={() => {
+              async function retry() {
+                setRetrying(true);
+                try {
+                  await session.retry?.();
+                } catch (error: unknown) {
+                  failed(error);
+                } finally {
+                  setRetrying(false);
+                }
+              }
+              retry().catch(failed);
+            }}
+          >
+            Retry connection
+          </Button>
+        ) : null}
+        {failure === null ? null : (
+          <p role="alert" className="text-sm text-danger">
+            {failure}
+          </p>
+        )}
+        <Button variant="tertiary" onPress={onCancel}>
+          {state.retryable === true ? "Cancel sign-in" : "Try a new sign-in"}
+        </Button>
+      </div>
     );
   }
   if (state.kind === "connected") {
@@ -55,33 +90,39 @@ function AuthorizationSession({
     );
   }
   return (
-    <div className="grid gap-4 rounded-xl border border-border p-4">
-      {state.userCode === null ? null : (
-        <>
-          <p className="text-sm text-muted">Enter this code on the provider sign-in page:</p>
-          <div className="flex items-center justify-between gap-3">
-            <code className="text-xl font-medium tracking-widest select-all">{state.userCode}</code>
-            <Button
-              variant="tertiary"
-              isIconOnly
-              aria-label={copied ? "Code copied" : "Copy sign-in code"}
-              onPress={() => {
-                copyCode().catch(failed);
-              }}
-            >
-              <Icon name={copied ? "check" : "copy"} />
-            </Button>
-          </div>
-        </>
-      )}
-      <Link href={state.authorizationUrl} target="_blank" rel="noopener noreferrer">
-        Continue to {provider.label}
-        <Link.Icon />
-      </Link>
-      <output className="flex items-center gap-2 text-sm text-muted">
-        <Spinner size="sm" color="current" />
-        Waiting for authorization. Return here after signing in.
-      </output>
+    <div className="grid gap-4">
+      <Surface variant="secondary">
+        <div className="grid gap-4 p-4">
+          {state.userCode === null ? null : (
+            <>
+              <p className="text-sm text-muted">Enter this code on the provider sign-in page:</p>
+              <div className="flex min-w-0 items-center justify-between gap-3">
+                <code className="min-w-0 text-xl font-medium tracking-widest break-all select-all">
+                  {state.userCode}
+                </code>
+                <Button
+                  variant="tertiary"
+                  isIconOnly
+                  aria-label={copied ? "Code copied" : "Copy sign-in code"}
+                  onPress={() => {
+                    copyCode().catch(failed);
+                  }}
+                >
+                  <Icon name={copied ? "check" : "copy"} />
+                </Button>
+              </div>
+            </>
+          )}
+          <Link href={state.authorizationUrl} target="_blank" rel="noopener noreferrer">
+            Continue to {provider.label}
+            <Link.Icon />
+          </Link>
+          <output className="flex items-start gap-2 text-sm text-muted">
+            <Spinner size="sm" color="current" />
+            Waiting for authorization. Return here after signing in.
+          </output>
+        </div>
+      </Surface>
       {state.callbackUri === null ? null : (
         <OAuthCallback callbackUri={state.callbackUri} onComplete={session.complete} />
       )}
@@ -90,6 +131,9 @@ function AuthorizationSession({
           {failure}
         </p>
       )}
+      <Button variant="tertiary" onPress={onCancel}>
+        Cancel sign-in
+      </Button>
     </div>
   );
 }
@@ -100,11 +144,13 @@ export function OAuthFlow({
   method,
   api,
   onConnected,
+  accountId,
 }: {
   provider: ProviderChoice;
   method: string;
   api: ProviderAuthorizationApi;
   onConnected: (account: ProviderAccount) => void;
+  accountId?: string | undefined;
 }) {
   const [session, setSession] = useState<ProviderAuthorizationSession | null>(null);
   const sessionRef = useRef<ProviderAuthorizationSession | null>(null);
@@ -129,7 +175,10 @@ export function OAuthFlow({
     setBusy(true);
     setFailure(null);
     try {
-      const authorization = await api.begin({ providerId: provider.id, method }, scope.signal);
+      const authorization = await api.begin(
+        { providerId: provider.id, method, ...(accountId === undefined ? {} : { accountId }) },
+        scope.signal,
+      );
       if (scope.signal.aborted) {
         authorization.dispose();
         page?.close();
@@ -160,10 +209,13 @@ export function OAuthFlow({
   }
   async function cancel() {
     if (session !== null) {
-      await session.cancel();
-      session.dispose();
-      sessionRef.current = null;
-      setSession(null);
+      try {
+        await session.cancel();
+      } finally {
+        session.dispose();
+        sessionRef.current = null;
+        setSession(null);
+      }
     }
   }
   return (
@@ -173,10 +225,7 @@ export function OAuthFlow({
       </p>
       {session === null ? (
         <Button
-          tone="brand"
-          shape="panel"
-          size="lg"
-          loading={busy}
+          isPending={busy}
           isDisabled={busy}
           onPress={() => {
             const page = window.open("about:blank", "_blank");
@@ -186,20 +235,18 @@ export function OAuthFlow({
             begin(page).catch(failed);
           }}
         >
-          Sign in to {provider.label}
+          {busy ? <Spinner size="sm" color="current" aria-hidden="true" /> : null}
+          {busy ? `Signing in to ${provider.label}…` : `Sign in to ${provider.label}`}
         </Button>
       ) : (
-        <>
-          <AuthorizationSession session={session} provider={provider} onConnected={onConnected} />
-          <Button
-            variant="tertiary"
-            onPress={() => {
-              cancel().catch(failed);
-            }}
-          >
-            Cancel sign-in
-          </Button>
-        </>
+        <AuthorizationSession
+          session={session}
+          provider={provider}
+          onConnected={onConnected}
+          onCancel={() => {
+            cancel().catch(failed);
+          }}
+        />
       )}
       {failure === null ? null : (
         <p role="alert" className="text-sm text-danger">

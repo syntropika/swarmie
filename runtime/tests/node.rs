@@ -52,3 +52,72 @@ fn malformed_node_identifiers_are_refused_at_constructor_and_decode_boundaries()
         serde_json::json!({"nodeId":"node-a","principal":"alice","protocolVersion":1})
     );
 }
+
+#[test]
+fn directory_navigation_uses_the_callers_principal_and_releases_its_resources() {
+    use futures::future::LocalBoxFuture;
+    use std::rc::Rc;
+    use swarmie_runtime::{
+        DIRECTORIES_SERVICE, DirectoryPage, DirectoryRequest, DirectorySource, directories_orb,
+    };
+
+    struct Source;
+    impl DirectorySource for Source {
+        fn list(
+            &self,
+            principal: String,
+            _request: DirectoryRequest,
+        ) -> LocalBoxFuture<'static, tembra::Result<DirectoryPage>> {
+            Box::pin(async move {
+                if principal != "alice" {
+                    return Err(tembra::Error::new(
+                        tembra::Code::Forbidden,
+                        "directories.user",
+                        "folder access refused",
+                    ));
+                }
+                Ok(DirectoryPage {
+                    path: "/permitted".into(),
+                    parent: None,
+                    directories: vec![],
+                    next: None,
+                })
+            })
+        }
+    }
+    let mut executor = LocalPool::new();
+    let host = Host::new(executor.spawner());
+    executor.run_until(async {
+        host.install(vec![directories_orb(Rc::new(Source))])
+            .unwrap();
+        for principal in ["alice", "bob"] {
+            let reference = host
+                .get(DIRECTORIES_SERVICE, vec!["main".into()], principal)
+                .unwrap();
+            let result: tembra::Result<DirectoryPage> = host
+                .root(principal, move |context| {
+                    async move {
+                        reference
+                            .call(
+                                &context,
+                                "list",
+                                (DirectoryRequest {
+                                    path: None,
+                                    cursor: None,
+                                },),
+                            )
+                            .await
+                    }
+                    .boxed_local()
+                })
+                .await;
+            if principal == "alice" {
+                assert_eq!(result.unwrap().path, "/permitted");
+            } else {
+                assert_eq!(result.unwrap_err().code, tembra::Code::Forbidden);
+            }
+        }
+        host.close().await.unwrap();
+        assert_eq!(host.kernel().diagnostics().resources, 0);
+    });
+}

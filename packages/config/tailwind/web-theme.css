@@ -3,40 +3,7 @@
   color-scheme: light;
   --brand-ink-display: block;
   --brand-white-display: none;
-  --color-reference-canvas: light-dark(#ffffff, #181818);
   scrollbar-color: var(--color-drawing-line) var(--color-canvas);
-  --color-canvas: var(--background);
-  --color-rail: var(--surface);
-  --color-surface: var(--surface);
-  --color-surface-muted: var(--default);
-  --color-surface-hover: var(--default-hover);
-  --color-ink: var(--foreground);
-  --color-text-muted: var(--muted);
-  --color-border: var(--border);
-  --color-control-border: var(--field-border);
-  --color-border-subtle: var(--separator);
-  --color-overlay-shadow: light-dark(rgb(39 43 51 / 12%), rgb(0 0 0 / 40%));
-  --color-primary: var(--accent);
-  --color-primary-hover: var(--accent-hover);
-  --color-primary-soft: var(--accent-soft);
-  --color-on-primary: var(--accent-foreground);
-  --color-drawing-line: light-dark(#a5abb2, #868686);
-  --color-mint: light-dark(#cde9de, #263e34);
-  --color-peach: light-dark(#ffd2be, #473027);
-  --color-butter: light-dark(#f6e6a6, #433d24);
-  --color-lilac: light-dark(#ded9f2, #363047);
-  --color-success: var(--success);
-  --color-success-soft: var(--success-soft);
-  --color-attention: var(--warning);
-  --color-attention-soft: var(--warning-soft);
-  --color-danger: var(--danger);
-  --color-danger-soft: var(--danger-soft);
-  --color-footer: #181818;
-  --color-footer-text: light-dark(#fcfaf7, #f3f3f1);
-  --color-inverse: light-dark(#272b33, #111111);
-  --color-inverse-text: light-dark(#f4f1ec, #f3f3f1);
-  --color-inverse-muted: light-dark(#bdc4ce, #bebeba);
-  --color-inverse-link: light-dark(#aac1e0, #aac1e0);
 }
 
 [data-theme="system"] {
@@ -73,8 +40,8 @@
   --w-rjv-key-string: var(--foreground);
   --w-rjv-key-number: var(--muted);
   --w-rjv-type-string-color: var(--muted);
-  --w-rjv-type-int-color: var(--color-brand-accent);
-  --w-rjv-type-float-color: var(--color-brand-accent);
+  --w-rjv-type-int-color: var(--color-brand-accent-text);
+  --w-rjv-type-float-color: var(--color-brand-accent-text);
   --w-rjv-type-boolean-color: var(--foreground);
   --w-rjv-border-left: 1px solid var(--border);
   --w-rjv-info-color: var(--muted);
@@ -85,8 +52,10 @@
 /* MIT-licensed tick presentation attribution: ui/web/vendor/openclaw-position-rail/NOTICE.md. */
 .conversation-map {
   position: relative;
-  width: 44px;
-  height: min(45vh, calc(var(--conversation-map-count, 0) * 12px), 100%);
+  --conversation-map-row-height: 12px;
+  width: var(--spacing-control-touch);
+  height: min(45vh, calc(var(--conversation-map-count, 0) * var(--conversation-map-row-height)));
+  max-height: 100%;
 }
 .conversation-map__marks {
   position: relative;
@@ -100,14 +69,18 @@
 }
 .conversation-map__space {
   position: relative;
-  height: calc(var(--conversation-map-count, 0) * 12px);
+  height: calc(var(--conversation-map-count, 0) * var(--conversation-map-row-height));
 }
 .conversation-map__item {
   display: contents;
 }
 .conversation-map__marker {
   position: absolute;
-  top: var(--conversation-map-position);
+  top: calc(var(--conversation-map-position) * var(--conversation-map-row-height));
+  height: var(--conversation-map-row-height);
+  min-height: var(--conversation-map-row-height);
+  width: var(--spacing-control-touch);
+  min-width: var(--spacing-control-touch);
   inset-inline-start: 0;
   color: color-mix(in srgb, var(--muted) 40%, transparent);
   background: transparent;
@@ -155,15 +128,15 @@
   gap: 4px;
   padding: 6px 8px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-menu);
   color: var(--foreground);
   background: var(--overlay);
-  font-size: 12px;
-  line-height: 1.35;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
 }
 .conversation-map__label {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-chrome);
   font-weight: 600;
 }
 .conversation-map__copy {
@@ -181,70 +154,9 @@
   }
 }
 
-/* Touch browsers can magnify small editable text on focus; preserve manual page zoom. */
-@media (max-width: 900px), (hover: none) and (pointer: coarse) {
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not(
-      [type="file"]
-    ):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="hidden"]),
-  textarea,
-  select,
-  [contenteditable="true"],
-  [contenteditable="plaintext-only"] {
-    font-size: max(16px, 1em);
-  }
-}
-
-/* Drawer layouts and coarse pointers use one touch density for controls and their rows. */
-@media (max-width: 767px), (pointer: coarse) {
-  :root {
-    --text-caption: 0.875rem;
-    --text-chrome: 0.8125rem;
-    --text-navigation: 0.875rem;
-    --text-navigation-label: var(--text-caption);
-    --text-navigation-heading: var(--text-navigation);
-    --text-conversation: 1rem;
-    --text-code: 0.875rem;
-    --text-panel-switch: 0.8125rem;
-    --spacing-shell-bar: 2.75rem;
-    --spacing-shell-rail: 3.25rem;
-    --spacing-navigation-header: 2.75rem;
-    --spacing-navigation-group: 2.75rem;
-    --spacing-chrome-action-height: 2.5rem;
-    --spacing-chrome-action-width: 2.5rem;
-    --spacing-chrome-icon: 1.125rem;
-    --spacing-chrome-rail-control: 2.5rem;
-    --spacing-chrome-rail-icon: 1.25rem;
-    --spacing-brand-mark: 1.75rem;
-    --spacing-chrome-row: 2.75rem;
-    --spacing-chrome-navigation-row: 2.75rem;
-    --spacing-chrome-menu-row: 2.75rem;
-    --spacing-composer-label: 8rem;
-    --spacing-composer-control: 2.5rem;
-    --spacing-chrome-tab: 2.5rem;
-    --spacing-chrome-tab-close: 2.5rem;
-    --spacing-panel-switch: 2.5rem;
-  }
-}
-
-@media (max-width: 767px), (pointer: coarse) {
-  .button,
-  .input,
-  .select__trigger,
-  .checkbox,
-  .switch {
-    min-height: var(--spacing-chrome-action-height);
-  }
-  .switch {
-    align-items: center;
-    justify-content: center;
-  }
-}
-
 /* Header labels and icons have one shared compact context. */
-@media (min-width: 768px) and (pointer: fine) {
-  .swarmie-header {
-    --spacing-chrome-icon: 1rem;
-    --spacing-chrome-row: 2rem;
-    --text-panel-switch: 0.6875rem;
-  }
+.swarmie-header {
+  --spacing-chrome-icon: 1rem;
+  --spacing-chrome-row: 2rem;
+  --text-panel-switch: 0.6875rem;
 }

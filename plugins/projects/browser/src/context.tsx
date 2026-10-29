@@ -2,10 +2,12 @@ import type { Snapshot } from "@swarmie/client-ui";
 import type { ConversationSummary } from "@swarmie/plugin-conversations-browser";
 import { createContext, useContext } from "react";
 
+import type { DirectoryBrowser } from "./directories";
 import type { ProjectsApi } from "./index";
 
 export type ProjectsPresentation = {
   api: ProjectsApi;
+  directories: DirectoryBrowser;
   conversations: Snapshot<readonly ConversationSummary[]>;
   nodes: Snapshot<readonly { id: string; label: string }[]>;
   open: (projectId?: string) => void;

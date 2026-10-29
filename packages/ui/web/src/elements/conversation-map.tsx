@@ -1,5 +1,5 @@
 import type { ComponentProps, KeyboardEvent } from "react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "../atoms/button";
 import { Tooltip } from "../atoms/tooltip";
@@ -39,7 +39,11 @@ export function ConversationMap({
   const pendingFocus = useRef<string | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const [viewport, setViewport] = useState({ offset: 0, height: 300 });
+  const [viewport, setViewport] = useState({
+    offset: 0,
+    height: 300,
+    markerHeight: POSITION_RAIL_MARKER_HEIGHT,
+  });
   const indexesById = useMemo(
     () => new Map(entries.map((entry, index) => [entry.id, index])),
     [entries],
@@ -51,6 +55,7 @@ export function ConversationMap({
         indexesById,
         viewport.offset,
         viewport.height,
+        viewport.markerHeight,
         activeId,
         focusedId,
         hoveredId,
@@ -61,7 +66,7 @@ export function ConversationMap({
   useLayoutEffect(() => {
     root.current?.style.setProperty("--conversation-map-count", String(entries.length));
   }, [entries.length]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = scroller.current;
     if (element === null) {
       return undefined;
@@ -72,9 +77,18 @@ export function ConversationMap({
       if (element === null) {
         return;
       }
-      const next = { offset: element.scrollTop, height: element.clientHeight };
+      const measured = markers.current.values().next().value?.offsetHeight ?? 0;
+      const next = {
+        offset: element.scrollTop,
+        height: element.clientHeight,
+        markerHeight: measured > 0 ? measured : POSITION_RAIL_MARKER_HEIGHT,
+      };
       setViewport((previous) =>
-        previous.offset === next.offset && previous.height === next.height ? previous : next,
+        previous.offset === next.offset &&
+        previous.height === next.height &&
+        previous.markerHeight === next.markerHeight
+          ? previous
+          : next,
       );
     }
     function schedule() {
@@ -82,10 +96,13 @@ export function ConversationMap({
     }
     const observer = new ResizeObserver(schedule);
     observer.observe(element);
+    const touch = window.matchMedia("(max-width: 767px), (pointer: coarse)");
+    touch.addEventListener("change", schedule);
     element.addEventListener("scroll", schedule, { passive: true });
-    schedule();
+    measure();
     return () => {
       observer.disconnect();
+      touch.removeEventListener("change", schedule);
       element.removeEventListener("scroll", schedule);
       if (frame !== null) {
         window.cancelAnimationFrame(frame);
@@ -105,15 +122,12 @@ export function ConversationMap({
     if (!indexes.includes(index)) {
       return;
     }
-    const top = index * POSITION_RAIL_MARKER_HEIGHT;
+    const top = index * viewport.markerHeight;
     if (
       top < element.scrollTop ||
-      top + POSITION_RAIL_MARKER_HEIGHT > element.scrollTop + element.clientHeight
+      top + viewport.markerHeight > element.scrollTop + element.clientHeight
     ) {
-      element.scrollTop = Math.max(
-        0,
-        top - (element.clientHeight - POSITION_RAIL_MARKER_HEIGHT) / 2,
-      );
+      element.scrollTop = Math.max(0, top - (element.clientHeight - viewport.markerHeight) / 2);
     }
     if (pendingFocus.current !== null) {
       const marker = markers.current.get(pendingFocus.current);
@@ -122,7 +136,7 @@ export function ConversationMap({
         marker.focus({ preventScroll: true });
       }
     }
-  }, [activeId, indexesById, indexes, focusedId]);
+  }, [activeId, indexesById, indexes, focusedId, viewport.markerHeight]);
   function navigate(event: KeyboardEvent, index: number) {
     let next = index;
     if (event.key === "ArrowDown") {
@@ -137,7 +151,6 @@ export function ConversationMap({
       return;
     }
     event.preventDefault();
-    event.stopPropagation();
     const target = entries[Math.max(0, Math.min(entries.length - 1, next))];
     if (target) {
       pendingFocus.current = target.id;
@@ -184,22 +197,25 @@ export function ConversationMap({
                     ref={(element) => {
                       if (element) {
                         markers.current.set(entry.id, element);
-                        element.style.setProperty(
-                          "--conversation-map-position",
-                          `${index * POSITION_RAIL_MARKER_HEIGHT}px`,
-                        );
+                        element.style.setProperty("--conversation-map-position", String(index));
                       } else {
                         markers.current.delete(entry.id);
                       }
                     }}
-                    variant="tertiary"
+                    variant="ghost"
                     isIconOnly
-                    className="conversation-map__marker h-3 min-h-3 w-11 min-w-11 justify-start rounded-none p-0"
+                    className="conversation-map__marker justify-start rounded-none p-0"
                     aria-label={`${index + 1} of ${entries.length}: ${entry.title}`}
                     aria-description="Use Arrow Up and Arrow Down to preview messages. Press Enter to jump."
                     aria-current={activeId === entry.id ? "step" : false}
                     data-visible={visibleIds.includes(entry.id) ? "true" : undefined}
-                    tabIndex={tabId === entry.id ? 0 : -1}
+                    render={(nativeProps) => (
+                      <button
+                        {...nativeProps}
+                        type="button"
+                        tabIndex={tabId === entry.id ? 0 : -1}
+                      />
+                    )}
                     onPointerEnter={() => {
                       setHoveredId(entry.id);
                     }}

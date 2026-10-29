@@ -399,6 +399,7 @@ impl GeminiAdapter {
 	) -> Result<(Value, String)> {
 		// -- Reasoning Budget
 		let (provider_model_name, computed_reasoning_effort) = match (model_name, options_set.reasoning_effort()) {
+			(model, None) if !options_set.infer_reasoning_from_model_name() => (model, None),
 			// No explicit reasoning_effort, try to infer from model name suffix (supports -zero)
 			(model, None) => {
 				if let Some((prefix, last)) = model_name.rsplit_once('-') {

@@ -10,15 +10,13 @@ export function positionRailWindowIndexes(
   markerIndexes: ReadonlyMap<string, number>,
   offset: number,
   height: number,
+  markerHeight: number,
   ...retainedIds: readonly (string | null | undefined)[]
 ): number[] {
-  const start = Math.max(
-    0,
-    Math.floor(offset / POSITION_RAIL_MARKER_HEIGHT) - POSITION_RAIL_MARKER_OVERSCAN,
-  );
+  const start = Math.max(0, Math.floor(offset / markerHeight) - POSITION_RAIL_MARKER_OVERSCAN);
   const end = Math.min(
     count,
-    Math.ceil((offset + height) / POSITION_RAIL_MARKER_HEIGHT) + POSITION_RAIL_MARKER_OVERSCAN,
+    Math.ceil((offset + height) / markerHeight) + POSITION_RAIL_MARKER_OVERSCAN,
   );
   const indexes = new Set<number>();
   for (let index = start; index < end; index += 1) {

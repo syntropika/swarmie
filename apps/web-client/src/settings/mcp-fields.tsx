@@ -2,6 +2,7 @@ import { Button, Input, Label, ListBox, Select, TextArea, TextField } from "@swa
 import { Plus, Trash2 } from "lucide-react";
 
 import type { ChangeDraft, McpDraft } from "./mcp-draft";
+import { draftId } from "./mcp-draft";
 
 export function HttpFields({
   draft,
@@ -14,7 +15,7 @@ export function HttpFields({
 }) {
   return (
     <>
-      <div className="p-4">
+      <div>
         <TextField
           value={draft.url}
           onChange={(url) => {
@@ -27,16 +28,19 @@ export function HttpFields({
           <Input fullWidth placeholder="https://example.com/mcp" />
         </TextField>
       </div>
-      <section className="p-4" aria-label="HTTP headers">
+      <section className="min-w-0" aria-label="HTTP headers">
         <h3 className="text-sm font-medium">Headers</h3>
         <p className="mt-1 text-xs leading-5 text-muted">
           Add non-secret headers. Do not enter tokens, passwords or cookies.
         </p>
-        <div className="mt-3 grid gap-3">
+        <div className="@container/mcp-headers mt-3 grid gap-3">
           {draft.headers.map((header) => (
-            <div key={header.id} className="flex items-center gap-2">
+            <div
+              key={header.id}
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 @min-[384px]/mcp-headers:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
+            >
               <TextField
-                className="min-w-0 flex-1"
+                className="col-start-1 row-start-1 min-w-0"
                 aria-label="Header name"
                 value={header.name}
                 onChange={(name) => {
@@ -50,7 +54,7 @@ export function HttpFields({
                 <Input fullWidth placeholder="Name" />
               </TextField>
               <TextField
-                className="min-w-0 flex-1"
+                className="col-start-1 row-start-2 min-w-0 @min-[384px]/mcp-headers:col-start-2 @min-[384px]/mcp-headers:row-start-1"
                 aria-label="Header value"
                 value={header.value}
                 onChange={(value) => {
@@ -67,8 +71,8 @@ export function HttpFields({
                 aria-label="Remove header"
                 isIconOnly
                 size="sm"
-                shape="panel"
                 variant="tertiary"
+                className="col-start-2 row-span-2 row-start-1 @min-[384px]/mcp-headers:col-start-3 @min-[384px]/mcp-headers:row-span-1"
                 onPress={() => {
                   change({ headers: draft.headers.filter((entry) => entry.id !== header.id) });
                 }}
@@ -83,12 +87,12 @@ export function HttpFields({
             size="sm"
             onPress={() => {
               change({
-                headers: [...draft.headers, { id: crypto.randomUUID(), name: "", value: "" }],
+                headers: [...draft.headers, { id: draftId(), name: "", value: "" }],
               });
             }}
             isDisabled={busy || draft.headers.length >= 32}
           >
-            <Plus className="size-3.5" />
+            <Plus />
             Add header
           </Button>
         </div>
@@ -99,7 +103,7 @@ export function HttpFields({
 export function LocalFields({ draft, change }: { draft: McpDraft; change: ChangeDraft }) {
   return (
     <>
-      <div className="p-4">
+      <div>
         <TextField
           value={draft.program}
           onChange={(program) => {
@@ -111,7 +115,7 @@ export function LocalFields({ draft, change }: { draft: McpDraft; change: Change
           <Input fullWidth placeholder="e.g. npx" />
         </TextField>
       </div>
-      <div className="p-4">
+      <div>
         <TextField
           value={draft.argumentsText}
           onChange={(argumentsText) => {
@@ -122,7 +126,7 @@ export function LocalFields({ draft, change }: { draft: McpDraft; change: Change
           <TextArea fullWidth rows={3} spellCheck={false} />
         </TextField>
       </div>
-      <div className="p-4">
+      <div>
         <TextField
           value={draft.directory}
           onChange={(directory) => {
@@ -138,7 +142,7 @@ export function LocalFields({ draft, change }: { draft: McpDraft; change: Change
 }
 export function ProtocolField({ draft, change }: { draft: McpDraft; change: ChangeDraft }) {
   return (
-    <div className="p-4">
+    <div>
       <Select
         value={draft.protocol}
         onChange={(value) => {

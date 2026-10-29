@@ -48,7 +48,7 @@ export function ResizeHandle({ target }: { target: "navigation" | "panels" }) {
 
   return (
     <div
-      className={`relative hidden w-px shrink-0 md:block ${navigation ? "" : "bg-border"}`}
+      className={`relative hidden ${navigation ? "w-px" : "w-(--spacing-workspace-gap)"} shrink-0 before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-navigation-divider md:block`}
       onPointerDownCapture={(event) => {
         if (event.button === 0) {
           document.body.dataset.resizing = "true";
@@ -59,7 +59,7 @@ export function ResizeHandle({ target }: { target: "navigation" | "panels" }) {
       onLostPointerCapture={finishResize}
     >
       <PaneResize
-        className="absolute inset-y-0 -left-1 z-20 w-[9px] cursor-col-resize"
+        className="absolute inset-y-0 left-1/2 z-20 w-[9px] -translate-x-1/2 cursor-col-resize"
         label={navigation ? "Resize navigation" : "Resize panels"}
         controls={navigation ? "client-navigation" : "client-panels"}
         width={navigation ? value : (value / 100) * extent}

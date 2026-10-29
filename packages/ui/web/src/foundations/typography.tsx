@@ -4,8 +4,8 @@ import { Reference } from "./reference";
 
 const scales = [
   ["Caption", "text-xs", "Metadata and supporting labels"],
-  ["Interface", "text-sm", "Controls and compact content"],
-  ["Body", "text-base", "Reading and form text"],
+  ["Interface", "text-sm", "Vendor controls and compact content"],
+  ["Body", "text-base", "Reading and editable text"],
   ["Emphasis", "text-lg", "Prominent content"],
   ["Section", "text-xl", "Section headings"],
   ["Title", "text-2xl", "Page headings"],
@@ -14,7 +14,7 @@ const scales = [
 const weights = [
   ["Body copy", "400", "font-normal"],
   ["Actions and labels", "500", "font-medium"],
-  ["Section headings", "600", "font-semibold"],
+  ["Headlines", "600", "font-semibold"],
   ["Strong emphasis", "700", "font-bold"],
 ] as const;
 
@@ -85,15 +85,13 @@ export function TypographyReference({ theme }: { theme: "light" | "dark" }) {
         </section>
         <section className="grid gap-4">
           <h2 className="text-xl font-semibold">Line height and density</h2>
-          <p className="max-w-3xl text-base leading-relaxed">
-            Reading content uses relaxed line spacing and a bounded measure. Compact controls can
-            use smaller type, while long labels wrap instead of being clipped. Font family remains
-            consistent as density changes.
+          <p className="max-w-3xl text-base">
+            The vendor controls supply their text size and line height. Reading content uses a
+            bounded width. Google Sans is shared across the catalog, web and desktop.
           </p>
-          <p className="text-sm leading-normal">
-            Web and desktop use the same scale: 12px captions, 14px interface labels and 16px body
-            text. Dense layouts adjust spacing and composition without introducing a second type
-            scale.
+          <p className="text-sm">
+            Use the public size and variant props when a control offers them. Do not add a second
+            generic control scale in a consumer.
           </p>
         </section>
       </HeroUIPreview>

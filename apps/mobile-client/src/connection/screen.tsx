@@ -9,10 +9,15 @@ export function ConnectScreen() {
     <Page>
       <ScrollView contentContainerClassName="grow justify-center gap-6 px-6 py-12">
         <View className="gap-3">
-          <Text accessibilityRole="header" className="text-4xl font-semibold text-ink">
+          <Text
+            accessibilityRole="header"
+            className="font-native text-native-heading text-native-ink"
+          >
             Swarmie
           </Text>
-          <Text className="text-xl text-text-muted">{t("connection.tagline")}</Text>
+          <Text className="font-native text-base leading-6 text-native-muted">
+            {t("connection.tagline")}
+          </Text>
         </View>
         <Notice>{t("connection.unavailable")}</Notice>
       </ScrollView>

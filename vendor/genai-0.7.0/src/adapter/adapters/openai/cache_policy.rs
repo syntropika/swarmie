@@ -57,9 +57,8 @@ pub(crate) fn openai_prompt_cache_policy(
 		.count();
 
 	let has_explicit_placement = controlled_message_count > 0;
-	let has_general_cache_intent = options.prompt_cache_key().is_some() || options.cache_control().is_some();
-
-	if !has_explicit_placement && has_general_cache_intent {
+	// A catalog model name does not establish support for explicit cache options.
+	if !has_explicit_placement {
 		return None;
 	}
 
@@ -174,7 +173,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_adapter_adapters_openai_prompt_cache_policy_no_configuration_is_explicit() -> Result<()> {
+	fn test_adapter_adapters_openai_prompt_cache_policy_no_configuration_uses_api_default() -> Result<()> {
 		let request = ChatRequest::from_user("hello");
 		let options = ChatOptionsSet::default();
 		let policy = openai_prompt_cache_policy(
@@ -183,11 +182,9 @@ mod tests {
 			&request,
 			&options,
 			OpenAiProtocol::ChatCompletions,
-		)
-		.ok_or("supported OpenAI model should have a cache policy")?;
+		);
 
-		assert_eq!(policy.ttl, None);
-		assert_eq!(policy.controlled_message_count, 0);
+		assert!(policy.is_none());
 		Ok(())
 	}
 

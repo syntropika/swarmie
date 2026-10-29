@@ -121,9 +121,12 @@ notarization and Windows Authenticode credentials are separate opt-in provisioni
 
 ## Local execution node
 
-`apps/desktop-client/runtime` supplies the embedded local node. The native host owns
-its worker thread, Tokio executor and state directory. The Tembra host composes node
-identity, Tools and MCP settings. Tembra owns capability resources and physical cleanup.
+`apps/desktop-client/runtime` supplies the worker and byte channels for the embedded
+local node. The native host owns its worker thread, Tokio executor, profile lock,
+node identity file and state directory. It installs the reusable
+[client node services](node-services.md) from `plugins/client-node`.
+That library composes provider, conversation, Tools and MCP capabilities.
+Tembra owns capability resources and physical cleanup.
 No standalone runtime process or listener is required.
 
 The node has a persistent identity and a local `desktop-user` principal. A file lock
@@ -138,13 +141,35 @@ managed development origin. Other windows and WebViews are refused. The browser
 adapter verifies node identity through the ordinary Connections interface. Channels
 have distinct generations. Old frames cannot enter a replacement channel.
 
-The bridge bounds frames, pending calls, references and output queues. It does not
-retry capability mutations. Page reload closes the old RPC channel. Capability
+The bridge bounds frames, pending calls, references and output queues. Its C ABI poll
+requires an output buffer of at least 512 KiB; smaller buffers are refused before queued
+frames are consumed. Polling drains a bounded batch independently for each channel.
+It does not retry capability mutations. Page reload closes the old RPC channel. Capability
 resources remain under Tembra ownership; a page reload does not authorize tool replay.
 Application exit closes the channel and waits for the host to close.
 
 **Settings → Plugins → MCPs** configures local commands and remote HTTP servers on
-this node. See [MCP](../plugins/mcp.md). The host does not compose model providers or
-an Agent Loop execution adapter. Local MCP availability does not make inference or
-conversation execution available. Browser and mobile clients require an execution node
-that exposes the same settings capability.
+this node. See [MCP](../plugins/mcp.md). The host also composes provider settings,
+native authorization, Conversations storage and the existing Agent Loop. Provider secrets
+remain in native OS credential custody. Bounded metadata and authorization instructions
+cross the bridge; returning-account instructions may contain a signed identity-token hint
+intended for the provider. Access and refresh tokens stay native.
+Browser and mobile clients require an execution node exposing these capabilities.
+
+
+## Node directory browser
+
+The client node composition supplies `swarmie.directories` through the host's Tembra byte channel.
+The native embedding uses the operating system user home as the permitted root. It reads
+`HOME`, or `USERPROFILE` when `HOME` is absent. Without either value, it does not install
+this service. The service accepts only the bound desktop principal.
+
+The directory reader resolves paths and checks them against that root. It omits files
+and links that resolve outside the root. Parent navigation stops at the root. Reads run
+on the host's blocking executor. They do not write to the filesystem. Each listing scans
+at most 4096 entries. A page contains at most 64 directories and has a 24 KiB encoding
+budget. Unsupported path encodings, inaccessible directories and exceeded limits return
+errors. Directory results are live reads, not a filesystem snapshot or sandbox guarantee.
+
+The web client uses this service for Add folder in Projects. The browser device does not
+supply the directory tree. Changes to native services require a desktop runtime rebuild.

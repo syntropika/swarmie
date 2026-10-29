@@ -1,5 +1,7 @@
 import { useSource } from "@swarmie/client-ui";
 import {
+  ActionMenuDialog,
+  Button,
   ChromeButton,
   Description,
   ListBox,
@@ -7,14 +9,16 @@ import {
   copyText as writeClipboard,
 } from "@swarmie/ui-web";
 import type { ChromeButtonProps } from "@swarmie/ui-web";
+import { ChevronDown } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
-import { useState } from "react";
+import { createContext, useCallback, useContext, useState } from "react";
 
 import { useClient } from "./client/context";
 
+const MenuCloseContext = createContext<(() => void) | null>(null);
+
 export type Icon = ComponentType<{ className?: string; size?: number; strokeWidth?: number }>;
-export const iconStyle =
-  "size-(--spacing-chrome-icon) shrink-0 stroke-(length:--stroke-chrome-icon)";
+export const iconStyle = "size-(--spacing-chrome-icon) shrink-0";
 export function IconButton({
   icon: Icon,
   label,
@@ -50,45 +54,61 @@ export function Menu({
   label,
   icon: Icon,
   text,
+  detail,
   size = "application",
   placement = "bottom end",
+  showChevron = false,
+  renderTrigger,
   children,
 }: {
   label: string;
   icon?: Icon | undefined;
   text?: string;
-  size?: "application" | "rail" | "composer" | "composerCap" | "action";
+  detail?: string;
+  size?: "application" | "rail" | "composer" | "composerAdd" | "composerCap" | "action";
   placement?: "bottom end" | "bottom start" | "top start" | "top end";
+  showChevron?: boolean;
+  renderTrigger?: (state: { open: boolean; label: string }) => ReactNode;
   children: (close: () => void) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const name = text !== undefined && text !== "" ? `${text}: ${label}` : label;
+  const close = useCallback(() => {
+    setOpen(false);
+  }, []);
+  const value = [text, detail].filter(Boolean).join(" · ");
+  const name = value === "" ? label : `${value}: ${label}`;
   return (
     <Popover isOpen={open} onOpenChange={setOpen}>
-      <ChromeButton
-        size={size}
-        aria-label={name}
-        title={name}
-        selected={open}
-        className={size === "composerCap" ? "max-w-full" : ""}
-      >
-        {Icon ? <Icon className={iconStyle} /> : null}
-        {text === undefined ? null : (
-          <span
-            className={
-              size === "composerCap" ? "max-w-(--spacing-composer-label) min-w-0 truncate" : ""
-            }
-          >
-            {text}
-          </span>
-        )}
-      </ChromeButton>
-      <Popover.Content placement={placement} kind="composer" className="z-50">
-        <Popover.Dialog aria-label={label}>
-          {children(() => {
-            setOpen(false);
-          })}
-        </Popover.Dialog>
+      {renderTrigger ? (
+        renderTrigger({ open, label: name })
+      ) : (
+        <ChromeButton
+          size={size}
+          aria-label={name}
+          title={name}
+          selected={open}
+          className={size === "composerCap" ? "max-w-full" : ""}
+        >
+          {Icon ? <Icon className={iconStyle} /> : null}
+          {text === undefined ? null : (
+            <span
+              className={
+                size === "composerCap" ? "max-w-(--spacing-composer-label) min-w-0 truncate" : ""
+              }
+            >
+              {text}
+            </span>
+          )}
+          {detail !== undefined && detail !== "" ? (
+            <span className="shrink-0 text-muted">{detail}</span>
+          ) : null}
+          {showChevron ? <ChevronDown className={iconStyle} /> : null}
+        </ChromeButton>
+      )}
+      <Popover.Content placement={placement} className="z-50">
+        <ActionMenuDialog aria-label={label}>
+          <MenuCloseContext value={close}>{children(close)}</MenuCloseContext>
+        </ActionMenuDialog>
       </Popover.Content>
     </Popover>
   );
@@ -100,24 +120,34 @@ export function Item({
   onClick,
   detail,
   expanded,
+  disabled = false,
 }: {
   icon?: Icon | undefined;
   children: ReactNode;
   onClick: () => void;
   detail?: string;
   expanded?: boolean;
+  disabled?: boolean;
 }) {
+  const close = useContext(MenuCloseContext);
   return (
-    <button
+    <Button
       type="button"
-      aria-expanded={expanded}
-      onClick={onClick}
-      className="flex min-h-(--spacing-chrome-menu-row) w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-caption text-foreground hover:bg-row-hover focus-visible:bg-row-hover"
+      variant="ghost"
+      {...(expanded === undefined ? {} : { "aria-expanded": expanded })}
+      isDisabled={disabled}
+      onPress={() => {
+        if (expanded === undefined) {
+          close?.();
+        }
+        onClick();
+      }}
+      className="w-full justify-start text-left"
     >
-      {Icon ? <Icon className={iconStyle} /> : null}
+      {Icon ? <Icon /> : null}
       <span className="min-w-0 flex-1">{children}</span>
       {detail !== undefined && detail !== "" ? <span className="text-muted">{detail}</span> : null}
-    </button>
+    </Button>
   );
 }
 
@@ -132,6 +162,7 @@ export function ChoiceList<T extends string>({
   items: readonly { id: T; label: string; description?: string | undefined; icon?: Icon }[];
   onAction: (id: T) => void;
 }) {
+  const close = useContext(MenuCloseContext);
   return (
     <ListBox
       aria-label={label}
@@ -139,7 +170,6 @@ export function ChoiceList<T extends string>({
       selectionBehavior="toggle"
       disallowEmptySelection
       selectedKeys={value === undefined || value === null ? [] : [value]}
-      kind="composer"
     >
       {items.map(({ id, label: itemLabel, description, icon: Icon }) => (
         <ListBox.Item
@@ -147,12 +177,12 @@ export function ChoiceList<T extends string>({
           id={id}
           textValue={itemLabel}
           aria-label={itemLabel}
-          kind="composer"
           onPress={() => {
+            close?.();
             onAction(id);
           }}
         >
-          {Icon ? <Icon className={iconStyle} /> : null}
+          {Icon ? <Icon /> : null}
           <span className="min-w-0 flex-1">
             <span className="block">{itemLabel}</span>
             {description === undefined ? null : <Description>{description}</Description>}
@@ -165,7 +195,11 @@ export function ChoiceList<T extends string>({
 }
 
 export function Caption({ children }: { children: ReactNode }) {
-  return <p className="px-2 pt-2 pb-1 text-chrome text-muted">{children}</p>;
+  return (
+    <p data-slot="menu-caption" className="px-(--spacing-menu-row-x) py-0.5 text-menu text-muted">
+      {children}
+    </p>
+  );
 }
 
 export function useChat() {

@@ -25,14 +25,19 @@ pub(super) async fn stream(
             content: String::new(),
         },
     );
-    let options = ChatOptions::default()
+    let mut options = ChatOptions::default()
         .with_capture_content(true)
         .with_capture_tool_calls(true)
         .with_capture_usage(true)
-        .with_capture_reasoning_content(true);
+        .with_infer_reasoning_from_model_name(false)
+        .with_stream_header_timeout(Duration::from_millis(model.connection.timeout_ms.get()))
+        .with_stream_read_timeout(Duration::from_millis(model.connection.timeout_ms.get()));
+    if let Some(effort) = model.reasoning.clone() {
+        options = options.with_reasoning_effort(effort);
+    }
     context.check()?;
     let mut response = model
-        .client
+        .stream_client
         .exec_chat_stream(model.model.as_str(), input, Some(&options))
         .await
         .map_err(upstream)?;

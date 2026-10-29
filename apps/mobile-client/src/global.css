@@ -1,5 +1,4 @@
 @import "@swarmie/ui-native/styles.css";
-@import "@swarmie/config/tailwind/web-tokens.css";
 
 @source "./";
 @source "../../../packages/ui/native/src";

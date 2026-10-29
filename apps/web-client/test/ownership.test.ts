@@ -74,6 +74,7 @@ describe("frontend ownership on the actual Tembra host", () => {
     await start();
     client.providers.state.update((state) => ({
       ...state,
+      scope: null,
       ready: true,
       accounts: [
         {
@@ -95,7 +96,13 @@ describe("frontend ownership on the actual Tembra host", () => {
 });
 
 test("a subscribed provider catalog selects a model and preserves unavailable account identity", async () => {
-  let catalog: Readonly<ProvidersState> = { ready: true, accounts: [], choices: [], error: null };
+  let catalog: Readonly<ProvidersState> = {
+    scope: null,
+    ready: true,
+    accounts: [],
+    choices: [],
+    error: null,
+  };
   const listeners = new Set<() => void>();
   client = await initializeClient(createHost(), {
     dev: false,

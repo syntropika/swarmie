@@ -1,4 +1,4 @@
-/** A browser preference; System delegates its resolved colors to native color-scheme CSS. */
+/** A browser preference; System selects the vendor theme from the current OS appearance. */
 export type ThemePreference = "light" | "dark" | "system";
 
 export const THEME_PREFERENCE_STORAGE_KEY = "swarmie.theme";
@@ -10,6 +10,12 @@ export function isThemePreference(value: unknown): value is ThemePreference {
 
 function applyBrowserThemePreference(preference: ThemePreference) {
   document.documentElement.dataset.theme = preference;
+  const dark =
+    preference === "dark" ||
+    (preference === "system" &&
+      (globalThis.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false));
+  document.documentElement.classList.toggle("dark", dark);
+  document.documentElement.classList.toggle("light", !dark);
   for (const meta of document.querySelectorAll<HTMLMetaElement>(
     'meta[name="theme-color"][data-swarmie-theme]',
   )) {
@@ -21,8 +27,14 @@ function applyBrowserThemePreference(preference: ThemePreference) {
   }
 }
 
+function refreshSystemAppearance() {
+  if (document.documentElement.dataset.theme === "system") {
+    applyBrowserThemePreference("system");
+  }
+}
+
 /** Trusted static code runs after theme metadata, before first paint; user data is never code. */
-export const THEME_PREFERENCE_BOOTSTRAP = `(()=>{let theme="system";try{const stored=localStorage.getItem("${THEME_PREFERENCE_STORAGE_KEY}");if(stored==="light"||stored==="dark"||stored==="system")theme=stored;}catch{theme="system";}(${applyBrowserThemePreference.toString()})(theme);})();`;
+export const THEME_PREFERENCE_BOOTSTRAP = `(()=>{let theme="dark";try{const stored=localStorage.getItem("${THEME_PREFERENCE_STORAGE_KEY}");if(stored==="light"||stored==="dark"||stored==="system")theme=stored;}catch{theme="dark";}(${applyBrowserThemePreference.toString()})(theme);})();`;
 
 type ThemePreferenceEnvironment = {
   read: () => unknown;
@@ -36,14 +48,14 @@ export function createThemePreferenceStore(environment: ThemePreferenceEnvironme
   function readPreference(fallback: ThemePreference): ThemePreference {
     try {
       const stored = environment.read();
-      return isThemePreference(stored) ? stored : "system";
+      return isThemePreference(stored) ? stored : "dark";
     } catch {
       // Privacy settings can block storage; keep this tab's current selection usable.
       return fallback;
     }
   }
 
-  let preference = readPreference("system");
+  let preference = readPreference("dark");
   let hasUnpersistedChoice = false;
   const subscribers = new Set<() => void>();
   let stopListening: (() => void) | undefined;
@@ -66,7 +78,7 @@ export function createThemePreferenceStore(environment: ThemePreferenceEnvironme
       if (subscribers.size === 1) {
         stopListening = environment.listen((value) => {
           hasUnpersistedChoice = false;
-          update(isThemePreference(value) ? value : "system");
+          update(isThemePreference(value) ? value : "dark");
         });
         update(hasUnpersistedChoice ? preference : readPreference(preference));
       }
@@ -101,6 +113,7 @@ function createBrowserThemePreferenceStore() {
     },
     apply: applyBrowserThemePreference,
     listen: (receive) => {
+      const appearance = window.matchMedia("(prefers-color-scheme: dark)");
       const onStorage = (event: StorageEvent) => {
         if (event.key !== null && event.key !== THEME_PREFERENCE_STORAGE_KEY) {
           return;
@@ -118,8 +131,10 @@ function createBrowserThemePreferenceStore() {
         }
       };
       window.addEventListener("storage", onStorage);
+      appearance.addEventListener("change", refreshSystemAppearance);
       return () => {
         window.removeEventListener("storage", onStorage);
+        appearance.removeEventListener("change", refreshSystemAppearance);
       };
     },
   });
@@ -134,12 +149,12 @@ function getBrowserStore() {
 }
 
 export function getThemePreferenceSnapshot(): ThemePreference {
-  return typeof window === "undefined" ? "system" : getBrowserStore().getSnapshot();
+  return typeof window === "undefined" ? "dark" : getBrowserStore().getSnapshot();
 }
 
 /** The same default keeps SSR and the first hydration render consistent. */
 export function getServerThemePreferenceSnapshot(): ThemePreference {
-  return "system";
+  return "dark";
 }
 
 export function subscribeThemePreference(notify: () => void): () => void {

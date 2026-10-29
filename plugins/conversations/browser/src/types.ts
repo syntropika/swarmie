@@ -5,7 +5,6 @@ export type Draft = {
   account: string | null;
   effort: string;
   node: string;
-  permission: string;
 };
 export type MessageValue =
   | null
@@ -22,14 +21,28 @@ export type Message = {
   kind?: string;
   data?: MessageValue;
   interrupted?: boolean;
+  /** The node shortened this presentation text. Canonical history is unchanged. */
+  truncated?: boolean;
   tool?: "working" | "completed";
 };
 export type Input = { id: string; text: string; mode: "queue" | "steer" };
 export type Execution = {
-  phase: "idle" | "queued" | "working" | "stopping" | "stopped" | "completed" | "unknown";
+  phase:
+    | "idle"
+    | "queued"
+    | "working"
+    | "stopping"
+    | "stopped"
+    | "completed"
+    | "failed"
+    | "unknown";
   label: string;
   queue: Input[];
   steering: Input[];
+  /** Earlier messages omitted from the bounded node projection. */
+  omittedMessages?: number;
+  /** The node can close unfinished tool records after explicit acknowledgement. */
+  canAcknowledge?: boolean;
 };
 export type ConversationData = {
   id: string;
@@ -59,6 +72,8 @@ export type ConversationExecutionApi = {
       mode: "queue" | "steer";
     },
     signal: AbortSignal,
-  ) => Promise<{ accepted: true }>;
+  ) => Promise<{ accepted: true } | { accepted: false; reason: string }>;
   stop: (conversationId: string, signal: AbortSignal) => Promise<void>;
+  /** Explicitly closes uncertain tool records without replaying their effects. */
+  acknowledge?: (conversationId: string, signal: AbortSignal) => Promise<void>;
 };

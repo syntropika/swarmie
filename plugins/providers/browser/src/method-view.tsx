@@ -14,12 +14,14 @@ export function ProviderMethodView({
   method,
   onConfigured,
   onBusyChange,
+  accountId,
 }: {
   providers: ProvidersApi;
   provider: ProviderChoice;
   method: ProviderConfigurationMethod;
   onConfigured: (account: ProviderAccount) => void;
   onBusyChange: (busy: boolean) => void;
+  accountId?: string | undefined;
 }) {
   if (method.kind === "oauth") {
     const { authorization } = providers;
@@ -31,6 +33,7 @@ export function ProviderMethodView({
         method={method.id}
         api={authorization}
         onConnected={onConfigured}
+        accountId={accountId}
       />
     );
   }

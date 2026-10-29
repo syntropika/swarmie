@@ -25,7 +25,7 @@ export function NavigationResizeHandle({
       aria-valuemax={NAVIGATION_MAX_TOTAL_WIDTH}
       aria-valuenow={Math.round(totalWidth)}
       data-dragging={dragging}
-      className="absolute inset-y-0 -right-2 z-10 m-0 h-full w-4 cursor-col-resize touch-none border-0 bg-transparent select-none after:absolute after:inset-y-0 after:left-1/2 after:w-px after:bg-rail hover:after:bg-control-border focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary focus-visible:after:bg-primary data-[dragging=true]:after:bg-control-border"
+      className="absolute inset-y-0 -right-2 z-10 m-0 h-full w-4 cursor-col-resize touch-none border-0 bg-transparent select-none after:absolute after:inset-y-0 after:left-1/2 after:w-px after:bg-navigation-divider hover:after:bg-resize-active focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus focus-visible:after:bg-resize-active data-[dragging=true]:after:bg-resize-active"
       onPointerDown={(event) => {
         if (event.button !== 0) {
           return;
@@ -46,6 +46,9 @@ export function NavigationResizeHandle({
         setDragging(false);
       }}
       onLostPointerCapture={() => {
+        setDragging(false);
+      }}
+      onPointerCancel={() => {
         setDragging(false);
       }}
       onKeyDown={(event) => {

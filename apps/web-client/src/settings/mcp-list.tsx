@@ -1,10 +1,10 @@
 import { useSource } from "@swarmie/client-ui";
 import type { McpServer } from "@swarmie/plugin-mcp-browser";
-import { Button, ChromeButton, Switch } from "@swarmie/ui-web";
-import { ChevronRight, RotateCw, Settings } from "lucide-react";
+import { ActionRow, Button, Description, Switch } from "@swarmie/ui-web";
+import { RotateCw, Settings } from "lucide-react";
 
 import { useClient } from "../client/context";
-import { IconButton, iconStyle } from "../controls";
+import { IconButton } from "../controls";
 
 function failed() {
   return undefined;
@@ -26,50 +26,52 @@ function ServerRow({ server, open }: { server: McpServer; open: (id: string) => 
   const { mcp } = useClient();
   const state = useSource(mcp.state);
   return (
-    <div className="flex items-center gap-3 py-4">
-      <button
-        type="button"
-        className="min-w-0 flex-1 text-left"
-        onClick={() => {
-          open(server.definition.id);
-        }}
-      >
-        <span className="block truncate text-sm font-medium">{server.definition.name}</span>
-        <span className="mt-1 block text-xs text-muted">{connectionLabel(server)}</span>
-      </button>
-      <IconButton
-        icon={Settings}
-        label={`Configure ${server.definition.name}`}
+    <ActionRow className="grid grid-cols-1 @min-[480px]/mcp-list:grid-cols-[minmax(0,1fr)_auto]">
+      <ActionRow.Trigger
         onPress={() => {
           open(server.definition.id);
         }}
-        disabled={state.busy !== null}
-      />
-      <Switch
-        aria-label={`Enable ${server.definition.name}`}
-        isSelected={server.definition.enabled}
-        isDisabled={state.busy !== null || !state.available}
-        onChange={(enabled) => {
-          mcp.setEnabled(server.definition, enabled).catch(failed);
-        }}
       >
-        <Switch.Content>
-          <Switch.Control>
-            <Switch.Thumb />
-          </Switch.Control>
-        </Switch.Content>
-      </Switch>
-      {server.definition.enabled && server.observation.status !== "connected" ? (
+        <span className="flex min-w-0 flex-1 flex-col items-start gap-1">
+          <span className="max-w-full truncate">{server.definition.name}</span>
+          <Description>{connectionLabel(server)}</Description>
+        </span>
+      </ActionRow.Trigger>
+      <div className="flex items-center justify-end gap-3">
         <IconButton
-          icon={RotateCw}
-          label={`Connect ${server.definition.name}`}
+          icon={Settings}
+          label={`Configure ${server.definition.name}`}
           onPress={() => {
-            mcp.setEnabled(server.definition, true).catch(failed);
+            open(server.definition.id);
           }}
           disabled={state.busy !== null}
         />
-      ) : null}
-    </div>
+        <Switch
+          aria-label={`Enable ${server.definition.name}`}
+          isSelected={server.definition.enabled}
+          isDisabled={state.busy !== null || !state.available}
+          onChange={(enabled) => {
+            mcp.setEnabled(server.definition, enabled).catch(failed);
+          }}
+        >
+          <Switch.Content>
+            <Switch.Control>
+              <Switch.Thumb />
+            </Switch.Control>
+          </Switch.Content>
+        </Switch>
+        {server.definition.enabled && server.observation.status !== "connected" ? (
+          <IconButton
+            icon={RotateCw}
+            label={`Connect ${server.definition.name}`}
+            onPress={() => {
+              mcp.setEnabled(server.definition, true).catch(failed);
+            }}
+            disabled={state.busy !== null}
+          />
+        ) : null}
+      </div>
+    </ActionRow>
   );
 }
 function ServerRows({
@@ -92,7 +94,7 @@ function ServerRows({
   }
   if (list.length > 0) {
     return (
-      <div className="mt-4 divide-y divide-border rounded-xl border border-border bg-chrome-surface px-4">
+      <div className="@container/mcp-list mt-4 divide-y divide-border-subtle overflow-hidden rounded-group bg-group">
         {list.map((server) => (
           <ServerRow key={server.definition.id} server={server} open={open} />
         ))}
@@ -100,7 +102,7 @@ function ServerRows({
     );
   }
   return (
-    <div className="mt-4 rounded-xl border border-border px-5 py-10 text-center">
+    <div className="mt-4 rounded-group bg-group px-5 py-10 text-center">
       <h3 className="text-sm font-medium">
         {search === "" ? "No MCP servers yet" : "No matching MCP servers"}
       </h3>
@@ -126,14 +128,14 @@ export function McpList({
   open: (id: string) => void;
   add: () => void;
 }) {
-  const { mcp, connectionState, navigate } = useClient();
+  const { mcp, connectionState } = useClient();
   const state = useSource(mcp.state);
   const nodes = useSource(connectionState);
   const node = nodes.nodes.find((entry) => entry.id === nodes.selected);
   return (
     <div className="mt-10">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-medium">Servers</h2>
+        <h2 className="text-caption font-medium text-muted">Servers</h2>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted">{node?.label}</span>
           <IconButton
@@ -148,20 +150,9 @@ export function McpList({
       </div>
       <ServerRows query={query} open={open} add={add} />
       {!state.available && !state.loading ? (
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-muted">
-            Connect an execution node with MCP support to manage its servers.
-          </p>
-          <ChromeButton
-            size="action"
-            onPress={() => {
-              navigate({ settings: "connections" });
-            }}
-          >
-            Node connections
-            <ChevronRight className={iconStyle} />
-          </ChromeButton>
-        </div>
+        <p className="mt-5 text-sm text-muted">
+          Connect an execution node with MCP support to manage its servers.
+        </p>
       ) : null}
       {state.error === null ? null : (
         <p role="alert" className="mt-5 text-sm text-danger">

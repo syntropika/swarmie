@@ -361,7 +361,10 @@ export function VirtualList<T>({
       ref={viewportRef}
       aria-label={label}
       tabIndex={0}
-      className={cn("relative min-h-0 overflow-y-auto overscroll-contain outline-none", className)}
+      className={cn(
+        "relative min-h-0 min-w-0 overflow-y-auto overscroll-contain outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus",
+        className,
+      )}
       onWheel={interruptRestore}
       onTouchStart={interruptRestore}
       onKeyDown={(event) => {

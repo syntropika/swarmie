@@ -5,6 +5,7 @@
   "colors": {
     "ink": "#1A1C1F",
     "white": "#FFFFFF",
+    "coral": "#D96E5C",
     "soft_coral": "#DDA99F",
     "mint": "#CDE9DE",
     "lilac": "#DED9F2",
@@ -20,9 +21,11 @@
   "color_usage": {
     "foundation": "Neutral grayscale owns canvases, component depth, text and controls. Runtime values belong to packages/config, not this brandkit.",
     "identity": "Soft coral identifies the canonical logo core; the symbol streams and wordmark remain ink or white.",
+    "interface_accent": "Coral is the shared web interface accent. Active navigation markers and reasoning indicators use this role. Runtime values belong to packages/config/tailwind/web-tokens.css. Current logo and mascot artwork retain soft_coral.",
     "categories": "Mint, lilac, peach and mustard are optional category accents for chips, initials, small markers, diagrams and illustrations. Keep explicit labels and stable assignments within a view; no hue has a mandatory domain meaning.",
     "surfaces": "Use small tinted areas inside neutral layouts. Broad pastel regions are reserved for editorial illustrations, not the default application canvas.",
-    "actions": "Primary actions remain monochrome; decorative category hues do not indicate selection, focus or permissions.",
+    "actions": "Ordinary primary actions use inverse neutral colors. Composer Send and Stop use coral fill with white icons. Secondary action content uses the neutral foreground. Decorative category hues do not indicate selection, focus or permissions.",
+    "accent_text": "Use the shared accent text role for small text and keyboard focus: #8D5147 in light appearance and #D96E5C in dark appearance. Check contrast against the actual surface in both appearances.",
     "status": "Success, warning and danger retain separate semantic tokens and text or icon cues. A mint category does not mean success; a mustard category does not mean warning.",
     "dark_mode": "Use the approved darker accent surfaces with a paired light foreground from the shared runtime theme. Do not invert pastel colors mechanically.",
     "editorial": "Blue may remain in marketing illustration details. It is not a logo application or the global primary control color. The footer uses the warm black neutral base with inverse artwork."
@@ -78,6 +81,7 @@
   "runtime_theme": {
     "owner": "packages/config",
     "web": "packages/config/tailwind/hero-web.css",
+    "interface_accent": "packages/config/tailwind/web-tokens.css",
     "category_accents": "packages/config/tailwind/web-theme.css",
     "native": "packages/config/tailwind/native-tokens.css"
   },

@@ -89,9 +89,9 @@ export function ScenarioSection() {
                   >
                     <StageVisual stage={visual} />
                   </div>
-                  <div className="px-6 pt-6 pb-7 sm:px-8 sm:pt-7 sm:pb-8">
+                  <div className="px-6 pt-6 pb-7 break-words sm:px-8 sm:pt-7 sm:pb-8">
                     <div className="mb-5 flex items-center gap-3">
-                      <span className="text-xs font-semibold text-primary tabular-nums">
+                      <span className="text-xs font-semibold text-ink tabular-nums">
                         {String(index + 1).padStart(2, "0")}
                       </span>
                       <span aria-hidden="true" className="h-px w-10 bg-border" />

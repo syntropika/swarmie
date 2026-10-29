@@ -262,7 +262,7 @@ fn test_custom_parts_that_are_not_reasoning_blocks_are_not_echoed() -> Result<()
 }
 
 #[test]
-fn test_gpt_5_6_chat_completion_defaults_to_explicit_cache_mode() -> Result<()> {
+fn test_gpt_5_6_chat_completion_defaults_to_api_cache_mode() -> Result<()> {
 	// -- Setup & Fixtures
 	let target = ServiceTarget {
 		model: ModelIden::new(AdapterKind::OpenAI, "gpt-5.6"),
@@ -280,15 +280,14 @@ fn test_gpt_5_6_chat_completion_defaults_to_explicit_cache_mode() -> Result<()> 
 	)?;
 
 	// -- Check
-	assert_eq!(web_req.payload["prompt_cache_options"]["mode"], "explicit");
-	assert!(web_req.payload["prompt_cache_options"].get("ttl").is_none());
+	assert!(web_req.payload.get("prompt_cache_options").is_none());
 	assert!(web_req.payload["messages"][0]["content"]["prompt_cache_breakpoint"].is_null());
 
 	Ok(())
 }
 
 #[test]
-fn test_gpt_6_chat_completion_defaults_to_explicit_cache_mode() -> Result<()> {
+fn test_gpt_6_chat_completion_defaults_to_api_cache_mode() -> Result<()> {
 	// -- Setup & Fixtures
 	let target = ServiceTarget {
 		model: ModelIden::new(AdapterKind::OpenAI, "gpt-6-astra"),
@@ -306,8 +305,7 @@ fn test_gpt_6_chat_completion_defaults_to_explicit_cache_mode() -> Result<()> {
 	)?;
 
 	// -- Check
-	assert_eq!(web_req.payload["prompt_cache_options"]["mode"], "explicit");
-	assert!(web_req.payload["prompt_cache_options"].get("ttl").is_none());
+	assert!(web_req.payload.get("prompt_cache_options").is_none());
 	assert!(web_req.payload["messages"][0]["content"]["prompt_cache_breakpoint"].is_null());
 
 	Ok(())
@@ -430,7 +428,7 @@ fn test_gpt_5_6_chat_completion_ignores_tool_cache_control() -> Result<()> {
 	)?;
 
 	// -- Check
-	assert_eq!(web_req.payload["prompt_cache_options"]["mode"], "explicit");
+	assert!(web_req.payload.get("prompt_cache_options").is_none());
 	assert!(web_req.payload["tools"][0].get("prompt_cache_breakpoint").is_none());
 
 	Ok(())

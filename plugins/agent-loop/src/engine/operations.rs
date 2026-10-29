@@ -3,7 +3,7 @@ use crate::{
     FailureReason, ModelRequest, ModelResponse, OperationId, Phase, Recovery, Request, State,
     ToolCall, ToolDecision, ToolExecution, ToolPreparation, ToolResult,
     failure::DriveError,
-    hooks::{ModelInput, ToolInput, ToolOutput, TurnOutcome},
+    hooks::{ModelInput, ToolInput, TurnOutcome, transform_tool_result},
     model::invalid,
 };
 use tembra::{Code, Context, Error};
@@ -177,24 +177,14 @@ impl Agent {
         call: &ToolCall,
         result: ToolResult,
     ) -> tembra::Result<ToolResult> {
-        let Some(hooks) = &self.hooks else {
-            return Ok(result);
-        };
-        let output = hooks
-            .after_tool_call
-            .run(
-                context,
-                ToolOutput {
-                    turn,
-                    call: call.clone(),
-                    result,
-                },
-            )
-            .await?;
-        if output.turn != turn || output.call != *call {
-            return Err(invalid("result hook changed the confirmed call or turn"));
-        }
-        Ok(output.result)
+        transform_tool_result(
+            self.hooks.as_ref().map(|hooks| &hooks.after_tool_call),
+            context,
+            turn,
+            call,
+            result,
+        )
+        .await
     }
 
     pub(super) async fn after_turn(&self, context: &Context, state: &State) {

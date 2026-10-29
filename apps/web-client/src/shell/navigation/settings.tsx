@@ -1,35 +1,62 @@
-import { ChromeButton } from "@swarmie/ui-web";
-import { Monitor, Puzzle, Settings } from "lucide-react";
+import { ChromeButton, SearchField } from "@swarmie/ui-web";
+import { MessageCircle, Monitor, Puzzle, Settings } from "lucide-react";
+import { useState } from "react";
 
 import { useClient } from "../../client/context";
 import { useSelection } from "../../client/use-selection";
 import { iconStyle } from "../../controls";
 import { shellSettings } from "./state";
 
+const sections = [
+  { id: "general", icon: Settings, title: "General", terms: "appearance theme system dark light" },
+  {
+    id: "conversation",
+    icon: MessageCircle,
+    title: "Conversation",
+    terms: "chat tool tools results activity display grouped separate hidden thinking",
+  },
+  { id: "connections", icon: Monitor, title: "Connections", terms: "nodes connect url user" },
+  { id: "providers", icon: Puzzle, title: "Providers", terms: "models accounts" },
+  { id: "plugins", icon: Puzzle, title: "Plugins", terms: "integrations mcp servers" },
+] as const;
+
 export function SettingsNavigation() {
   const { navigate, shell, shellState } = useClient();
   const selected = useSelection(shell, shellSettings);
+  const [query, setQuery] = useState("");
+  const terms = query.trim().toLocaleLowerCase().split(/\s+/u).filter(Boolean);
+  const results = sections.filter((section) => {
+    const text = `${section.title} ${section.terms}`.toLocaleLowerCase();
+    return terms.every((term) => text.includes(term));
+  });
   return (
     <>
-      <div className="flex h-9 shrink-0 items-center border-b border-border px-3 text-xs font-medium">
-        Settings
+      <div className="flex h-(--spacing-navigation-search-header) shrink-0 items-center border-b border-navigation-divider bg-navigation-surface px-(--spacing-menu-inset) [--field-border-hover:transparent] [--field-border:transparent]">
+        <SearchField
+          aria-label="Search settings"
+          value={query}
+          onChange={setQuery}
+          className="w-full min-w-0"
+        >
+          <SearchField.Group>
+            <SearchField.SearchIcon />
+            <SearchField.Input placeholder="Search settings" className="min-w-0" />
+            <SearchField.ClearButton />
+          </SearchField.Group>
+        </SearchField>
       </div>
-      <div className="space-y-1 p-2 pt-4">
-        {(
-          [
-            ["general", Settings, "General"],
-            ["connections", Monitor, "Connections"],
-            ["providers", Puzzle, "Providers"],
-            ["plugins", Puzzle, "Plugins"],
-          ] as const
-        ).map(([id, Icon, title]) => (
+      <nav
+        aria-label="Settings sections"
+        className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain p-(--spacing-menu-inset)"
+      >
+        {results.map(({ id, icon: Icon, title }) => (
           <ChromeButton
             key={id}
-            size="navigation"
+            size="navigationMenu"
             selected={selected === id}
             aria-current={selected === id ? "page" : false}
             onPress={() => {
-              navigate({ settings: id });
+              navigate({ settings: id, params: {} });
               if (window.innerWidth < 768) {
                 shellState.update((s) => ({ ...s, navigation: false }));
               }
@@ -39,7 +66,12 @@ export function SettingsNavigation() {
             {title}
           </ChromeButton>
         ))}
-      </div>{" "}
+        {results.length === 0 ? (
+          <output className="block px-(--spacing-menu-row-x) py-(--spacing-menu-row-y) text-sm text-muted">
+            No settings found.
+          </output>
+        ) : null}
+      </nav>
     </>
   );
 }

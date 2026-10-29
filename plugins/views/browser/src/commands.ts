@@ -4,9 +4,13 @@ import type { Tab, ViewsState } from "./index";
 
 type Conversation = { id: string; title: string };
 
+function isTemporaryConversation(tab: Tab): boolean {
+  return tab.kind === "conversation" && tab.temporary === true;
+}
+
 /** Returns the conversation from its temporary tab to the dedicated panel. */
 function restoreConversation(current: Readonly<ViewsState>): ViewsState {
-  const tabs = current.tabs.filter((tab) => tab.kind !== "conversation");
+  const tabs = current.tabs.filter((tab) => !isTemporaryConversation(tab));
   return {
     ...current,
     tabs,
@@ -34,18 +38,26 @@ export function createViewsApi(state: UiStore<Readonly<ViewsState>>, nextId: () 
     },
     open: (kind: Tab["kind"], conversation: Conversation): void => {
       state.update((current) => {
-        const existing =
-          kind === "start" ? undefined : current.tabs.find((tab) => tab.kind === kind);
-        const tab: Tab = existing ?? {
-          id: nextId(),
-          kind,
-          title: {
-            start: "New tab",
-            notes: "Project notes",
-            state: "App state",
-            conversation: conversation.title,
-          }[kind],
-        };
+        const existing = current.tabs.find((tab) =>
+          kind === "conversation"
+            ? tab.kind === "conversation" &&
+              !tab.temporary &&
+              tab.conversationId === conversation.id
+            : kind !== "start" && tab.kind === kind,
+        );
+        const tab: Tab =
+          existing ??
+          (kind === "conversation"
+            ? { id: nextId(), kind, title: conversation.title, conversationId: conversation.id }
+            : {
+                id: nextId(),
+                kind,
+                title: {
+                  start: "New tab",
+                  notes: "Project notes",
+                  state: "App state",
+                }[kind],
+              });
         return {
           ...current,
           tabs: existing === undefined ? [...current.tabs, tab] : current.tabs,
@@ -58,7 +70,8 @@ export function createViewsApi(state: UiStore<Readonly<ViewsState>>, nextId: () 
       state.update((current) => {
         const removed = current.tabs.find((tab) => tab.id === id);
         const tabs = current.tabs.filter((tab) => tab.id !== id);
-        const restoringConversation = removed?.kind === "conversation" || tabs.length === 0;
+        const restoringConversation =
+          (removed !== undefined && isTemporaryConversation(removed)) || tabs.length === 0;
         return {
           ...current,
           tabs,
@@ -79,10 +92,11 @@ export function createViewsApi(state: UiStore<Readonly<ViewsState>>, nextId: () 
           kind: "conversation",
           title: conversation.title,
           conversationId: conversation.id,
+          temporary: true,
         };
         return {
           ...current,
-          tabs: [...current.tabs.filter((entry) => entry.kind !== "conversation"), tab],
+          tabs: [...current.tabs.filter((entry) => !isTemporaryConversation(entry)), tab],
           expanded: true,
           conversationVisible: false,
         };

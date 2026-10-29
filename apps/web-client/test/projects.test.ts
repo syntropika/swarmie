@@ -209,3 +209,15 @@ test("closing the mobile overlay in the same turn does not overwrite a new desti
   expect(client.shell.getSnapshot().params).toEqual({ projectId: "project" });
   expect(client.shell.getSnapshot().navigation).toBe(false);
 });
+
+test("node folder paths keep significant trailing spaces when saved", async () => {
+  const client = await start();
+  const project = await client.projects.create({ name: "Folder paths" });
+  await client.projects.setPersonalFolders(project.id, {
+    nodeId: "node-a",
+    paths: ["/source/with trailing space "],
+  });
+  expect(client.projectsState.getSnapshot().personalFolders[0]?.paths).toEqual([
+    "/source/with trailing space ",
+  ]);
+});

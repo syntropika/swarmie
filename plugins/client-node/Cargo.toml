@@ -1,0 +1,38 @@
+[package]
+name = "swarmie-client-node"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Reusable node service composition for Swarmie clients"
+
+[dependencies]
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+swarmie-mcp.workspace = true
+swarmie-tools.workspace = true
+swarmie-providers.workspace = true
+swarmie-provider-auth.workspace = true
+swarmie-model-provider-genai.workspace = true
+swarmie-agent-loop = { workspace = true, features = ["conversations"] }
+swarmie-conversations.workspace = true
+swarmie-storage.workspace = true
+sha2 = "0.10"
+uuid = { workspace = true, features = ["v5"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
+keyring = { version = "=3.6.3", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+zeroize = { version = "1", features = ["derive"] }
+swarmie-runtime.workspace = true
+tembra.workspace = true
+tokio = { version = "1", features = ["rt", "time", "net", "sync"] }
+tempfile.workspace = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros"] }
+base64 = "0.22"
+jsonwebtoken = { version = "=10.4.0", default-features = false, features = ["rust_crypto"] }
+rsa = { version = "=0.9.10", features = ["pem", "sha2"] }
+
+[lints]
+workspace = true

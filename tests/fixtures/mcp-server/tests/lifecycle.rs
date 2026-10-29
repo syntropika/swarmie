@@ -488,13 +488,12 @@ async fn cancelling_one_dispatched_call_keeps_the_connection_usable_without_repl
             let counter = Counter::default();
             let (url, cancel, task) = serve_http(counter.clone()).await;
             let catalog = Catalog::default();
-            let host = install(
-                configuration(Endpoint::Http {
-                    url,
-                    headers: Default::default(),
-                }),
-                &catalog,
-            );
+            let mut config = configuration(Endpoint::Http {
+                url,
+                headers: Default::default(),
+            });
+            config.limits.request_timeout = Duration::from_millis(100);
+            let host = install(config, &catalog);
             let server = reference(&host, mcp::SERVICE, "fixture", "alice");
             let _: Observation = invoke(&host, &server, "alice", McpMethod::Connect.as_str(), ())
                 .await

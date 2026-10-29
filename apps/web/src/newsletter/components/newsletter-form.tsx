@@ -1,4 +1,4 @@
-import { Alert, Button, TextField, Label, FieldError, Input } from "@swarmie/ui-web";
+import { Alert, Button, TextField, Label, FieldError, Input, Spinner } from "@swarmie/ui-web";
 import { useId } from "react";
 
 import type { PlainMessageKey } from "~/src/platform/i18n/catalogs/en";
@@ -46,7 +46,7 @@ function SubscriptionFields({
       }}
     >
       <div className="@container">
-        <TextField isInvalid={error !== undefined}>
+        <TextField isInvalid={error !== undefined} validationBehavior="aria">
           <Label htmlFor={`${id}-email`}>{t("newsletter.email")}</Label>
           <div className="flex flex-col gap-3 @lg:flex-row @lg:items-stretch">
             <div className="min-w-0 flex-1">
@@ -54,6 +54,7 @@ function SubscriptionFields({
                 id={`${id}-email`}
                 name="email"
                 type="email"
+                className="w-full"
                 autoComplete="email"
                 placeholder={t("newsletter.placeholder")}
                 required
@@ -63,10 +64,13 @@ function SubscriptionFields({
             </div>
             <Button
               type="submit"
-              loading={pending}
-              loadingLabel={t("newsletter.saving")}
-              className="w-full text-center whitespace-normal @lg:w-auto @lg:max-w-[48%]"
+              isPending={pending}
+              isDisabled={pending}
+              aria-busy={pending}
+              aria-label={t(pending ? "newsletter.saving" : "newsletter.submit")}
+              className="w-full whitespace-normal @lg:w-auto @lg:max-w-[48%]"
             >
+              {pending ? <Spinner size="sm" color="current" aria-hidden="true" /> : null}
               {t("newsletter.submit")}
             </Button>
           </div>

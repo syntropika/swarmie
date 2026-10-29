@@ -275,7 +275,7 @@ fn test_openai_resp_assistant_message_uses_output_text_content_type() {
 }
 
 #[test]
-fn test_openai_resp_gpt_5_6_responses_defaults_to_explicit_cache_mode() {
+fn test_openai_resp_gpt_5_6_responses_defaults_to_api_cache_mode() {
 	let target = ServiceTarget {
 		model: ModelIden::new(AdapterKind::OpenAIResp, "gpt-5.6"),
 		auth: AuthData::from_single("test-key"),
@@ -290,8 +290,7 @@ fn test_openai_resp_gpt_5_6_responses_defaults_to_explicit_cache_mode() {
 	)
 	.expect("to_web_request_data should succeed");
 
-	assert_eq!(web_req.payload["prompt_cache_options"]["mode"], "explicit");
-	assert!(web_req.payload["prompt_cache_options"].get("ttl").is_none());
+	assert!(web_req.payload.get("prompt_cache_options").is_none());
 	assert!(
 		web_req.payload["input"][0]["content"][0]
 			.get("prompt_cache_breakpoint")
@@ -300,7 +299,7 @@ fn test_openai_resp_gpt_5_6_responses_defaults_to_explicit_cache_mode() {
 }
 
 #[test]
-fn test_openai_resp_gpt_6_responses_defaults_to_explicit_cache_mode() {
+fn test_openai_resp_gpt_6_responses_defaults_to_api_cache_mode() {
 	let target = ServiceTarget {
 		model: ModelIden::new(AdapterKind::OpenAIResp, "gpt-6"),
 		auth: AuthData::from_single("test-key"),
@@ -315,8 +314,7 @@ fn test_openai_resp_gpt_6_responses_defaults_to_explicit_cache_mode() {
 	)
 	.expect("to_web_request_data should succeed");
 
-	assert_eq!(web_req.payload["prompt_cache_options"]["mode"], "explicit");
-	assert!(web_req.payload["prompt_cache_options"].get("ttl").is_none());
+	assert!(web_req.payload.get("prompt_cache_options").is_none());
 	assert!(
 		web_req.payload["input"][0]["content"][0]
 			.get("prompt_cache_breakpoint")
@@ -407,7 +405,7 @@ fn test_openai_resp_gpt_5_6_responses_ignores_tool_cache_control() {
 		OpenAIRespAdapter::to_web_request_data(target, ServiceType::Chat, chat_req, ChatOptionsSet::default())
 			.expect("tool cache control should be ignored");
 
-	assert_eq!(web_req.payload["prompt_cache_options"]["mode"], "explicit");
+	assert!(web_req.payload.get("prompt_cache_options").is_none());
 	assert!(web_req.payload["tools"][0].get("prompt_cache_breakpoint").is_none());
 }
 

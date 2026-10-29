@@ -92,6 +92,9 @@ pub struct Connection {
     pub models: Vec<ModelId>,
     pub endpoint: Option<String>,
     pub credential_key: Option<String>,
+    /// Completion deadline, streaming header wait, and each streaming idle read.
+    /// Streaming responses have no total deadline while bytes keep arriving.
+    /// After cancellation, this also limits the physical settlement wait.
     pub timeout_ms: NonZeroU64,
     /// Limits JSON request payloads before genai conversion.
     pub request_bytes: NonZeroUsize,

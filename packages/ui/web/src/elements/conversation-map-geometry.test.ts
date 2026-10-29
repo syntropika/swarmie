@@ -8,7 +8,7 @@ test("a large message rail stays bounded while retaining keyboard and reader pos
     ["reader", 0],
     ["keyboard", count - 1],
   ]);
-  const window = positionRailWindowIndexes(count, indexes, 12_000, 120, "reader", "keyboard");
+  const window = positionRailWindowIndexes(count, indexes, 12_000, 120, 12, "reader", "keyboard");
   expect(window.length).toBeLessThan(30);
   expect(window).toContain(0);
   expect(window).toContain(count - 1);
@@ -18,6 +18,17 @@ test("a large message rail stays bounded while retaining keyboard and reader pos
 });
 
 test("an empty rail has no positions and missing retained messages are ignored", () => {
-  expect(positionRailWindowIndexes(0, new Map(), 0, 120, "retired")).toEqual([]);
-  expect(positionRailWindowIndexes(3, new Map(), 0, 120, "retired")).toEqual([0, 1, 2]);
+  expect(positionRailWindowIndexes(0, new Map(), 0, 120, 12, "retired")).toEqual([]);
+  expect(positionRailWindowIndexes(3, new Map(), 0, 120, 12, "retired")).toEqual([0, 1, 2]);
+});
+
+test("touch targets keep the window and retained navigation positions in the same row geometry", () => {
+  const indexes = new Map([["keyboard", 999]]);
+  const window = positionRailWindowIndexes(1000, indexes, 4400, 440, 44, "keyboard");
+  expect(window[0]).toBe(94);
+  expect(window).toContain(100);
+  expect(window).toContain(109);
+  expect(window).toContain(999);
+  expect(window).not.toContain(366);
+  expect(window.length).toBeLessThan(25);
 });

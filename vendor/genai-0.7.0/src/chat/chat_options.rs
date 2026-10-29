@@ -91,6 +91,11 @@ pub struct ChatOptions {
 	/// Preferred reasoning effort, when supported by the provider.
 	pub reasoning_effort: Option<ReasoningEffort>,
 
+	/// Infer reasoning effort from a model-name suffix. Defaults to true.
+	/// Set false when the model identifier comes from an authoritative catalog.
+	#[serde(skip)]
+	pub infer_reasoning_from_model_name: Option<bool>,
+
 	/// Verbosity (for OpenAI gpt-5),
 	pub verbosity: Option<Verbosity>,
 
@@ -119,6 +124,12 @@ pub struct ChatOptions {
 
 /// Chainable Setters
 impl ChatOptions {
+	/// Controls model-name suffix inference without changing explicit effort.
+	pub fn with_infer_reasoning_from_model_name(mut self, value: bool) -> Self {
+		self.infer_reasoning_from_model_name = Some(value);
+		self
+	}
+
 	/// Sets the streaming response-header wait, independently of body reads.
 	pub fn with_stream_header_timeout(mut self, value: std::time::Duration) -> Self {
 		self.stream_header_timeout = Some(value);
@@ -657,6 +668,13 @@ impl ChatOptionsSet<'_, '_> {
 		self.chat
 			.and_then(|chat| chat.reasoning_effort.as_ref())
 			.or_else(|| self.client.and_then(|client| client.reasoning_effort.as_ref()))
+	}
+
+	pub fn infer_reasoning_from_model_name(&self) -> bool {
+		self.chat
+			.and_then(|chat| chat.infer_reasoning_from_model_name)
+			.or_else(|| self.client.and_then(|client| client.infer_reasoning_from_model_name))
+			.unwrap_or(true)
 	}
 
 	pub fn verbosity(&self) -> Option<&Verbosity> {

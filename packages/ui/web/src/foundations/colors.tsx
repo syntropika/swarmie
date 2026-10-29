@@ -29,8 +29,13 @@ const groups = [
   {
     title: "Actions",
     rows: [
-      ["Primary", "accent / accent-foreground", "bg-accent text-accent-foreground"],
+      [
+        "Primary",
+        "action-primary / action-primary-foreground",
+        "bg-action-primary text-action-primary-foreground",
+      ],
       ["Secondary", "default / default-foreground", "bg-default text-default-foreground"],
+      ["Accent", "accent / accent-foreground", "bg-accent text-accent-foreground"],
     ],
   },
   {
@@ -43,26 +48,13 @@ const groups = [
         "bg-success-soft text-success-soft-foreground",
       ],
       ["Warning", "warning / warning-foreground", "bg-warning text-warning-foreground"],
-      [
-        "Destructive action",
-        "danger-solid / danger-solid-foreground",
-        "bg-danger-solid text-danger-solid-foreground",
-      ],
+      ["Destructive action", "danger / danger-foreground", "bg-danger text-danger-foreground"],
       [
         "Soft danger",
         "danger-soft / danger-soft-foreground",
         "bg-danger-soft text-danger-soft-foreground",
       ],
       ["Validation error", "danger", "bg-background text-danger"],
-    ],
-  },
-  {
-    title: "Brand accents",
-    rows: [
-      ["Mint", "mint", "bg-mint text-foreground"],
-      ["Lilac", "lilac", "bg-lilac text-foreground"],
-      ["Peach", "peach", "bg-peach text-foreground"],
-      ["Mustard", "butter", "bg-butter text-foreground"],
     ],
   },
 ] as const;
@@ -86,7 +78,7 @@ function ColorSample({
   }, [theme]);
   return (
     <div className="grid gap-2">
-      <div ref={sample} className={`flex h-12 items-center rounded-lg px-4 font-medium ${row[2]}`}>
+      <div ref={sample} className={`flex h-12 items-center rounded-3xl px-4 font-medium ${row[2]}`}>
         Aa
       </div>
       <code className="text-xs break-words">{value}</code>
@@ -98,7 +90,7 @@ export function ColorReference({ theme }: { theme: "light" | "dark" }) {
   return (
     <Reference
       title="Colors"
-      intro="Swarmie’s semantic palette. Choose colors by their role and keep each background paired with its foreground. The same roles adapt to light and dark themes."
+      intro="HeroUI semantic colors with the Swarmie coral accent. Primary buttons use the inverse neutral action pair. The vendor palette supplies the other component colors in each theme."
     >
       <HeroUIPreview theme={theme}>
         {groups.map((group) => (
@@ -131,35 +123,20 @@ export function ColorReference({ theme }: { theme: "light" | "dark" }) {
           </section>
         ))}
         <section className="grid gap-4">
-          <h2 className="text-xl font-semibold">Category accents on neutral foundations</h2>
-          <p className="text-sm text-muted">
-            Keep the canvas, surfaces, fields and actions neutral. Use mint, lilac, peach and
-            mustard for named categories, project markers, avatar initials and illustration details.
-            These examples do not assign a mandatory meaning to a hue; keep each assignment stable
-            within its view and include a readable label.
-          </p>
-          <div className="flex flex-wrap gap-3">
-            <Chip color="mint">Research</Chip>
-            <Chip color="lilac">Design</Chip>
-            <Chip color="peach">Community</Chip>
-            <Chip color="mustard">Ideas</Chip>
-          </div>
-        </section>
-        <section className="grid gap-4">
-          <h2 className="text-xl font-semibold">A neutral card with a category accent</h2>
+          <h2 className="text-xl font-semibold">Stock component colors</h2>
           <p className="max-w-3xl text-sm text-muted">
-            The lilac initials and mint label identify content. The card, field and actions retain
-            their shared neutral roles, vendor dimensions and rounded shapes in either theme.
+            The card, avatar, chip, field and actions use the public HeroUI contracts. Their
+            variants keep the vendor colors, dimensions and interaction states.
           </p>
           <Card className="w-full max-w-lg">
             <Card.Header>
               <div className="flex items-center gap-3">
                 <Avatar aria-label="Design team">
-                  <Avatar.Fallback className="bg-lilac text-foreground">DT</Avatar.Fallback>
+                  <Avatar.Fallback>DT</Avatar.Fallback>
                 </Avatar>
                 <div className="flex flex-wrap items-center gap-3">
                   <Card.Title>Website refresh</Card.Title>
-                  <Chip color="mint" variant="soft">
+                  <Chip color="accent" variant="soft">
                     Design project
                   </Chip>
                 </div>
@@ -176,38 +153,10 @@ export function ColorReference({ theme }: { theme: "light" | "dark" }) {
               <Button variant="secondary">Cancel</Button>
             </Card.Footer>
           </Card>
-          <Table>
-            <Table.ScrollContainer>
-              <Table.Content aria-label="Category color usage">
-                <Table.Header>
-                  <Table.Column isRowHeader>Use</Table.Column>
-                  <Table.Column>Keep neutral or semantic</Table.Column>
-                </Table.Header>
-                <Table.Body>
-                  <Table.Row id="categories">
-                    <Table.Cell>Named chips, groups and project labels</Table.Cell>
-                    <Table.Cell>Primary actions, focus and selection</Table.Cell>
-                  </Table.Row>
-                  <Table.Row id="avatars">
-                    <Table.Cell>Avatar fallback fills with visible initials</Table.Cell>
-                    <Table.Cell>Presence and operational status</Table.Cell>
-                  </Table.Row>
-                  <Table.Row id="illustrations">
-                    <Table.Cell>Illustration details and labeled diagram groups</Table.Cell>
-                    <Table.Cell>Default canvas, form fields and card depth</Table.Cell>
-                  </Table.Row>
-                  <Table.Row id="status">
-                    <Table.Cell>Category labels with text or icons</Table.Cell>
-                    <Table.Cell>Success, warning, danger and permissions</Table.Cell>
-                  </Table.Row>
-                </Table.Body>
-              </Table.Content>
-            </Table.ScrollContainer>
-          </Table>
         </section>
         <p className="text-sm text-muted">
-          A destructive button uses the solid red pair; validation uses readable red text. Status
-          also needs a label or icon. Use semantic roles consistently across web and desktop.
+          Destructive actions and validation use the vendor danger roles. Status also needs a label
+          or icon. Use semantic roles consistently across web and desktop.
         </p>
       </HeroUIPreview>
     </Reference>

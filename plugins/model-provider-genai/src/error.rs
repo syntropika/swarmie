@@ -28,7 +28,13 @@ pub(crate) fn invalid(reason: Reason, message: &str) -> Error {
 /// Remote diagnostics may contain credentials, prompts and response bodies.
 /// Keep them private rather than forwarding upstream Display or Debug text.
 pub(crate) fn upstream(error: genai::Error) -> Error {
-    let code = match error.status().map(|s| s.as_u16()) {
+    let status = error.status().or_else(|| match &error {
+        genai::Error::WebStream { error, .. } => error
+            .downcast_ref::<genai::Error>()
+            .and_then(genai::Error::status),
+        _ => None,
+    });
+    let code = match status.map(|s| s.as_u16()) {
         Some(401 | 403) => Code::Forbidden,
         Some(429) => Code::Exhausted,
         Some(400 | 404 | 422) => Code::Invalid,

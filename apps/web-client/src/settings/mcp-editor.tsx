@@ -1,11 +1,10 @@
 import { useSource } from "@swarmie/client-ui";
 import type { McpServer } from "@swarmie/plugin-mcp-browser";
-import { Button, ChromeButton, Input, Label, TextField } from "@swarmie/ui-web";
+import { Button, Input, Label, Spinner, TextField } from "@swarmie/ui-web";
 import { ArrowLeft, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { useClient } from "../client/context";
-import { iconStyle } from "../controls";
 import { createDraft, draftDefinition } from "./mcp-draft";
 import type { ChangeDraft } from "./mcp-draft";
 import { HttpFields, LocalFields, ProtocolField } from "./mcp-fields";
@@ -57,10 +56,10 @@ export function McpEditor({
   const node = connections.nodes.find((entry) => entry.id === connections.selected);
   return (
     <div className="mt-10">
-      <ChromeButton size="action" onPress={back}>
-        <ArrowLeft className={iconStyle} />
+      <Button size="sm" variant="ghost" onPress={back}>
+        <ArrowLeft />
         Back
-      </ChromeButton>
+      </Button>
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-medium">
           {editing ? `Update ${draft.initialName}` : "Add MCP server"}
@@ -98,11 +97,8 @@ export function McpEditor({
           save().catch(failed);
         }}
       >
-        <fieldset
-          disabled={busy}
-          className="min-w-0 divide-y divide-border rounded-xl border border-border bg-chrome-surface"
-        >
-          <div className="p-4">
+        <fieldset disabled={busy} className="grid min-w-0 gap-6">
+          <div>
             <TextField
               value={draft.name}
               onChange={(name) => {
@@ -134,16 +130,17 @@ export function McpEditor({
         <div className="mt-5 flex justify-end">
           <Button
             type="submit"
-            loading={busy}
-            loadingLabel="Saving MCP server"
-            isDisabled={!state.available || draft.name.trim() === ""}
+            isPending={busy}
+            isDisabled={busy || !state.available || draft.name.trim() === ""}
           >
+            {busy ? <Spinner size="sm" color="current" aria-hidden="true" /> : null}
             Save
+            {busy ? <span className="sr-only">Saving MCP server</span> : null}
           </Button>
         </div>
       </form>
       {removing ? (
-        <div role="alert" className="mt-5 rounded-xl border border-border p-4">
+        <div role="alert" className="mt-5 rounded-group bg-group p-4">
           <h3 className="text-sm font-medium">Remove {draft.initialName}?</h3>
           <p className="mt-2 text-sm text-muted">
             This removes its configuration and stops new calls. It does not uninstall the server
@@ -165,8 +162,10 @@ export function McpEditor({
               onPress={() => {
                 remove().catch(failed);
               }}
-              loading={busy}
+              isPending={busy}
+              isDisabled={busy}
             >
+              {busy ? <Spinner size="sm" color="current" aria-hidden="true" /> : null}
               Remove server
             </Button>
           </div>

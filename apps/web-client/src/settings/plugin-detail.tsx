@@ -1,15 +1,14 @@
 import { useSource } from "@swarmie/client-ui";
-import { Button, ChromeButton, Label, ListBox, Select } from "@swarmie/ui-web";
+import { Button, Label, ListBox, Select } from "@swarmie/ui-web";
 import { ArrowLeft, Puzzle } from "lucide-react";
 
 import { useClient } from "../client/context";
-import { iconStyle } from "../controls";
 import { ConnectionSettings } from "./connections";
 import { GeneralSettings } from "./general";
 import { ProviderSettings } from "./providers";
 
 function PluginConfiguration({ id }: { id: string }) {
-  const { settings, onboarding } = useClient();
+  const { settings } = useClient();
   const preferences = useSource(settings);
   if (id === "connections") {
     return <ConnectionSettings />;
@@ -24,25 +23,11 @@ function PluginConfiguration({ id }: { id: string }) {
       </div>
     );
   }
-  if (id === "onboarding") {
-    return (
-      <div className="mt-6">
-        <Button
-          variant="secondary"
-          onPress={() => {
-            onboarding.update((current) => ({ ...current, open: true }));
-          }}
-        >
-          Open getting started
-        </Button>
-      </div>
-    );
-  }
   if (id !== "read-aloud") {
     return null;
   }
   return (
-    <div className="mt-8 rounded-xl border border-border p-4">
+    <div className="mt-8">
       <Select
         value={preferences.language}
         onChange={(value) => {
@@ -99,46 +84,47 @@ export function PluginDetail({
 
   return (
     <>
-      <ChromeButton
-        size="action"
+      <Button
+        size="sm"
+        variant="ghost"
         onPress={() => {
           back();
         }}
       >
-        <ArrowLeft className={iconStyle} />
+        <ArrowLeft />
         Back to plugins
-      </ChromeButton>
+      </Button>
       <h1 className="mt-7 text-2xl font-medium">{plugin.name}</h1>
       <p className="mt-2 text-sm leading-6 text-muted">{plugin.description}</p>
       <PluginConfiguration id={plugin.id} />
       {plugin.uses.length > 0 ? (
         <>
           <h2 className="mt-10 mb-3 text-sm">Uses</h2>
-          <div className="divide-y divide-border rounded-xl border border-border bg-chrome-surface">
+          <div className="grid gap-1 rounded-group bg-group p-1">
             {plugin.uses.map((name) => (
-              <button
+              <Button
                 key={name}
-                type="button"
-                onClick={() => {
+                variant="ghost"
+                onPress={() => {
                   openPlugin(list.find((entry) => entry.name === name)?.id ?? null);
                 }}
-                className="flex w-full items-center gap-3 px-4 py-4 text-left text-sm hover:bg-row-hover"
+                className="w-full justify-start text-left"
               >
-                <Puzzle className="size-4" />
-                {name}
-              </button>
+                <Puzzle />
+                <span className="min-w-0 truncate">{name}</span>
+              </Button>
             ))}
           </div>
         </>
       ) : null}
       <h2 className="mt-10 mb-3 text-sm">About</h2>
-      <div className="divide-y divide-border rounded-xl border border-border bg-chrome-surface px-4">
+      <div className="divide-y divide-border-subtle rounded-group bg-group px-4">
         {[
           ["Category", plugin.category],
           ["Developer", "Swarmie"],
           ["Version", plugin.version],
         ].map(([label, value]) => (
-          <div key={label} className="grid grid-cols-2 py-4 text-xs">
+          <div key={label} className="grid grid-cols-2 gap-3 py-4 text-xs wrap-anywhere">
             <span className="text-muted">{label}</span>
             <span>{value}</span>
           </div>

@@ -26,8 +26,9 @@ afterEach(async () => {
   );
 });
 
-async function node(id: string) {
+async function node(id: string, wait?: Promise<undefined>) {
   const host = createHost();
+  let pending = 0;
   await host.install(
     orb({
       name: `fixture.${id}`,
@@ -50,6 +51,11 @@ async function node(id: string) {
           methods: {
             increment(state: State<number>, context) {
               state.update(context, (value) => value + 1);
+              return state.value;
+            },
+            async hold(state: State<number>) {
+              pending += 1;
+              await wait;
               return state.value;
             },
           },
@@ -125,6 +131,7 @@ async function node(id: string) {
   return {
     record: { id, label: id, url: `ws://127.0.0.1:${server.port}`, principal: "alice" },
     peers,
+    pending: () => pending,
   };
 }
 
@@ -304,4 +311,42 @@ test("a peer policy close is terminal instead of an endless reconnect", async ()
   await until(() => !session.isCurrent());
   expect(connections.state(endpoint.record.id).phase).toBe(ConnectionPhase.Failed);
   expect(connections.state(endpoint.record.id).failure?.kind).toBe(ConnectionFailureKind.Protocol);
+});
+
+test("a seventeenth pending call is refused locally and the WebSocket remains usable", async () => {
+  const finish = Promise.withResolvers<undefined>();
+  cleanup.push(() => {
+    finish.resolve(undefined);
+  });
+  const endpoint = await node("bounded", finish.promise);
+  const connections = new Connections(connectWebSocket, () => undefined);
+  cleanup.push(() => {
+    connections.close();
+  });
+  connections.configure(endpoint.record);
+  const session = await connections.open(endpoint.record.id);
+  const counter = await session.get("fixture.counter", "main");
+  const hold: unknown = Reflect.get(counter, "hold");
+  if (typeof hold !== "function") {
+    throw new TypeError("Missing hold method.");
+  }
+  const operations = Array.from({ length: NodeProtocol.MaxPending }, async () => {
+    await Reflect.apply(hold, undefined, []);
+  });
+  let rejected: unknown;
+  try {
+    await Reflect.apply(hold, undefined, []);
+  } catch (error: unknown) {
+    rejected = error;
+  }
+  expect(rejected).toMatchObject({ code: Code.Exhausted });
+  await until(() => endpoint.pending() === NodeProtocol.MaxPending);
+  expect(endpoint.pending()).toBe(16);
+  expect(session.isCurrent()).toBe(true);
+  finish.resolve(undefined);
+  await Promise.all(operations);
+  await increment(counter);
+  expect(counterValue(counter)).toBe(1);
+  expect(session.isCurrent()).toBe(true);
+  counter.release();
 });

@@ -1,5 +1,5 @@
 import { errorMessage } from "@swarmie/client-ui";
-import { Button, Input, Label, TextField } from "@swarmie/ui-web";
+import { Button, Input, Label, Spinner, TextField } from "@swarmie/ui-web";
 import { useState } from "react";
 
 import type {
@@ -37,13 +37,13 @@ function DetectServers({
     <Button
       variant="secondary"
       isDisabled={busy || detecting}
-      loading={detecting}
-      loadingLabel="Detecting servers"
+      isPending={detecting}
       onPress={() => {
         detect().catch(onFailure);
       }}
     >
-      Detect servers
+      {detecting ? <Spinner size="sm" color="current" aria-hidden="true" /> : null}
+      {detecting ? "Detecting servers…" : "Detect servers"}
     </Button>
   );
 }
@@ -120,17 +120,14 @@ export function ProviderConfigurationForm({
       <p className="text-xs text-muted">Choose your model later.</p>
       <div className="flex justify-end border-t border-border pt-5">
         <Button
-          tone="brand"
-          shape="panel"
-          size="lg"
-          loading={busy}
-          loadingLabel="Connecting provider"
-          isDisabled={method.kind === "api-key" && credential.trim() === ""}
+          isPending={busy}
+          isDisabled={busy || (method.kind === "api-key" && credential.trim() === "")}
           onPress={() => {
             configure().catch(failed);
           }}
         >
-          Connect provider
+          {busy ? <Spinner size="sm" color="current" aria-hidden="true" /> : null}
+          {busy ? "Connecting provider…" : "Connect provider"}
         </Button>
       </div>
     </div>

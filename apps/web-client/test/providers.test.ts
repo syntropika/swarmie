@@ -50,6 +50,7 @@ const account: ProviderAccount = {
 const catalog = (accounts: ProviderAccount[] = []): Readonly<ProvidersState> => ({
   choices: [],
   accounts,
+  scope: null,
   ready: true,
   error: null,
 });
@@ -65,6 +66,8 @@ test("one Providers API configures an account and supplies its models without on
   });
   ({ close } = client);
   expect(client.providers.defaultSelection()).toBeNull();
+  await sleep(10);
+  expect(client.onboarding.getSnapshot()).toEqual({ completed: false, open: true });
   const { configuration } = client.providers;
   if (configuration === null) {
     throw new Error("Expected provider configuration.");
@@ -211,4 +214,69 @@ test("discovery is independently available and exposes its complete contract", a
   const controller = new AbortController();
   expect(await discovery.detect(controller.signal)).toEqual(["http://localhost:11434"]);
   expect(received).toBe(controller.signal);
+});
+
+test("first-use onboarding waits for a successful empty catalog and cannot reopen after completion", async () => {
+  const backend = source<Readonly<ProvidersState>>({ ...catalog(), ready: false });
+  const client = await initializeClient(createHost(), {
+    dev: false,
+    providers: {
+      catalog: backend,
+      configuration: { configure: async () => account },
+    },
+  });
+  ({ close } = client);
+  await sleep(10);
+  expect(client.onboarding.getSnapshot()).toEqual({ completed: false, open: false });
+  expect(client.plugins.getSnapshot().some((plugin) => plugin.id === "onboarding")).toBe(false);
+
+  backend.publish({ ...catalog(), error: "The node catalog could not load." });
+  await sleep(10);
+  expect(client.onboarding.getSnapshot()).toEqual({ completed: false, open: false });
+
+  backend.publish(catalog());
+  await sleep(10);
+  expect(client.onboarding.getSnapshot()).toEqual({ completed: false, open: true });
+
+  const { configuration } = client.providers;
+  if (configuration === null) {
+    throw new Error("Expected provider configuration.");
+  }
+  await configuration.configure(
+    { providerId: "provider", method: "api-key", credential: "test-secret" },
+    new AbortController().signal,
+  );
+  await sleep(10);
+  // Keep the guide open so its completion step remains available after configuration.
+  expect(client.onboarding.getSnapshot()).toEqual({ completed: false, open: true });
+  client.onboarding.update(() => ({ completed: true, open: false }));
+  await sleep(10);
+  backend.publish({ ...catalog(), ready: false });
+  backend.publish(catalog());
+  await sleep(10);
+  expect(client.onboarding.getSnapshot()).toEqual({ completed: true, open: false });
+  await client.close();
+  close = undefined;
+  expect(backend.listeners.size).toBe(0);
+});
+
+test("a configured account skips onboarding even when unavailable and later catalog changes cannot open it", async () => {
+  const backend = source(catalog([{ ...account, available: false, models: [] }]));
+  const client = await initializeClient(createHost(), {
+    dev: false,
+    providers: { catalog: backend },
+  });
+  ({ close } = client);
+  await sleep(10);
+  expect(client.onboarding.getSnapshot()).toEqual({ completed: true, open: false });
+  backend.publish(catalog());
+  await sleep(10);
+  expect(client.onboarding.getSnapshot()).toEqual({ completed: true, open: false });
+});
+
+test("a client without a node provider catalog does not infer that the node is unconfigured", async () => {
+  const client = await initializeClient(createHost(), { dev: false });
+  ({ close } = client);
+  await sleep(10);
+  expect(client.onboarding.getSnapshot()).toEqual({ completed: false, open: false });
 });

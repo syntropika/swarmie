@@ -35,7 +35,7 @@ export function PanelDropOverlay({
             className={`pointer-events-auto flex w-1/2 items-center justify-center border ${target === side ? "border-panel-drop-line bg-panel-drop-surface" : "border-transparent"}`}
           >
             {target === side ? (
-              <output className="pointer-events-none flex items-center gap-2 rounded-lg bg-panel-drop-label px-4 py-3 text-sm text-panel-drop-foreground shadow-lg">
+              <output className="pointer-events-none flex items-center gap-2 rounded-panel bg-panel-drop-label px-4 py-3 text-ui text-panel-drop-foreground shadow-overlay">
                 <Arrow className={iconStyle} />
                 Move {panel === "conversation" ? "conversation" : "view"} to the {side}
               </output>

@@ -64,15 +64,15 @@ export function SpacingReference({ theme }: { theme: "light" | "dark" }) {
           </Table.ScrollContainer>
         </Table>
         <div className="grid gap-6 @lg:grid-cols-3">
-          <div className="grid gap-2 rounded-2xl bg-surface p-4">
+          <div className="grid gap-2 rounded-3xl bg-surface p-4">
             <h2 className="font-semibold">Related content · gap-2</h2>
             <p className="text-sm text-muted">A label and its explanation stay close.</p>
           </div>
-          <div className="grid gap-4 rounded-2xl bg-surface p-4">
+          <div className="grid gap-4 rounded-3xl bg-surface p-4">
             <h2 className="font-semibold">A content group · gap-4</h2>
             <p className="text-sm text-muted">Separate related rows or controls.</p>
           </div>
-          <div className="grid gap-8 rounded-2xl bg-surface p-4">
+          <div className="grid gap-8 rounded-3xl bg-surface p-4">
             <h2 className="font-semibold">A new section · gap-8</h2>
             <p className="text-sm text-muted">More distance communicates a new group.</p>
           </div>
@@ -101,7 +101,7 @@ function ShadowSample({
   }, [theme]);
   return (
     <section className="grid min-w-0 gap-3">
-      <div ref={sample} className={`grid min-h-28 place-content-center rounded-2xl p-6 ${classes}`}>
+      <div ref={sample} className={`grid min-h-28 place-content-center p-6 ${classes}`}>
         <h2 className="font-semibold">{label}</h2>
       </div>
       <p className="text-sm text-muted">{description}</p>
@@ -120,20 +120,20 @@ export function ShadowsReference({ theme }: { theme: "light" | "dark" }) {
           <ShadowSample
             theme={theme}
             label="Field"
-            classes="bg-field text-field-foreground shadow-field"
-            description="Fields use a border. The shared field shadow is none."
+            classes="rounded-field bg-field text-field-foreground shadow-field"
+            description="The field shadow and focus state come from the active HeroUI theme."
           />
           <ShadowSample
             theme={theme}
             label="Surface"
-            classes="bg-surface text-surface-foreground shadow-surface"
-            description="A persistent component uses the surface shadow."
+            classes="rounded-3xl bg-surface text-surface-foreground shadow-surface"
+            description="The surface sample uses the HeroUI surface shadow."
           />
           <ShadowSample
             theme={theme}
             label="Overlay"
-            classes="bg-overlay text-overlay-foreground shadow-overlay"
-            description="Floating menus and dialogs use the overlay shadow."
+            classes="rounded-3xl bg-overlay text-overlay-foreground shadow-overlay"
+            description="The overlay sample uses the HeroUI overlay shadow."
           />
         </div>
         <p className="text-sm text-muted">

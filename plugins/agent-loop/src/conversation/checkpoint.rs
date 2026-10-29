@@ -63,6 +63,37 @@ impl Checkpoint {
     pub fn head(&self) -> Head {
         self.head
     }
+
+    /// Return whether confirmed assistant calls still need terminal tool results.
+    pub fn has_unfinished_tools(&self) -> bool {
+        matches!(
+            self.phase,
+            Phase::PrepareTools { .. } | Phase::ToolPending { .. }
+        )
+    }
+
+    /// Return the next confirmed operation without exposing stored request payloads.
+    /// A pending operation can require recovery even when dispatch is not confirmed.
+    pub fn pending(&self) -> Option<Pending> {
+        match self.phase {
+            Phase::PrepareTurn => Some(Pending::Turn),
+            Phase::ModelPending { operation, .. } => Some(Pending::Model { operation }),
+            Phase::PrepareTools { next, .. } => Some(Pending::Tools { next }),
+            Phase::ToolPending {
+                operation, next, ..
+            } => Some(Pending::Tool { operation, next }),
+            Phase::Finished { .. } => None,
+        }
+    }
+}
+
+/// Read-only execution progress. Positions refer to the last assistant's tool calls.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pending {
+    Turn,
+    Model { operation: OperationId },
+    Tools { next: usize },
+    Tool { operation: OperationId, next: usize },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

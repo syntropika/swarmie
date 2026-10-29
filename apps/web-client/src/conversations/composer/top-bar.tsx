@@ -1,18 +1,11 @@
 import { useSource } from "@swarmie/client-ui";
 import type { ComposerTopBarItem, Conversation } from "@swarmie/plugin-conversations-browser";
+import { ComposerPanel } from "@swarmie/ui-web/elements/conversation";
 
 import { useClient } from "../../client/context";
-import { ComposerAccount } from "./account";
 import { ComposerNode } from "./node";
 
 const baseTopBar: readonly ComposerTopBarItem[] = [
-  {
-    id: "swarmie.providers.account",
-    owner: "providers",
-    side: "left",
-    priority: 100,
-    component: ComposerAccount,
-  },
   {
     id: "swarmie.connections.node",
     owner: "connections",
@@ -27,7 +20,7 @@ export function ComposerTopBar({ chat }: { chat: Conversation }) {
   const items = useSource(conversationsUi.composer.topBar.items);
   const topBar = [...baseTopBar, ...items];
   return (
-    <div className="flex min-h-(--spacing-chrome-menu-row) flex-wrap items-center justify-between gap-(--spacing-control-group) border-b border-border bg-composer-context px-(--spacing-chrome-inset) text-chrome text-muted">
+    <ComposerPanel.Context>
       {(["left", "right"] as const).map((side) => (
         <div
           key={side}
@@ -41,6 +34,6 @@ export function ComposerTopBar({ chat }: { chat: Conversation }) {
             ))}
         </div>
       ))}
-    </div>
+    </ComposerPanel.Context>
   );
 }

@@ -1,5 +1,5 @@
 import { useSource } from "@swarmie/client-ui";
-import { Button, ChromeButton, Input, Label, TextField } from "@swarmie/ui-web";
+import { Button, Input, Label, TextField } from "@swarmie/ui-web";
 import { Monitor } from "lucide-react";
 import { useState } from "react";
 
@@ -21,44 +21,50 @@ export function ConnectionSettings() {
       <p className="mt-2 text-xs text-muted">
         Select a default node while keeping other nodes connected.
       </p>
-      <div className="mt-8 grid gap-4 rounded-xl border border-border bg-chrome-surface p-4">
+      <div className="mt-8 grid gap-6">
         {connection.nodes.map((node) => {
           const session = connection.sessions[node.id];
           const connected = session?.phase === "connected";
           return (
-            <div key={node.id} className="grid gap-2">
-              <div className="flex items-center gap-3">
-                <Monitor className="size-5 text-muted" />
-                <div className="flex-1">
+            <div
+              key={node.id}
+              className="@container/connection grid gap-2 rounded-group bg-group p-4"
+            >
+              <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 @min-[480px]/connection:grid-cols-[auto_minmax(0,1fr)_auto]">
+                <Monitor className="size-5 shrink-0 text-muted" />
+                <div className="min-w-0 wrap-anywhere">
                   <h2 className="text-sm">{node.label}</h2>
                   <output className="mt-1 text-xs text-muted">
                     {session?.phase ?? "unconfigured"}
                   </output>
                 </div>
-                <ChromeButton
-                  size="action"
-                  selected={connection.selected === node.id}
-                  aria-pressed={connection.selected === node.id}
-                  onPress={() => {
-                    selectNode(node.id);
-                  }}
-                >
-                  {connection.selected === node.id ? "Default" : "Use as default"}
-                </ChromeButton>
-                {node.url === null ? null : (
-                  <ChromeButton
-                    size="action"
+                <div className="col-span-2 flex flex-wrap items-center justify-end gap-2 @min-[480px]/connection:col-span-1">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    aria-pressed={connection.selected === node.id}
                     onPress={() => {
-                      if (connected) {
-                        disconnect(node.id);
-                      } else {
-                        connect(node.id).catch(failed);
-                      }
+                      selectNode(node.id);
                     }}
                   >
-                    {connected ? "Disconnect" : "Connect"}
-                  </ChromeButton>
-                )}
+                    {connection.selected === node.id ? "Default" : "Use as default"}
+                  </Button>
+                  {node.url === null ? null : (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onPress={() => {
+                        if (connected) {
+                          disconnect(node.id);
+                        } else {
+                          connect(node.id).catch(failed);
+                        }
+                      }}
+                    >
+                      {connected ? "Disconnect" : "Connect"}
+                    </Button>
+                  )}
+                </div>
               </div>
               {session?.failure ? (
                 <p role="alert" className="text-xs text-danger">

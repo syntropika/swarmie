@@ -11,7 +11,7 @@ export function CollaborationPreview() {
   return (
     <div
       data-motion-scene="onboarding"
-      className="relative isolate overflow-hidden rounded-4xl bg-primary-soft/65 p-3 sm:p-6 lg:p-8"
+      className="relative isolate overflow-hidden rounded-marketing-shell bg-primary-soft/65 p-3 sm:p-6 lg:p-8"
     >
       <div
         aria-hidden="true"
@@ -22,13 +22,13 @@ export function CollaborationPreview() {
         className="pointer-events-none absolute -bottom-28 -left-12 size-64 rounded-full bg-mint/65"
       />
 
-      <div className="relative z-10 rounded-3xl bg-surface p-5 shadow-raised sm:p-7">
+      <div className="relative z-10 rounded-marketing-card bg-surface p-5 shadow-raised sm:p-7">
         <div className="flex items-center gap-3 pb-5">
           <span aria-hidden="true" className="flex items-center gap-1">
-            <Avatar className="size-8" aria-label="Maya Chen" color="default">
+            <Avatar size="sm" aria-label="Maya Chen" color="default">
               <Avatar.Fallback>MC</Avatar.Fallback>
             </Avatar>
-            <Avatar className="size-8" aria-label="Swarmie" color="accent">
+            <Avatar size="sm" aria-label="Swarmie" color="accent">
               <Avatar.Fallback>SW</Avatar.Fallback>
             </Avatar>
           </span>
@@ -39,7 +39,7 @@ export function CollaborationPreview() {
           data-motion-part="onboarding-question"
           className="mt-6 flex flex-row-reverse gap-3 sm:gap-4"
         >
-          <Avatar className="size-9 shrink-0" aria-label="Maya Chen" color="default">
+          <Avatar size="sm" aria-label="Maya Chen" color="default">
             <Avatar.Fallback>MC</Avatar.Fallback>
           </Avatar>
           <div className="min-w-0">
@@ -76,7 +76,7 @@ export function CollaborationPreview() {
         </div>
 
         <div data-motion-part="onboarding-answer" className="mt-6 flex gap-3 sm:gap-4">
-          <Avatar className="size-9 shrink-0" aria-label="Swarmie" color="accent">
+          <Avatar size="sm" aria-label="Swarmie" color="accent">
             <Avatar.Fallback>SW</Avatar.Fallback>
           </Avatar>
           <div className="min-w-0">
@@ -96,7 +96,7 @@ export function CollaborationPreview() {
 
       <div
         data-motion-part="onboarding-suggestion"
-        className="relative z-20 mt-3 rounded-3xl bg-surface p-5 shadow-raised sm:mt-[-24px] sm:ml-auto sm:w-[min(85%,440px)] sm:p-6 lg:mr-2"
+        className="relative z-20 mt-3 rounded-marketing-card bg-surface p-5 shadow-raised sm:mt-[-24px] sm:ml-auto sm:w-[min(85%,440px)] sm:p-6 lg:mr-2"
       >
         <div className="flex items-center gap-3">
           <span
@@ -105,7 +105,7 @@ export function CollaborationPreview() {
           >
             <Icon name="check" className="size-5" />
           </span>
-          <p className="text-xs font-semibold text-primary">
+          <p className="text-xs font-semibold text-ink">
             {t("demo.suggestionLabel", { agent: "Swarmie" })}
           </p>
         </div>

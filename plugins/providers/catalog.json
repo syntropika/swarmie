@@ -1,0 +1,29 @@
+[
+  {
+    "id": "openai",
+    "label": "ChatGPT",
+    "publisher": "OpenAI",
+    "methods": [
+      { "id": "oauth-browser", "label": "Continue with ChatGPT", "kind": "oauth" },
+      { "id": "api-key", "label": "API key", "kind": "api-key" }
+    ]
+  },
+  {
+    "id": "anthropic",
+    "label": "Claude",
+    "publisher": "Anthropic",
+    "methods": [{ "id": "api-key", "label": "API key", "kind": "api-key" }]
+  },
+  {
+    "id": "kimi",
+    "label": "Kimi",
+    "publisher": "Moonshot",
+    "methods": [{ "id": "api-key", "label": "API key", "kind": "api-key" }]
+  },
+  {
+    "id": "ollama",
+    "label": "Local",
+    "publisher": "Ollama",
+    "methods": [{ "id": "local", "label": "Server URL", "kind": "local" }]
+  }
+]

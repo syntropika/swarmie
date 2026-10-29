@@ -95,3 +95,17 @@ The current hook and task adapters are native Rust interfaces. Cross-language
 authoring is outside their qualified scope. No checkpoint migration system is
 provided. Process-crash recovery is tested with synthetic providers; arbitrary
 production effects still require provider-specific reconciliation.
+
+
+## Directory navigation
+
+`directories_orb` composes the optional `swarmie.directories` service with key `main`.
+The bare runtime does not install it. The embedding supplies a `DirectorySource` for I/O
+and checks the authenticated principal on each read. Tembra owns the service lifetime.
+
+The `list` method accepts `DirectoryRequest`. A null path opens the configured root.
+A null cursor requests the first page. The result is a `DirectoryPage` with the current
+path, permitted parent, directory entries and an optional next cursor. Clients pass the
+returned paths and cursors back to the same node. They must not infer file permissions
+from a directory result. The service checks cancellation before and after the read.
+Selecting a directory does not grant access to its files or change project membership.

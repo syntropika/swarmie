@@ -32,17 +32,17 @@ export function Navigation() {
           onClick={() => {
             shellState.update((current) => ({ ...current, navigation: false }));
           }}
-          className="fixed inset-0 z-20 bg-background/60 md:hidden"
+          className="fixed inset-x-(--spacing-shell-frame) top-0 bottom-[calc(var(--spacing-shell-frame)+var(--spacing-safe-area-bottom))] z-20 bg-background/60 md:hidden"
         />
       ) : null}
       <div
-        className={`z-30 flex shrink-0 border-r border-border bg-navigation-surface ${hidden ? "hidden md:flex" : "fixed inset-y-11 left-0 md:static"}`}
+        className={`z-30 flex shrink-0 gap-(--spacing-workspace-inset) bg-workspace pr-(--spacing-workspace-inset) ${hidden ? "hidden md:flex" : "fixed top-[calc(var(--spacing-shell-bar)+var(--spacing-workspace-inset))] bottom-[calc(var(--spacing-shell-frame)+var(--spacing-workspace-inset)+var(--spacing-safe-area-bottom))] left-[calc(var(--spacing-shell-frame)+var(--spacing-workspace-inset))] md:static"}`}
       >
         <NavigationRail hidden={hidden} />
         {hidden ? null : (
           <aside
             id="client-navigation"
-            className={`flex w-(--navigation-width) flex-col overflow-hidden ${layout.section === "conversations" ? "bg-conversation-navigation" : ""}`}
+            className={`flex w-(--navigation-width) max-w-[calc(100dvw-var(--spacing-shell-rail)-var(--spacing-shell-frame)*2-var(--spacing-control-touch))] flex-col overflow-hidden rounded-l-(--radius-shell-frame) md:max-w-none ${layout.section === "conversations" ? "bg-conversation-navigation" : "bg-navigation-surface"}`}
           >
             {layout.section === "settings" ? (
               <SettingsNavigation />

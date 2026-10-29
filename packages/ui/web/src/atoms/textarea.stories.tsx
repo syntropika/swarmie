@@ -32,11 +32,3 @@ export const OfficialExample: Story = {
   name: "Official example",
   render: () => <HeroUIDocumentationExample />,
 };
-
-export const ComposerAppearance: Story = {
-  render: () => (
-    <div className="max-w-lg rounded-2xl border border-border p-4">
-      <TextArea appearance="composer" aria-label="Message" placeholder="Write a message" />
-    </div>
-  ),
-};

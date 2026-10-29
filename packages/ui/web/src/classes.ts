@@ -21,6 +21,9 @@ const mergeClasses = extendTailwindMerge({
       radius: [
         "small",
         "composer",
+        "composer-context",
+        "workspace",
+        "group",
         "menu",
         "control",
         "panel",

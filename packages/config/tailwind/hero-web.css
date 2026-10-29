@@ -1,238 +1,225 @@
-/* Load after @heroui/styles. Use neutral surface depth with upstream warning colors.
- * Monochrome actions use the theme builder's medium radius scale. */
+/* Theme tokens tune density and contrast without changing the vendor component contracts. */
+@theme static {
+  --radius-xs: var(--radius-ui);
+  --radius-sm: var(--radius-ui);
+  --radius-md: var(--radius-ui);
+  --radius-lg: var(--radius-ui);
+  --radius-xl: var(--radius-ui);
+  --radius-2xl: var(--radius-ui);
+  --radius-3xl: var(--radius-ui);
+  --radius-4xl: var(--radius-ui);
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.25rem;
+  --text-lg: 1rem;
+  --text-lg--line-height: 1.5rem;
+  --text-xl: 1.125rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.375rem;
+  --text-2xl--line-height: 1.75rem;
+}
+
 :root,
-[data-theme],
-[data-heroui-palette="swarmie"] {
+[data-theme] {
   --font-sans: "Google Sans", ui-sans-serif, system-ui, sans-serif;
-  --accent: light-dark(var(--black), var(--white));
-  --accent-foreground: light-dark(var(--white), var(--black));
-  --radius: 0.5rem;
-  --field-radius: 0.5rem;
-
-  --success: #008635;
-  --success-foreground: var(--white);
-  --success-soft: light-dark(#d9f4e4, color-mix(in oklab, #04b84c 15%, transparent));
-  --success-soft-foreground: light-dark(#008635, #40c977);
-
-  --danger: light-dark(#ba2623, #ff6764);
-  --danger-foreground: light-dark(var(--white), #1f0909);
-  --danger-solid: #e02e2a;
-  --danger-solid-foreground: var(--white);
-  --danger-soft: light-dark(#ffd9d9, color-mix(in oklab, #fa423e 16%, transparent));
-  --danger-soft-foreground: light-dark(#ba2623, #ff6764);
-
-  /* Resolve the complete neutral palette together, including the System preference. */
-  --background: light-dark(var(--white), #181818);
-  --foreground: light-dark(var(--eclipse), #eeede8);
-  --surface: light-dark(#f4f4f2, #21211f);
-  --surface-foreground: var(--foreground);
-  --surface-secondary: light-dark(oklch(0.9524 0.0013 286.37), #292927);
-  --surface-secondary-foreground: var(--foreground);
-  --surface-tertiary: light-dark(oklch(0.9373 0.0013 286.37), #292927);
-  --surface-tertiary-foreground: var(--foreground);
-  --overlay: light-dark(var(--white), #292924);
-  --overlay-foreground: var(--foreground);
-  --field-background: light-dark(var(--white), #2b2b26);
-  --field-border: light-dark(#8c8c86, #77776e);
-  --field-border-width: 1px;
-  --field-shadow: none;
-  --field-foreground: var(--foreground);
-  --field-placeholder: var(--muted);
-  --default: light-dark(oklch(94% 0.001 286.375), #30302c);
-  --default-hover: light-dark(
-    color-mix(in oklab, var(--default) 96%, var(--foreground) 4%),
-    #39392f
-  );
+  --field-radius: var(--radius-ui);
+  --accent: var(--color-brand-accent);
+  --focus: var(--color-brand-accent-text);
+  --overlay: var(--surface-secondary);
   --default-foreground: var(--foreground);
-  --segment: light-dark(var(--white), #292927);
-  --segment-foreground: var(--foreground);
-  --muted: light-dark(#68686f, #aaa9a2);
-  --border: light-dark(oklch(90% 0.004 286.32), #343432);
-  --separator: light-dark(oklch(92% 0.004 286.32), #2a2a28);
-  --focus: var(--accent);
+  --row-hover: color-mix(in oklab, var(--surface) 84%, var(--foreground));
+  --row-selected: color-mix(in oklab, var(--surface) 80%, var(--foreground));
+  --row-selected-hover: color-mix(in oklab, var(--row-selected) 94%, var(--foreground));
+  --muted: color-mix(in oklab, var(--foreground) 76%, var(--background));
+  --field-background: var(--surface-secondary);
+  --field-border: var(--border-secondary);
+  --field-border-width: 1px;
 }
-
-.button--secondary {
-  --button-bg: var(--default);
-  --button-bg-hover: var(--default-hover);
-  --button-bg-pressed: var(--default-hover);
-  --button-fg: var(--default-foreground);
+/* Dark surfaces keep a subtle amber charcoal tint and small, readable depth steps. */
+.dark,
+[data-theme="dark"] {
+  --background: #080806;
+  --surface: #10100e;
+  --surface-secondary: #181713;
+  --surface-tertiary: #1f1e19;
+  --default: #25241f;
+  --segment: #3e3c35;
+  --row-hover: color-mix(in oklab, var(--surface) 90%, var(--foreground));
+  --row-selected: color-mix(in oklab, var(--surface) 86%, var(--foreground));
 }
-
-/* Tertiary carries the same transparent, neutral treatment as the upstream ghost variant. */
-.button--tertiary {
-  --button-bg: transparent;
-  --button-bg-hover: var(--default);
-  --button-bg-pressed: var(--default);
-  --button-fg: var(--default-foreground);
+.tabs__list-container,
+.date-picker__popover,
+.date-range-picker__popover,
+.color-picker__popover,
+.table-root--primary,
+.tabs__list-container__scroll-prev,
+.tabs__list-container__scroll-next {
+  border-radius: var(--radius-ui);
 }
-
-/* Solid destructive actions and validation text use their own readable color pairs. */
-.button--danger {
-  --button-bg: var(--danger-solid);
-  --button-bg-hover: color-mix(in oklab, var(--danger-solid) 90%, var(--black));
-  --button-bg-pressed: var(--button-bg-hover);
-  --button-fg: var(--danger-solid-foreground);
+.color-slider[data-orientation="vertical"] .color-slider__track::before {
+  border-end-start-radius: var(--radius-ui);
+  border-end-end-radius: var(--radius-ui);
 }
-
-@theme inline {
-  --color-danger-solid: var(--danger-solid);
-  --color-danger-solid-foreground: var(--danger-solid-foreground);
+.color-slider[data-orientation="vertical"] .color-slider__track::after {
+  border-start-start-radius: var(--radius-ui);
+  border-start-end-radius: var(--radius-ui);
 }
-
-/* Text links retain the vendor focus behavior and have no filled hover surface. */
-.swarmie-text-link {
-  color: var(--foreground);
-  border-radius: 0;
+/* Application menu rows share content alignment; base Button and ListBox exports stay untouched. */
+.popover,
+.dropdown__popover,
+.select__popover {
+  border-radius: var(--radius-menu);
 }
-.swarmie-text-link:hover,
-.swarmie-text-link[data-hovered="true"],
-.swarmie-text-link:active {
-  color: var(--muted);
-  text-decoration: none;
+.dropdown__popover .dropdown__menu,
+:is(.select__popover, .combo-box__popover, .autocomplete__popover) .list-box {
+  padding: var(--spacing-menu-inset);
 }
-
-/* Brand accents use the vendor color slots and preserve its geometry and variants. */
-.chip[data-brand-color] {
-  --chip-fg: var(--foreground);
-  --chip-bg: color-mix(in oklab, var(--brand-chip-color) 75%, var(--surface));
+[data-action-menu] :is(.button:not(.button--icon-only), .list-box-item, .menu-item) {
+  gap: var(--spacing-menu-row-gap);
+  padding-inline: var(--spacing-menu-row-x);
 }
-.chip[data-brand-color="mint"] {
-  --brand-chip-color: var(--color-mint);
+[data-action-menu] :is(.button:not(.button--icon-only), .list-box-item, .menu-item),
+.dropdown__popover .menu-item,
+:is(.select__popover, .combo-box__popover, .autocomplete__popover) .list-box-item {
+  min-height: var(--spacing-menu-row);
+  padding-block: var(--spacing-menu-row-y);
 }
-.chip[data-brand-color="lilac"] {
-  --brand-chip-color: var(--color-lilac);
+[data-action-menu] .menu-item:has(.menu-item__indicator):not([data-has-submenu="true"]) {
+  padding-inline-start: calc(
+    var(--spacing-menu-row-x) + var(--spacing-menu-icon) + var(--spacing-menu-row-gap)
+  );
 }
-.chip[data-brand-color="peach"] {
-  --brand-chip-color: var(--color-peach);
+[data-action-menu] :is(.button:not(.button--icon-only), .list-box-item, .menu-item),
+.dropdown__popover .menu-item,
+.select__popover .list-box-item {
+  border-radius: var(--radius-menu-item);
 }
-.chip[data-brand-color="mustard"] {
-  --brand-chip-color: var(--color-butter);
-}
-.chip[data-brand-color].chip--primary {
-  --chip-bg: var(--brand-chip-color);
-}
-.chip[data-brand-color].chip--soft {
-  --chip-bg: color-mix(in oklab, var(--brand-chip-color) 45%, var(--surface));
-}
-.chip[data-brand-color].chip--tertiary {
-  --chip-bg: transparent;
-  --chip-fg: color-mix(in oklab, var(--brand-chip-color) 25%, var(--foreground));
-}
-
-/* Selection controls share the restrained brand accent without recoloring primary actions. */
-.switch,
-.checkbox,
-.radio-group {
-  --accent: var(--color-brand-accent);
-  --accent-foreground: light-dark(var(--white), #1c1c1b);
-  --accent-hover: color-mix(in oklab, var(--accent) 88%, var(--foreground));
-}
-
-input[type="checkbox"],
-input[type="radio"] {
-  accent-color: var(--color-brand-accent);
-}
-
-/* Branded primary actions retain the vendor interaction and control geometry. */
-.button[data-tone="brand"] {
-  --accent: var(--color-brand-accent);
-  --accent-foreground: var(--color-brand-accent-foreground);
-  --accent-hover: color-mix(in oklab, var(--accent) 88%, var(--foreground));
-}
-
-/* Panel actions share the field radius while preserving vendor interaction states. */
-.button[data-shape="panel"] {
-  border-radius: var(--field-radius);
-}
-
-.button--lg[data-shape="panel"] {
-  height: 44px;
-  font-size: 14px;
-}
-
-/* Category tabs retain the vendor's selection, keyboard and scrolling behavior. */
-.swarmie-filter-tabs {
-  background: transparent;
-  border-radius: 0;
-}
-.swarmie-filter-tabs .tabs__list {
-  gap: 4px;
+[data-action-menu] > .list-box {
   padding: 0;
 }
-.swarmie-filter-tabs .tabs__tab {
-  width: auto;
-  flex: none;
-  padding-inline: 10px;
-  border-radius: var(--field-radius);
+[data-action-menu] :is(.list-box-item[aria-selected="true"], .menu-item[aria-checked="true"]) {
+  background-color: var(--row-selected);
 }
-.swarmie-filter-tabs .tabs__tab:not([data-disabled="true"]):is(:hover, [data-hovered="true"]) {
-  background: var(--default);
-  opacity: 1;
-}
-.swarmie-filter-tabs .tabs__indicator {
-  border-radius: var(--field-radius);
-  background: var(--default);
-  box-shadow: none;
-}
-
-/* Guided dialogs retain readable, outlined fields independently of compact app chrome. */
-[data-layout="guided"] {
-  --border-width-field: 1px;
-}
-[data-layout="guided"] .input,
-[data-layout="guided"] .select__trigger {
-  min-height: 44px;
-  box-shadow: none;
-}
-
-.button[data-shape="tile"] {
-  height: auto;
-  padding: 0;
-  border-radius: var(--field-radius);
-}
-
-/* Editable fields use a stronger inset boundary for focus without changing their size. */
-:is(
-  input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not(
-      [type="radio"]
-    ):not([type="range"]):not([type="color"]):not([type="file"]),
-  textarea
-):is(:focus, :focus-visible, [data-focused="true"], [data-focus-visible="true"]) {
-  outline: none;
-  box-shadow: none;
-}
-:is(.input, .textarea, .input-group):not([data-invalid="true"]):is(
-    :focus,
-    :focus-within,
-    [data-focused="true"],
-    [data-focus-visible="true"]
-  ) {
-  outline: none;
-  box-shadow: none;
-  border-color: var(--focus);
-}
-
-@media (forced-colors: active) {
-  :is(.input, .textarea, .input-group):is(
-    :focus,
-    :focus-within,
-    [data-focused="true"],
-    [data-focus-visible="true"]
-  ) {
-    outline: 2px solid Highlight;
-    outline-offset: 2px;
+@media (hover: hover) {
+  [data-action-menu] :is(.list-box-item, .menu-item):hover,
+  [data-action-menu] :is(.list-box-item, .menu-item)[data-hovered="true"] {
+    background-color: var(--row-hover);
+  }
+  [data-action-menu]
+    :is(.list-box-item[aria-selected="true"], .menu-item[aria-checked="true"]):hover {
+    background-color: var(--row-selected-hover);
   }
 }
+[data-action-menu] .button:not(.button--icon-only) {
+  height: auto;
+  --button-bg-hover: var(--row-hover);
+  --button-bg-pressed: var(--row-hover);
+}
+[data-slot="action-row"]:has([data-focus-visible="true"]) {
+  background-color: var(--row-hover);
+}
+@media (hover: hover) {
+  [data-slot="action-row"]:hover {
+    background-color: var(--row-hover);
+  }
+}
+[data-slot="action-row-trigger"] {
+  --button-bg-hover: transparent;
+  --button-bg-pressed: transparent;
+}
+/* Only leading action icons use the menu scale; checks, chevrons and product diagrams retain theirs. */
+[data-action-menu] :is(.button, .list-box-item, .menu-item) > svg {
+  width: var(--spacing-menu-icon);
+  height: var(--spacing-menu-icon);
+  flex-shrink: 0;
+  margin: 0;
+}
+@layer base {
+  body {
+    font-size: var(--text-base);
+    line-height: var(--text-base--line-height);
+  }
 
-/* View tabs keep React Aria behavior and use the active chrome density. */
-.swarmie-view-tabs {
+  ::placeholder {
+    color: var(--field-placeholder);
+  }
+}
+@layer components {
+  .surface {
+    border-radius: var(--radius-ui);
+  }
+
+  .button,
+  .toggle-button {
+    border-radius: var(--radius-button);
+    height: var(--spacing-control);
+  }
+
+  /* Control density follows the desktop scale at every viewport width. */
+  .button--sm,
+  .toggle-button--sm {
+    height: var(--spacing-control-small);
+  }
+
+  .button--lg,
+  .toggle-button--lg {
+    height: var(--spacing-control-large);
+  }
+
+  .button--icon-only,
+  .toggle-button--icon-only {
+    border-radius: var(--radius-pill);
+    width: var(--spacing-control);
+  }
+
+  .button--icon-only.button--sm,
+  .toggle-button--icon-only.toggle-button--sm {
+    width: var(--spacing-control-small);
+  }
+
+  .button--icon-only.button--lg,
+  .toggle-button--icon-only.toggle-button--lg {
+    width: var(--spacing-control-large);
+  }
+
+  :is(.button, .toggle-button) > svg:not([data-slot="spinner"] svg, [data-slot="link-icon"] svg) {
+    width: var(--spacing-menu-icon);
+    height: var(--spacing-menu-icon);
+    margin-block: var(--spacing-menu-inset);
+  }
+
+  .input,
+  .textarea,
+  .input-group__input,
+  .date-input-group__input,
+  .number-field__input,
+  .search-field__input,
+  .select__value,
+  .autocomplete__value {
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+  }
+
+  .button--primary {
+    --button-bg: var(--foreground);
+    --button-bg-hover: color-mix(in oklab, var(--foreground) 90%, var(--background));
+    --button-bg-pressed: var(--button-bg-hover);
+    --button-fg: var(--background);
+  }
+
+  .button--secondary {
+    --button-fg: var(--default-foreground);
+  }
+}
+/* Application compositions own only pane layout, Composer placement, model panel layout and the current rail marker. */
+.swarmie-view-tabs > .tabs {
   height: 100%;
   min-height: 0;
   min-width: 0;
   gap: 0;
 }
-.swarmie-view-tabs > [data-slot="view-toolbar"] > .tabs__list {
+[data-slot="view-toolbar"] > .tabs__list {
   height: 100%;
   width: auto;
   min-width: 0;
@@ -244,7 +231,19 @@ input[type="radio"] {
   overflow-y: hidden;
   scrollbar-width: none;
 }
-.swarmie-view-tabs > [data-slot="view-toolbar"] > .tabs__list > div > .tabs__tab {
+[data-slot="view-tab"] {
+  position: relative;
+  height: var(--spacing-chrome-row);
+  min-width: calc(var(--spacing-control-touch) + var(--spacing-chrome-tab-close));
+  max-width: 12rem;
+  flex: 0 1 max-content;
+}
+[data-slot="view-tab"] > .button {
+  position: absolute;
+  inset-inline-end: var(--spacing-view-tab-close-inset);
+  z-index: 2;
+}
+[data-slot="view-toolbar"] > .tabs__list > div > .tabs__tab {
   height: var(--spacing-chrome-row);
   min-height: var(--spacing-chrome-row);
   width: auto;
@@ -252,35 +251,121 @@ input[type="radio"] {
   flex: 1;
   justify-content: start;
   gap: calc(var(--spacing) * 2);
-  border-radius: 0;
   padding-inline: calc(var(--spacing) * 2);
-  font-size: var(--text-chrome);
-  line-height: var(--text-chrome--line-height);
-  font-weight: var(--font-weight-normal);
-  color: var(--foreground);
+  padding-inline-end: calc(var(--spacing-chrome-tab-close) + var(--spacing) * 2);
 }
-.swarmie-view-tabs
-  > [data-slot="view-toolbar"]
-  > .tabs__list
-  > div
-  > .tabs__tab[data-selected="true"] {
-  color: var(--foreground);
-}
-.swarmie-view-tabs
-  > [data-slot="view-toolbar"]
-  > .tabs__list
-  > div
-  > .tabs__tab[data-focus-visible="true"] {
-  outline-offset: -2px;
-}
-.swarmie-view-tabs > .tabs__panel {
+.swarmie-view-tabs > .tabs > .tabs__panel {
   min-height: 0;
   flex: 1;
   margin: 0;
   padding: 0;
 }
+@media (max-width: 767px) {
+  :root {
+    --spacing-shell-frame: 0px;
+  }
+}
 
-/* Shared outline icons use the same stroke in public components and capability views. */
-[data-theme] .lucide {
-  stroke-width: var(--stroke-chrome-icon);
+@media (forced-colors: active) {
+  [data-slot="composer-surface"] {
+    border: 1px solid CanvasText;
+  }
+  [data-slot="composer-panel"]:focus-within [data-slot="composer-surface"] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}
+[data-slot="composer-context-controls"] {
+  --radius-composer-action: var(--radius-ui);
+}
+[data-kind="model"] [data-slot="popover-dialog"] {
+  padding: 0;
+}
+[data-slot="model-picker"] {
+  display: flex;
+  min-height: calc(var(--spacing-control-touch) * 3);
+  max-height: min(32rem, 70dvh, var(--available-height, 70dvh));
+}
+[data-slot="model-provider-rail"] {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-control-group);
+  flex-shrink: 0;
+  padding: var(--spacing-menu-inset);
+  overflow-y: auto;
+}
+[data-slot="model-picker-main"] {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+[data-slot="model-picker-account"] {
+  flex-shrink: 0;
+  padding: var(--spacing-menu-inset);
+}
+[data-model-account-trigger] {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-menu-row-x);
+  min-height: var(--spacing-chrome-menu-row);
+  width: 100%;
+  padding: var(--spacing-menu-row-y) var(--spacing-menu-row-x);
+}
+[data-model-account-trigger] svg {
+  width: var(--spacing-menu-icon);
+  height: var(--spacing-menu-icon);
+  flex-shrink: 0;
+}
+[data-model-account-trigger] span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-slot="model-picker-caption"] {
+  flex-shrink: 0;
+  padding: var(--spacing-menu-row-x) calc(var(--spacing-menu-row-x) + var(--spacing-menu-inset))
+    var(--spacing-menu-inset);
+}
+[data-slot="model-picker-models"] {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 var(--spacing-menu-inset);
+}
+[data-slot="model-picker-effort"] {
+  flex-shrink: 0;
+  margin-top: var(--spacing-menu-inset);
+  padding: var(--spacing-menu-row-x) calc(var(--spacing-menu-row-x) + var(--spacing-menu-inset))
+    var(--spacing-menu-inset);
+}
+.button[data-chrome="rail"][aria-current="page"] {
+  color: var(--color-brand-accent);
+  background: transparent;
+}
+@media (hover: hover) {
+  .button[data-chrome="rail"][aria-current="page"]:hover {
+    background-color: var(--row-hover);
+  }
+}
+.button[data-chrome="rail"][aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  top: 50%;
+  left: calc((var(--spacing-chrome-rail-control) - var(--spacing-shell-rail)) / 2);
+  width: var(--spacing-chrome-rail-active-mark);
+  height: var(--spacing-shell-rail);
+  transform: translateY(-50%);
+  border-radius: var(--radius-pill);
+  background: var(--color-brand-accent);
+}
+
+/* The responsive application sheet keeps its content above the device safe area. */
+.drawer__dialog[data-swarmie-modal] {
+  padding-bottom: max(calc(var(--spacing) * 6), env(safe-area-inset-bottom, 0px));
 }

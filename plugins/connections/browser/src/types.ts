@@ -40,6 +40,7 @@ export const NodeProtocol = {
   Key: "main",
   Version: 1,
   MaxFrame: 64 * 1024,
+  MaxPending: 16,
 } as const;
 export type ConnectionFailure = { kind: ConnectionFailureKindValue; message: string };
 export type NodeConnectionState = {

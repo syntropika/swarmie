@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 
-import { Button } from "../atoms/button";
+import { ChromeButton } from "../atoms/chrome-button";
 import { Icon } from "../atoms/icon";
 import { NavigationShell } from "./navigation-shell";
 
@@ -23,14 +23,13 @@ function ExampleNavigation({ collapsible = true }: { collapsible?: boolean }) {
       renderRail={({ closeNavigation, revealSidebar, previewNavigation, leavePreview }) => (
         <nav
           aria-label="Example rail"
-          className="flex w-[52px] shrink-0 flex-col items-center gap-2 py-3"
+          className="flex w-(--spacing-shell-rail) shrink-0 flex-col items-center gap-(--spacing-chrome-rail-gap) py-3"
         >
-          <Button variant="tertiary" isIconOnly aria-label="Workspace" onClick={revealSidebar}>
+          <ChromeButton size="rail" aria-label="Workspace" onClick={revealSidebar}>
             <Icon name="workspaces" />
-          </Button>
-          <Button
-            variant="tertiary"
-            isIconOnly
+          </ChromeButton>
+          <ChromeButton
+            size="rail"
             aria-label="Home"
             data-navigation-home="true"
             onClick={() => {
@@ -52,11 +51,11 @@ function ExampleNavigation({ collapsible = true }: { collapsible?: boolean }) {
             }}
           >
             <Icon name="home" />
-          </Button>
-          <Button
-            variant="tertiary"
-            isIconOnly
+          </ChromeButton>
+          <ChromeButton
+            size="rail"
             aria-label="Conversations"
+            aria-current={section === "conversations" ? "page" : false}
             onClick={() => {
               setSection("conversations");
               setDraft(false);
@@ -64,31 +63,31 @@ function ExampleNavigation({ collapsible = true }: { collapsible?: boolean }) {
             }}
           >
             <Icon name="chat" />
-          </Button>
-          <Button
-            variant="tertiary"
-            isIconOnly
+          </ChromeButton>
+          <ChromeButton
+            size="rail"
             aria-label="Settings"
+            aria-current={section === "settings" ? "page" : false}
             onClick={() => {
               setSection("settings");
               closeNavigation();
             }}
           >
             <Icon name="settings" />
-          </Button>
+          </ChromeButton>
         </nav>
       )}
       renderSidebar={({ navigationControl, closeNavigation }) => (
-        <aside className="flex h-full min-h-0 min-w-0 flex-1 flex-col rounded-l-marketing-card bg-canvas px-2 pb-2">
+        <aside className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-navigation-surface px-2 pb-2">
           <div className="flex min-h-14 items-center">
             <h2 className="min-w-0 flex-1 px-3 text-ui font-medium">
               {section === "settings" ? "Settings" : "Example workspace"}
             </h2>
             {navigationControl}
           </div>
-          <Button variant="tertiary" size="md" onClick={closeNavigation}>
+          <ChromeButton size="navigation" onClick={closeNavigation}>
             {section === "settings" ? "Appearance" : "Example conversation"}
-          </Button>
+          </ChromeButton>
         </aside>
       )}
     >
@@ -131,11 +130,11 @@ export const FixedSidebar: Story = {
     separator.focus();
     await userEvent.keyboard("{End}");
     await waitFor(async () => {
-      await expect(separator).toHaveAttribute("aria-valuenow", "520");
+      await expect(separator).toHaveAttribute("aria-valuenow", "513");
     });
     await userEvent.keyboard("{Home}{ArrowLeft}");
     await waitFor(async () => {
-      await expect(separator).toHaveAttribute("aria-valuenow", "290");
+      await expect(separator).toHaveAttribute("aria-valuenow", "283");
     });
     await expect(separator).toBeVisible();
   },
@@ -180,15 +179,15 @@ export const KeyboardResizeBounds: Story = {
     separator.focus();
     await userEvent.keyboard("{End}");
     await waitFor(async () => {
-      await expect(separator).toHaveAttribute("aria-valuenow", "520");
+      await expect(separator).toHaveAttribute("aria-valuenow", "513");
     });
     await userEvent.keyboard("{Home}");
     await waitFor(async () => {
-      await expect(separator).toHaveAttribute("aria-valuenow", "290");
+      await expect(separator).toHaveAttribute("aria-valuenow", "283");
     });
     await userEvent.keyboard("{ArrowRight}");
     await waitFor(async () => {
-      await expect(separator).toHaveAttribute("aria-valuenow", "298");
+      await expect(separator).toHaveAttribute("aria-valuenow", "291");
     });
   },
 };

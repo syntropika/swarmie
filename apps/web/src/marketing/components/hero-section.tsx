@@ -14,7 +14,7 @@ export function HeroSection() {
           id="hero-title"
           className="max-w-[720px] text-marketing-display font-medium text-balance text-ink"
         >
-          {t("hero.title")} <span className="block text-primary">{t("hero.titleAccent")}</span>
+          {t("hero.title")} <span className="block text-ink">{t("hero.titleAccent")}</span>
         </h1>
         <p className="mt-6 max-w-[48ch] text-lg leading-relaxed text-pretty text-text-muted md:text-xl">
           {t("hero.description")}

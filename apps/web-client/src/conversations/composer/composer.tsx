@@ -1,43 +1,49 @@
 import type { Conversation } from "@swarmie/plugin-conversations-browser";
+import { ComposerPanel } from "@swarmie/ui-web/elements/conversation";
 import { useState } from "react";
 
 import { useComposerActions } from "./actions";
 import { ComposerAddMenu } from "./add-menu";
 import { ComposerAttachments } from "./attachments";
 import { ComposerDelivery } from "./delivery";
+import { ComposerFeedback } from "./feedback";
 import { ComposerInput } from "./input";
 import { ComposerModel } from "./model";
-import { ComposerPermissions } from "./permissions";
 import { ComposerPluginActions } from "./plugin-actions";
 import { ComposerSlashMenu } from "./slash-menu";
 import type { DeliveryMode } from "./state";
-import { ComposerStatus } from "./status";
 import { ComposerSubmit } from "./submit";
 import { ComposerTopBar } from "./top-bar";
 
-export function Composer({ chat }: { chat: Conversation }) {
+export function Composer({ chat, showStatus }: { chat: Conversation; showStatus: () => void }) {
   const actions = useComposerActions(chat);
   const [mode, setMode] = useState<DeliveryMode>("queue");
   return (
-    <div className="@container/composer shrink-0 px-4 pt-2 pb-4 md:px-6 md:pb-5">
+    <div className="@container/composer shrink-0 px-4 pt-2 pb-2 md:px-6 md:pb-5">
       <div className="relative mx-auto w-full max-w-[720px]">
         <ComposerSlashMenu chat={chat} executeAction={actions.executeAction} />
-        <div className="overflow-hidden rounded-xl border border-composer-border bg-composer">
+        <ComposerFeedback chat={chat} showStatus={showStatus} />
+        <ComposerPanel>
           <ComposerTopBar chat={chat} />
-          <ComposerAttachments chat={chat} />
-          <ComposerInput chat={chat} mode={mode} />
-          <div className="flex flex-wrap items-center gap-1 px-2 pb-2">
-            <ComposerAddMenu chat={chat} executeAction={actions.executeAction} />
-            <ComposerPermissions chat={chat} />
-            <ComposerPluginActions chat={chat} slot="leading" actions={actions} />
-            <div className="flex-1" />
-            <ComposerDelivery chat={chat} mode={mode} setMode={setMode} />
-            <ComposerModel chat={chat} />
-            <ComposerPluginActions chat={chat} slot="before-send" actions={actions} />
-            <ComposerSubmit chat={chat} mode={mode} />
-          </div>
-        </div>
-        <ComposerStatus chat={chat} />
+          <ComposerPanel.Body>
+            <ComposerAttachments chat={chat} />
+            <ComposerInput chat={chat} mode={mode} />
+            <div className="flex flex-wrap items-center gap-1 px-1 pb-1">
+              <ComposerAddMenu chat={chat} actions={actions} />
+              <div className="hidden @min-[400px]/composer:contents">
+                <ComposerPluginActions chat={chat} slot="leading" actions={actions} />
+              </div>
+              <ComposerDelivery chat={chat} mode={mode} setMode={setMode} />
+              <div className="flex min-w-0 flex-1 justify-end">
+                <ComposerModel chat={chat} />
+              </div>
+              <div className="hidden @min-[400px]/composer:contents">
+                <ComposerPluginActions chat={chat} slot="before-send" actions={actions} />
+              </div>
+              <ComposerSubmit chat={chat} mode={mode} />
+            </div>
+          </ComposerPanel.Body>
+        </ComposerPanel>
       </div>
     </div>
   );

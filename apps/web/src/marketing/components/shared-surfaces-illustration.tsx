@@ -29,7 +29,7 @@ export function SharedSurfacesIllustration() {
 
         <div className="grid gap-5 px-5 py-6 sm:px-6 sm:py-7">
           <div data-motion-part="hero-question" className="flex items-start gap-3">
-            <Avatar className="size-9 shrink-0" aria-label="Maya Chen" color="default">
+            <Avatar size="sm" aria-label="Maya Chen" color="default">
               <Avatar.Fallback>MC</Avatar.Fallback>
             </Avatar>
             <div className="min-w-0 flex-1">
@@ -49,14 +49,14 @@ export function SharedSurfacesIllustration() {
             />
             <span
               data-motion-part="hero-context"
-              className="rounded-full bg-primary-soft px-3 py-1.5 text-xs font-medium text-primary"
+              className="rounded-full bg-primary-soft px-3 py-1.5 text-xs font-medium text-ink"
             >
               {t("hero.sceneContext")}
             </span>
           </div>
 
           <div data-motion-part="hero-answer" className="flex items-start gap-3">
-            <Avatar className="size-9 shrink-0" aria-label="Swarmie" color="accent">
+            <Avatar size="sm" aria-label="Swarmie" color="accent">
               <Avatar.Fallback>SW</Avatar.Fallback>
             </Avatar>
             <div className="min-w-0 flex-1">

@@ -1,5 +1,5 @@
 import { useSource } from "@swarmie/client-ui";
-import { Switch } from "@swarmie/ui-web";
+import { ActionRow, Description, Switch } from "@swarmie/ui-web";
 import { Bell, ChevronRight, Code2, Folder, Globe, Mic, Puzzle } from "lucide-react";
 
 import { useClient } from "../client/context";
@@ -26,48 +26,65 @@ export function PluginList({ query, open }: { query: string; open: (id: string) 
     );
   }
   return (
-    <div className="mt-2 divide-y divide-border rounded-xl border border-border bg-chrome-surface px-4">
-      {list.map((entry) => {
-        const Mark = Object.entries(icons).find(([id]) => id === entry.id)?.[1] ?? Puzzle;
-        return (
-          <div key={entry.id} className="flex items-center gap-3 py-4">
-            <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-default">
-              <Mark className="size-4 text-muted" />
-            </span>
-            <button
-              type="button"
-              className="min-w-0 flex-1 text-left"
-              onClick={() => {
-                open(entry.id);
-              }}
-            >
-              <span className="block text-sm font-medium">{entry.name}</span>
-              <span className="mt-1 block text-xs leading-5 text-muted">{entry.description}</span>
-            </button>
-            <Switch
-              aria-label={`Enable ${entry.name}`}
-              isSelected={entry.enabled}
-              isDisabled={entry.required}
-              onChange={() => {
-                togglePlugin(entry.id);
-              }}
-            >
-              <Switch.Content>
-                <Switch.Control>
-                  <Switch.Thumb />
-                </Switch.Control>
-              </Switch.Content>
-            </Switch>
-            <IconButton
-              icon={ChevronRight}
-              label={`Configure ${entry.name}`}
-              onPress={() => {
-                open(entry.id);
-              }}
-            />
-          </div>
-        );
-      })}
+    <div className="@container/plugin-list mt-2 space-y-6">
+      {[
+        { title: "Essentials", entries: list.filter((entry) => entry.required) },
+        { title: "Plugins", entries: list.filter((entry) => !entry.required) },
+      ]
+        .filter((group) => group.entries.length > 0)
+        .map((group) => (
+          <section key={group.title} aria-label={group.title}>
+            <h2 className="mb-3 text-caption font-medium text-muted">{group.title}</h2>
+            <div className="divide-y divide-border-subtle overflow-hidden rounded-group bg-group">
+              {group.entries.map((entry) => {
+                const Mark = Object.entries(icons).find(([id]) => id === entry.id)?.[1] ?? Puzzle;
+                return (
+                  <ActionRow key={entry.id} title={entry.required ? "Required plugin" : undefined}>
+                    <ActionRow.Trigger
+                      onPress={() => {
+                        open(entry.id);
+                      }}
+                    >
+                      <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-default">
+                        <Mark className="size-4 text-muted" />
+                      </span>
+                      <span className="flex min-w-0 flex-1 flex-col items-start gap-1">
+                        <span className="wrap-anywhere">{entry.name}</span>
+                        <Description className="wrap-anywhere whitespace-normal">
+                          {entry.description}
+                        </Description>
+                      </span>
+                    </ActionRow.Trigger>
+                    {entry.required ? null : (
+                      <Switch
+                        aria-label={`Enable ${entry.name}`}
+                        isSelected={entry.enabled}
+                        onChange={() => {
+                          togglePlugin(entry.id);
+                        }}
+                      >
+                        <Switch.Content>
+                          <Switch.Control>
+                            <Switch.Thumb />
+                          </Switch.Control>
+                        </Switch.Content>
+                      </Switch>
+                    )}
+                    <span className="hidden @min-[384px]/plugin-list:contents">
+                      <IconButton
+                        icon={ChevronRight}
+                        label={`Configure ${entry.name}`}
+                        onPress={() => {
+                          open(entry.id);
+                        }}
+                      />
+                    </span>
+                  </ActionRow>
+                );
+              })}
+            </div>
+          </section>
+        ))}
     </div>
   );
 }

@@ -1,9 +1,6 @@
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -50,335 +50,6 @@
- [lib]
- name = "genai"
- path = "src/lib.rs"
+@@ -53,329 +52,0 @@
 -
 -[[example]]
 -name = "c00-readme"
@@ -333,111 +330,60 @@
 -[[test]]
 -name = "tests_yakbak_record"
 -path = "tests/tests_yakbak_record.rs"
- 
- [dependencies.aws-config]
- version = "1"
 --- a/src/adapter/adapters/anthropic/adapter_shared.rs
 +++ b/src/adapter/adapters/anthropic/adapter_shared.rs
-@@ -171,6 +171,12 @@
- 			}
- 
- 			match msg.role {
+@@ -173,0 +174,6 @@
 +				ChatRole::Developer => {
 +					return Err(crate::Error::AdapterNotSupported {
 +						adapter_kind: AdapterKind::Anthropic,
 +						feature: "developer role".to_string(),
 +					});
 +				}
- 				// Collect only text for system; other content parts are ignored by Anthropic here.
- 				ChatRole::System => {
- 					if let Some(system_text) = msg.content.joined_texts() {
+@@ -493,0 +500 @@
++			(model, None) if !options_set.infer_reasoning_from_model_name() => (model, None),
 --- a/src/adapter/adapters/bedrock/converse.rs
 +++ b/src/adapter/adapters/bedrock/converse.rs
-@@ -339,6 +339,12 @@
- 
- 	for msg in chat_req.messages {
- 		match msg.role {
+@@ -341,0 +342,6 @@
 +			ChatRole::Developer => {
 +				return Err(Error::AdapterNotSupported {
 +					adapter_kind: crate::adapter::AdapterKind::BedrockApi,
 +					feature: "developer role".to_string(),
 +				});
 +			}
- 			ChatRole::System => {
- 				if let Some(text) = msg.content.joined_texts() {
- 					systems.push(text);
 --- a/src/adapter/adapters/cohere/adapter_impl.rs
 +++ b/src/adapter/adapters/cohere/adapter_impl.rs
-@@ -286,6 +286,12 @@
- 			};
- 
- 			match msg.role {
+@@ -288,0 +289,6 @@
 +				ChatRole::Developer => {
 +					return Err(Error::MessageRoleNotSupported {
 +						model_iden: model_iden.clone(),
 +						role: ChatRole::Developer,
 +					});
 +				}
- 				// For now, system and tool messages go to the system
- 				ChatRole::System => systems.push(content),
- 				ChatRole::User => chat_history.push(json! ({"role": "USER", "content": content})),
 --- a/src/adapter/adapters/gemini/adapter_impl.rs
 +++ b/src/adapter/adapters/gemini/adapter_impl.rs
-@@ -624,6 +624,12 @@
- 				call_names.insert(call.call_id.clone(), call.fn_name.clone());
- 			}
- 			match msg.role {
+@@ -401,0 +402 @@
++			(model, None) if !options_set.infer_reasoning_from_model_name() => (model, None),
+@@ -626,0 +628,6 @@
 +				ChatRole::Developer => {
 +					return Err(Error::MessageRoleNotSupported {
 +						model_iden: model_iden.clone(),
 +						role: ChatRole::Developer,
 +					});
 +				}
- 				// For now, system goes as "user" (later, we might have adapter_config.system_to_user_impl)
- 				ChatRole::System => {
- 					if let Some(content) = msg.content.into_joined_texts() {
-@@ -676,7 +682,7 @@
- 				}
- 				ChatRole::Assistant => {
- 					let is_gemini_3 = model_iden.model_name.contains("gemini-3");
+@@ -679 +686 @@
 -					let parts = GeminiModelPart::from_assistant_content(msg.content, is_gemini_3);
 +					let parts = GeminiModelPart::from_assistant_content(msg.content, is_gemini_3, model_iden)?;
- 					if !parts.is_empty() {
- 						contents.push(json!({"role": "model", "parts": serde_json::to_value(parts)?}));
- 					}
-@@ -860,6 +866,8 @@
- 	data: GeminiModelPartData,
- 	#[serde(skip_serializing_if = "Option::is_none")]
- 	thought_signature: Option<String>,
+@@ -862,0 +870,2 @@
 +	#[serde(skip_serializing_if = "Option::is_none")]
 +	thought: Option<bool>,
- }
- 
- #[derive(Serialize)]
-@@ -875,7 +883,7 @@
- }
- 
- impl GeminiModelPart {
+@@ -878 +887 @@
 -	fn from_assistant_content(content: MessageContent, is_gemini_3: bool) -> Vec<Self> {
 +	fn from_assistant_content(content: MessageContent, is_gemini_3: bool, model_iden: &ModelIden) -> Result<Vec<Self>> {
- 		let call_signatures: HashSet<String> = content
- 			.tool_calls()
- 			.into_iter()
-@@ -894,6 +902,7 @@
- 				ContentPart::Text(text) => parts.push(Self {
- 					data: GeminiModelPartData::Text(text),
- 					thought_signature: pending_signature.take(),
+@@ -896,0 +906 @@
 +					thought: None,
- 				}),
- 				ContentPart::ToolCall(call) => {
- 					// For Gemini 3 models, the first call of a turn must carry a signature; when there
-@@ -913,18 +922,38 @@
- 							args: call.fn_arguments,
- 						},
- 						thought_signature,
+@@ -915,0 +926 @@
 +						thought: None,
- 					});
- 					is_first_call = false;
+@@ -917,0 +929,20 @@
 +				}
 +				ContentPart::Custom(custom) => {
 +					// Replay only native thought-text blocks, without exposing the opaque signature as text.
@@ -458,10 +404,7 @@
 +						thought_signature: data.get("thoughtSignature").and_then(Value::as_str).map(str::to_string),
 +						thought: Some(true),
 +					});
- 				}
- 				// Not replayed in a model turn.
- 				ContentPart::Binary(_)
- 				| ContentPart::ToolResponse(_)
+@@ -922,6 +953,5 @@
 -				| ContentPart::ReasoningContent(_)
 -				| ContentPart::Custom(_) => {}
 -			}
@@ -473,45 +416,36 @@
 +		}
 +
 +		Ok(parts)
- 	}
- }
- 
 --- a/src/adapter/adapters/gemini_ix/adapter_impl.rs
 +++ b/src/adapter/adapters/gemini_ix/adapter_impl.rs
-@@ -387,6 +387,12 @@
- 
- 		for msg in messages {
- 			match msg.role {
+@@ -389,0 +390,6 @@
 +				ChatRole::Developer => {
 +					return Err(Error::MessageRoleNotSupported {
 +						model_iden: model_iden.clone(),
 +						role: ChatRole::Developer,
 +					});
 +				}
- 				ChatRole::System => {
- 					if let Some(content) = msg.content.into_joined_texts() {
- 						systems.push(content);
 --- a/src/adapter/adapters/ollama/adapter_shared.rs
 +++ b/src/adapter/adapters/ollama/adapter_shared.rs
-@@ -82,6 +82,12 @@
- 
- 		// -- Messages
- 		for msg in chat_req.messages {
+@@ -84,0 +85,6 @@
 +			if msg.role == crate::chat::ChatRole::Developer {
 +				return Err(crate::Error::AdapterNotSupported {
 +					adapter_kind: crate::adapter::AdapterKind::Ollama,
 +					feature: "developer role".to_string(),
 +				});
 +			}
- 			let mut ollama_msg = json!({
- 				"role": msg.role.to_string().to_lowercase(),
- 			});
 --- a/src/adapter/adapters/openai/adapter_shared.rs
 +++ b/src/adapter/adapters/openai/adapter_shared.rs
-@@ -326,14 +326,21 @@
- 			// Note: Will handle more types later
- 			match msg.role {
- 				// For now, system and tool messages go to the system
+@@ -120 +120,7 @@
+-				.unwrap_or_else(|| ReasoningEffort::from_model_name(model_name));
++				.unwrap_or_else(|| {
++					if options_set.infer_reasoning_from_model_name() {
++						ReasoningEffort::from_model_name(model_name)
++					} else {
++						(None, model_name)
++					}
++				});
+@@ -329 +335,8 @@
 -				ChatRole::System => {
 +				ChatRole::System | ChatRole::Developer => {
 +					let role = if msg.role == ChatRole::Developer { "developer" } else { "system" };
@@ -521,24 +455,63 @@
 +							cause: "system and developer messages require text content",
 +						});
 +					}
- 					if let Some(content) = msg.content.into_joined_texts() {
- 						if cache_controlled {
- 							let mut values = vec![json!({"type": "text", "text": content})];
- 							apply_chat_cache_breakpoint(model_iden, &mut values, "message")?;
+@@ -334 +347 @@
 -							messages.push(json!({"role": "system", "content": values}));
 +							messages.push(json!({"role": role, "content": values}));
- 						} else {
+@@ -336 +349 @@
 -							messages.push(json!({"role": "system", "content": content}))
 +							messages.push(json!({"role": role, "content": content}))
- 						}
- 					}
- 					// TODO: Probably need to warn if it is a ToolCalls type of content
+--- a/src/adapter/adapters/openai/adapter_shared_tests.rs
++++ b/src/adapter/adapters/openai/adapter_shared_tests.rs
+@@ -265 +265 @@
+-fn test_gpt_5_6_chat_completion_defaults_to_explicit_cache_mode() -> Result<()> {
++fn test_gpt_5_6_chat_completion_defaults_to_api_cache_mode() -> Result<()> {
+@@ -283,2 +283 @@
+-	assert_eq!(web_req.payload["prompt_cache_options"]["mode"], "explicit");
+-	assert!(web_req.payload["prompt_cache_options"].get("ttl").is_none());
++	assert!(web_req.payload.get("prompt_cache_options").is_none());
+@@ -291 +290 @@
+-fn test_gpt_6_chat_completion_defaults_to_explicit_cache_mode() -> Result<()> {
++fn test_gpt_6_chat_completion_defaults_to_api_cache_mode() -> Result<()> {
+@@ -309,2 +308 @@
+-	assert_eq!(web_req.payload["prompt_cache_options"]["mode"], "explicit");
+-	assert!(web_req.payload["prompt_cache_options"].get("ttl").is_none());
++	assert!(web_req.payload.get("prompt_cache_options").is_none());
+@@ -433 +431 @@
+-	assert_eq!(web_req.payload["prompt_cache_options"]["mode"], "explicit");
++	assert!(web_req.payload.get("prompt_cache_options").is_none());
+--- a/src/adapter/adapters/openai/cache_policy.rs
++++ b/src/adapter/adapters/openai/cache_policy.rs
+@@ -60,3 +60,2 @@
+-	let has_general_cache_intent = options.prompt_cache_key().is_some() || options.cache_control().is_some();
+-
+-	if !has_explicit_placement && has_general_cache_intent {
++	// A catalog model name does not establish support for explicit cache options.
++	if !has_explicit_placement {
+@@ -177 +176 @@
+-	fn test_adapter_adapters_openai_prompt_cache_policy_no_configuration_is_explicit() -> Result<()> {
++	fn test_adapter_adapters_openai_prompt_cache_policy_no_configuration_uses_api_default() -> Result<()> {
+@@ -186,5 +185,3 @@
+-		)
+-		.ok_or("supported OpenAI model should have a cache policy")?;
+-
+-		assert_eq!(policy.ttl, None);
+-		assert_eq!(policy.controlled_message_count, 0);
++		);
++
++		assert!(policy.is_none());
 --- a/src/adapter/adapters/openai_resp/adapter_impl.rs
 +++ b/src/adapter/adapters/openai_resp/adapter_impl.rs
-@@ -443,14 +443,21 @@
- 			// Note: Will handle more types later
- 			match msg.role {
- 				// For now, system and tool messages go to the system
+@@ -117 +117,7 @@
+-					.unwrap_or_else(|| ReasoningEffort::from_model_name(model_name));
++					.unwrap_or_else(|| {
++						if chat_options.infer_reasoning_from_model_name() {
++							ReasoningEffort::from_model_name(model_name)
++						} else {
++							(None, model_name)
++						}
++					});
+@@ -446 +452,8 @@
 -				ChatRole::System => {
 +				ChatRole::System | ChatRole::Developer => {
 +					let role = if msg.role == ChatRole::Developer { "developer" } else { "system" };
@@ -548,22 +521,13 @@
 +							cause: "system and developer messages require text content",
 +						});
 +					}
- 					if let Some(content) = msg.content.into_joined_texts() {
- 						if cache_controlled {
- 							let mut values = vec![json!({"type": "input_text", "text": content})];
- 							apply_resp_cache_breakpoint(model_iden, &mut values, "message")?;
+@@ -451 +464 @@
 -							input_items.push(json!({"role": "system", "content": values}));
 +							input_items.push(json!({"role": role, "content": values}));
- 						} else {
+@@ -453 +466 @@
 -							input_items.push(json!({"role": "system", "content": content}))
 +							input_items.push(json!({"role": role, "content": content}))
- 						}
- 					}
- 					// TODO: Probably need to warn if it is a ToolCalls type of content
-@@ -620,8 +627,17 @@
- 							// top-level `type:reasoning` items in the pre-pass above.
- 							ContentPart::ThoughtSignature(_) => {}
- 							ContentPart::ReasoningContent(_) => {}
+@@ -623,2 +636,11 @@
 -							// Custom are ignored for this logic
 -							ContentPart::Custom(_) => {}
 +							// Preserve a complete provider-native reasoning item at its original position.
@@ -577,39 +541,60 @@
 +                                }
 +                                input_items.push(custom.data);
 +                            }
- 						}
- 					}
- 
+--- a/src/adapter/adapters/openai_resp/adapter_impl_tests.rs
++++ b/src/adapter/adapters/openai_resp/adapter_impl_tests.rs
+@@ -278 +278 @@
+-fn test_openai_resp_gpt_5_6_responses_defaults_to_explicit_cache_mode() {
++fn test_openai_resp_gpt_5_6_responses_defaults_to_api_cache_mode() {
+@@ -293,2 +293 @@
+-	assert_eq!(web_req.payload["prompt_cache_options"]["mode"], "explicit");
+-	assert!(web_req.payload["prompt_cache_options"].get("ttl").is_none());
++	assert!(web_req.payload.get("prompt_cache_options").is_none());
+@@ -303 +302 @@
+-fn test_openai_resp_gpt_6_responses_defaults_to_explicit_cache_mode() {
++fn test_openai_resp_gpt_6_responses_defaults_to_api_cache_mode() {
+@@ -318,2 +317 @@
+-	assert_eq!(web_req.payload["prompt_cache_options"]["mode"], "explicit");
+-	assert!(web_req.payload["prompt_cache_options"].get("ttl").is_none());
++	assert!(web_req.payload.get("prompt_cache_options").is_none());
+@@ -410 +408 @@
+-	assert_eq!(web_req.payload["prompt_cache_options"]["mode"], "explicit");
++	assert!(web_req.payload.get("prompt_cache_options").is_none());
 --- a/src/chat/chat_message.rs
 +++ b/src/chat/chat_message.rs
-@@ -35,6 +35,11 @@
- 			content: content.into(),
- 			options: None,
- 		}
+@@ -37,0 +38,5 @@
 +	}
 +
 +	/// Constructs a developer instruction message. Unsupported adapters return an error.
 +	pub fn developer(content: impl Into<MessageContent>) -> Self {
 +		Self::new(ChatRole::Developer, content)
- 	}
- 
- 	/// Constructs an assistant message.
-@@ -165,6 +170,8 @@
- #[allow(missing_docs)]
- pub enum ChatRole {
- 	System,
+@@ -167,0 +173,2 @@
 +	/// Developer instructions, supported natively by OpenAI Chat and Responses.
 +	Developer,
- 	User,
- 	Assistant,
- 	Tool,
+--- a/src/chat/chat_options.rs
++++ b/src/chat/chat_options.rs
+@@ -93,0 +94,5 @@
++	/// Infer reasoning effort from a model-name suffix. Defaults to true.
++	/// Set false when the model identifier comes from an authoritative catalog.
++	#[serde(skip)]
++	pub infer_reasoning_from_model_name: Option<bool>,
++
+@@ -121,0 +127,6 @@
++	/// Controls model-name suffix inference without changing explicit effort.
++	pub fn with_infer_reasoning_from_model_name(mut self, value: bool) -> Self {
++		self.infer_reasoning_from_model_name = Some(value);
++		self
++	}
++
+@@ -661,0 +673,7 @@
++	pub fn infer_reasoning_from_model_name(&self) -> bool {
++		self.chat
++			.and_then(|chat| chat.infer_reasoning_from_model_name)
++			.or_else(|| self.client.and_then(|client| client.infer_reasoning_from_model_name))
++			.unwrap_or(true)
++	}
++
 --- a/src/otel/attrs.rs
 +++ b/src/otel/attrs.rs
-@@ -98,6 +98,7 @@
- fn role_str(role: &ChatRole) -> &'static str {
- 	match role {
- 		ChatRole::System => "system",
+@@ -100,0 +101 @@
 +		ChatRole::Developer => "developer",
- 		ChatRole::User => "user",
- 		ChatRole::Assistant => "assistant",
- 		ChatRole::Tool => "tool",

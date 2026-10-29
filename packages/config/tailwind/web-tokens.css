@@ -1,57 +1,66 @@
 @theme static {
   --stroke-chrome-icon: 1.6;
-  /* Vendor semantic roles remain aliases to HeroUI's theme variables. */
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-muted: var(--muted);
-  --color-accent: var(--accent);
-  --color-focus: var(--focus);
-  --color-overlay: var(--overlay);
-  --color-default: var(--default);
-  --color-default-hover: var(--default-hover);
-
-  /* Agent state and permission accents retain their established semantic colors. */
+  /* Agent states use semantic colors. */
   --color-harness-idle: #89d6a3;
   --color-harness-working: #aaa8ef;
   --color-harness-waiting: #e9bd71;
   --color-harness-unavailable: #777777;
-  --color-permission-full-access: #ff984e;
-  --color-composer-cap-hover: #4a4a4a;
-  --color-pane: light-dark(var(--background), #151514);
-  --color-navigation-surface: light-dark(var(--surface), #1b1b19);
-  --color-conversation-navigation: light-dark(var(--default), #1b1b19);
-  --color-navigation-selected: light-dark(#d6d6d2, #3d3d36);
-  --color-chrome-surface: light-dark(var(--surface), #1d1d1b);
-  --color-row-selected: light-dark(var(--default), #30302c);
-  --color-row-hover: var(--default-hover);
-  --color-composer: var(--field-background);
-  --color-composer-border: var(--field-border);
-  --color-composer-context: light-dark(var(--surface), #232321);
-  --color-brand-accent: light-dark(#8d5147, #dda99f);
-  --color-brand-accent-foreground: light-dark(#ffffff, #1c1c1b);
-  --color-resize-active: var(--color-brand-accent);
-  --color-panel-drop-line: #8983b9;
-  --color-panel-drop-surface: rgb(111 105 174 / 18%);
-  --color-panel-drop-label: light-dark(#eeecfa, #252434);
-  --color-panel-drop-foreground: light-dark(#39334f, #e9e7ff);
+  --color-brand-accent: #d96e5c;
+  --color-brand-accent-foreground: #ffffff;
+  --color-selection-foreground: #262626;
 
+  --spacing-workspace-inset: 0px;
+  --spacing-workspace-gap: 0px;
+  --spacing-shell-frame: var(--spacing-chrome-inset);
+  --spacing-shell-bottom: calc(var(--spacing-shell-frame) + var(--spacing-safe-area-bottom));
+  --spacing-composer-inset: 0.75rem;
+  --spacing-composer-context-x: var(--spacing);
+  --spacing-composer-context-y: 0.25rem;
+  --spacing-composer-body-bottom: var(--spacing-composer-inset);
   --spacing-shell-bar: 2.8125rem;
   --spacing-shell-rail: 2.8125rem;
   --spacing-navigation-header: 2.25rem;
+  --spacing-navigation-search-header: 2.75rem;
   --spacing-navigation-group: 2rem;
-  --spacing-chrome-action-height: 1.75rem;
-  --spacing-chrome-action-width: 1.75rem;
+  --spacing-chrome-feedback-inset: 0.125rem;
+  --spacing-chrome-touch-circle-inset: calc(
+    (var(--spacing-control-touch) - var(--spacing-control-small)) / 2
+  );
+  --spacing-chrome-action-height: var(--spacing-control-compact);
+  --spacing-chrome-action-width: var(--spacing-control-compact);
+  --spacing-chrome-rail-action-inset: calc(
+    (var(--spacing-shell-rail) - var(--spacing-chrome-action-width)) / 2
+  );
   --spacing-chrome-icon: 0.875rem;
+  --spacing-chrome-divider: 1.25rem;
   --spacing-chrome-rail-control: 2.1875rem;
   --spacing-chrome-rail-icon: 1.125rem;
+  --spacing-chrome-rail-active-mark: 0.125rem;
   --spacing-chrome-rail-gap: 0.9375rem;
   --spacing-brand-mark: 1.5rem;
   --spacing-chrome-row: 1.75rem;
   --spacing-chrome-navigation-row: 2rem;
-  --spacing-chrome-menu-row: 2rem;
-  --spacing-composer-input: 5rem;
+  --spacing-chrome-menu-row: var(--spacing-control-compact);
+  --spacing-menu-width: 14.5rem;
+  --spacing-menu-wide: 17.5rem;
+  --spacing-menu-model: calc(
+    var(--spacing-menu-wide) + var(--spacing-chrome-action-width) + var(--spacing-menu-inset) * 2
+  );
+  --spacing-menu-inset: var(--spacing);
+  --spacing-menu-dialog-inset: var(--spacing-menu-inset);
+  --spacing-menu-row-x: calc(var(--spacing) * 2);
+  --spacing-menu-row: 1.875rem;
+  --spacing-menu-row-gap: calc(var(--spacing) * 2);
+  --spacing-menu-row-y: calc(var(--spacing) * 1.25);
+  --spacing-menu-icon: 1rem;
+  --spacing-composer-input: 3.5rem;
+  --spacing-composer-input-max: min(16rem, 35dvh);
   --spacing-composer-label: 10rem;
-  --spacing-composer-control: 1.6875rem;
+  --spacing-composer-control: var(--spacing-control-compact);
+  --spacing-composer-cap-x: calc(var(--spacing) * 3);
+  --spacing-composer-cap-gap: calc(var(--spacing) * 2);
+  --spacing-view-tab-close-inset: calc(var(--spacing) * 0.5);
+  --spacing-composer-send: var(--spacing-composer-control);
   --spacing-chrome-tab: 1.75rem;
   --spacing-chrome-tab-close: 1.5rem;
   --spacing-panel-switch: 2.5rem;
@@ -80,53 +89,41 @@
   --font-drawing: monospace;
   --font-mono:
     ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-
-  --color-reference-canvas: #ffffff;
-  --color-primary: var(--accent);
-  --color-primary-hover: var(--accent-hover);
-  --color-primary-soft: var(--accent-soft);
-  --color-on-primary: var(--accent-foreground);
-  --color-canvas: var(--background);
-  --color-rail: var(--surface);
-  --color-surface: var(--surface);
-  --color-surface-muted: var(--default);
-  --color-surface-hover: var(--default-hover);
-  --color-ink: var(--foreground);
-  --color-text-muted: var(--muted);
-  --color-border: var(--border);
-  --color-control-border: var(--field-border);
-  --color-border-subtle: var(--separator);
-  --color-overlay-shadow: rgb(39 43 51 / 12%);
-  --color-drawing-line: #a5abb2;
-  --color-mint: #cde9de;
-  --color-peach: #ffd2be;
-  --color-butter: #f6e6a6;
-  --color-lilac: #ded9f2;
-  --color-parent-bronze: #c4a882;
-  --color-success: var(--success);
-  --color-success-soft: var(--success-soft);
-  --color-attention: var(--warning);
-  --color-attention-soft: var(--warning-soft);
-  --color-danger: var(--danger);
-  --color-danger-soft: var(--danger-soft);
+  --color-overlay-shadow: light-dark(rgb(39 43 51 / 12%), rgb(0 0 0 / 40%));
+  --color-drawing-line: light-dark(#a5abb2, #868686);
+  --color-mint: light-dark(#cde9de, #263e34);
+  --color-peach: light-dark(#ffd2be, #473027);
+  --color-butter: light-dark(#f6e6a6, #433d24);
+  --color-lilac: light-dark(#ded9f2, #363047);
   --color-footer: #181818;
-  --color-footer-text: #fcfaf7;
-  --color-inverse: #272b33;
-  --color-inverse-text: #f4f1ec;
-  --color-inverse-muted: #bdc4ce;
-  --color-inverse-link: #aac1e0;
+  --color-footer-text: light-dark(#fcfaf7, #f3f3f1);
+  --color-inverse: light-dark(#272b33, #111111);
+  --color-inverse-text: light-dark(#f4f1ec, #f3f3f1);
+  --color-inverse-muted: light-dark(#bdc4ce, #bebeba);
+  --color-inverse-link: light-dark(#aac1e0, #aac1e0);
 
-  --radius-composer-control: 5px;
-  --radius-small: 4px;
-  --radius-composer: 11px;
-  --radius-menu: 10px;
-  --radius-control: 16px;
-  --radius-panel: 16px;
+  /* One shared radius for the current component-shape preview. */
+  --radius-ui: 12px;
+  --radius-button: var(--radius-ui);
+  --radius-composer: 24px;
+  --radius-composer-context: var(--radius-ui);
+  --radius-composer-action: var(--radius-ui);
+  --radius-workspace: 0px;
+  --radius-workspace-upper: var(--radius-ui);
+  --radius-group: var(--radius-ui);
+  --radius-menu: var(--radius-ui);
+  --radius-small: var(--radius-ui);
+  --radius-menu-item: var(--radius-ui);
+  --radius-control: var(--radius-ui);
+  --radius-panel: var(--radius-ui);
+  --radius-shell-frame: var(--radius-ui);
   --radius-illustration: 16px;
   --radius-marketing-card: 24px;
   --radius-marketing-shell: 32px;
-  --radius-pill: 999px;
+  --radius-pill: var(--radius-ui);
 
+  --text-menu: var(--text-sm);
+  --text-menu--line-height: 1.25rem;
   --text-notice: 0.8125rem;
   --leading-notice: 1.55;
   --tracking-drawing: 0.02em;
@@ -164,6 +161,7 @@
   --leading-body: 1.5;
   --leading-content: 1.625;
   --leading-composer: 1.75;
+  --leading-composer-input: var(--text-conversation--line-height);
   --text-content: 0.875rem;
   --text-content--line-height: 1.625;
   --text-document: 1.75rem;
@@ -184,8 +182,10 @@
   --text-code--line-height: 1.6;
   --leading-code: 1.6;
 
-  --shadow-raised: 0 10px 28px -16px rgb(39 43 51 / 18%), 0 2px 8px -4px rgb(39 43 51 / 9%);
-  --shadow-overlay: 0 8px 24px var(--color-overlay-shadow);
+  --shadow-sheet: var(--surface-shadow);
+  --shadow-field: var(--field-shadow);
+  --shadow-raised: var(--overlay-shadow);
+  --shadow-overlay: var(--overlay-shadow);
   --ease-swarmie: cubic-bezier(0.22, 1, 0.36, 1);
   --spacing-control-compact: 1.75rem;
   --spacing-control-small: 2rem;
@@ -197,4 +197,63 @@
   --spacing-row-inset: 1rem;
   --spacing-panel-inset: 1rem;
   --spacing-safe: max(1rem, env(safe-area-inset-bottom));
+}
+
+@theme inline static {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-focus: var(--focus);
+  --color-overlay: var(--overlay);
+  --color-default: var(--default);
+  --color-default-hover: var(--default-hover);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--default-hover);
+  --color-border: var(--border);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-workspace: var(--surface-secondary);
+  --color-group: var(--surface-secondary);
+  --color-pane: var(--surface);
+  --color-navigation-surface: var(--surface);
+  --color-conversation-navigation: var(--color-navigation-surface);
+  --color-navigation-divider: var(--separator);
+  --color-navigation-hover: var(--row-hover);
+  --color-navigation-selected: var(--row-selected);
+  --color-chrome-surface: var(--surface-secondary);
+  --color-row-selected: var(--row-selected);
+  --color-row-selected-hover: var(--row-selected-hover);
+  --color-row-hover: var(--row-hover);
+  --color-composer: var(--surface-tertiary);
+  --color-composer-border: var(--border);
+  --color-composer-context: var(--surface-secondary);
+  --color-action-primary: var(--foreground);
+  --color-action-primary-foreground: var(--background);
+  --color-action-primary-hover: color-mix(in oklab, var(--foreground) 90%, var(--background));
+  --color-brand-accent-fill: var(--color-brand-accent);
+  --color-brand-accent-text: light-dark(#8d5147, var(--color-brand-accent));
+  --color-selection-background: var(--color-brand-accent);
+  --color-resize-active: var(--color-brand-accent);
+  --color-panel-drop-line: var(--color-brand-accent);
+  --color-panel-drop-surface: color-mix(in srgb, var(--color-brand-accent) 12%, transparent);
+  --color-panel-drop-label: var(--overlay);
+  --color-panel-drop-foreground: var(--foreground);
+
+  --color-canvas: var(--background);
+  --color-rail: var(--surface);
+  --color-surface-muted: var(--default);
+  --color-ink: var(--foreground);
+  --color-text-muted: var(--muted);
+  --color-control-border: var(--field-border);
+  --color-control-indicator: color-mix(in oklab, var(--surface) 50%, var(--foreground));
+  --color-border-subtle: var(--separator);
+  --color-primary: var(--accent);
+  --color-primary-hover: var(--accent-hover);
+  --color-primary-soft: var(--accent-soft);
+  --color-on-primary: var(--accent-foreground);
+  --color-attention: var(--warning);
+  --color-attention-soft: var(--warning-soft);
 }

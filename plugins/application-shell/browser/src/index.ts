@@ -9,7 +9,7 @@ export type Destination = {
   active: string;
   section: string;
   params: Record<string, string>;
-  settings: "general" | "connections" | "plugins" | "providers";
+  settings: "general" | "conversation" | "connections" | "plugins" | "providers";
 };
 export type ShellState = Destination & {
   navigation: boolean;

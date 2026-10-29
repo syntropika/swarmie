@@ -78,7 +78,7 @@ describe("browser theme preference", () => {
     const browser = environment();
     browser.block();
     const store = createThemePreferenceStore(browser.adapter);
-    expect(store.getSnapshot()).toBe("system");
+    expect(store.getSnapshot()).toBe("dark");
     const unsubscribe = store.subscribe(() => undefined);
     store.setPreference("dark");
     expect(store.getSnapshot()).toBe("dark");
@@ -105,7 +105,7 @@ describe("browser theme preference", () => {
     resubscribe();
   });
 
-  test("other tabs update all subscribers; malformed values and storage clear reset to System", () => {
+  test("other tabs update all subscribers; malformed values and storage clear reset to Dark", () => {
     const browser = environment("light");
     const store = createThemePreferenceStore(browser.adapter);
     let firstNotifications = 0;
@@ -122,10 +122,10 @@ describe("browser theme preference", () => {
     expect(firstNotifications).toBe(1);
     expect(secondNotifications).toBe(1);
     browser.externalChange("unsupported");
-    expect(browser.applied()).toBe("system");
+    expect(browser.applied()).toBe("dark");
     browser.externalChange("light");
     browser.externalChange(null);
-    expect(store.getSnapshot()).toBe("system");
+    expect(store.getSnapshot()).toBe("dark");
     unsubscribeFirst();
     expect(browser.listening()).toBe(true);
     unsubscribeSecond();
@@ -136,8 +136,8 @@ describe("browser theme preference", () => {
     const browser = environment({ theme: "dark" });
     const store = createThemePreferenceStore(browser.adapter);
     const unsubscribe = store.subscribe(() => undefined);
-    expect(browser.applied()).toBe("system");
-    expect(getServerThemePreferenceSnapshot()).toBe("system");
+    expect(browser.applied()).toBe("dark");
+    expect(getServerThemePreferenceSnapshot()).toBe("dark");
     unsubscribe();
   });
 });
@@ -147,12 +147,12 @@ describe("theme bootstrap before paint", () => {
     ["light", "light"],
     ["dark", "dark"],
     ["system", "system"],
-    [null, "system"],
-    ["DARK", "system"],
-    ['dark";throw new Error("Untrusted storage");', "system"],
+    [null, "dark"],
+    ["DARK", "dark"],
+    ['dark";throw new Error("Untrusted storage");', "dark"],
   ])("validates stored %p before applying %p", (stored, expected) => {
     const document = {
-      documentElement: { dataset: { theme: "system" } },
+      documentElement: { dataset: { theme: "system" }, classList: { toggle: () => false } },
       querySelectorAll: () => [],
     };
     runInNewContext(THEME_PREFERENCE_BOOTSTRAP, {
@@ -162,9 +162,9 @@ describe("theme bootstrap before paint", () => {
     expect(document.documentElement.dataset.theme).toBe(expected);
   });
 
-  test("unavailable storage leaves the pre-hydration document in System mode", () => {
+  test("unavailable storage leaves the pre-hydration document in Dark mode", () => {
     const document = {
-      documentElement: { dataset: { theme: "system" } },
+      documentElement: { dataset: { theme: "system" }, classList: { toggle: () => false } },
       querySelectorAll: () => [],
     };
     runInNewContext(THEME_PREFERENCE_BOOTSTRAP, {
@@ -175,7 +175,7 @@ describe("theme bootstrap before paint", () => {
         },
       },
     });
-    expect(document.documentElement.dataset.theme).toBe("system");
+    expect(document.documentElement.dataset.theme).toBe("dark");
   });
 });
 
@@ -187,7 +187,7 @@ test.each(["light", "dark", "system"] as const)(
       { dataset: { swarmieTheme: "dark" }, media: "" },
     ];
     const document = {
-      documentElement: { dataset: { theme: "system" } },
+      documentElement: { dataset: { theme: "system" }, classList: { toggle: () => false } },
       querySelectorAll: () => metadata,
     };
     runInNewContext(THEME_PREFERENCE_BOOTSTRAP, {
@@ -199,5 +199,40 @@ test.each(["light", "dark", "system"] as const)(
         ? ["(prefers-color-scheme: light)", "(prefers-color-scheme: dark)"]
         : [stored === "light" ? "all" : "not all", stored === "dark" ? "all" : "not all"],
     );
+  },
+);
+
+test.each([
+  ["light", true, "light"],
+  ["dark", false, "dark"],
+  ["system", false, "light"],
+  ["system", true, "dark"],
+] as const)(
+  "stock theme classes resolve %s with dark preference %s",
+  (stored, prefersDark, expected) => {
+    const classes = new Set<string>();
+    const document = {
+      documentElement: {
+        dataset: { theme: "system" },
+        classList: {
+          toggle: (name: string, enabled: boolean) => {
+            if (enabled) {
+              classes.add(name);
+            } else {
+              classes.delete(name);
+            }
+            return enabled;
+          },
+        },
+      },
+      querySelectorAll: () => [],
+    };
+    runInNewContext(THEME_PREFERENCE_BOOTSTRAP, {
+      document,
+      localStorage: { getItem: () => stored },
+      matchMedia: () => ({ matches: prefersDark }),
+    });
+    expect([...classes]).toEqual([expected]);
+    expect(document.documentElement.dataset.theme).toBe(stored);
   },
 );

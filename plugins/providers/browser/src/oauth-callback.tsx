@@ -1,4 +1,4 @@
-import { Button, Input, Label } from "@swarmie/ui-web";
+import { Button, Input, Label, Spinner } from "@swarmie/ui-web";
 import { useId, useRef, useState } from "react";
 
 /** Callback URLs remain in an uncontrolled field and are cleared before forwarding to the node. */
@@ -36,7 +36,9 @@ export function OAuthCallback({
   }
   return (
     <details className="grid gap-3 border-t border-border pt-3">
-      <summary className="cursor-pointer text-sm text-muted">Paste callback URL</summary>
+      <summary className="min-h-(--spacing-control-touch) cursor-pointer content-center text-sm text-muted">
+        Paste callback URL
+      </summary>
       <form
         className="mt-3 grid gap-3"
         onSubmit={(event) => {
@@ -61,10 +63,12 @@ export function OAuthCallback({
           disabled={busy}
           placeholder={callbackUri}
           maxLength={16_384}
+          fullWidth
         />
         <div>
-          <Button type="submit" shape="panel" variant="secondary" loading={busy} isDisabled={busy}>
-            Complete sign-in
+          <Button type="submit" variant="secondary" isPending={busy} isDisabled={busy}>
+            {busy ? <Spinner size="sm" color="current" aria-hidden="true" /> : null}
+            {busy ? "Completing sign-in…" : "Complete sign-in"}
           </Button>
         </div>
         {submitted ? (

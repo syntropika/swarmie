@@ -226,6 +226,19 @@ function port(source, upstream) {
   for (const [from, to] of Object.entries(tokens)) {
     result = result.replaceAll(from, to);
   }
+  // Surface geometry follows the host theme; tiny graph marks keep their explicit shape.
+  result = result.replaceAll(/rounded-\[(?<pixels>\d+)px\]/gu, (original, pixels) => {
+    if (Number(pixels) <= 3) {
+      return original;
+    }
+    return source.endsWith("/elements/composer.tsx") && pixels === "24"
+      ? "rounded-composer"
+      : "rounded-control";
+  });
+  // Circular map/voice diagrams are content geometry; UI pills follow the shared shape token.
+  if (!/(?:geo-map|map-answer|voice)\.tsx$/u.test(source)) {
+    result = result.replaceAll("rounded-full", "rounded-pill");
+  }
   // Opacity-based upstream text colors assume another surface palette; shared semantic text stays readable.
   result = result.replaceAll(/text-foreground\/(?:\[[^\]]+\]|\d+)/gu, "text-foreground");
   result = result.replaceAll(

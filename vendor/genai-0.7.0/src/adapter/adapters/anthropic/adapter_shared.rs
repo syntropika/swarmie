@@ -497,6 +497,7 @@ impl AnthropicAdapter {
 
 		// -- Reasoning Budget
 		let (model_name, computed_reasoning_effort) = match (raw_model_name, options_set.reasoning_effort()) {
+			(model, None) if !options_set.infer_reasoning_from_model_name() => (model, None),
 			// No explicity reasoning_effor, try to infer from model name suffix (supports -zero and -none)
 			(model, None) => {
 				// let model_name: &str = &model.model_name;

@@ -2,16 +2,23 @@ import { useSource } from "@swarmie/client-ui";
 import type { Conversation } from "@swarmie/plugin-conversations-browser";
 import { ChromeButton } from "@swarmie/ui-web";
 import { ArrowUp, Square } from "lucide-react";
+import { useSyncExternalStore } from "react";
 
 import { useClient } from "../../client/context";
+import { iconStyle } from "../../controls";
 import type { DeliveryMode } from "./state";
 
 export function ComposerSubmit({ chat, mode }: { chat: Conversation; mode: DeliveryMode }) {
-  const { canSend, send, stop, connectionState, providers } = useClient();
+  const { canSend, subscribeExecution, send, stop, connectionState, providers } = useClient();
   const draft = useSource(chat.draft);
   const execution = useSource(chat.execution);
   useSource(connectionState);
   useSource(providers.state);
+  const ready = useSyncExternalStore(
+    subscribeExecution,
+    () => canSend(chat),
+    () => false,
+  );
   const busy = ["queued", "working", "stopping"].includes(execution.phase);
   if (busy && draft.text.trim() === "") {
     return (
@@ -23,7 +30,7 @@ export function ComposerSubmit({ chat, mode }: { chat: Conversation; mode: Deliv
           stop(chat);
         }}
       >
-        <Square className="size-3 fill-current" />
+        <Square className={`${iconStyle} fill-current`} />
       </ChromeButton>
     );
   }
@@ -31,12 +38,12 @@ export function ComposerSubmit({ chat, mode }: { chat: Conversation; mode: Deliv
     <ChromeButton
       size="composerSend"
       aria-label={busy ? `Send to ${mode}` : "Send message"}
-      isDisabled={!canSend(chat)}
+      isDisabled={!ready}
       onPress={() => {
         send(chat, mode);
       }}
     >
-      <ArrowUp className="size-4" />
+      <ArrowUp className={iconStyle} />
     </ChromeButton>
   );
 }

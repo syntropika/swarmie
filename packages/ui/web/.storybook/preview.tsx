@@ -11,7 +11,7 @@ function CatalogTheme({ children, theme }: { children: ReactNode; theme: "light"
   return (
     <div
       data-theme={theme}
-      className="min-h-screen bg-reference-canvas p-4 font-sans text-ink antialiased"
+      className="min-h-screen bg-background p-4 font-sans text-foreground antialiased"
     >
       {children}
     </div>

@@ -25,10 +25,14 @@
 mod checkpoint;
 mod driver;
 mod restore;
+mod settlement;
 mod writer;
 
 #[cfg(feature = "durable-tasks")]
 pub mod durable;
 
-pub use checkpoint::{Checkpoint, Completion, ExecutionFailure, ExecutionResult, Record, Request};
+pub use checkpoint::{
+    Checkpoint, Completion, ExecutionFailure, ExecutionResult, Pending, Record, Request,
+};
 pub use driver::History;
+pub use settlement::ToolSettlement;

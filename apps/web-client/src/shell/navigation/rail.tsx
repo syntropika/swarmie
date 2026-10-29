@@ -1,11 +1,12 @@
 import { useSource } from "@swarmie/client-ui";
-import { BrandMark } from "@swarmie/ui-web";
+import { BrandMark, ChromeButton } from "@swarmie/ui-web";
 import { MessageCircle } from "lucide-react";
 
 import { useClient } from "../../client/context";
 import { useSelection } from "../../client/use-selection";
 import { IconButton } from "../../controls";
 import { AccountMenu } from "./account-menu";
+import { NodeStatus } from "./node-status";
 import { shellSection } from "./state";
 
 export function NavigationRail({ hidden }: { hidden: boolean }) {
@@ -15,19 +16,22 @@ export function NavigationRail({ hidden }: { hidden: boolean }) {
   return (
     <nav
       aria-label="Application"
-      className={`flex w-(--spacing-shell-rail) shrink-0 flex-col items-center gap-(--spacing-chrome-rail-gap) border-r border-border py-2 md:pt-0 ${hidden ? "hidden md:flex" : ""}`}
+      className={`flex min-h-0 w-(--spacing-shell-rail) shrink-0 flex-col items-center gap-(--spacing-chrome-rail-gap) overflow-x-hidden overflow-y-auto overscroll-contain bg-workspace pb-(--spacing-chrome-inset) ${hidden ? "hidden md:flex" : ""}`}
     >
-      <div className="flex h-(--spacing-chrome-rail-control) w-full shrink-0 items-center justify-center md:h-(--spacing-shell-rail)">
-        <button
-          type="button"
+      <div className="flex h-(--spacing-navigation-header) w-full shrink-0 items-center justify-center">
+        <ChromeButton
+          size="rail"
+          appearance="bare"
           aria-label="Swarmie conversations"
-          onClick={() => {
+          onPress={() => {
             navigate({ section: "conversations" });
+            if (window.innerWidth < 768) {
+              shellState.update((current) => ({ ...current, navigation: false }));
+            }
           }}
-          className="flex size-(--spacing-chrome-rail-control) items-center justify-center"
         >
           <BrandMark className="size-(--spacing-brand-mark) [&_img]:size-(--spacing-brand-mark)" />
-        </button>
+        </ChromeButton>
       </div>
       <IconButton
         size="rail"
@@ -37,6 +41,9 @@ export function NavigationRail({ hidden }: { hidden: boolean }) {
         aria-current={sectionId === "conversations" ? "page" : false}
         onPress={() => {
           navigate({ section: "conversations" });
+          if (window.innerWidth < 768) {
+            shellState.update((current) => ({ ...current, navigation: false }));
+          }
         }}
       />
       {sections.map((section) => (
@@ -55,7 +62,11 @@ export function NavigationRail({ hidden }: { hidden: boolean }) {
           }}
         />
       ))}
-      <div className="mt-auto">
+      <div
+        data-slot="rail-utilities"
+        className="mt-auto flex shrink-0 flex-col items-center gap-(--spacing-chrome-rail-gap)"
+      >
+        <NodeStatus />
         <AccountMenu />
       </div>
     </nav>

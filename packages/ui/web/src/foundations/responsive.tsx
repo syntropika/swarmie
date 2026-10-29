@@ -1,8 +1,8 @@
 // oxlint-disable shadcn/no-raw-colors -- HeroUI token utilities are compiled by the isolated catalog stylesheet.
-import { Button } from "@heroui/react";
 import { useState } from "react";
 
 import { HeroUIPreview } from "../../.storybook/heroui-preview";
+import { Button } from "../atoms/button";
 import { Table } from "../atoms/table";
 import { Reference } from "./reference";
 
@@ -33,15 +33,15 @@ export function ResponsiveReference({ theme }: { theme: "light" | "dark" }) {
               </Button>
             ))}
           </fieldset>
-          <div className={`@container max-w-full rounded-2xl bg-surface p-4 ${widths[width]}`}>
+          <div className={`@container max-w-full rounded-3xl bg-surface p-4 ${widths[width]}`}>
             <div className="grid gap-4 @lg:grid-cols-2">
-              <div className="bg-surface-secondary rounded-xl p-4">
+              <div className="bg-surface-secondary rounded-3xl p-4">
                 <h3 className="font-semibold">Review changes</h3>
                 <p className="mt-2 text-sm text-muted">
                   The main content remains readable in a narrow panel.
                 </p>
               </div>
-              <div className="bg-surface-secondary rounded-xl p-4">
+              <div className="bg-surface-secondary rounded-3xl p-4">
                 <h3 className="font-semibold">Supporting detail</h3>
                 <p className="mt-2 text-sm text-muted">
                   At a 32rem container width, the content uses two columns.

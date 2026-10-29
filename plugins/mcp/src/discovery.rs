@@ -49,6 +49,14 @@ pub(crate) async fn discover(
             return Err(invalid("unexpected MCP tool discovery response"));
         };
         for remote in page.tools {
+            if remote
+                .input_schema
+                .get("type")
+                .and_then(serde_json::Value::as_str)
+                != Some("object")
+            {
+                return Err(invalid("MCP tool input schema must have an object root"));
+            }
             if tools.len() >= config.limits.max_tools {
                 return Err(invalid("MCP tool catalog exceeds its configured limit"));
             }

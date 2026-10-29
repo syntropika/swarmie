@@ -1,8 +1,20 @@
 import { useSource } from "@swarmie/client-ui";
-import { Button, Modal } from "@swarmie/ui-web";
+import {
+  Button,
+  InputGroup,
+  Label,
+  ListBox,
+  ResponsiveDialog,
+  Select,
+  Surface,
+  TextArea,
+  TextField,
+} from "@swarmie/ui-web";
+import { Folder, FolderPlus, Monitor, X } from "lucide-react";
 import { useState } from "react";
 
 import { useProjects } from "./context";
+import { FolderPicker } from "./folder-picker";
 
 export function ProjectDialog() {
   const { api, nodes, open } = useProjects();
@@ -36,7 +48,7 @@ function ProjectEditor({
   nodes: readonly { id: string; label: string }[];
   onCreated: (id: string) => void;
 }) {
-  const { api } = useProjects();
+  const { api, directories } = useProjects();
   const state = useSource(api.state);
   const [name, setName] = useState(initialName);
   const [description, setDescription] = useState(initialDescription);
@@ -45,8 +57,17 @@ function ProjectEditor({
     state.personalFolders.filter((entry) => entry.projectId === projectId),
   );
   const [saving, setSaving] = useState(false);
+  const [addingFolder, setAddingFolder] = useState(false);
+  const editorTitle = projectId === null ? "Create project" : "Edit project";
+  const dialogTitle = addingFolder ? "Choose a folder" : editorTitle;
   const submitLabel = projectId === null ? "Create project" : "Save changes";
-  const paths = bindings.find((entry) => entry.nodeId === node)?.paths.join("\n") ?? "";
+  const paths = bindings.find((entry) => entry.nodeId === node)?.paths ?? [];
+  function setPaths(next: string[]) {
+    setBindings((current) => [
+      ...current.filter((entry) => entry.nodeId !== node),
+      { projectId: projectId ?? "", nodeId: node, paths: next },
+    ]);
+  }
   async function save() {
     setSaving(true);
     try {
@@ -71,7 +92,7 @@ function ProjectEditor({
     }
   }
   return (
-    <Modal
+    <ResponsiveDialog
       isOpen
       onOpenChange={(isOpen) => {
         if (!isOpen && !saving) {
@@ -79,108 +100,142 @@ function ProjectEditor({
         }
       }}
     >
-      <Modal.Backdrop>
-        <Modal.Container>
-          <Modal.Dialog
-            aria-label={projectId === null ? "Create project" : "Edit project"}
-            className="w-[calc(100vw-32px)] max-w-lg"
-          >
-            <Modal.Header>
-              <Modal.Heading>
-                {projectId === null ? "Create project" : "Edit project"}
-              </Modal.Heading>
-            </Modal.Header>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                save().catch(api.fail);
-              }}
-              className="grid gap-4"
-            >
-              <label className="grid gap-2 text-xs">
-                Project name
-                <input
-                  autoFocus
-                  required
-                  value={name}
-                  onChange={(event) => {
-                    setName(event.target.value);
-                  }}
-                  className="h-11 rounded-lg border border-border bg-default px-3 text-base md:text-sm"
-                />
-              </label>
-              <label className="grid gap-2 text-xs">
-                Description
-                <textarea
-                  rows={2}
-                  value={description}
-                  onChange={(event) => {
-                    setDescription(event.target.value);
-                  }}
-                  className="resize-none rounded-lg border border-border bg-default px-3 py-2 text-base md:text-sm"
-                />
-              </label>
-              <div className="border-t border-border pt-4">
-                <h3 className="text-sm font-medium">Your folders</h3>
-                <p className="mt-1 text-xs leading-5 text-muted">
-                  These links are private to your profile. Adding a link does not grant filesystem
-                  access.
-                </p>
-                <label className="mt-3 grid gap-2 text-xs">
-                  Node
-                  <select
-                    value={node}
-                    onChange={(event) => {
-                      setNode(event.target.value);
-                    }}
-                    className="h-10 rounded-lg border border-border bg-default px-3 text-base md:text-sm"
-                  >
-                    {nodes.map((entry) => (
-                      <option key={entry.id} value={entry.id}>
-                        {entry.label}
-                      </option>
+      <ResponsiveDialog.Backdrop>
+        <ResponsiveDialog.Container>
+          <ResponsiveDialog.Dialog aria-label={dialogTitle}>
+            <ResponsiveDialog.Header>
+              <ResponsiveDialog.Heading>{dialogTitle}</ResponsiveDialog.Heading>
+              <ResponsiveDialog.CloseTrigger isDisabled={saving} />
+            </ResponsiveDialog.Header>
+            {addingFolder ? (
+              <FolderPicker
+                key={node}
+                browser={directories}
+                nodeId={node}
+                choose={(path) => {
+                  if (!paths.includes(path)) {
+                    setPaths([...paths, path]);
+                  }
+                  setAddingFolder(false);
+                }}
+                cancel={() => {
+                  setAddingFolder(false);
+                }}
+              />
+            ) : (
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  save().catch(api.fail);
+                }}
+                className="grid gap-4"
+              >
+                <TextField aria-label="Project name" value={name} onChange={setName} isRequired>
+                  <InputGroup>
+                    <InputGroup.Prefix>
+                      <Folder aria-hidden="true" className="size-4" />
+                    </InputGroup.Prefix>
+                    <InputGroup.Input autoFocus placeholder="Project name" />
+                  </InputGroup>
+                </TextField>
+                {projectId === null ? null : (
+                  <TextField value={description} onChange={setDescription}>
+                    <Label>Description</Label>
+                    <TextArea rows={2} />
+                  </TextField>
+                )}
+                <section aria-label="Source folders" className="grid gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h3 className="text-sm font-medium">Source folders</h3>
+                    {nodes.length > 1 ? (
+                      <Select
+                        aria-label="Node"
+                        value={node}
+                        onChange={(value) => {
+                          if (typeof value === "string") {
+                            setNode(value);
+                            setAddingFolder(false);
+                          }
+                        }}
+                      >
+                        <Select.Trigger>
+                          <Select.Value />
+                          <Select.Indicator />
+                        </Select.Trigger>
+                        <Select.Popover>
+                          <ListBox>
+                            {nodes.map((entry) => (
+                              <ListBox.Item key={entry.id} id={entry.id} textValue={entry.label}>
+                                {entry.label}
+                                <ListBox.ItemIndicator />
+                              </ListBox.Item>
+                            ))}
+                          </ListBox>
+                        </Select.Popover>
+                      </Select>
+                    ) : (
+                      <span className="flex items-center gap-2 text-xs text-muted">
+                        <Monitor aria-hidden="true" className="size-4" />
+                        {nodes[0]?.label ?? "This computer"}
+                      </span>
+                    )}
+                  </div>
+                  <Surface variant="secondary" className="overflow-hidden">
+                    {paths.map((path) => (
+                      <div key={path} className="flex items-center gap-2 px-3 py-2">
+                        <Folder aria-hidden="true" className="size-4 shrink-0 text-muted" />
+                        <span title={path} className="min-w-0 flex-1 truncate text-sm">
+                          {path.split(/[\\/]/u).findLast((part) => part !== "") ?? path}
+                        </span>
+                        <Button
+                          isIconOnly
+                          size="sm"
+                          variant="tertiary"
+                          aria-label={`Remove ${path}`}
+                          onPress={() => {
+                            setPaths(paths.filter((entry) => entry !== path));
+                          }}
+                        >
+                          <X />
+                        </Button>
+                      </div>
                     ))}
-                  </select>
-                </label>
-                <label className="mt-3 grid gap-2 text-xs">
-                  Folder paths
-                  <textarea
-                    rows={2}
-                    placeholder="One folder path per line"
-                    value={paths}
-                    onChange={(event) => {
-                      const { value } = event.target;
-                      setBindings((current) => [
-                        ...current.filter((entry) => entry.nodeId !== node),
-                        { projectId: projectId ?? "", nodeId: node, paths: value.split("\n") },
-                      ]);
-                    }}
-                    className="resize-none rounded-lg border border-border bg-default px-3 py-2 text-base md:text-sm"
-                  />
-                </label>
-              </div>
-              {state.error === null ? null : (
-                <p role="alert" className="text-xs text-danger">
-                  {state.error}
-                </p>
-              )}
-              <Modal.Footer>
-                <Button variant="tertiary" isDisabled={saving} onPress={api.closeDialog}>
-                  Cancel
-                </Button>
-                <Button
-                  tone="brand"
-                  shape="panel"
-                  type="submit"
-                  isDisabled={saving || !name.trim()}
-                >
-                  {saving ? "Saving…" : submitLabel}
-                </Button>
-              </Modal.Footer>
-            </form>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+                    <div
+                      className={
+                        paths.length === 0 ? "flex min-h-24 items-center justify-center p-1" : "p-1"
+                      }
+                    >
+                      <Button
+                        variant="ghost"
+                        className={paths.length === 0 ? "" : "w-full"}
+                        onPress={() => {
+                          setAddingFolder(true);
+                        }}
+                      >
+                        <FolderPlus />
+                        Add folder
+                      </Button>
+                    </div>
+                  </Surface>
+                </section>
+                {state.error === null ? null : (
+                  <p role="alert" className="text-xs text-danger">
+                    {state.error}
+                  </p>
+                )}
+                <ResponsiveDialog.Footer>
+                  <Button variant="tertiary" isDisabled={saving} onPress={api.closeDialog}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" isDisabled={saving || !name.trim()}>
+                    {saving ? "Saving…" : submitLabel}
+                  </Button>
+                </ResponsiveDialog.Footer>
+              </form>
+            )}
+          </ResponsiveDialog.Dialog>
+        </ResponsiveDialog.Container>
+      </ResponsiveDialog.Backdrop>
+    </ResponsiveDialog>
   );
 }

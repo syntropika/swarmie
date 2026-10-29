@@ -12,12 +12,16 @@ crate-type = ["staticlib", "rlib"]
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-swarmie-mcp.workspace = true
-swarmie-tools.workspace = true
-swarmie-runtime = { path = "../../../runtime", features = ["rpc"] }
+swarmie-client-node.workspace = true
+swarmie-runtime = { workspace = true, features = ["rpc"] }
 tembra.workspace = true
 tokio = { version = "1", features = ["rt", "time", "net", "sync"] }
 uuid.workspace = true
+
+[dev-dependencies]
+swarmie-conversations.workspace = true
+swarmie-storage.workspace = true
+swarmie-agent-loop = { workspace = true, features = ["conversations"] }
 tempfile.workspace = true
 
 [lints]

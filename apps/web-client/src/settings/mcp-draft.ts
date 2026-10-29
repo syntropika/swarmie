@@ -1,5 +1,9 @@
 import type { McpDefinition, McpProtocol, McpScope } from "@swarmie/plugin-mcp-browser";
 
+import { randomId as draftId } from "../id";
+
+export { randomId as draftId } from "../id";
+
 export type Header = { id: string; name: string; value: string };
 export type McpDraft = {
   id: string;
@@ -16,9 +20,10 @@ export type McpDraft = {
   headers: Header[];
 };
 export type ChangeDraft = (change: Partial<McpDraft>) => void;
+
 export function createDraft(transport: "http" | "local", original?: McpDefinition): McpDraft {
   const draft: McpDraft = {
-    id: crypto.randomUUID(),
+    id: draftId(),
     name: "",
     initialName: "",
     scope: { kind: "user" },
@@ -43,7 +48,7 @@ export function createDraft(transport: "http" | "local", original?: McpDefinitio
   if (original.endpoint.kind === "http") {
     draft.url = original.endpoint.url;
     draft.headers = Object.entries(original.endpoint.headers).map(([name, value]) => ({
-      id: crypto.randomUUID(),
+      id: draftId(),
       name,
       value,
     }));

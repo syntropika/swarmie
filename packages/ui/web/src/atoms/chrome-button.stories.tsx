@@ -15,7 +15,7 @@ export const Geometry: Story = {
       <ChromeButton aria-label="Show navigation">
         <Icon name="sidebar" />
       </ChromeButton>
-      <ChromeButton size="rail" selected aria-label="Conversations">
+      <ChromeButton size="rail" aria-current="page" aria-label="Conversations">
         <Icon name="chat" />
       </ChromeButton>
       <ChromeButton size="tabClose" aria-label="Close tab">
@@ -24,6 +24,19 @@ export const Geometry: Story = {
       <ChromeButton size="navigationHeader">
         <Icon name="plus" />
         New conversation
+      </ChromeButton>
+      <ChromeButton size="project">Project title</ChromeButton>
+      <ChromeButton size="navigation">Conversation title</ChromeButton>
+      <ChromeButton size="category">Settings category</ChromeButton>
+      <ChromeButton size="action">Add folder</ChromeButton>
+      <ChromeButton size="panelSwitch" selected>
+        Conversation pane
+      </ChromeButton>
+      <ChromeButton size="composerAdd" aria-label="Add to message">
+        <Icon name="plus" />
+      </ChromeButton>
+      <ChromeButton size="composerModel" aria-label="Example model, medium thinking">
+        <Icon name="agent" />
       </ChromeButton>
       <ChromeButton size="composer" aria-label="Add attachment">
         <Icon name="plus" />
@@ -52,4 +65,43 @@ export const Geometry: Story = {
 };
 export const Disabled: Story = {
   args: { isDisabled: true, "aria-label": "Unavailable action", children: <Icon name="plus" /> },
+};
+
+export const InteractionStates: Story = {
+  render: () => (
+    <div className="grid gap-4">
+      {(["light", "dark"] as const).map((theme) => (
+        <div
+          key={theme}
+          data-theme={theme}
+          className="flex flex-wrap items-center gap-4 bg-canvas p-4 text-ink"
+        >
+          <ChromeButton aria-label="Available action">
+            <Icon name="plus" />
+          </ChromeButton>
+          <ChromeButton aria-expanded aria-label="Open action menu">
+            <Icon name="dots" />
+          </ChromeButton>
+          <ChromeButton isDisabled aria-label="Unavailable action">
+            <Icon name="plus" />
+          </ChromeButton>
+          <ChromeButton isPending isDisabled aria-label="Pending action">
+            <Icon name="plus" />
+          </ChromeButton>
+          <ChromeButton size="rail" aria-current="page" aria-label="Current destination">
+            <Icon name="chat" />
+          </ChromeButton>
+          <ChromeButton size="composerSend" aria-label="Send message">
+            <Icon name="arrow-up" />
+          </ChromeButton>
+          <ChromeButton size="composerSend" aria-label="Stop response">
+            <Icon name="stop" />
+          </ChromeButton>
+          <ChromeButton size="composerSend" isDisabled aria-label="Unavailable send">
+            <Icon name="arrow-up" />
+          </ChromeButton>
+        </div>
+      ))}
+    </div>
+  ),
 };

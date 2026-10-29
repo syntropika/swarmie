@@ -31,13 +31,10 @@ export function ElementButton({
   const primary = classes.has("bg-foreground") || classes.has("text-background");
   return (
     <Button
-      disabled={disabled ?? false}
+      isDisabled={disabled ?? false}
       type={type ?? "button"}
-      variant={primary ? "primary" : "tertiary"}
-      className={cn(
-        "h-auto min-h-10 max-w-full min-w-0 whitespace-normal",
-        layoutClasses(className),
-      )}
+      variant={primary ? "primary" : "ghost"}
+      className={cn("max-w-full min-w-0 whitespace-normal", layoutClasses(className))}
       render={(nativeProps) => (
         <button
           type="button"

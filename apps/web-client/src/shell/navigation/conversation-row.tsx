@@ -1,4 +1,5 @@
 import type { Conversation } from "@swarmie/plugin-conversations-browser";
+import { ChromeButton } from "@swarmie/ui-web";
 import { Archive, Pin } from "lucide-react";
 
 import { useClient } from "../../client/context";
@@ -7,22 +8,21 @@ import { IconButton } from "../../controls";
 export function ConversationRow({ chat, active }: { chat: Conversation; active: boolean }) {
   const { archive, openConversation, shellState, togglePin } = useClient();
   return (
-    <div
-      className={`group flex min-h-(--spacing-chrome-navigation-row) items-center rounded-md ${active ? "bg-navigation-selected" : "hover:bg-row-hover"}`}
-    >
-      <button
-        type="button"
-        aria-current={active ? "page" : undefined}
-        onClick={() => {
+    <div className="group relative my-0.5 flex min-h-(--spacing-chrome-navigation-row) items-center">
+      <ChromeButton
+        size="navigation"
+        selected={active}
+        aria-current={active ? "page" : false}
+        onPress={() => {
           openConversation(chat.id);
           if (window.innerWidth < 768) {
             shellState.update((s) => ({ ...s, navigation: false }));
           }
         }}
-        className={`min-h-(--spacing-chrome-navigation-row) min-w-0 flex-1 truncate px-(--spacing-navigation-row-x) py-(--spacing-navigation-row-y) text-left text-navigation ${active ? "font-medium" : ""}`}
+        className="min-w-0 flex-1"
       >
-        {chat.title}
-      </button>
+        <span className="truncate">{chat.title}</span>
+      </ChromeButton>
       <div className="mr-1 hidden items-center group-focus-within:flex group-hover:flex [@media(hover:none)]:flex">
         <IconButton
           icon={Pin}

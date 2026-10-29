@@ -25,7 +25,7 @@ export const Default: Story = {
 export const Categories: Story = {
   render: () => (
     <Tabs defaultSelectedKey="Plugins">
-      <Tabs.ListContainer appearance="filters">
+      <Tabs.ListContainer>
         <Tabs.List aria-label="Plugin categories">
           {[
             { name: "Plugins", count: 5 },

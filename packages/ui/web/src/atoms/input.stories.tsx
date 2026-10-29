@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { officialExampleSource } from "../../.storybook/example-sources";
 import { OfficialExample as HeroUIDocumentationExample } from "../../.storybook/examples/input";
 import { Button } from "./button";
+import { Icon } from "./icon";
 import { Input } from "./input";
 import { InputGroup } from "./input-group";
 import { TextField, Label } from "./text-field";
@@ -36,7 +37,7 @@ export const TrailingAction: Story = {
         <InputGroup.Input type="search" />
         <InputGroup.Suffix>
           <Button variant="tertiary" isIconOnly aria-label="Submit search">
-            ↵
+            <Icon name="arrow" />
           </Button>
         </InputGroup.Suffix>
       </InputGroup>

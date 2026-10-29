@@ -18,12 +18,21 @@ qualification fixtures use the same published Tembra SDK version.
 | `plugins/*/browser` | Provide frontend capabilities and local extension contracts. |
 | `packages/client-ui` | Adapt Tembra values for subscribed UI rendering. |
 | `packages/config` | Share compiler settings, fonts, theme behavior, and semantic tokens. |
-| `packages/ui/web` | Provide neutral DOM controls and their catalogs. |
+| `packages/ui/web` | Expose stock HeroUI controls and separate application compositions. |
 | `packages/ui/native` | Provide native controls and their catalogs. |
 
 Reuse public controls. Use the shared utility styling setup for presentation and owned
 entry stylesheets for tokens and browser behavior. Keep DOM and native renderer dependencies
 separate. Hosted authority belongs outside the clients.
+
+Keep base HeroUI exports and their component contracts unchanged. The shared
+theme supplies Google Sans, a compact type ramp, coral accent and semantic contrast
+tokens. Primary button colors use the inverse neutral pair; secondary content uses
+the neutral foreground. Shared radii are 12 pixels for ordinary buttons and
+floating menus, options, tabs, dialogs and grouped regions, and 24 pixels for the
+Composer. Icon-only button faces also use the shared 12-pixel radius.
+Keep these accepted theme choices centralized. Layout and explicit Composer
+adaptations belong in named compositions, not additional base-control variants.
 
 ## State and local resources
 
@@ -74,8 +83,9 @@ authorization callbacks, or proofs in settings or inspector snapshots.
 ## Interaction and verification
 
 Keep keyboard access and focus restoration. Show visible focus for keyboard-operated
-controls. Text fields, the Composer and drag handles use fill or caret feedback
-instead of outlines; keyboard focus must remain visible.
+controls. The shared Composer panel uses an inset focus boundary.
+In forced-color mode, it uses system-color borders and a focus outline.
+Standard fields retain their vendor focus behavior. Drag handles use fill feedback. Keyboard focus must remain visible.
 Keep editable mobile text at least 16px. Preserve manual zoom. Phone navigation opens as
 an overlay and must not reduce the conversation width.
 

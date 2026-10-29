@@ -1,6 +1,13 @@
 import { useSource } from "@swarmie/client-ui";
 import type { ConversationControlProps } from "@swarmie/plugin-conversations-browser";
-import { ChromeButton, ListBox, Popover } from "@swarmie/ui-web";
+import {
+  ActionMenuPopover,
+  ChromeButton,
+  Dropdown,
+  Header,
+  Label,
+  Separator,
+} from "@swarmie/ui-web";
 import { Folder, MessageCircle, Plus } from "lucide-react";
 import { useState } from "react";
 
@@ -11,90 +18,86 @@ export function ProjectSelector({ conversationId, isDraft }: ConversationControl
   const state = useSource(api.state);
   const [open, setOpen] = useState(false);
   const selected = (isDraft ? state.draftLinks : state.links)[conversationId];
-  const project = state.records.find((entry) => entry.id === selected);
+  const projects = state.records.filter((entry) => !entry.archived);
+  const project = projects.find((entry) => entry.id === selected);
+  const selectedKey = selected === undefined ? "unassigned" : `project:${selected}`;
   const projectLabel =
     project?.name ?? (selected === undefined ? "No project" : "Unavailable project");
-  async function choose(projectId: string | null) {
-    try {
-      if (isDraft) {
-        await api.stageConversation(conversationId, projectId);
-      } else {
-        await (projectId === null
-          ? api.unassignConversation(conversationId)
-          : api.assignConversation({ conversationId, projectId }));
-      }
-      setOpen(false);
-    } catch (error: unknown) {
-      api.fail(error);
+  function choose(projectId: string | null) {
+    setOpen(false);
+    if (isDraft) {
+      api.stageConversation(conversationId, projectId).catch(api.fail);
+      return;
     }
+    const change =
+      projectId === null
+        ? api.unassignConversation(conversationId)
+        : api.assignConversation({ conversationId, projectId });
+    change.catch(api.fail);
   }
   return (
-    <Popover isOpen={open} onOpenChange={setOpen}>
+    <Dropdown isOpen={open} onOpenChange={setOpen}>
       <ChromeButton
         size="composerCap"
         aria-label={`${projectLabel}: Select project`}
         title={projectLabel}
         selected={open}
+        className="max-w-full"
       >
-        <Folder className="size-3 shrink-0" />
+        <Folder className="shrink-0" />
         <span className="max-w-32 truncate">{projectLabel}</span>
       </ChromeButton>
-      <Popover.Content placement="top start" kind="composer" className="z-50">
-        <Popover.Dialog aria-label="Choose a project">
-          <p className="px-2 py-1 text-chrome text-muted">Project</p>
-          <ListBox
-            aria-label="Project"
-            selectionMode="single"
-            selectionBehavior="toggle"
-            disallowEmptySelection
-            selectedKeys={[selected === undefined ? "unassigned" : `project:${selected}`]}
-            kind="composer"
-          >
-            <ListBox.Item
-              id="unassigned"
-              textValue="No project"
-              aria-label="No project"
-              kind="composer"
-              onPress={() => {
-                choose(null).catch(api.fail);
-              }}
-            >
-              <span className="flex-1">No project</span>
-              <ListBox.ItemIndicator />
-            </ListBox.Item>
-            {state.records
-              .filter((entry) => !entry.archived)
-              .map((entry) => (
-                <ListBox.Item
-                  key={entry.id}
-                  id={`project:${entry.id}`}
-                  textValue={entry.name}
-                  aria-label={entry.name}
-                  kind="composer"
-                  onPress={() => {
-                    choose(entry.id).catch(api.fail);
-                  }}
-                >
-                  <Folder className="size-3 text-muted" />
-                  <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-                  <ListBox.ItemIndicator />
-                </ListBox.Item>
-              ))}
-          </ListBox>
-          <div className="my-1 border-t border-border" />
-          <ChromeButton
-            size="action"
-            onPress={() => {
+      <ActionMenuPopover placement="top start" className="w-(--spacing-menu-width)">
+        <Dropdown.Menu
+          aria-label="Choose a project"
+          shouldCloseOnSelect
+          onAction={(key) => {
+            if (key === "create") {
               setOpen(false);
               api.showCreate();
-            }}
+            } else if (key === "unassigned") {
+              choose(null);
+            } else {
+              const choice = projects.find((entry) => `project:${entry.id}` === key);
+              if (choice) {
+                choose(choice.id);
+              }
+            }
+          }}
+        >
+          <Dropdown.Section
+            selectionMode="single"
+            selectedKeys={[selectedKey]}
+            disallowEmptySelection
           >
-            <Plus className="size-3" />
-            Create project
-          </ChromeButton>
-        </Popover.Dialog>
-      </Popover.Content>
-    </Popover>
+            <Header>Project</Header>
+            <Dropdown.Item id="unassigned" textValue="No project">
+              <Dropdown.ItemIndicator />
+              <Label>No project</Label>
+            </Dropdown.Item>
+            {selected !== undefined && project === undefined ? (
+              <Dropdown.Item id={selectedKey} textValue="Unavailable project" isDisabled>
+                <Dropdown.ItemIndicator />
+                <Label>Unavailable project</Label>
+              </Dropdown.Item>
+            ) : null}
+            {projects.map((entry) => (
+              <Dropdown.Item key={entry.id} id={`project:${entry.id}`} textValue={entry.name}>
+                <Dropdown.ItemIndicator />
+                <Label className="min-w-0 flex-1">
+                  <span className="block truncate">{entry.name}</span>
+                </Label>
+              </Dropdown.Item>
+            ))}
+          </Dropdown.Section>
+          <Separator />
+          <Dropdown.Item id="create" textValue="Create project">
+            <Plus />
+            <Label>Create project</Label>
+          </Dropdown.Item>
+        </Dropdown.Menu>
+      </ActionMenuPopover>
+    </Dropdown>
   );
 }
 
@@ -115,15 +118,16 @@ export function ProjectConversationLabel({ conversationId, isDraft }: Conversati
   return (
     <>
       <Folder className="size-3.5 shrink-0 text-muted" />
-      <button
-        type="button"
-        className="hidden max-w-40 truncate text-muted hover:text-foreground sm:inline"
-        onClick={() => {
+      <ChromeButton
+        size="navigationHeader"
+        appearance="bare"
+        className="hidden max-w-40 sm:inline-flex"
+        onPress={() => {
           open(id);
         }}
       >
-        {project?.name ?? "Unavailable project"}
-      </button>
+        <span className="truncate">{project?.name ?? "Unavailable project"}</span>
+      </ChromeButton>
       <span className="hidden text-muted sm:inline">/</span>
     </>
   );

@@ -4,25 +4,22 @@ import {
   ChromeButton,
   Dropdown,
   Icon,
+  Input,
   Label,
-  Modal,
+  ResponsiveDialog as Modal,
   Separator,
+  TextField,
 } from "@swarmie/ui-web";
 import { useState } from "react";
 
 import { useClient } from "../client/context";
-import { copyText, useChat } from "../controls";
+import { useChat } from "../controls";
 
 export function ConversationMenu() {
-  const { archive, togglePin, renameConversation, createConversation } = useClient();
+  const { archive, renameConversation, newSideChat } = useClient();
   const chat = useChat();
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState("");
-  const markdown = () =>
-    chat.messages
-      .getSnapshot()
-      .map((message) => message.text)
-      .join("\n\n");
   const link = () => {
     const url = new URL(window.location.href);
     url.searchParams.set("conversation", chat.id);
@@ -42,11 +39,8 @@ export function ConversationMenu() {
                 setTitle(chat.title);
                 setRenaming(true);
               }
-              if (key === "pin") {
-                togglePin(chat);
-              }
               if (key === "side") {
-                createConversation();
+                newSideChat(chat);
               }
               if (key === "archive") {
                 archive(chat);
@@ -54,20 +48,12 @@ export function ConversationMenu() {
               if (key === "window") {
                 window.open(link(), "_blank", "noopener,noreferrer");
               }
-              if (key === "share") {
-                copyText(link());
-              }
             }}
           >
             <Dropdown.Item id="rename" textValue="Rename">
               <Icon name="rename" />
               <Label>Rename</Label>
             </Dropdown.Item>
-            <Dropdown.Item id="pin" textValue={chat.pinned ? "Unpin" : "Pin"}>
-              <Icon name="pin" />
-              <Label>{chat.pinned ? "Unpin" : "Pin"}</Label>
-            </Dropdown.Item>
-            <Separator />
             <Dropdown.Item id="side" textValue="New side chat">
               <Icon name="chat" />
               <Label>New side chat</Label>
@@ -89,44 +75,6 @@ export function ConversationMenu() {
                     isDisabled
                   >
                     <Label>Fork from selected message</Label>
-                  </Dropdown.Item>
-                </Dropdown.Menu>
-              </ActionMenuPopover>
-            </Dropdown.SubmenuTrigger>
-            <Separator />
-            <Dropdown.Item id="share" textValue="Share">
-              <Icon name="share" />
-              <Label>Share</Label>
-            </Dropdown.Item>
-            <Dropdown.SubmenuTrigger>
-              <Dropdown.Item id="copy" textValue="Copy">
-                <Icon name="copy" />
-                <Label>Copy</Label>
-                <Dropdown.SubmenuIndicator />
-              </Dropdown.Item>
-              <ActionMenuPopover>
-                <Dropdown.Menu
-                  aria-label="Copy conversation"
-                  onAction={(key) => {
-                    if (key === "deeplink") {
-                      copyText(link());
-                    }
-                    if (key === "markdown") {
-                      copyText(markdown());
-                    }
-                  }}
-                >
-                  <Dropdown.Item id="deeplink" textValue="Copy deeplink">
-                    <Icon name="copy" />
-                    <Label>Copy deeplink</Label>
-                  </Dropdown.Item>
-                  <Dropdown.Item id="markdown" textValue="Copy as Markdown">
-                    <Icon name="copy" />
-                    <Label>Copy as Markdown</Label>
-                  </Dropdown.Item>
-                  <Dropdown.Item id="directory" textValue="Copy working directory" isDisabled>
-                    <Icon name="project" />
-                    <Label>Copy working directory</Label>
                   </Dropdown.Item>
                 </Dropdown.Menu>
               </ActionMenuPopover>
@@ -160,17 +108,10 @@ export function ConversationMenu() {
                   }
                 }}
               >
-                <label className="grid gap-2 text-sm">
-                  Title
-                  <input
-                    autoFocus
-                    value={title}
-                    onChange={(event) => {
-                      setTitle(event.target.value);
-                    }}
-                    className="rounded-lg border border-border bg-default px-3 py-2"
-                  />
-                </label>
+                <TextField autoFocus value={title} onChange={setTitle} isRequired>
+                  <Label>Title</Label>
+                  <Input fullWidth />
+                </TextField>
                 <Modal.Footer>
                   <Button
                     variant="tertiary"

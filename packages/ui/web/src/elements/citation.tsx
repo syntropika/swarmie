@@ -28,8 +28,8 @@ export function Citation({ index, source, open, onOpenChange, ...props }: Citati
       <Button {...props} variant="tertiary" aria-label={`Source ${index + 1}: ${source.title}`}>
         {index + 1}
       </Button>
-      <Popover.Content>
-        <Popover.Dialog>
+      <Popover.Content className="w-70 max-w-[calc(100vw-24px)]">
+        <Popover.Dialog className="min-w-0 break-words">
           <Popover.Heading>{source.title}</Popover.Heading>
           <p>{source.snippet}</p>
           {href === undefined ? null : <Link href={href}>{source.domain ?? "Open source"}</Link>}

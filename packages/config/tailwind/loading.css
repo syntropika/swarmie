@@ -1,5 +1,5 @@
 html {
-  background: var(--color-pane, light-dark(#f5f5f5, #151514));
+  background: var(--color-workspace, light-dark(#e7e7e7, #181818));
 }
 body {
   margin: 0;
@@ -35,8 +35,8 @@ html[data-theme="system"] {
   height: 10px;
   min-height: 10px;
   max-width: 100%;
-  border-radius: 4px;
-  background: var(--color-row-selected, light-dark(oklch(94% 0.001 286.375), #30302c));
+  border-radius: var(--radius-ui, 12px);
+  background: var(--color-row-selected, light-dark(#dadada, #343434));
   animation: sw-loading-pulse 2s ease-in-out infinite;
 }
 .sw-loading-secondary {
@@ -58,8 +58,8 @@ html[data-theme="system"] {
   display: grid;
   align-content: center;
   gap: 10px;
-  min-height: 34px;
-  padding: 8px;
+  min-height: var(--spacing-chrome-navigation-row, 32px);
+  padding: var(--spacing-navigation-x, 8px);
 }
 .sw-loading-list {
   width: 100%;
@@ -67,7 +67,7 @@ html[data-theme="system"] {
 }
 .sw-loading-document {
   width: 100%;
-  max-width: 720px;
+  max-width: var(--spacing-reading-column, 720px);
   padding-block: 12px;
 }
 .sw-loading-history {
@@ -91,11 +91,11 @@ html[data-theme="system"] {
   height: 100%;
   padding: 20px;
   box-sizing: border-box;
-  background: var(--color-pane, light-dark(oklch(0.9702 0 0), #151514));
+  background: var(--color-pane, light-dark(#fff, #151515));
 }
 .sw-loading-conversation-body {
   width: 100%;
-  max-width: 720px;
+  max-width: var(--spacing-reading-column, 720px);
   flex: 1;
   min-height: 0;
   margin-inline: auto;
@@ -108,16 +108,29 @@ html[data-theme="system"] {
   margin: 76px auto 0;
 }
 .sw-loading-composer {
+  position: relative;
+  isolation: isolate;
   display: grid;
-  gap: 26px;
+  gap: 16px;
   width: 100%;
-  max-width: 720px;
-  min-height: 140px;
+  max-width: var(--spacing-reading-column, 720px);
+  min-height: 100px;
+  margin-block-start: 16px;
   margin-inline: auto;
-  padding: 14px;
+  padding: var(--spacing-composer-inset, 12px);
   box-sizing: border-box;
-  border-radius: 11px;
-  background: var(--field-background, light-dark(#fff, #2b2b26));
+  border-radius: var(--radius-composer, 24px);
+  background: var(--color-composer, light-dark(#fff, #262626));
+}
+.sw-loading-composer::before {
+  position: absolute;
+  z-index: -1;
+  inset-inline: var(--spacing-composer-inset, 12px);
+  top: -16px;
+  height: 32px;
+  border-radius: var(--radius-composer-context, 12px) var(--radius-composer-context, 12px) 0 0;
+  background: var(--color-composer-context, light-dark(#e0e0e0, #202020));
+  content: "";
 }
 .sw-loading-composer-controls {
   display: flex;
@@ -129,7 +142,7 @@ html[data-theme="system"] {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  background: var(--color-navigation-surface, light-dark(#fff, #1b1b19));
+  background: var(--color-navigation-surface, light-dark(#e0e0e0, #222222));
 }
 .sw-loading-navigation-header {
   display: flex;
@@ -137,13 +150,13 @@ html[data-theme="system"] {
   height: var(--spacing-navigation-header, 36px);
   flex-shrink: 0;
   padding-inline: 12px;
-  border-block-end: 1px solid var(--border, light-dark(oklch(90% 0.004 286.32), #343432));
+  border-block-end: 1px solid var(--color-navigation-divider, light-dark(#bfbfbf, #353535));
 }
 .sw-loading-navigation-body {
   display: grid;
   align-content: start;
   gap: 16px;
-  padding: 24px 16px;
+  padding: var(--spacing-navigation-x, 8px);
 }
 .sw-loading-settings {
   display: flex;
@@ -157,11 +170,11 @@ html[data-theme="system"] {
   width: 220px;
   flex-shrink: 0;
   padding: 14px;
-  border-inline-end: 1px solid var(--border, light-dark(oklch(90% 0.004 286.32), #343432));
+  border-inline-end: 1px solid var(--color-navigation-divider, light-dark(#bfbfbf, #353535));
 }
 .sw-loading-settings-content {
   width: 100%;
-  max-width: 720px;
+  max-width: var(--spacing-reading-column, 720px);
   padding: 48px 32px;
   margin-inline: auto;
 }
@@ -176,7 +189,9 @@ html[data-theme="system"] {
   grid-template-columns: var(--spacing-shell-rail, 45px) 220px minmax(0, 1fr);
   grid-template-rows: var(--spacing-shell-bar, 45px) minmax(0, 1fr);
   height: 100%;
-  background: var(--color-pane, light-dark(oklch(0.9702 0 0), #151514));
+  padding: 0 var(--spacing-shell-frame, 8px) var(--spacing-shell-frame, 8px) 0;
+  box-sizing: border-box;
+  background: var(--color-workspace, light-dark(#e7e7e7, #181818));
 }
 .sw-loading-rail {
   grid-row: 2;
@@ -184,14 +199,13 @@ html[data-theme="system"] {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 24px;
+  gap: var(--spacing-chrome-rail-gap, 15px);
   padding-block: 10px 16px;
-  border-inline-end: 1px solid var(--border, light-dark(oklch(90% 0.004 286.32), #343432));
-  background: var(--color-navigation-surface, light-dark(#fff, #1b1b19));
+  background: var(--color-workspace, light-dark(#e7e7e7, #181818));
 }
 .sw-loading-mark {
   height: 22px;
-  border-radius: 7px;
+  border-radius: var(--radius-pill, 12px);
 }
 .sw-loading-rail-footer {
   margin-block-start: auto;
@@ -203,15 +217,16 @@ html[data-theme="system"] {
   align-items: center;
   gap: 60px;
   padding-inline: 12px;
-  border-block-end: 1px solid var(--border, light-dark(oklch(90% 0.004 286.32), #343432));
-  background: var(--color-chrome-surface, light-dark(#fff, #1d1d1b));
+  background: var(--color-workspace, light-dark(#e7e7e7, #181818));
 }
 .sw-loading-sidebar {
-  border-inline-end: 1px solid var(--border, light-dark(oklch(90% 0.004 286.32), #343432));
+  border-inline-end: 1px solid var(--color-navigation-divider, light-dark(#bfbfbf, #353535));
+  border-radius: var(--radius-shell-frame, 12px) 0 0 var(--radius-shell-frame, 12px);
 }
 @container loading-app (width < 768px) {
   .sw-loading-shell {
     grid-template-columns: 0px minmax(0, 1fr);
+    padding: 0;
   }
   .sw-loading-sidebar,
   .sw-loading-rail {
@@ -308,18 +323,22 @@ html[data-theme="system"] {
 .sw-loading-shell > .sw-loading-conversation {
   grid-row: 2;
   grid-column: 3;
+  border-radius: 0 var(--radius-workspace-upper, 12px) var(--radius-shell-frame, 12px) 0;
 }
 @container loading-app (width < 768px) {
   .sw-loading-shell > .sw-loading-conversation {
     grid-column: 2;
+    border-radius: var(--radius-workspace-upper, 12px) var(--radius-workspace-upper, 12px) 0 0;
+    padding: 16px;
+  }
+  .sw-loading-composer {
+    min-height: 88px;
+    gap: 12px;
   }
 }
 
 @media (max-width: 767px) {
   .sw-loading-topbar {
     background: transparent;
-  }
-  .sw-loading-shell {
-    --spacing-shell-bar: 44px;
   }
 }

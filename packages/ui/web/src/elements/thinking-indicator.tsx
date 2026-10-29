@@ -18,7 +18,10 @@ export function ThinkingIndicator({
       data-slot="thinking-indicator"
       aria-live="polite"
       aria-atomic="true"
-      className={cn("flex items-center gap-2.5 text-sm text-text-muted", className)}
+      className={cn(
+        "flex min-w-0 flex-wrap items-center gap-2.5 text-ui text-text-muted",
+        className,
+      )}
       {...props}
     >
       <span

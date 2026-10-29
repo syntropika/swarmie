@@ -1,10 +1,11 @@
 import { useSource } from "@swarmie/client-ui";
 import type { Conversation, Draft } from "@swarmie/plugin-conversations-browser";
-import { useState } from "react";
+import { providerDisplayName } from "@swarmie/plugin-providers-browser";
+import { ModelPicker } from "@swarmie/ui-web";
 
 import { useClient } from "../../client/context";
 import { useSelection } from "../../client/use-selection";
-import { ChoiceList, Item, Menu } from "../../controls";
+import { ModelTrigger } from "./model-trigger";
 import { patchDraft } from "./state";
 
 const modelSelection = ({ account, model, effort }: Draft) => ({ account, model, effort });
@@ -14,71 +15,65 @@ const sameSelection = (
 ) => a.account === b.account && a.model === b.model && a.effort === b.effort;
 
 export function ComposerModel({ chat }: { chat: Conversation }) {
-  const { providers } = useClient();
+  const { providers, navigate } = useClient();
   const providerState = useSource(providers.state);
   const draft = useSelection(chat.draft, modelSelection, sameSelection);
-  const models =
-    providerState.accounts.find((account) => account.id === draft.account)?.models ?? [];
-  const [effortOpen, setEffortOpen] = useState(false);
-  const selectedModel = models.find((model) => model.id === draft.model);
+  const selectedAccount = providerState.accounts.find((account) => account.id === draft.account);
+  const selectedModel = selectedAccount?.models.find((model) => model.id === draft.model);
+  const accounts = providerState.accounts
+    .filter((account) => account.available)
+    .map((account) => ({
+      ...account,
+      providerLabel: providerDisplayName(account.providerId, account.providerLabel),
+    }));
+  const thinking = selectedModel?.efforts.includes(draft.effort) === true ? draft.effort : "";
+  const label = `${selectedModel?.label ?? "Select model"}${thinking ? ` · ${thinking}` : ""}: Select provider, model and thinking`;
+  function configure() {
+    navigate({ section: "settings", settings: "providers" });
+  }
+  if (selectedModel === undefined) {
+    return (
+      <ModelTrigger
+        open={false}
+        label="Configure providers"
+        providerId={selectedAccount?.providerId}
+        thinking=""
+        onPress={configure}
+      />
+    );
+  }
   return (
-    <Menu
-      label="Select model and effort"
-      text={selectedModel?.label ?? "Select model"}
-      size="composerCap"
-      placement="top end"
-    >
-      {(close) => (
-        <>
-          {models.length > 0 ? (
-            <ChoiceList
-              label="Model"
-              value={draft.model}
-              items={models.map((model) => ({
-                id: model.id,
-                label: model.label,
-                description: model.description,
-              }))}
-              onAction={(id) => {
-                const selection = providers.selectModel(chat.draft.getSnapshot(), id);
-                if (selection) {
-                  patchDraft(chat, selection);
-                }
-                close();
-              }}
-            />
-          ) : null}
-          {models.length === 0 ? (
-            <p className="px-2 py-3 text-xs text-muted">
-              No models are available for this account.
-            </p>
-          ) : null}
-          {selectedModel !== undefined && selectedModel.efforts.length > 0 ? (
-            <>
-              <div className="my-1 border-t border-border" />
-              <Item
-                detail={draft.effort}
-                expanded={effortOpen}
-                onClick={() => {
-                  setEffortOpen((value) => !value);
-                }}
-              >
-                Effort
-              </Item>
-              {effortOpen ? (
-                <ChoiceList
-                  label="Effort"
-                  value={draft.effort}
-                  items={selectedModel.efforts.map((effort) => ({ id: effort, label: effort }))}
-                  onAction={(effort) => {
-                    patchDraft(chat, { effort });
-                  }}
-                />
-              ) : null}
-            </>
-          ) : null}
-        </>
+    <ModelPicker
+      accounts={accounts}
+      accountId={draft.account}
+      modelId={draft.model}
+      effort={draft.effort}
+      renderTrigger={({ open }) => (
+        <ModelTrigger
+          open={open}
+          label={label}
+          providerId={selectedAccount?.providerId}
+          thinking={thinking}
+          levels={selectedModel.efforts}
+        />
       )}
-    </Menu>
+      onModelSelect={(account, model) => {
+        const selection = providers.selectModel({ ...chat.draft.getSnapshot(), account }, model);
+        if (selection) {
+          patchDraft(chat, selection);
+        }
+      }}
+      onEffortChange={(effort) => {
+        const current = chat.draft.getSnapshot();
+        const account = providers.state
+          .getSnapshot()
+          .accounts.find((entry) => entry.id === current.account && entry.available);
+        const model = account?.models.find((entry) => entry.id === current.model);
+        if (model?.efforts.includes(effort) === true) {
+          patchDraft(chat, { effort });
+        }
+      }}
+      onConfigure={configure}
+    />
   );
 }

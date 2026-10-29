@@ -1,3 +1,5 @@
+import { Link } from "@swarmie/ui-web";
+
 import { CapabilitiesSection } from "~/src/marketing/components/capabilities-section";
 import { CollaborationSection } from "~/src/marketing/components/collaboration-section";
 import { HeroSection } from "~/src/marketing/components/hero-section";
@@ -15,14 +17,11 @@ export function HomePage() {
   useMarketingMotion();
   return (
     <NewsletterSignupProvider>
-      <a
-        href="#main"
-        className="sr-only fixed top-4 left-4 z-50 rounded-pill bg-surface px-4 py-3 text-primary focus:not-sr-only"
-      >
+      <Link href="#main" className="sr-only fixed top-4 left-4 z-50 focus:not-sr-only">
         {t("common.skip")}
-      </a>
+      </Link>
       <SiteHeader />
-      <main id="main">
+      <main id="main" tabIndex={-1}>
         <HeroSection />
         <ProblemSection />
         <CollaborationSection />

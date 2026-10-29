@@ -20,7 +20,6 @@ const conversation: ConversationData = {
     account: null,
     effort: "",
     node: "node",
-    permission: "Ask",
   },
   messages: [],
   execution: { phase: "idle", label: "", queue: [], steering: [] },

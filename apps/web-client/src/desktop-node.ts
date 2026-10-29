@@ -155,7 +155,10 @@ export async function desktopNode(): Promise<{ node: Node; connector: Connector 
       },
       close: failed,
     };
-    peer = new RemoteHost(transport, { maxFrame: NodeProtocol.MaxFrame });
+    peer = new RemoteHost(transport, {
+      maxFrame: NodeProtocol.MaxFrame,
+      maxPending: NodeProtocol.MaxPending,
+    });
     signal.addEventListener("abort", close, { once: true });
     try {
       const reference = await peer.get(NodeProtocol.Service, NodeProtocol.Key, { signal });

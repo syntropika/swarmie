@@ -46,7 +46,7 @@ export function PaneResize({
   return (
     <ResizeHandle
       className={cn(
-        "relative outline-none after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent hover:after:bg-resize-active focus-visible:after:bg-resize-active data-[dragging=true]:after:bg-resize-active",
+        "relative touch-none outline-none select-none after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent hover:after:bg-resize-active focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus focus-visible:after:bg-resize-active data-[dragging=true]:after:bg-resize-active",
         className,
       )}
       data-edge={edge}

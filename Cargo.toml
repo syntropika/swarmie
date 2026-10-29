@@ -3,9 +3,11 @@ members = [
     "apps/desktop-client/updater",
     "apps/desktop-client/runtime",
     "runtime",
+    "plugins/client-node",
     "storage",
     "storage/core",
     "plugins/providers",
+    "plugins/provider-auth",
     "plugins/plugin-manager",
     "plugins/tools",
     "plugins/mcp",
@@ -46,6 +48,11 @@ swarmie-storage-core = { path = "storage/core" }
 swarmie-conversations = { path = "plugins/conversations" }
 swarmie-durable-tasks = { path = "plugins/durable-tasks" }
 swarmie-plugin-manager = { path = "plugins/plugin-manager" }
+swarmie-provider-auth = { path = "plugins/provider-auth" }
+swarmie-model-provider-genai = { path = "plugins/model-provider-genai" }
+swarmie-agent-loop = { path = "plugins/agent-loop" }
+swarmie-runtime = { path = "runtime" }
+swarmie-client-node = { path = "plugins/client-node" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

@@ -1,8 +1,8 @@
 import type { Conversation } from "@swarmie/plugin-conversations-browser";
-import { Paperclip, Plus } from "lucide-react";
+import { Paperclip, X } from "lucide-react";
 
 import { useSelection } from "../../client/use-selection";
-import { IconButton } from "../../controls";
+import { IconButton, iconStyle } from "../../controls";
 import { draftAttachments } from "./state";
 
 export function ComposerAttachments({ chat }: { chat: Conversation }) {
@@ -15,12 +15,14 @@ export function ComposerAttachments({ chat }: { chat: Conversation }) {
       {attachments.map((name) => (
         <span
           key={name}
-          className="flex items-center gap-1 rounded-md bg-default px-2 py-1 text-chrome"
+          className="flex max-w-full min-w-0 items-center gap-1 rounded-small bg-default px-2 py-1 text-chrome"
         >
-          <Paperclip className="size-3" />
-          {name}
+          <Paperclip className={iconStyle} />
+          <span className="min-w-0 truncate" title={name}>
+            {name}
+          </span>
           <IconButton
-            icon={Plus}
+            icon={X}
             size="tabClose"
             label={`Remove ${name}`}
             onPress={() => {

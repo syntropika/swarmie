@@ -168,6 +168,7 @@ export const connectWebSocket: Connector = async (node, signal, lost) => {
     };
     remote = new RemoteHost(transport, {
       maxFrame: NodeProtocol.MaxFrame,
+      maxPending: NodeProtocol.MaxPending,
       // SDK 0.1 reports receive failures before synchronous channel closure. Only
       // an actual transport.close consumes this cause; observer errors do not end a session.
       onError(error: unknown) {

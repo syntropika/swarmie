@@ -2,6 +2,7 @@
 //! This library has no Agent Loop, task scheduler, storage or concrete provider dependency.
 mod progress;
 mod provider;
+pub mod settings;
 mod types;
 
 #[cfg(feature = "mock")]

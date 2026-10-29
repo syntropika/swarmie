@@ -61,7 +61,7 @@ export function NativeIconAction({
       isDisabled={Boolean(disabled)}
       variant="ghost"
       isIconOnly
-      className="h-12 w-12 rounded-full focus:outline-2 focus:outline-offset-2 focus:outline-native-muted"
+      className="h-native-touch w-native-touch rounded-full focus:outline-2 focus:outline-offset-2 focus:outline-native-ink"
     >
       {children}
     </Button>
@@ -82,7 +82,7 @@ export function NativeTextAction({
       isDisabled={Boolean(disabled)}
       variant="ghost"
       feedbackVariant="none"
-      className="h-auto min-h-11 min-w-11 rounded-full px-1 focus:outline-2 focus:outline-offset-2 focus:outline-native-ink"
+      className="h-auto min-h-native-touch min-w-native-touch rounded-full px-1 focus:outline-2 focus:outline-offset-2 focus:outline-native-ink"
     >
       <Button.Label className="font-native text-sm font-normal text-native-muted underline">
         {label}
@@ -105,9 +105,12 @@ export function NativeField({
   helper,
   ref: inputRef,
   trailing,
+  onFocus,
+  onBlur,
   ...props
 }: FieldProps) {
   const id = useId();
+  const [focused, setFocused] = useState(false);
   const muted = useCSSVariable("--color-native-muted");
   const hasTrailing = trailing !== undefined && trailing !== null;
   return (
@@ -132,21 +135,39 @@ export function NativeField({
           accessibilityLabel={label}
           accessibilityLabelledBy={`${id}-label`}
           accessibilityHint={error ?? helper}
+          onFocus={(event) => {
+            setFocused(true);
+            onFocus?.(event);
+          }}
+          onBlur={(event) => {
+            setFocused(false);
+            onBlur?.(event);
+          }}
           underlineColorAndroid="transparent"
           background={null}
           selectionColorClassName="accent-native-ink"
           placeholderColorClassName="accent-native-muted"
           className={
             hasTrailing
-              ? "ios:shadow-none ios:outline-none ios:focus:outline-none android:border-0 android:shadow-none min-h-native-field rounded-full border-0 bg-native-field py-4 pr-20 pl-6 font-native text-xl text-native-ink shadow-none outline-none focus:bg-native-field-focus"
-              : "ios:shadow-none ios:outline-none ios:focus:outline-none android:border-0 android:shadow-none min-h-native-field rounded-full border-0 bg-native-field px-6 py-4 font-native text-xl text-native-ink shadow-none outline-none focus:bg-native-field-focus"
+              ? "ios:shadow-none ios:outline-none ios:focus:outline-none android:border-0 android:shadow-none min-h-native-field rounded-full border-0 bg-native-field py-4 pr-20 pl-6 font-native text-native-input text-native-ink shadow-none outline-none focus:bg-native-field-focus"
+              : "ios:shadow-none ios:outline-none ios:focus:outline-none android:border-0 android:shadow-none min-h-native-field rounded-full border-0 bg-native-field px-6 py-4 font-native text-native-input text-native-ink shadow-none outline-none focus:bg-native-field-focus"
           }
         />
+        {focused && props.editable !== false ? (
+          <View
+            pointerEvents="none"
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            className="absolute inset-0 rounded-full border-2 border-native-ink"
+          />
+        ) : null}
         {hasTrailing ? (
           <View className="absolute inset-y-0 right-3 justify-center">{trailing}</View>
         ) : null}
       </View>
-      {helper === undefined ? null : <Text className="text-sm text-native-muted">{helper}</Text>}
+      {helper === undefined ? null : (
+        <Text className="font-native text-sm text-native-muted">{helper}</Text>
+      )}
       {error === undefined ? null : <NativeNotice>{error}</NativeNotice>}
     </TextField>
   );
@@ -177,12 +198,14 @@ export function NativeCodeField({
           <View
             key={index}
             className={
-              focused && index === Math.min(value.length, 5)
+              focused && !disabled && index === Math.min(value.length, 5)
                 ? "min-h-native-control flex-1 items-center justify-center rounded-2xl border border-native-ink bg-native-control"
                 : "min-h-native-control flex-1 items-center justify-center rounded-2xl border border-transparent bg-native-control"
             }
           >
-            <Text className="text-xl font-semibold text-native-ink">{value[index] ?? ""}</Text>
+            <Text className="font-native text-native-input font-semibold text-native-ink">
+              {value[index] ?? ""}
+            </Text>
           </View>
         ))}
       </View>
@@ -208,7 +231,7 @@ export function NativeCodeField({
         onBlur={() => {
           setFocused(false);
         }}
-        className="ios:shadow-none ios:outline-none ios:focus:outline-none android:border-0 android:shadow-none absolute inset-0 min-h-0 rounded-none border-0 bg-transparent p-0 text-transparent shadow-none outline-none"
+        className="ios:shadow-none ios:outline-none ios:focus:outline-none android:border-0 android:shadow-none absolute inset-0 min-h-0 rounded-none border-0 bg-transparent p-0 font-native text-native-input text-transparent shadow-none outline-none"
       />
     </View>
   );

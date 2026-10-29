@@ -6,7 +6,7 @@ Use task branches and worktrees. Reuse suitable existing work before creating an
 checkout, and preserve unrelated changes and user-owned files. Never merge a pull request.
 Create a pull request only when the user explicitly requests one. Do not rewrite remote
 history, force push, remove branches or change repository visibility without authorization.
-Both this repository and the independent hosted-service repository are private.
+This repository is public. The independent `swarmie-cloud` repository is private.
 
 Every commit message must use Conventional Commits and be entirely lowercase, including
 its type, scope, subject, body and footer. Use `type(scope): description` or `type: description`.
@@ -18,9 +18,9 @@ shims. This does not authorize deleting user data or dropping agreed integration
 
 Write persisted project prose, comments and UI copy in English unless the user explicitly
 requests another language for that artifact. Existing localization catalogs retain their
-languages. Explain work to the user in Spanish. Keep research, measurements, temporary
-reports and local deployment scripts outside the repository. Avoid persisting device-specific
-paths, addresses, hostnames or operational history in reusable project code and documentation.
+languages. Keep research, measurements, temporary reports and local deployment scripts
+outside the repository. Avoid persisting device-specific paths, addresses, hostnames or
+operational history in reusable project code and documentation.
 
 ## Architecture and ownership
 
@@ -91,12 +91,6 @@ for all English documentation. Follow its writing rules and approved dictionary.
 permitted project technical nouns and verbs consistently. Keep API names, identifiers and
 code examples exact. Write short, complete sentences. Use one instruction in each procedural
 sentence. Check the language and terminology before you finish a documentation change.
-
-Architecture task Pages in the verified Swarmie Space remain authoritative for scope, human
-review, execution state and evidence. Refresh Pages and comments before guarded changes,
-preserve concurrent edits and synchronize the external local tracking mirror. Keep private
-tracking and operational evidence outside source control. Do not mark work done merely from
-a plan, open PR or passing build; distinguish human review from implementation qualification.
 
 ## TypeScript and clients
 

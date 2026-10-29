@@ -564,3 +564,546 @@ fn prepared_request_cannot_widen_the_original_tool_definitions() {
     assert!(provider.recoveries().is_empty());
     pool.run_until(host.close()).unwrap();
 }
+
+fn settle(
+    pool: &mut LocalPool,
+    host: &Host,
+    history: History,
+    tools: Rc<support::Scenario>,
+    checkpoint: history::Checkpoint,
+    acknowledge_unknown: bool,
+) -> tembra::Result<history::ToolSettlement> {
+    pool.run_until(host.root("alice", move |ctx| {
+        async move {
+            history
+                .settle_tools(&ctx, tools.as_ref(), checkpoint, acknowledge_unknown, None)
+                .await
+        }
+        .boxed_local()
+    }))
+}
+
+#[test]
+fn settlement_recovers_a_receipt_and_blocks_remaining_calls_without_dispatch() {
+    let dir = tempfile::tempdir().unwrap();
+    let owner = SqliteOwner::new(dir.path().join("history.sqlite"));
+    let mut pool = LocalPool::new();
+    let (host, reference, history) = open(&pool, &owner);
+    let at = seed(
+        &mut pool,
+        &host,
+        &reference,
+        vec![Message::User {
+            content: "Add three".into(),
+        }],
+    );
+    let scenario = Rc::new(support::Scenario::default());
+    scenario.tool_count.set(3);
+    scenario.uncertain_tool.set(true);
+    let failed = execute(
+        &mut pool,
+        &host,
+        history.clone(),
+        support::agent(&host, scenario.clone()),
+        request(at),
+    )
+    .unwrap_err();
+    let checkpoint = *failed.checkpoint.unwrap();
+    assert!(checkpoint.has_unfinished_tools());
+    assert!(matches!(
+        checkpoint.pending(),
+        Some(history::Pending::Tool { next: 0, .. })
+    ));
+    let settled = settle(
+        &mut pool,
+        &host,
+        history.clone(),
+        scenario.clone(),
+        checkpoint,
+        false,
+    )
+    .unwrap();
+    let history::ToolSettlement::Settled(checkpoint) = settled else {
+        panic!("confirmed receipt remained unknown")
+    };
+    assert!(!checkpoint.has_unfinished_tools());
+    assert_eq!(scenario.effects.borrow().len(), 1);
+    assert_eq!(scenario.models.borrow().len(), 1);
+    assert_eq!(scenario.reconciled_tools.borrow().len(), 1);
+    let head = checkpoint.head();
+    let context = pool
+        .run_until(host.root("alice", move |ctx| {
+            async move { history.context(&ctx, head, String::new()).await }.boxed_local()
+        }))
+        .unwrap();
+    assert!(matches!(
+        &context.messages[2],
+        Message::Tool {
+            result: ToolResult::Success(_),
+            ..
+        }
+    ));
+    assert!(context.messages[3..].iter().all(|message| matches!(message, Message::Tool { result: ToolResult::Blocked(reason), .. } if reason == "not executed")));
+    assert_eq!(context.messages.len(), 5);
+    pool.run_until(host.close()).unwrap();
+}
+
+#[test]
+fn settlement_requires_acknowledgment_for_unknown_effects_and_allows_a_fresh_turn() {
+    let dir = tempfile::tempdir().unwrap();
+    let owner = SqliteOwner::new(dir.path().join("history.sqlite"));
+    let mut pool = LocalPool::new();
+    let (host, reference, history) = open(&pool, &owner);
+    let at = seed(
+        &mut pool,
+        &host,
+        &reference,
+        vec![Message::User {
+            content: "Add one".into(),
+        }],
+    );
+    let scenario = Rc::new(support::Scenario::default());
+    scenario.uncertain_tool.set(true);
+    scenario.unknown_tool.set(true);
+    let failed = execute(
+        &mut pool,
+        &host,
+        history.clone(),
+        support::agent(&host, scenario.clone()),
+        request(at),
+    )
+    .unwrap_err();
+    let checkpoint = *failed.checkpoint.unwrap();
+    let original_head = checkpoint.head();
+    let unknown = settle(
+        &mut pool,
+        &host,
+        history.clone(),
+        scenario.clone(),
+        checkpoint,
+        false,
+    )
+    .unwrap();
+    let history::ToolSettlement::Unknown(checkpoint) = unknown else {
+        panic!("unknown effect was accepted without acknowledgment")
+    };
+    assert_eq!(checkpoint.head(), original_head);
+    let settled = settle(
+        &mut pool,
+        &host,
+        history.clone(),
+        scenario.clone(),
+        checkpoint,
+        true,
+    )
+    .unwrap();
+    let history::ToolSettlement::Settled(checkpoint) = settled else {
+        panic!("acknowledged effect was not closed")
+    };
+    let head = checkpoint.head();
+    let read_history = history.clone();
+    let context = pool
+        .run_until(host.root("alice", move |ctx| {
+            async move { read_history.context(&ctx, head, String::new()).await }.boxed_local()
+        }))
+        .unwrap();
+    assert!(
+        matches!(&context.messages[2], Message::Tool { result: ToolResult::Failed(reason), .. } if reason == "outcome unknown; not replayed")
+    );
+    let new_user: WriteReceipt = invoke(
+        &mut pool,
+        &host,
+        &reference,
+        conversations::Method::Append,
+        (
+            head,
+            vec![
+                EntryDraft::encode(Record::Message(Message::User {
+                    content: "Explain the result".into(),
+                }))
+                .unwrap(),
+            ],
+        ),
+    );
+    let next = execute(
+        &mut pool,
+        &host,
+        history,
+        support::agent(&host, scenario.clone()),
+        request(new_user.head),
+    )
+    .unwrap();
+    assert_eq!(next.output.reason, FinishReason::Complete);
+    assert_eq!(scenario.effects.borrow().len(), 1);
+    assert_eq!(scenario.models.borrow().len(), 2);
+    pool.run_until(host.close()).unwrap();
+}
+
+#[test]
+fn settlement_never_uses_safe_retry_as_permission_to_execute() {
+    let dir = tempfile::tempdir().unwrap();
+    let owner = SqliteOwner::new(dir.path().join("history.sqlite"));
+    let mut pool = LocalPool::new();
+    let (host, reference, history) = open(&pool, &owner);
+    let at = seed(
+        &mut pool,
+        &host,
+        &reference,
+        vec![Message::User {
+            content: "Add one".into(),
+        }],
+    );
+    let scenario = Rc::new(support::Scenario::default());
+    scenario.not_started.set(true);
+    let failed = execute(
+        &mut pool,
+        &host,
+        history.clone(),
+        support::agent(&host, scenario.clone()),
+        request(at),
+    )
+    .unwrap_err();
+    scenario.safe_retry.set(true);
+    let settled = settle(
+        &mut pool,
+        &host,
+        history.clone(),
+        scenario.clone(),
+        *failed.checkpoint.unwrap(),
+        false,
+    )
+    .unwrap();
+    let history::ToolSettlement::Settled(checkpoint) = settled else {
+        panic!("safe-to-retry operation was not closed")
+    };
+    let head = checkpoint.head();
+    let context = pool
+        .run_until(host.root("alice", move |ctx| {
+            async move { history.context(&ctx, head, String::new()).await }.boxed_local()
+        }))
+        .unwrap();
+    assert!(
+        matches!(&context.messages[2], Message::Tool { result: ToolResult::Blocked(reason), .. } if reason == "not retried after interruption")
+    );
+    assert!(scenario.effects.borrow().is_empty());
+    assert_eq!(scenario.tool_inputs.borrow().len(), 1);
+    pool.run_until(host.close()).unwrap();
+}
+
+#[test]
+fn settlement_refuses_a_changed_head_before_provider_recovery() {
+    let dir = tempfile::tempdir().unwrap();
+    let owner = SqliteOwner::new(dir.path().join("history.sqlite"));
+    let mut pool = LocalPool::new();
+    let (host, reference, history) = open(&pool, &owner);
+    let at = seed(
+        &mut pool,
+        &host,
+        &reference,
+        vec![Message::User {
+            content: "Add one".into(),
+        }],
+    );
+    let scenario = Rc::new(support::Scenario::default());
+    scenario.uncertain_tool.set(true);
+    let failed = execute(
+        &mut pool,
+        &host,
+        history.clone(),
+        support::agent(&host, scenario.clone()),
+        request(at),
+    )
+    .unwrap_err();
+    let checkpoint = *failed.checkpoint.unwrap();
+    let _: WriteReceipt = invoke(
+        &mut pool,
+        &host,
+        &reference,
+        conversations::Method::Append,
+        (
+            checkpoint.head(),
+            vec![
+                EntryDraft::encode(Record::Message(Message::Tool {
+                    call: ToolCallId::new("call-1").unwrap(),
+                    result: ToolResult::Success(json!(1)),
+                }))
+                .unwrap(),
+            ],
+        ),
+    );
+    let error = match settle(
+        &mut pool,
+        &host,
+        history,
+        scenario.clone(),
+        checkpoint,
+        true,
+    ) {
+        Err(error) => error,
+        Ok(_) => panic!("changed history was accepted"),
+    };
+    assert_eq!(error.code, tembra::Code::Conflict);
+    assert!(scenario.reconciled_tools.borrow().is_empty());
+    assert_eq!(scenario.effects.borrow().len(), 1);
+    pool.run_until(host.close()).unwrap();
+}
+
+#[test]
+fn unavailable_recovery_requires_explicit_acknowledgment_and_never_dispatches() {
+    let dir = tempfile::tempdir().unwrap();
+    let owner = SqliteOwner::new(dir.path().join("history.sqlite"));
+    let mut pool = LocalPool::new();
+    let (host, reference, history) = open(&pool, &owner);
+    let at = seed(
+        &mut pool,
+        &host,
+        &reference,
+        vec![Message::User {
+            content: "Add one".into(),
+        }],
+    );
+    let scenario = Rc::new(support::Scenario::default());
+    scenario.uncertain_tool.set(true);
+    let failed = execute(
+        &mut pool,
+        &host,
+        history.clone(),
+        support::agent(&host, scenario.clone()),
+        request(at),
+    )
+    .unwrap_err();
+    let checkpoint = *failed.checkpoint.unwrap();
+    scenario.unavailable_recovery.set(true);
+    assert!(
+        settle(
+            &mut pool,
+            &host,
+            history.clone(),
+            scenario.clone(),
+            checkpoint.clone(),
+            false
+        )
+        .is_err()
+    );
+    let current: Option<conversations::Conversation> = invoke(
+        &mut pool,
+        &host,
+        &reference,
+        conversations::Method::Get,
+        (at.conversation,),
+    );
+    assert_eq!(current.unwrap().head, checkpoint.head());
+    let acknowledged = settle(
+        &mut pool,
+        &host,
+        history.clone(),
+        scenario.clone(),
+        checkpoint,
+        true,
+    )
+    .unwrap();
+    let history::ToolSettlement::Settled(checkpoint) = acknowledged else {
+        panic!("unavailable recovery blocked acknowledgment")
+    };
+    let head = checkpoint.head();
+    let context = pool
+        .run_until(host.root("alice", move |ctx| {
+            async move { history.context(&ctx, head, String::new()).await }.boxed_local()
+        }))
+        .unwrap();
+    assert!(
+        matches!(&context.messages[2], Message::Tool { result: ToolResult::Failed(reason), .. } if reason == "outcome unknown; not replayed")
+    );
+    assert_eq!(scenario.effects.borrow().len(), 1);
+    assert_eq!(scenario.models.borrow().len(), 1);
+    assert_eq!(scenario.tool_inputs.borrow().len(), 1);
+    pool.run_until(host.close()).unwrap();
+}
+
+#[test]
+fn settlement_blocks_prepared_calls_without_recovery_and_honors_cancellation() {
+    let dir = tempfile::tempdir().unwrap();
+    let owner = SqliteOwner::new(dir.path().join("history.sqlite"));
+    let mut pool = LocalPool::new();
+    let (host, reference, history) = open(&pool, &owner);
+    let at = seed(
+        &mut pool,
+        &host,
+        &reference,
+        vec![Message::User {
+            content: "Add one".into(),
+        }],
+    );
+    let call = ToolCall {
+        id: ToolCallId::new("call-1").unwrap(),
+        name: ToolName::new("counter.add").unwrap(),
+        arguments: json!({"amount":1}),
+    };
+    let assistant = EntryDraft::encode(Record::Message(Message::Assistant(AssistantMessage {
+        content: String::new(),
+        tool_calls: vec![call],
+    })))
+    .unwrap();
+    let assistant_id = assistant.id;
+    let appended: WriteReceipt = invoke(
+        &mut pool,
+        &host,
+        &reference,
+        conversations::Method::Append,
+        (at, vec![assistant]),
+    );
+    let checkpoint: history::Checkpoint = serde_json::from_value(json!({
+        "input":request(at), "head":appended.head, "turn":1, "usage":Usage::default(),
+        "available_tools":request(at).tools.iter().map(|tool| &tool.name).collect::<Vec<_>>(),
+        "phase":{"kind":"prepare_tools", "assistant":assistant_id, "next":0}
+    }))
+    .unwrap();
+    assert_eq!(
+        checkpoint.pending(),
+        Some(history::Pending::Tools { next: 0 })
+    );
+    assert!(checkpoint.has_unfinished_tools());
+    let scenario = Rc::new(support::Scenario::default());
+    let cancelled_history = history.clone();
+    let cancelled_tools = scenario.clone();
+    let cancelled_checkpoint = checkpoint.clone();
+    let cancelled = pool
+        .run_until(host.root("alice", move |ctx| {
+            async move {
+                ctx.cancel()?;
+                cancelled_history
+                    .settle_tools(
+                        &ctx,
+                        cancelled_tools.as_ref(),
+                        cancelled_checkpoint,
+                        true,
+                        None,
+                    )
+                    .await
+            }
+            .boxed_local()
+        }))
+        .unwrap_err();
+    assert_eq!(cancelled.code, tembra::Code::Cancelled);
+    let settled = settle(
+        &mut pool,
+        &host,
+        history.clone(),
+        scenario.clone(),
+        checkpoint,
+        false,
+    )
+    .unwrap();
+    let history::ToolSettlement::Settled(checkpoint) = settled else {
+        panic!("undispatched calls were uncertain")
+    };
+    let head = checkpoint.head();
+    let context = pool
+        .run_until(host.root("alice", move |ctx| {
+            async move { history.context(&ctx, head, String::new()).await }.boxed_local()
+        }))
+        .unwrap();
+    assert!(
+        matches!(&context.messages[2], Message::Tool { result: ToolResult::Blocked(reason), .. } if reason == "not executed")
+    );
+    assert!(scenario.reconciled_tools.borrow().is_empty());
+    assert!(scenario.effects.borrow().is_empty());
+    assert!(scenario.models.borrow().is_empty());
+    pool.run_until(host.close()).unwrap();
+}
+
+#[test]
+fn settlement_applies_the_declared_result_transform_before_history_confirmation() {
+    use std::cell::Cell;
+    use swarmie_agent_loop::hooks::{Hooks, ToolOutput};
+    let dir = tempfile::tempdir().unwrap();
+    let owner = SqliteOwner::new(dir.path().join("history.sqlite"));
+    let mut pool = LocalPool::new();
+    let (host, reference, history) = open(&pool, &owner);
+    let at = seed(
+        &mut pool,
+        &host,
+        &reference,
+        vec![Message::User {
+            content: "Add one".into(),
+        }],
+    );
+    let scenario = Rc::new(support::Scenario::default());
+    scenario.uncertain_tool.set(true);
+    let failed = execute(
+        &mut pool,
+        &host,
+        history.clone(),
+        support::agent(&host, scenario.clone()),
+        request(at),
+    )
+    .unwrap_err();
+    let checkpoint = *failed.checkpoint.unwrap();
+    let service = "fixture.settlement-hooks";
+    let result_hook = Hooks::default().after_tool_call;
+    let bound_history = history.clone();
+    let bound_tools = scenario.clone();
+    let transformed = Rc::new(Cell::new(0));
+    let observed = transformed.clone();
+    host.install(vec![
+        Hooks::default()
+            .declare(tembra::Orb::new(service, 1))
+            .service(
+                tembra::Service::new(service, move |declaration| {
+                    let hook: tembra::HookHandle<ToolOutput, ToolOutput> =
+                        declaration.hook(&Hooks::default().after_tool_call)?;
+                    Ok((bound_history.clone(), bound_tools.clone(), hook))
+                })
+                .method(
+                    "settle",
+                    |env, context, checkpoint: history::Checkpoint| async move {
+                        match env
+                            .0
+                            .settle_tools(&context, env.1.as_ref(), checkpoint, false, Some(&env.2))
+                            .await?
+                        {
+                            history::ToolSettlement::Settled(checkpoint) => Ok(checkpoint),
+                            history::ToolSettlement::Unknown(_) => Err(tembra::Error::invalid(
+                                "fixture.unknown",
+                                "receipt remained unknown",
+                            )),
+                        }
+                    },
+                ),
+            ),
+        tembra::Orb::new("fixture.redaction", 1)
+            .requires(tembra::core::Requirement {
+                orb: service.into(),
+                api_version: 1,
+                methods: Default::default(),
+                hooks: ["after_tool_call".into()].into(),
+            })
+            .contribute(service, &result_hook, 0, move |_, mut output| {
+                observed.set(observed.get() + 1);
+                assert_eq!(output.result, ToolResult::Success(json!(1)));
+                output.result = ToolResult::Success(json!("redacted"));
+                async move { Ok(output) }
+            }),
+    ])
+    .unwrap();
+    let managed = host.get(service, vec!["main".into()], "alice").unwrap();
+    let checkpoint: history::Checkpoint = pool
+        .run_until(host.root("alice", move |context| {
+            async move { managed.call(&context, "settle", checkpoint).await }.boxed_local()
+        }))
+        .unwrap();
+    let head = checkpoint.head();
+    let context = pool
+        .run_until(host.root("alice", move |context| {
+            async move { history.context(&context, head, String::new()).await }.boxed_local()
+        }))
+        .unwrap();
+    assert!(
+        matches!(&context.messages[2], Message::Tool { result: ToolResult::Success(value), .. } if value == &json!("redacted"))
+    );
+    assert_eq!(transformed.get(), 1);
+    assert_eq!(scenario.effects.borrow().len(), 1);
+    assert_eq!(scenario.reconciled_tools.borrow().len(), 1);
+    assert_eq!(context.messages.len(), 3);
+    pool.run_until(host.close()).unwrap();
+}

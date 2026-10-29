@@ -331,10 +331,12 @@ test("stop does not replace uncertainty caused by a changed principal", async ()
     },
   });
   chat.draft.update((draft) => ({ ...draft, text: "Do not replay" }));
+  chat.execution.update((value) => ({ ...value, phase: "unknown", canAcknowledge: true }));
   await Bun.sleep(5);
   current.nodeConnections.configure({ ...a, principal: "another-user" });
   await Bun.sleep(5);
   expect(chat.execution.getSnapshot().phase).toBe("unknown");
+  expect(chat.execution.getSnapshot().canAcknowledge).toBe(false);
   current.stop(chat);
   await Bun.sleep(10);
   expect(stops).toBe(1);

@@ -2,8 +2,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { ChromeButton } from "../atoms/chrome-button";
 import { Icon } from "../atoms/icon";
-import { TextArea } from "../atoms/textarea";
 import { ComposerPanel } from "./composer-panel";
+import { ComposerTextArea } from "./composer-textarea";
 
 const meta = {
   title: "Elements/Composer Panel",
@@ -28,12 +28,7 @@ export const Conversation: Story = {
           No model selected
         </ComposerPanel.Context>
         <ComposerPanel.Body>
-          <TextArea
-            appearance="composer"
-            rows={2}
-            aria-label="Message"
-            placeholder="Write a message"
-          />
+          <ComposerTextArea rows={2} aria-label="Message" placeholder="Write a message" />
           <div className="flex items-center justify-between gap-2">
             <ChromeButton size="composer" aria-label="Add to message">
               <Icon name="plus" />

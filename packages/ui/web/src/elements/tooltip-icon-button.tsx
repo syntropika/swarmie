@@ -12,13 +12,20 @@ export type TooltipIconButtonProps = Omit<ComponentProps<typeof Button>, "varian
 export function TooltipIconButton({
   tooltip,
   side = "bottom",
-  variant: _variant,
-  size: _size,
+  variant = "ghost",
+  size = "icon",
   ...props
 }: TooltipIconButtonProps) {
+  const variants = { default: "primary", outline: "outline", ghost: "ghost" } as const;
   return (
     <Tooltip>
-      <Button {...props} aria-label={tooltip} variant="tertiary" isIconOnly />
+      <Button
+        {...props}
+        aria-label={tooltip}
+        variant={variants[variant]}
+        size={size === "sm" ? "sm" : "md"}
+        isIconOnly
+      />
       <Tooltip.Content placement={side}>{tooltip}</Tooltip.Content>
     </Tooltip>
   );

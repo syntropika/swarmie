@@ -18,5 +18,9 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 export const Default: Story = {
   parameters: { docs: { source: { code: officialExampleSource("calendar"), language: "tsx" } } },
-  render: () => <HeroUIDocumentationExample />,
+  render: () => (
+    <div className="max-w-full min-w-0 overflow-x-auto">
+      <HeroUIDocumentationExample />
+    </div>
+  ),
 };

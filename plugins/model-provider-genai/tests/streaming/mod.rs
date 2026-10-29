@@ -16,6 +16,157 @@ fn event(name: &str, value: Value) -> String {
     format!("event: {name}\ndata: {value}\n\n")
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn responses_reasoning_items_do_not_request_or_require_opaque_continuation() {
+    LocalSet::new()
+        .run_until(async {
+            for (encrypted, tool) in [(false, false), (true, false), (false, true), (true, true)] {
+                let mut frames = reply(Provider::OpenAiResponses, tool);
+                for frame in &mut frames.parts {
+                    *frame = frame.replace("\"output_index\":0", "\"output_index\":1");
+                }
+                let mut item = json!({"type":"reasoning","id":"rs_fixture","summary":[]});
+                if encrypted {
+                    item["encrypted_content"] = json!("opaque-fixture");
+                }
+                frames.parts.insert(
+                    0,
+                    event(
+                        "response.output_item.done",
+                        json!({"type":"response.output_item.done","output_index":0,"item":item}),
+                    ),
+                );
+                let last = frames.parts.last_mut().unwrap();
+                let mut response = wire(Provider::OpenAiResponses, tool);
+                response["output"].as_array_mut().unwrap().insert(0, item);
+                *last = event(
+                    "response.completed",
+                    json!({"type":"response.completed","response":response}),
+                );
+                let server = Server::streaming(vec![frames]).await;
+                let host = Host::new(LocalExecutor);
+                host.install(vec![
+                    provider::orb(
+                        configuration(Provider::OpenAiResponses, &server.endpoint),
+                        Rc::new(Secrets),
+                    )
+                    .unwrap(),
+                ])
+                .unwrap();
+                let reference = Rc::new(
+                    host.get(provider::SERVICE, key().segments(), "alice")
+                        .unwrap(),
+                );
+                let result: ModelResponse = call(
+                    &host,
+                    reference,
+                    "alice",
+                    ModelMethod::Stream.as_str(),
+                    (OperationId::new(), input(tool)),
+                )
+                .await
+                .unwrap();
+                if tool {
+                    assert_eq!(result.message.tool_calls.len(), 1);
+                } else {
+                    assert_eq!(result.message.content, "Done");
+                }
+                let body = server.calls.borrow()[0].body.clone();
+                assert_eq!(body["store"], false);
+                assert_eq!(body["stream"], true);
+                assert!(body.get("include").is_none());
+                assert!(
+                    body.get("reasoning")
+                        .and_then(|r| r.get("summary"))
+                        .is_none()
+                );
+                close(&host).await;
+                server.finish().await;
+            }
+        })
+        .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn streaming_timeout_limits_idle_reads_not_the_complete_answer() {
+    LocalSet::new()
+        .run_until(async {
+            for (interval, succeeds) in [(20, true), (100, false)] {
+                let mut frames = reply(Provider::OpenAi, false);
+                frames.interval = Duration::from_millis(interval);
+                let server = Server::streaming(vec![frames]).await;
+                let mut config = configuration(Provider::OpenAi, &server.endpoint);
+                config.connections[0].timeout_ms = std::num::NonZeroU64::new(50).unwrap();
+                let host = Host::new(LocalExecutor);
+                host.install(vec![provider::orb(config, Rc::new(Secrets)).unwrap()])
+                    .unwrap();
+                let reference = Rc::new(
+                    host.get(provider::SERVICE, key().segments(), "alice")
+                        .unwrap(),
+                );
+                let result = call::<_, ModelResponse>(
+                    &host,
+                    reference,
+                    "alice",
+                    ModelMethod::Stream.as_str(),
+                    (OperationId::new(), input(false)),
+                )
+                .await;
+                assert_eq!(result.is_ok(), succeeds, "interval {interval}: {result:?}");
+                assert_eq!(server.calls.borrow().len(), 1);
+                close(&host).await;
+                server.finish().await;
+            }
+        })
+        .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn cancelled_stream_has_a_bounded_settlement_wait_even_with_continuous_bytes() {
+    use futures::FutureExt;
+    use swarmie_model_provider_genai::GenaiModel;
+    use swarmie_providers::Model;
+    LocalSet::new()
+        .run_until(async {
+            let mut frames = reply(Provider::OpenAi, false);
+            frames.parts = std::iter::once(frames.parts.remove(0))
+                .chain(std::iter::repeat_n(": heartbeat\n\n".into(), 100))
+                .collect();
+            frames.interval = Duration::from_millis(10);
+            let server = Server::streaming(vec![frames]).await;
+            let mut config = configuration(Provider::OpenAi, &server.endpoint);
+            config.connections[0].timeout_ms = std::num::NonZeroU64::new(50).unwrap();
+            let model = Rc::new(
+                GenaiModel::new(config.connections.remove(0), key().model, &Secrets).unwrap(),
+            );
+            let host = Host::new(LocalExecutor);
+            let error = tokio::time::timeout(
+                Duration::from_millis(250),
+                host.root("alice", move |ctx| {
+                    async move {
+                        let progress = Progress::new(|ctx, value| {
+                            if !value.content.is_empty() {
+                                ctx.cancel().unwrap();
+                            }
+                        });
+                        model
+                            .stream(&ctx, OperationId::new(), &input(false), &progress)
+                            .await
+                    }
+                    .boxed_local()
+                }),
+            )
+            .await
+            .expect("continuous heartbeats cannot retain cancelled work indefinitely")
+            .unwrap_err();
+            assert_eq!(error.code, tembra::Code::Cancelled);
+            assert_eq!(server.calls.borrow().len(), 1);
+            close(&host).await;
+            server.finish().await;
+        })
+        .await;
+}
+
 pub(super) fn reply(kind: Provider, tool: bool) -> StreamReply {
     let parts = match kind {
         Provider::OpenAi | Provider::DeepSeek => {

@@ -322,58 +322,103 @@ impl Tools for Connection {
             let call = execution.call;
             if let Some(previous) = self.attempts.borrow().get(&execution.operation) {
                 if &previous.call != call {
-                    return Err(invalid("MCP operation identity was reused with different intent"));
+                    return Err(invalid(
+                        "MCP operation identity was reused with different intent",
+                    ));
                 }
                 return if let Some(response) = &previous.response {
                     model_result(response)
-                } else { previous.result.clone().ok_or_else(|| unknown("MCP outcome is unknown; automatic replay is forbidden")) };
+                } else {
+                    previous.result.clone().ok_or_else(|| {
+                        unknown("MCP outcome is unknown; automatic replay is forbidden")
+                    })
+                };
             }
             if !self.admitted(call) {
-                return Ok(ToolResult::Blocked("MCP connection does not admit this tool call".into()));
+                return Ok(ToolResult::Blocked(
+                    "MCP connection does not admit this tool call".into(),
+                ));
             }
             if self.attempts.borrow().len() >= self.configuration.limits.max_operations {
-                return Ok(ToolResult::Blocked("MCP operation receipt limit reached".into()));
+                return Ok(ToolResult::Blocked(
+                    "MCP operation receipt limit reached".into(),
+                ));
             }
             let tool = &self.tools[&call.name];
-            let params = CallToolRequestParams::new(tool.remote.name.clone())
-                .with_arguments(call.arguments.as_object().cloned().ok_or_else(|| invalid("MCP arguments must be an object"))?);
-            self.attempts.borrow_mut().insert(execution.operation, Attempt { call: call.clone(), result: None, response: None });
-            let signal = context.signal();
-            let response = tokio::select! {
-                biased;
-                result = tokio::time::timeout(self.configuration.limits.request_timeout, self.peer.call_tool_once(params)) => {
-                    match result {
-                        Ok(response) => response,
-                        Err(_) => {
-                            self.mark_unavailable();
-                            return Err(unknown("MCP reply timed out; outcome is unknown"));
-                        }
+            let params = CallToolRequestParams::new(tool.remote.name.clone()).with_arguments(
+                call.arguments
+                    .as_object()
+                    .cloned()
+                    .ok_or_else(|| invalid("MCP arguments must be an object"))?,
+            );
+            self.attempts.borrow_mut().insert(
+                execution.operation,
+                Attempt {
+                    call: call.clone(),
+                    result: None,
+                    response: None,
+                },
+            );
+            // Logical cancellation does not abandon the dispatched physical call.
+            // Retain its correlated reply for recovery until the request deadline.
+            let response = match tokio::time::timeout(
+                self.configuration.limits.request_timeout,
+                self.peer.call_tool_once(params),
+            )
+            .await
+            {
+                Ok(response) => response,
+                Err(_) => {
+                    if context.check().is_ok() || self.peer.is_transport_closed() {
+                        self.mark_unavailable();
                     }
-                },
-                () = signal.cancelled() => {
                     context.check()?;
-                    return Err(unknown("MCP call was cancelled; outcome is unknown"));
-                },
+                    return Err(unknown("MCP reply timed out; outcome is unknown"));
+                }
             };
             let result = match response {
                 Ok(CallToolResponse::Complete(result)) => {
-                    self.attempts.borrow_mut().get_mut(&execution.operation).ok_or_else(|| invalid("MCP operation receipt is missing"))?.response = Some(result.clone());
-                    model_result(&result)?
+                    self.attempts
+                        .borrow_mut()
+                        .get_mut(&execution.operation)
+                        .ok_or_else(|| invalid("MCP operation receipt is missing"))?
+                        .response = Some(result.clone());
+                    let projected = model_result(&result);
+                    if projected.is_err() {
+                        context.check()?;
+                    }
+                    projected?
                 }
-                Err(ServiceError::McpError(error)) => ToolResult::Failed(serde_json::json!({"code":error.code,"message":error.message}).to_string()),
+                Err(ServiceError::McpError(error)) => ToolResult::Failed(
+                    serde_json::json!({"code":error.code,"message":error.message}).to_string(),
+                ),
                 Err(ServiceError::Cancelled { .. }) => {
                     context.check()?;
                     return Err(unknown("MCP operation was cancelled; outcome is unknown"));
-                },
+                }
                 Err(_) => {
                     self.mark_unavailable();
-                    return Err(unknown("MCP returned no supported final outcome; reconciliation is required"));
-                },
-                Ok(_) => return Err(unknown("MCP returned an unsupported continuation; outcome is retained as unknown")),
+                    context.check()?;
+                    return Err(unknown(
+                        "MCP returned no supported final outcome; reconciliation is required",
+                    ));
+                }
+                Ok(_) => {
+                    context.check()?;
+                    return Err(unknown(
+                        "MCP returned an unsupported continuation; outcome is retained as unknown",
+                    ));
+                }
             };
-            self.attempts.borrow_mut().get_mut(&execution.operation).ok_or_else(|| invalid("MCP operation receipt is missing"))?.result = Some(result.clone());
+            self.attempts
+                .borrow_mut()
+                .get_mut(&execution.operation)
+                .ok_or_else(|| invalid("MCP operation receipt is missing"))?
+                .result = Some(result.clone());
+            context.check()?;
             Ok(result)
-        }.boxed_local()
+        }
+        .boxed_local()
     }
 
     fn recover<'a>(

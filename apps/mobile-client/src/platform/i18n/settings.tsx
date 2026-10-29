@@ -8,7 +8,10 @@ export function LanguageSettings() {
   const { t, preference, setPreference, persistenceAvailable } = useLocale();
   return (
     <View className="gap-2">
-      <Text accessibilityRole="header" className="text-xl font-semibold text-native-ink">
+      <Text
+        accessibilityRole="header"
+        className="font-native text-xl font-semibold text-native-ink"
+      >
         {t("language.title")}
       </Text>
       <NativeButton

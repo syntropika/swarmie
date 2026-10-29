@@ -37,7 +37,7 @@ export function Notice({ children }: { children: ReactNode }) {
 
 export function Page({ children }: { children: ReactNode }) {
   return (
-    <SafeView edges={["left", "right", "bottom"]} className="flex-1 bg-canvas">
+    <SafeView edges={["top", "left", "right", "bottom"]} className="flex-1 bg-native-canvas">
       {children}
     </SafeView>
   );

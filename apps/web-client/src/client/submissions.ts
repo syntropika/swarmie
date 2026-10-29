@@ -47,10 +47,31 @@ export function createSubmissions(
   execution: ExecutionFactory | undefined,
   lifecycle: ConversationsUiApi["lifecycle"],
   nextId: () => string,
+  capability: {
+    available: (nodeId: string) => boolean;
+    subscribe: (changed: () => void) => () => void;
+    limits: { maxTextBytes: number; attachments: boolean };
+  } | null = null,
 ) {
   const pending = new Set<string>();
   const stopBatches = new Map<string, StopBatch>();
   const failed = records.fail;
+  const limits = capability?.limits;
+  function available(nodeId: string) {
+    return capability?.available(nodeId) ?? true;
+  }
+  function submissionIssue(chat: Conversation): string | null {
+    if (limits === undefined) {
+      return null;
+    }
+    const draft = chat.draft.getSnapshot();
+    if (!limits.attachments && draft.attachments.length > 0) {
+      return "Attachments are not supported by this node. Remove them before sending.";
+    }
+    return new TextEncoder().encode(draft.text).length > limits.maxTextBytes
+      ? `This node accepts messages up to ${limits.maxTextBytes} bytes. Shorten the message before sending.`
+      : null;
+  }
 
   function setConversationNode(chat: Conversation, nodeId: string) {
     if (
@@ -75,6 +96,8 @@ export function createSubmissions(
     const draft = chat.draft.getSnapshot();
     return (
       draft.text.trim() !== "" &&
+      submissionIssue(chat) === null &&
+      available(conversationNode(chat)) &&
       !pending.has(chat.id) &&
       (chat.started || chat.node === null) &&
       nodes.getSnapshot().nodes.some((node) => node.id === conversationNode(chat)) &&
@@ -113,7 +136,7 @@ export function createSubmissions(
         throw new Error("The node session ended before submission.");
       }
       dispatched = true;
-      await api.submit(
+      const result = await api.submit(
         {
           conversationId: chat.id,
           submissionId,
@@ -126,8 +149,19 @@ export function createSubmissions(
       if (!source.isCurrent()) {
         throw new Error("The submission result belongs to an earlier node session.");
       }
+      return result;
     }
-    submit().then(accepted).catch(submissionFailed);
+    submit()
+      .then(async (result) => {
+        if (result.accepted) {
+          await accepted();
+          return;
+        }
+        // Only a typed response from the current node proves that no work was admitted.
+        dispatched = false;
+        submissionFailed(new Error(result.reason));
+      })
+      .catch(submissionFailed);
     async function accepted() {
       try {
         if (!chat.started) {
@@ -148,7 +182,14 @@ export function createSubmissions(
             : { ...current, node: destination },
         );
         stopBatches.delete(chat.id);
-        chat.execution.update((current) => ({ ...current, phase: "working", label: "Thinking…" }));
+        chat.execution.update((current) =>
+          current.phase === "completed" ||
+          current.phase === "stopped" ||
+          current.phase === "failed" ||
+          current.phase === "unknown"
+            ? current
+            : { ...current, phase: "working", label: "Thinking…" },
+        );
       } catch (error: unknown) {
         failed(error);
       } finally {
@@ -252,5 +293,31 @@ export function createSubmissions(
   function resumeQueued() {
     failed(new Error("Resuming queued messages requires a node admission service."));
   }
-  return { conversationNode, setConversationNode, canSend, send, stop, removeQueued, resumeQueued };
+  async function acknowledgeUnknown(chat: Conversation) {
+    const current = chat.execution.getSnapshot();
+    if (execution === undefined || current.phase !== "unknown" || current.canAcknowledge !== true) {
+      return;
+    }
+    const connection = await connections.open(conversationNode(chat));
+    const api = await execution(connection);
+    if (!connection.isCurrent() || api.acknowledge === undefined) {
+      throw new Error("The node cannot acknowledge this outcome.");
+    }
+    await api.acknowledge(chat.id, new AbortController().signal);
+    if (!connection.isCurrent()) {
+      throw new Error("The acknowledgement belongs to an earlier node session.");
+    }
+  }
+  return {
+    conversationNode,
+    setConversationNode,
+    canSend,
+    subscribeExecution: capability?.subscribe ?? nodes.subscribe,
+    send,
+    stop,
+    removeQueued,
+    resumeQueued,
+    acknowledgeUnknown,
+    submissionIssue,
+  };
 }

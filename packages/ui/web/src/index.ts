@@ -7,8 +7,11 @@ export { Input, type InputProps } from "./atoms/input";
 export { Icon, iconNames, type IconName, type IconProps } from "./atoms/icon";
 export { LoadingStatus, type LoadingStatusProps } from "./atoms/loading-status";
 export { BrandMark, BrandLogo, type BrandMarkProps, type BrandLogoProps } from "./brand/brand-mark";
-export { Separator, type SeparatorProps } from "./atoms/separator";
+export { ChromeSeparator, Separator, type SeparatorProps } from "./atoms/separator";
 export { cn } from "./classes";
+export { ActionMenuDialog } from "./molecules/action-menu-dialog";
+export { usePhoneLayout } from "./use-phone-layout";
+export { ActionRow } from "./molecules/action-row";
 export {
   THEME_PREFERENCE_BOOTSTRAP,
   getThemePreferenceSnapshot,
@@ -56,6 +59,7 @@ export {
 export { Link, type LinkProps } from "./atoms/link";
 export { Switch, type SwitchProps } from "./atoms/switch";
 export { Slider, type SliderProps } from "./atoms/slider";
+export { ReasoningIndicator, type ReasoningIndicatorProps } from "./atoms/reasoning-indicator";
 export {
   Modal,
   type ModalProps,
@@ -111,7 +115,11 @@ export { TagGroup, type TagGroupProps } from "./atoms/tag-group";
 export { TimeField, type TimeFieldProps } from "./atoms/time-field";
 export { Toast, type ToastProps } from "./atoms/toast";
 export { ToggleButton, type ToggleButtonProps } from "./atoms/toggle-button";
-export { ToggleButtonGroup, type ToggleButtonGroupProps } from "./atoms/toggle-button-group";
+export {
+  ToggleButtonGroup,
+  type ToggleButtonGroupProps,
+  type ToggleButtonGroupRootProps,
+} from "./atoms/toggle-button-group";
 export { Toolbar, type ToolbarProps } from "./atoms/toolbar";
 export { Typography, type TypographyProps } from "./atoms/typography";
 export {
@@ -126,7 +134,7 @@ export {
 } from "@heroui/react";
 
 export { ButtonRoot, type ButtonRootProps } from "./atoms/button";
-export { ChipRoot, ChipLabel, type ChipRootProps, type BrandColor } from "./atoms/chip";
+export { ChipRoot, ChipLabel, type ChipRootProps } from "./atoms/chip";
 export { LinkRoot, LinkIcon, type LinkRootProps } from "./atoms/link";
 
 // Expose vendor part props alongside the shared component contracts.
@@ -434,7 +442,6 @@ export type {
   ToastIndicatorProps,
   ToastProviderProps,
   ToastTitleProps,
-  ToggleButtonGroupRootProps,
   ToggleButtonGroupSeparatorProps,
   ToggleButtonRootProps,
   ToolbarRootProps,
@@ -448,6 +455,17 @@ export type {
 } from "@heroui/react";
 
 export { ChromeButton, type ChromeButtonProps } from "./atoms/chrome-button";
+export { ProviderLogo } from "./atoms/provider-logo";
+export {
+  ReasoningEffort,
+  type ReasoningEffortProps,
+  type ReasoningLevel,
+} from "./atoms/reasoning-effort";
+export {
+  ModelPicker,
+  type ModelPickerProps,
+  type ModelPickerAccount,
+} from "./elements/model-picker";
 
 export {
   PendingContent,
@@ -463,3 +481,11 @@ export {
 export { copyText } from "./clipboard";
 
 export { NavigationGroup } from "./molecules/navigation-group";
+
+export {
+  ResponsiveDialog,
+  type ResponsiveDialogProps,
+  type ResponsiveDialogDialogProps,
+} from "./molecules/responsive-dialog";
+
+export { ComposerTextArea, type ComposerTextAreaProps } from "./elements/composer-textarea";

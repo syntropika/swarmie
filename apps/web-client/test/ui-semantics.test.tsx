@@ -9,10 +9,8 @@ test("choice triggers retain the visible current value and identify their purpos
   for (const [text, label] of [
     ["No project", "Select project"],
     ["This computer", "Select execution node"],
-    ["Ask", "Permissions"],
     ["Queue", "Message delivery"],
-    ["Example model", "Select model and effort"],
-    ["Example account", "Select provider account"],
+    ["Example model · Medium", "Select provider, model and thinking"],
   ] as const) {
     const markup = renderToStaticMarkup(
       <Menu label={label} text={text} size="composerCap">
@@ -43,15 +41,15 @@ test("visual active state does not imply toggle meaning", () => {
 });
 
 test("choice lists expose the selected option separately from plain actions", () => {
-  for (const selected of ["Ask", "Full access"] as const) {
+  for (const selected of ["Low", "High"] as const) {
     const markup = renderToStaticMarkup(
       <>
         <ChoiceList
-          label="Permissions"
+          label="Thinking"
           value={selected}
           items={[
-            { id: "Ask", label: "Ask" },
-            { id: "Full access", label: "Full access" },
+            { id: "Low", label: "Low" },
+            { id: "High", label: "High" },
           ]}
           onAction={() => undefined}
         />
@@ -68,7 +66,7 @@ test("choice lists expose the selected option separately from plain actions", ()
       .transform(markup);
     expect(selectedLabels).toEqual([selected]);
     expect(markup).toContain('role="listbox"');
-    expect(markup).toContain('aria-label="Permissions"');
+    expect(markup).toContain('aria-label="Thinking"');
     expect(markup).toContain('aria-selected="false"');
     expect(markup).toContain('type="button"');
     expect(markup).not.toContain('aria-pressed="true"');

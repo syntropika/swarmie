@@ -108,7 +108,7 @@
     @apply size-5 shrink-0;
   }
   [data-aui="badge"] {
-    @apply inline-flex w-fit items-center gap-2 rounded-full bg-surface-muted px-2 py-1 text-xs;
+    @apply inline-flex w-fit items-center gap-2 rounded-control bg-surface-muted px-2 py-1 text-xs;
   }
   [data-aui="divider"] {
     @apply my-2 border-border;

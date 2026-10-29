@@ -57,6 +57,32 @@ pub struct ToolOutput {
     pub result: ToolResult,
 }
 
+pub(crate) async fn transform_tool_result(
+    hook: Option<&HookHandle<ToolOutput, ToolOutput>>,
+    context: &Context,
+    turn: u32,
+    call: &ToolCall,
+    result: ToolResult,
+) -> tembra::Result<ToolResult> {
+    let Some(hook) = hook else { return Ok(result) };
+    let output = hook
+        .run(
+            context,
+            ToolOutput {
+                turn,
+                call: call.clone(),
+                result,
+            },
+        )
+        .await?;
+    if output.turn != turn || output.call != *call {
+        return Err(crate::model::invalid(
+            "result hook changed the confirmed call or turn",
+        ));
+    }
+    Ok(output.result)
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TurnOutcome {

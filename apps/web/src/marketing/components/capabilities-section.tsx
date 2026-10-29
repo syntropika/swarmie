@@ -336,7 +336,7 @@ export function CapabilitiesSection() {
           {features.map(({ title, description, Drawing, layout }) => (
             <article
               key={title}
-              className={`min-w-0 overflow-hidden rounded-4xl bg-surface shadow-raised ${layout}`}
+              className={`min-w-0 overflow-hidden rounded-marketing-shell bg-surface shadow-raised ${layout}`}
             >
               <Drawing />
               <div className="px-6 pt-7 pb-8 sm:px-8 sm:pt-8 sm:pb-10">
@@ -351,7 +351,7 @@ export function CapabilitiesSection() {
           ))}
         </div>
 
-        <div className="mt-6 flex flex-col gap-6 rounded-4xl bg-primary-soft px-6 py-7 sm:px-8 md:flex-row md:items-center md:justify-between md:gap-12 md:px-10 md:py-9">
+        <div className="mt-6 flex flex-col gap-6 rounded-marketing-shell bg-primary-soft px-6 py-7 sm:px-8 md:flex-row md:items-center md:justify-between md:gap-12 md:px-10 md:py-9">
           <h3 className="max-w-[20ch] text-xl leading-snug font-semibold text-balance sm:text-2xl">
             {t("marketing.capabilityAdaptabilityTitle")}
           </h3>

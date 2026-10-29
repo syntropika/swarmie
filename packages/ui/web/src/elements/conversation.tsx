@@ -7,6 +7,7 @@ import { MarkdownText } from "./markdown";
 export { ImagePreview } from "../../target/assistant-elements/packages/ui/src/components/react/assistant-ui/elements/image";
 export { ThinkingIndicator } from "./thinking-indicator";
 export { ComposerPanel } from "./composer-panel";
+export { ComposerTextArea, type ComposerTextAreaProps } from "./composer-textarea";
 export { ConversationMap, type ConversationMapEntry } from "./conversation-map";
 export { MarkdownText } from "./markdown";
 export { MessageActions, type MessageActionsProps } from "./message-actions";
@@ -72,7 +73,7 @@ export function ConversationThread({
               Stop
             </Button>
           ) : (
-            <Button type="submit" disabled={!draft.trim()}>
+            <Button type="submit" isDisabled={!draft.trim()}>
               Send
             </Button>
           )}
