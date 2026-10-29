@@ -198,7 +198,7 @@ impl Git {
             ));
         }
         let (target, operation) = match request {
-            Request::Discover { path } => {
+            Request::Discover { path } | Request::Identify { path } => {
                 return self
                     .authority
                     .authorize_discovery(principal, Path::new(path));
@@ -232,6 +232,15 @@ impl Git {
                     },
                 );
             }
+            Request::Reconcile {
+                operation_id,
+                target,
+            } => (
+                target,
+                IntentOperation::Reconcile {
+                    operation_id: operation_id.clone(),
+                },
+            ),
             Request::Mutate {
                 target, operation, ..
             } => (
@@ -309,25 +318,47 @@ impl Git {
             return Err(error);
         }
         match request {
-            Request::Discover { path } => {
-                let repository = self.discover(Path::new(&path), cancellation)?;
+            Request::Reconcile {
+                operation_id,
+                target,
+            } => Ok(Response::Receipt {
+                receipt: Box::new(self.reconcile(
+                    principal,
+                    &operation_id,
+                    &target,
+                    cancellation,
+                )?),
+            }),
+            request @ (Request::Discover { .. } | Request::Identify { .. }) => {
+                let (path, identity_only) = match request {
+                    Request::Discover { path } => (path, false),
+                    Request::Identify { path } => (path, true),
+                    _ => unreachable!("discovery request"),
+                };
+                let repository = if identity_only {
+                    self.discover_identity(Path::new(&path), cancellation)?
+                } else {
+                    self.discover(Path::new(&path), cancellation)?
+                };
                 if let Some(target) = &repository {
                     self.authority.authorize(
                         principal,
                         &Intent {
                             target: target.clone(),
-                            operation: IntentOperation::Discover,
+                            operation: if identity_only {
+                                IntentOperation::Identify
+                            } else {
+                                IntentOperation::Discover
+                            },
                         },
                     )?;
                 }
                 Ok(Response::Repository { repository })
             }
             Request::Status { target, page } => {
-                let target = self.refresh(&target, cancellation)?;
-                if target.observation_error.is_some() {
-                    return Err(Error::OutputLimit);
-                }
-                let entries = crate::parse_status(&self.status_bytes(&target, cancellation)?)?;
+                let observation = self.observe_target(&target, cancellation)?;
+                let target = observation.target;
+                let entries = crate::parse_status(&observation.status)?;
                 let (entries, next_page) =
                     inventory_page(entries, page.as_ref(), &target.fingerprint)?;
                 Ok(Response::Status {
@@ -455,31 +486,31 @@ impl Git {
                 remotes: self.remotes(&self.refresh(&target, cancellation)?, cancellation)?,
             }),
             Request::Files { target, page } => {
-                let target = self.refresh(&target, cancellation)?;
+                let observation = self.observe_target(&target, cancellation)?;
+                let target = observation.target;
                 if target.bare {
                     return Ok(Response::Files {
                         paths: Vec::new(),
                         next_page: None,
                     });
                 }
-                let bytes = self.run_checked(
-                    cwd(&target),
-                    &[
-                        "ls-files",
-                        "--cached",
-                        "--others",
-                        "--exclude-standard",
-                        "-z",
-                    ]
-                    .map(str::to_owned),
-                    false,
-                    cancellation,
-                )?;
-                let mut paths = bytes
+                let mut paths = observation
+                    .index
                     .split(|byte| *byte == 0)
                     .filter(|value| !value.is_empty())
-                    .map(|value| utf8(value).map(str::to_owned))
+                    .map(|value| {
+                        utf8(value)?
+                            .split_once('\t')
+                            .map(|(_, path)| path.to_owned())
+                            .ok_or_else(|| Error::Invalid("malformed observed index entry".into()))
+                    })
                     .collect::<Result<Vec<_>>>()?;
+                paths.extend(
+                    crate::parse_status(&observation.status)?
+                        .into_iter()
+                        .filter(|entry| matches!(entry.kind, crate::EntryKind::Untracked))
+                        .map(|entry| entry.path),
+                );
                 paths.sort();
                 paths.dedup();
                 let (paths, next_page) = inventory_page(paths, page.as_ref(), &target.fingerprint)?;
@@ -571,6 +602,7 @@ impl Git {
                 })
             }
             Request::Operations { target, page } => {
+                self.verify_identity(&target, cancellation)?;
                 self.operations(principal, &target, page.as_ref())
             }
             Request::Recover { operation_id } => Ok(Response::Receipt {
@@ -670,12 +702,25 @@ impl Git {
         )?;
         self.verify(&target, cancellation)?;
         let reviewed_entries = if matches!(operation, Operation::Commit { .. }) {
-            Some(self.run_checked(
-                cwd(&target),
-                &["ls-files", "--stage", "-z"].map(str::to_owned),
-                false,
-                cancellation,
-            )?)
+            Some(
+                self.run_checked(
+                    cwd(&target),
+                    &[
+                        "diff",
+                        "--cached",
+                        "--raw",
+                        "--no-abbrev",
+                        "-z",
+                        "--no-renames",
+                        "--no-ext-diff",
+                        "--no-textconv",
+                        "--ita-invisible-in-index",
+                    ]
+                    .map(str::to_owned),
+                    false,
+                    cancellation,
+                )?,
+            )
         } else {
             None
         };
@@ -725,7 +770,7 @@ impl Git {
         if state == Outcome::Completed
             && let Some(reviewed) = reviewed_entries
         {
-            match self.committed_index(&target, &Cancellation::default()) {
+            match self.committed_changes(&target, &Cancellation::default()) {
                     Ok(actual) if actual == reviewed => {},
                     Ok(_) => message.push_str("\nThe committed tree differs from the reviewed index. The commit exists; inspect it before continuing."),
                     Err(error) => message.push_str(&format!("\nCommit exists but its reviewed tree could not be verified: {error}")),
@@ -906,7 +951,7 @@ impl Git {
         cancellation: &Cancellation,
     ) -> Result<Vec<String>> {
         let args = match operation {
-            Operation::Extension { .. } => {
+            Operation::Abandoned | Operation::Extension { .. } => {
                 return Err(Error::Invalid(
                     "extension operations require the owning service facade".into(),
                 ));
@@ -1194,7 +1239,36 @@ impl Git {
                 }
             };
             if owner == principal && repository.common_dir == target.common_dir {
-                let receipt = self.recover(principal, id)?;
+                let receipt = self.project_entry(
+                    self.journal
+                        .load(id)?
+                        .ok_or_else(|| Error::Journal("catalog admission disappeared".into()))?,
+                )?;
+                if let Err(error) = self.authority.authorize(
+                    principal,
+                    &Intent {
+                        target: target.clone(),
+                        operation: IntentOperation::CatalogEntry {
+                            operation_id: id.clone(),
+                            target: Box::new(repository.clone()),
+                            operation: receipt.operation.clone(),
+                            state: receipt.state,
+                        },
+                    },
+                ) {
+                    if !matches!(error, Error::Denied(_)) {
+                        return Err(error);
+                    }
+                    if matches!(receipt.state, Outcome::Unknown | Outcome::InProgress)
+                        && unavailable.len() < 33
+                    {
+                        unavailable.push(crate::JournalUnavailable {
+                            entry_id: format!("{:x}", Sha256::digest(id.as_bytes())),
+                            message: "An unresolved operation is hidden by the current policy. Retain its record and reconcile before another operation.".into(),
+                        });
+                    }
+                    continue;
+                }
                 let mut message = receipt.message;
                 if message.len() > 2048 {
                     let mut end = 2048;
@@ -1240,33 +1314,34 @@ impl Git {
         })
     }
 
-    fn committed_index(
+    fn committed_changes(
         &self,
         target: &RepositoryTarget,
         cancellation: &Cancellation,
     ) -> Result<Vec<u8>> {
-        let tree = self.run_checked(
-            cwd(target),
-            &["ls-tree", "--full-tree", "-r", "-z", "HEAD"].map(str::to_owned),
-            false,
-            cancellation,
-        )?;
-        let mut index = Vec::new();
-        for record in tree
-            .split(|byte| *byte == 0)
-            .filter(|record| !record.is_empty())
-        {
-            let (metadata, path) = utf8(record)?
-                .split_once('\t')
-                .ok_or_else(|| Error::Invalid("malformed committed tree".into()))?;
-            let fields = metadata.split(' ').collect::<Vec<_>>();
-            if fields.len() != 3 {
-                return Err(Error::Invalid("malformed committed tree metadata".into()));
-            }
-            index
-                .extend_from_slice(format!("{} {} 0\t{}\0", fields[0], fields[2], path).as_bytes());
+        // Compare commit-eligible deltas. Intent-to-add entries belong to the working
+        // tree and must not cause a false warning; actual hook tree changes still differ.
+        let mut args = [
+            "diff-tree",
+            "--no-commit-id",
+            "--raw",
+            "--no-abbrev",
+            "-r",
+            "-z",
+            "--no-renames",
+            "--no-ext-diff",
+            "--no-textconv",
+        ]
+        .map(str::to_owned)
+        .to_vec();
+        if let Some(head) = &target.head {
+            args.push(head.clone());
+        } else {
+            args.push("--root".into());
         }
-        Ok(index)
+        args.push("HEAD".into());
+        args.push("--".into());
+        self.run_checked(cwd(target), &args, false, cancellation)
     }
 
     fn selected_remote(
@@ -1475,6 +1550,50 @@ impl Git {
         Ok(observed)
     }
 
+    fn reconcile(
+        &self,
+        principal: &str,
+        operation_id: &str,
+        target: &RepositoryTarget,
+        cancellation: &Cancellation,
+    ) -> Result<Receipt> {
+        self.verify_identity(target, cancellation)?;
+        let recover_existing = || -> Result<Receipt> {
+            let entry = self
+                .journal
+                .load(operation_id)?
+                .ok_or_else(|| Error::Journal("admission disappeared".into()))?;
+            let (owner, original) = match &entry {
+                JournalEntry::Pending(value) => (&value.principal, &value.target),
+                JournalEntry::Settled(value) => (&value.principal, &value.target),
+            };
+            if owner != principal || original != target {
+                return Err(Error::Denied(
+                    "reconciliation belongs to another captured request".into(),
+                ));
+            }
+            self.inspect_recovery(principal, operation_id, cancellation)
+        };
+        if self.journal.load(operation_id)?.is_some() {
+            return recover_existing();
+        }
+        if cancellation.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
+        let pending = PendingOperation {
+            operation_id: operation_id.into(),
+            principal: principal.into(),
+            target: target.clone(),
+            operation: Operation::Abandoned,
+        };
+        let Some(_active) = self.admit_live(&pending)? else {
+            return recover_existing();
+        };
+        let receipt = abandoned_receipt(pending);
+        self.journal.finish(&receipt)?;
+        Ok(receipt)
+    }
+
     fn recover(&self, principal: &str, operation_id: &str) -> Result<Receipt> {
         self.validate(
             principal,
@@ -1482,21 +1601,35 @@ impl Git {
                 operation_id: operation_id.into(),
             },
         )?;
-        match self
-            .journal
-            .load(operation_id)?
-            .ok_or_else(|| Error::Invalid("unknown operation ID".into()))?
-        {
+        self.project_entry(
+            self.journal
+                .load(operation_id)?
+                .ok_or_else(|| Error::Invalid("unknown operation ID".into()))?,
+        )
+    }
+
+    fn project_entry(&self, entry: JournalEntry) -> Result<Receipt> {
+        match entry {
             JournalEntry::Settled(receipt) => Ok(receipt),
             JournalEntry::Pending(pending) => {
-                let live = self.is_active(operation_id)?;
-                Ok(Receipt { operation_id: operation_id.into(), principal: pending.principal, head: pending.target.head.clone(), target: pending.target, operation: pending.operation, result: None,
+                if matches!(pending.operation, Operation::Abandoned) {
+                    return Ok(abandoned_receipt(pending));
+                }
+                let live = self.is_active(&pending.operation_id)?;
+                Ok(Receipt { operation_id: pending.operation_id, principal: pending.principal, head: pending.target.head.clone(), target: pending.target, operation: pending.operation, result: None,
                     state: if live { Outcome::InProgress } else {Outcome::Unknown},
                     message: if live {"Operation is still running on this execution handle. Wait for its confirmed receipt; do not replay it."} else {"Operation was admitted without a confirmed receipt. Inspect repository and remote state; automatic replay is prohibited."}.into()
                 })
             }
         }
     }
+}
+
+fn abandoned_receipt(pending: PendingOperation) -> Receipt {
+    Receipt { operation_id: pending.operation_id, principal: pending.principal,
+        head: pending.target.head.clone(), target: pending.target, operation: Operation::Abandoned,
+        result: None, state: Outcome::Failed,
+        message: "No operation was admitted before reconciliation. This identifier is durably fenced; a delayed request cannot execute.".into() }
 }
 
 fn receipt_output(bytes: &[u8]) -> String {

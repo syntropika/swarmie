@@ -20,6 +20,10 @@ export function RecoveryNotice({ state }: { state: ReturnType<typeof useCheckout
           ? "is still running on this node. Wait for its outcome before another change."
           : "requires reconciliation before another change."}
       </p>
+      <p className="text-xs leading-5 text-muted">
+        Reconciliation checks an admitted operation. If this request never reached admission, it
+        permanently blocks its identifier before allowing a new action.
+      </p>
       <div>
         <Button
           size="sm"
@@ -28,7 +32,7 @@ export function RecoveryNotice({ state }: { state: ReturnType<typeof useCheckout
             state.recover().catch(state.fail);
           }}
         >
-          Check outcome
+          Reconcile outcome
         </Button>
       </div>
       {unknown ? (

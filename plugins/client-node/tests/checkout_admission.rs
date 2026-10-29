@@ -42,6 +42,8 @@ struct Gate {
     armed: AtomicBool,
     entered: AtomicBool,
     released: AtomicBool,
+    churn: std::sync::Mutex<Option<PathBuf>>,
+    status_calls: std::sync::atomic::AtomicUsize,
 }
 impl ProcessExecutor for Gate {
     fn run(
@@ -60,6 +62,15 @@ impl ProcessExecutor for Gate {
                 }
                 std::thread::sleep(Duration::from_millis(1));
             }
+        }
+        if command.args.iter().any(|arg| arg == "status")
+            && let Some(path) = self.churn.lock().unwrap().as_ref()
+        {
+            let count = self.status_calls.fetch_add(1, Ordering::SeqCst);
+            std::fs::write(
+                path.join(format!("churn-{count}.txt")),
+                "arrived during validation\n",
+            )?;
         }
         NativeProcess.run(command, cancellation)
     }
@@ -112,7 +123,7 @@ async fn response(output: &Rc<std::cell::RefCell<Vec<Value>>>, id: u64) -> Value
     }
 }
 
-async fn concurrent_first(mode: &str) {
+async fn concurrent_first(mode: &str, churn: bool) {
     let profile = tempfile::tempdir().unwrap();
     let first_root = tempfile::tempdir().unwrap();
     let second_root = tempfile::tempdir().unwrap();
@@ -132,6 +143,9 @@ async fn concurrent_first(mode: &str) {
     .unwrap();
     let first_binding = binding(&git, first_root.path());
     let second_binding = binding(&git, second_root.path());
+    if churn {
+        *gate.churn.lock().unwrap() = Some(first_root.path().into());
+    }
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
@@ -265,6 +279,13 @@ async fn concurrent_first(mode: &str) {
     assert_eq!(index[0]["phase"], "completed");
     assert_eq!(index[0]["receipts"].as_array().unwrap().len(), 1);
     assert_eq!(index[0]["receipts"][0]["id"], "first");
+    if churn {
+        assert_eq!(
+            gate.status_calls.load(Ordering::SeqCst),
+            0,
+            "identity admission and active retention must not observe content"
+        );
+    }
     server.join().unwrap();
     connection.close();
     host.close().await.unwrap();
@@ -276,8 +297,15 @@ async fn simultaneous_first_submissions_cannot_replace_a_checkout_or_steer_its_p
     tokio::task::LocalSet::new()
         .run_until(async {
             for mode in ["queue", "steer"] {
-                concurrent_first(mode).await;
+                concurrent_first(mode, false).await;
             }
         })
+        .await;
+}
+
+#[tokio::test]
+async fn content_churn_cannot_refuse_identity_only_conversation_admission() {
+    tokio::task::LocalSet::new()
+        .run_until(concurrent_first("queue", true))
         .await;
 }

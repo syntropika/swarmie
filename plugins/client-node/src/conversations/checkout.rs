@@ -35,7 +35,7 @@ pub(super) async fn validate(
     let response = tokio::task::spawn_blocking(move || {
         git.git().execute(
             &principal,
-            swarmie_git::Request::Discover { path },
+            swarmie_git::Request::Identify { path },
             &swarmie_git::Cancellation::default(),
         )
     })
@@ -115,7 +115,9 @@ fn allows(binding: Option<&ExecutionContext>, call: &ToolCall) -> tembra::Result
     }
     let binding = binding.ok_or_else(|| failure("this conversation has no captured checkout"))?;
     let value = &call.arguments;
-    if call.name.as_str() == "git_inspect" && value["kind"] == "discover" {
+    if call.name.as_str() == "git_inspect"
+        && matches!(value["kind"].as_str(), Some("discover" | "identify"))
+    {
         if value["path"].as_str() != Some(binding.path.as_str()) {
             return Err(failure("Git discovery is limited to the captured checkout"));
         }
@@ -294,7 +296,7 @@ fn sync_checkout(
         .git()
         .execute(
             principal,
-            swarmie_git::Request::Discover { path: binding.path },
+            swarmie_git::Request::Identify { path: binding.path },
             &cancellation,
         )
         .map_err(|error| error.to_string())?;

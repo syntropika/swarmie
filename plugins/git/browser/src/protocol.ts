@@ -88,7 +88,7 @@ export type ManagedMutation =
   | { kind: "archive_restore"; archive_id: string; managed_root: string; destination: string };
 export type GitRequest =
   | { kind: "capability_info" }
-  | { kind: "discover"; path: string }
+  | { kind: "discover" | "identify"; path: string }
   | { kind: "remotes"; target: RepositoryTarget }
   | { kind: "status" | "files"; target: RepositoryTarget; page?: PageCursor }
   | { kind: "diff"; target: RepositoryTarget; path: string | null; staged: boolean; mode: DiffMode }
@@ -96,6 +96,7 @@ export type GitRequest =
   | { kind: "history"; target: RepositoryTarget; limit: number }
   | { kind: "mutate"; operation_id: string; target: RepositoryTarget; operation: GitOperation }
   | { kind: "recover"; operation_id: string }
+  | { kind: "reconcile"; operation_id: string; target: RepositoryTarget }
   | { kind: "settings_get"; target: RepositoryTarget; project_id?: string }
   | { kind: "archive_list"; target: RepositoryTarget; page?: PageCursor }
   | { kind: "operations"; target: RepositoryTarget; page?: PageCursor }

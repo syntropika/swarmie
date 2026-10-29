@@ -6,6 +6,8 @@ import type { GitRequest, GitResponse } from "./protocol";
 const responses: Record<GitRequest["kind"], GitResponse["kind"]> = {
   capability_info: "capability_info",
   discover: "repository",
+  identify: "repository",
+  reconcile: "receipt",
   status: "status",
   diff: "diff",
   file: "file",

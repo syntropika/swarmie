@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorMessage, readCheckout } from "./checkout-data";
 import type { Checkout, CheckoutSnapshot } from "./checkout-data";
 import { readOperations } from "./operation-catalog";
-import { pendingKey, readPending, writePending } from "./pending";
+import { pendingKey, pendingRecovery, readPending, writePending } from "./pending";
 import type {
   GitOperation,
   GitReceipt,
@@ -83,7 +83,12 @@ export function useCheckout(connection: GitConnection | null, path: string, proj
         ) ?? [];
       const [pending] = unresolved.current;
       const operationId = readPending(key) ?? pending?.operation_id ?? null;
-      writePending(key, operationId);
+      writePending(
+        key,
+        operationId,
+        catalog?.operations.find((entry) => entry.operation_id === operationId)?.target ??
+          value?.checkout?.target,
+      );
       setPendingOperation(operationId);
       if (pending?.operation_id === operationId) {
         setReceipt(pending);
@@ -174,7 +179,7 @@ export function useCheckout(connection: GitConnection | null, path: string, proj
     setFailure(null);
     setReceipt(null);
     try {
-      writePending(key, operationId);
+      writePending(key, operationId, checkout.target);
       setPendingOperation(operationId);
       const result = await remote.request(build(operationId, checkout.target));
       if (!isCurrent()) {
@@ -233,7 +238,7 @@ export function useCheckout(connection: GitConnection | null, path: string, proj
     const sequence = epoch.current;
     setFailure(null);
     try {
-      const result = await remote.request({ kind: "recover", operation_id: pendingOperation });
+      const result = await remote.request(pendingRecovery(key, pendingOperation));
       if (!active.current || sequence !== epoch.current) {
         return;
       }

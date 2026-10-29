@@ -6,7 +6,7 @@ import { run, selectCases } from "./runner";
 const help = `Usage:
   bun run perf list [--suite quick|full] [--case <prefix>]
   bun run perf run --output <new-directory-outside-repository> [--suite quick|full] [--case <prefix>] [--samples 5] [--warmups 1] [--timeout-ms 180000] [--baseline <report.json>]
-  bun run perf compare --baseline <report.json> --current <report.json>
+  bun run perf compare --baseline <report.json> --current <report.json> [--case <prefix>]
 
 Runs use synthetic repositories only. The native worker is built in release mode.
 Each sample uses a fresh process; warmups warm filesystem/tool caches, not a retained JIT.
@@ -67,8 +67,20 @@ async function main() {
     const result = compare(
       reportValue(await Bun.file(values.baseline).json()),
       reportValue(await Bun.file(values.current).json()),
+      values.case ?? null,
     );
-    console.log(JSON.stringify(result, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          ...result,
+          case_prefix: values.case ?? null,
+          baseline: values.baseline,
+          current: values.current,
+        },
+        null,
+        2,
+      ),
+    );
     process.exitCode = result.status === "passed" ? 0 : 1;
     return;
   }

@@ -147,15 +147,26 @@ impl GitService {
             .archive_id
             .clone()
             .ok_or_else(|| Error::Journal("missing archive identity".into()))?;
-        let response = self.execute(
-            principal,
-            WireRequest::Managed(ManagedRequest::ArchiveCreate {
-                operation_id: archive_id.clone(),
-                target: target.clone(),
-                archive_id: archive_id.clone(),
-            }),
-            cancel,
-        );
+        // Identity-only admission must not demand content stability. Capture a full
+        // observation only for the actual archive, under the host's existing writer fence.
+        let response = (|| {
+            let observed = self
+                .git
+                .discover(crate::repository::cwd(target), cancel)?
+                .ok_or(Error::Stale)?;
+            if !same_checkout(&observed, target) {
+                return Err(Error::Stale);
+            }
+            self.execute(
+                principal,
+                WireRequest::Managed(ManagedRequest::ArchiveCreate {
+                    operation_id: archive_id.clone(),
+                    target: observed,
+                    archive_id: archive_id.clone(),
+                }),
+                cancel,
+            )
+        })();
         let (state, warning) = match response {
             Ok(WireResponse::Managed(ManagedResponse::Archive { .. })) => {
                 (ArchiveState::Completed, None)

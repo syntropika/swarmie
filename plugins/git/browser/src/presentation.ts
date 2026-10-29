@@ -51,7 +51,7 @@ export function createGitPresentation(
       const result = await new GitRemote(connection).request({ kind: "capability_info" });
       if (
         result.kind !== "capability_info" ||
-        result.api_version !== 2 ||
+        result.api_version !== 3 ||
         !result.execution_available ||
         gitRequestKinds.some((kind) => !result.operations.includes(kind))
       ) {

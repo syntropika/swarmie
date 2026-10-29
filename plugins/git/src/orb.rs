@@ -234,7 +234,10 @@ fn tool_request(call: &swarmie_tools::ToolCall, operation_id: &str) -> tembra::R
         "git_inspect" => {
             let request: Request = serde_json::from_value(call.arguments.clone())
                 .map_err(|error| map_error(crate::Error::Invalid(error.to_string())))?;
-            if matches!(request, Request::Mutate { .. } | Request::Recover { .. }) {
+            if matches!(
+                request,
+                Request::Mutate { .. } | Request::Recover { .. } | Request::Reconcile { .. }
+            ) {
                 return Err(map_error(crate::Error::Denied(
                     "git_inspect accepts repository reads only".into(),
                 )));
@@ -398,7 +401,7 @@ pub fn tool_definitions() -> tembra::Result<Vec<swarmie_tools::ToolDefinition>> 
     });
     let mut reads = vec![json!({
         "type": "object", "required": ["kind", "path"],
-        "properties": {"kind": {"const": "discover"}, "path": {"type": "string"}},
+        "properties": {"kind": {"enum": ["discover", "identify"]}, "path": {"type": "string"}},
         "additionalProperties": false
     })];
     for kind in ["status", "remotes", "files"] {

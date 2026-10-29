@@ -84,7 +84,7 @@ impl DirectoryGrants {
                 | ManagedRequest::CleanupCheck { .. } => Ok(()),
             },
             IntentOperation::Mutate { operation } => match operation {
-                Operation::Extension { .. } => Err(Error::Denied(
+                Operation::Abandoned | Operation::Extension { .. } => Err(Error::Denied(
                     "extension writes require their typed facade".into(),
                 )),
                 Operation::Stage { .. }
@@ -95,6 +95,9 @@ impl DirectoryGrants {
                 | Operation::Push { .. } => Ok(()),
             },
             IntentOperation::Discover
+            | IntentOperation::Identify
+            | IntentOperation::Reconcile { .. }
+            | IntentOperation::CatalogEntry { .. }
             | IntentOperation::Status
             | IntentOperation::Diff { .. }
             | IntentOperation::History { .. }

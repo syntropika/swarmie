@@ -623,7 +623,7 @@ fn capability_probe_reports_the_complete_interface_without_granting_a_repository
     let (_directory, service, _) = setup();
     let response = request(&service, ManagedRequest::CapabilityInfo);
     assert!(
-        matches!(response,WireResponse::Managed(ManagedResponse::CapabilityInfo{api_version:2,execution_available:true,operations}) if operations.contains(&"capability_info".into()) && operations.contains(&"operations".into()))
+        matches!(response,WireResponse::Managed(ManagedResponse::CapabilityInfo{api_version:3,execution_available:true,operations}) if operations.contains(&"capability_info".into()) && operations.contains(&"operations".into()))
     );
     assert!(
         service
@@ -719,4 +719,123 @@ fn retained_commit_records_keep_their_original_hook_behavior() {
     settings.as_object_mut().unwrap().remove("run_commit_hooks");
     let settings: GitSettings = serde_json::from_value(settings).unwrap();
     assert!(!settings.run_commit_hooks);
+}
+
+#[test]
+fn a_reconciled_id_cannot_later_change_settings_or_create_an_archive() {
+    let (_directory, service, target) = setup();
+    for id in ["late-settings", "late-archive"] {
+        let response = service
+            .execute(
+                "owner",
+                WireRequest::Core(Request::Reconcile {
+                    operation_id: id.into(),
+                    target: target.clone(),
+                }),
+                &Cancellation::default(),
+            )
+            .unwrap();
+        assert!(
+            matches!(response, WireResponse::Core(response) if matches!(&*response, Response::Receipt { receipt } if receipt.state == swarmie_git::Outcome::Failed))
+        );
+    }
+    let settings = GitSettings {
+        run_commit_hooks: true,
+        ..GitSettings::default()
+    };
+    assert!(
+        service
+            .execute(
+                "owner",
+                WireRequest::Managed(ManagedRequest::SettingsSet {
+                    operation_id: "late-settings".into(),
+                    target: target.clone(),
+                    project_id: None,
+                    settings
+                }),
+                &Cancellation::default()
+            )
+            .is_err()
+    );
+    assert!(
+        service
+            .execute(
+                "owner",
+                WireRequest::Managed(ManagedRequest::ArchiveCreate {
+                    operation_id: "late-archive".into(),
+                    target: target.clone(),
+                    archive_id: "not-created".into()
+                }),
+                &Cancellation::default()
+            )
+            .is_err()
+    );
+    let response = request(
+        &service,
+        ManagedRequest::SettingsGet {
+            target: target.clone(),
+            project_id: None,
+        },
+    );
+    assert!(
+        matches!(response, WireResponse::Managed(ManagedResponse::Settings { settings, .. }) if !settings.run_commit_hooks)
+    );
+    let response = request(&service, ManagedRequest::ArchiveList { target, page: None });
+    assert!(
+        matches!(response, WireResponse::Managed(ManagedResponse::Archives { archives, .. }) if archives.is_empty())
+    );
+}
+
+#[test]
+fn identity_only_retention_observes_content_only_when_capture_is_required() {
+    let (_directory, service, target) = setup();
+    let Response::Repository {
+        repository: Some(identity),
+    } = service
+        .git()
+        .execute(
+            "owner",
+            Request::Identify {
+                path: target.root.clone().unwrap(),
+            },
+            &Cancellation::default(),
+        )
+        .unwrap()
+    else {
+        panic!("identity")
+    };
+    assert!(identity.fingerprint.is_empty());
+    let hold = service
+        .set_conversation_hold(
+            "owner",
+            &identity,
+            swarmie_git::ConversationHoldUpdate {
+                conversation_id: "identity-hold".into(),
+                pinned: false,
+                archived: false,
+                active: true,
+            },
+            &Cancellation::default(),
+        )
+        .unwrap();
+    assert!(hold.archive_state.is_none());
+    let archived = service
+        .set_conversation_hold(
+            "owner",
+            &identity,
+            swarmie_git::ConversationHoldUpdate {
+                conversation_id: "identity-hold".into(),
+                pinned: false,
+                archived: true,
+                active: false,
+            },
+            &Cancellation::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        archived.archive_state,
+        Some(swarmie_git::ArchiveState::Completed),
+        "{:?}",
+        archived.warning
+    );
 }

@@ -84,7 +84,7 @@ async function fixture(response: () => unknown) {
 }
 const complete = () => ({
   kind: "capability_info",
-  api_version: 2,
+  api_version: 3,
   execution_available: true,
   operations: gitRequestKinds,
 });

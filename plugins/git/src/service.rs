@@ -264,11 +264,13 @@ impl GitService {
                 )
                 .is_ok();
             return Ok(WireResponse::Managed(ManagedResponse::CapabilityInfo {
-                api_version: 2,
+                api_version: 3,
                 execution_available,
                 operations: [
                     "capability_info",
                     "discover",
+                    "identify",
+                    "reconcile",
                     "status",
                     "diff",
                     "history",

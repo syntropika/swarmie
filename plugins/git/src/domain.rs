@@ -31,6 +31,15 @@ pub struct PageCursor {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Request {
+    /// Read checkout identity without observing contents. Empty fingerprints cannot admit writes.
+    Identify {
+        path: String,
+    },
+    /// Recover an existing admission, or durably fence this ID before any delayed admission.
+    Reconcile {
+        operation_id: String,
+        target: RepositoryTarget,
+    },
     Discover {
         path: String,
     },
@@ -114,6 +123,8 @@ pub enum Response {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Operation {
+    /// A durable admission fence. This value is never executable.
+    Abandoned,
     /// Owner-defined facade operations are admitted through execute_extension only.
     Extension {
         name: String,
@@ -215,6 +226,17 @@ pub struct Intent {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum IntentOperation {
+    Identify,
+    Reconcile {
+        operation_id: String,
+    },
+    /// The current checkout is verified before historical metadata is projected.
+    CatalogEntry {
+        operation_id: String,
+        target: Box<RepositoryTarget>,
+        operation: Operation,
+        state: Outcome,
+    },
     Discover,
     Status,
     Diff {

@@ -192,3 +192,48 @@ async function rejected(pending: Promise<unknown>) {
     return error instanceof Error ? error.message : String(error);
   }
 }
+
+test("a reference acquisition failure retains a captured request that can be fenced after reconnect", async () => {
+  const { pendingKey, pendingRecovery, readPending, writePending } = await import("../src/pending");
+  const failedConnection: GitConnection = {
+    nodeId: "node-a",
+    principal: "alice",
+    generation: 1,
+    isCurrent: () => true,
+    get: async () => {
+      throw new Error("worker unavailable before dispatch");
+    },
+  };
+  const key = pendingKey(failedConnection, "/reference-failure");
+  writePending(key, "never-admitted", target);
+  const failed = new GitRemote(failedConnection);
+  expect(
+    await rejected(
+      failed.request({
+        kind: "mutate",
+        operation_id: "never-admitted",
+        target,
+        operation: { kind: "stage", paths: ["file.txt"] },
+      }),
+    ),
+  ).toContain("before dispatch");
+  expect(readPending(key)).toBe("never-admitted");
+  const reconnected = await fixture(() => ({
+    kind: "receipt",
+    receipt: {
+      operation_id: "never-admitted",
+      principal: "alice",
+      target,
+      state: "failed",
+      message: "Durable fence confirmed",
+      head: target.head,
+    },
+  }));
+  const reconciliation = pendingRecovery(key, "never-admitted");
+  expect(reconciliation.kind).toBe("reconcile");
+  const result = await reconnected.remote.request(reconciliation);
+  expect(result.kind === "receipt" && result.receipt.state).toBe("failed");
+  // The view clears its marker only after this validated terminal reply.
+  writePending(key, null);
+  expect(readPending(key)).toBeNull();
+});

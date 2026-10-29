@@ -55,7 +55,7 @@ function summarize(entry: PerformanceCase, samples: Sample[]): CaseResult {
 // Stable work budgets prevent silent increases without comparing unlike machines.
 export function budgetFindings(report: PerformanceReport): string[] {
   const limits = {
-    "git.inventory": { native_commands: report.suite === "full" ? 719 : 167 },
+    "git.inventory": { native_commands: report.suite === "full" ? 660 : 154 },
     "git.archive": { native_commands: report.suite === "full" ? 1914 : 339 },
     "git.history": { native_commands: 12 },
     "ui.diff.unified": { rendered_rows: 5002, html_bytes: 1_604_516 },
@@ -166,7 +166,7 @@ export async function run(options: RunOptions): Promise<boolean> {
     );
     let comparisonPassed = true;
     if (baseline !== null) {
-      const result = compare(baseline, report);
+      const result = compare(baseline, report, options.filter);
       await Bun.write(
         path.join(output, "comparison.json"),
         JSON.stringify({ ...result, baseline: baseline.source, current: report.source }, null, 2),

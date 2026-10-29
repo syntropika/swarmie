@@ -238,7 +238,22 @@ function metricFindings(
   return findings;
 }
 
-export function compare(baseline: PerformanceReport, current: PerformanceReport): Comparison {
+export function compare(
+  baseline: PerformanceReport,
+  current: PerformanceReport,
+  filter: string | null = null,
+): Comparison {
+  if (filter !== null) {
+    const before = baseline.cases.filter((entry) => entry.id.startsWith(filter));
+    const after = current.cases.filter((entry) => entry.id.startsWith(filter));
+    if (before.length === 0 || after.length === 0) {
+      return {
+        status: "incomparable",
+        findings: ["The selected case prefix is absent from one report."],
+      };
+    }
+    return compare({ ...baseline, cases: before }, { ...current, cases: after });
+  }
   const shape = (report: PerformanceReport) =>
     JSON.stringify(
       report.cases

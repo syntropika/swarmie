@@ -9,7 +9,7 @@ export const admitGitContext: SubmissionAdmission = async ({ context, connection
   }
   signal.throwIfAborted();
   const response = await new GitRemote(connection).request({
-    kind: "discover",
+    kind: "identify",
     path: context.path,
   });
   signal.throwIfAborted();

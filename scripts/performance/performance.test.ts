@@ -143,7 +143,7 @@ describe("performance comparison", () => {
       throw new Error("Missing fixture case.");
     }
     entry.metrics.native_commands = statistics([201, 201, 201, 201, 201]);
-    expect(budgetFindings(current).join(" ")).toContain("exceeds 167");
+    expect(budgetFindings(current).join(" ")).toContain("exceeds 154");
   });
 });
 
@@ -197,4 +197,26 @@ test("loads an existing baseline before creating output and never self-baselines
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
+});
+
+test("an explicit comparison prefix isolates cases without hiding missing coverage", () => {
+  const before = fixture();
+  const after = fixture();
+  const [original] = before.cases;
+  if (original === undefined) {
+    throw new Error("Missing fixture.");
+  }
+  const noisy = {
+    ...original,
+    id: "ui.diff",
+    metrics: { elapsed_ms: statistics([1, 3, 20, 30, 100]) },
+  };
+  before.cases.push(noisy);
+  after.cases.push(structuredClone(noisy));
+  expect(compare(before, after).status).toBe("unstable");
+  expect(compare(before, after, "git.").status).toBe("passed");
+  expect(compare(before, after, "missing").status).toBe("incomparable");
+  after.cases.push({ ...original, id: "git.extra" });
+  expect(compare(before, after, "git.").status).toBe("incomparable");
+  expect(before.cases.length).toBe(2);
 });

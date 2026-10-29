@@ -95,7 +95,8 @@ impl DesktopNode {
             .and_then(|value| uuid::Uuid::parse_str(value).ok())
             .filter(|value| !value.is_nil())
             .ok_or("native OAuth host identity is invalid")?;
-        let git_grants = cfg!(unix).then(|| Arc::new(crate::git::DirectoryGrants::default()));
+        let git_grants =
+            cfg!(any(unix, windows)).then(|| Arc::new(crate::git::DirectoryGrants::default()));
         let git = git_grants
             .as_ref()
             .map(|grants| {

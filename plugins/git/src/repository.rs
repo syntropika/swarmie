@@ -10,6 +10,20 @@ use crate::{Cancellation, EntryKind, Error, Git, RepositoryTarget, Result, Statu
 
 pub(crate) const TEXT_LIMIT: usize = 16 * 1024;
 
+/// One owned, verified read. No process-wide cache or retained observation registry.
+pub(crate) struct RepositoryObservation {
+    pub target: RepositoryTarget,
+    pub index: Vec<u8>,
+    pub status: Vec<u8>,
+}
+
+struct ContentObservation {
+    fingerprint: String,
+    index_fingerprint: String,
+    index: Vec<u8>,
+    status: Vec<u8>,
+}
+
 pub(crate) fn open_regular_file(path: &Path) -> Result<fs::File> {
     let mut options = fs::OpenOptions::new();
     options.read(true);
@@ -203,23 +217,60 @@ impl Git {
         path: &Path,
         cancellation: &Cancellation,
     ) -> Result<Option<RepositoryTarget>> {
+        Ok(self.observe(path, cancellation)?.map(|value| value.target))
+    }
+
+    fn observe(
+        &self,
+        path: &Path,
+        cancellation: &Cancellation,
+    ) -> Result<Option<RepositoryObservation>> {
         let Some(mut target) = self.discover_identity(path, cancellation)? else {
             return Ok(None);
         };
+        let mut index = Vec::new();
+        let mut status = Vec::new();
         match self.fingerprint(&target, cancellation) {
-            Ok((fingerprint, index_fingerprint)) => {
-                target.fingerprint = fingerprint;
-                target.index_fingerprint = index_fingerprint;
+            Ok(content) => {
+                target.fingerprint = content.fingerprint;
+                target.index_fingerprint = content.index_fingerprint;
+                index = content.index;
+                status = content.status;
             }
             Err(Error::OutputLimit) => {
-                target.observation_error = Some(crate::ObservationError::OutputLimit);
+                target.observation_error = Some(crate::ObservationError::OutputLimit)
             }
             Err(error) => return Err(error),
         }
-        Ok(Some(target))
+        Ok(Some(RepositoryObservation {
+            target,
+            index,
+            status,
+        }))
     }
 
-    fn discover_identity(
+    pub(crate) fn observe_target(
+        &self,
+        target: &RepositoryTarget,
+        cancellation: &Cancellation,
+    ) -> Result<RepositoryObservation> {
+        let observed = self
+            .observe(cwd(target), cancellation)?
+            .ok_or(Error::Stale)?;
+        if observed.target.root != target.root
+            || observed.target.git_dir != target.git_dir
+            || observed.target.common_dir != target.common_dir
+            || observed.target.bare != target.bare
+        {
+            return Err(Error::Stale);
+        }
+        if observed.target.observation_error.is_some() {
+            return Err(Error::OutputLimit);
+        }
+        Ok(observed)
+    }
+
+    pub(crate) fn discover_identity(
         &self,
         path: &Path,
         cancellation: &Cancellation,
@@ -394,7 +445,7 @@ impl Git {
         &self,
         target: &RepositoryTarget,
         cancellation: &Cancellation,
-    ) -> Result<(String, String)> {
+    ) -> Result<ContentObservation> {
         let mut hash = Sha256::new();
         hash.update(target.git_dir.as_bytes());
         hash.update(target.common_dir.as_bytes());
@@ -462,7 +513,12 @@ impl Git {
         if index != second_index || status != self.status_bytes(target, cancellation)? {
             return Err(Error::Stale);
         }
-        Ok((format!("{:x}", hash.finalize()), index_fingerprint))
+        Ok(ContentObservation {
+            fingerprint: format!("{:x}", hash.finalize()),
+            index_fingerprint,
+            index,
+            status,
+        })
     }
 }
 
