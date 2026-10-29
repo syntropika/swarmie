@@ -98,7 +98,10 @@ impl DesktopNode {
         let git_grants = cfg!(unix).then(|| Arc::new(crate::git::DirectoryGrants::default()));
         let git = git_grants
             .as_ref()
-            .map(|grants| crate::git::service(&state, grants.clone()))
+            .map(|grants| {
+                crate::git::service(&state, grants.clone())
+                    .map(|service| (service, grants.clone() as Arc<dyn swarmie_git::Authority>))
+            })
             .transpose()?;
         let (sender, receiver) = mpsc::sync_channel(64);
         let (ready, started) = mpsc::sync_channel(1);
@@ -206,6 +209,8 @@ impl Drop for DesktopNode {
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
+        // Explicit release also closes a short fork/exec inheritance window in other workers.
+        let _ = self._lock.unlock();
     }
 }
 
@@ -216,22 +221,24 @@ async fn serve(
     id: String,
     oauth_host: uuid::Uuid,
     directory_root: Option<PathBuf>,
-    git: Option<swarmie_git::GitService>,
+    git: Option<(swarmie_git::GitService, Arc<dyn swarmie_git::Authority>)>,
 ) {
     let host = Host::new(Executor);
+    let (git, agent_git_authority) = match git {
+        Some((service, authority)) => (Some(service), Some(authority)),
+        None => (None, None),
+    };
     let configuration = NodeId::new(id).map(|node| swarmie_client_node::NodeConfiguration {
         state,
         node,
         oauth_host,
         principal: PRINCIPAL.into(),
         directory_root,
+        git,
+        agent_git_authority,
     });
-    let installed = configuration
-        .and_then(|configuration| swarmie_client_node::install(&host, configuration))
-        .and_then(|()| match git {
-            Some(service) => host.install(vec![swarmie_git::orb(service)]),
-            None => Ok(()),
-        });
+    let installed =
+        configuration.and_then(|configuration| swarmie_client_node::install(&host, configuration));
     if let Err(error) = installed {
         let _ = host.close().await;
         let _ = ready.send(Err(error.to_string()));

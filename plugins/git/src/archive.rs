@@ -2,33 +2,63 @@
 //! until an embedding host qualifies external-writer quiescence and removal.
 
 use crate::{
-    Cancellation, Error, Git, Intent, RepositoryTarget, Result, WorktreeRequest,
+    Cancellation, Error, Git, Intent, IntentOperation, RepositoryTarget, Result, WorktreeRequest,
     worktrees::{
-        FileEntry, IndexEntry, checkout_root, logical_index, path_string, read_file, strings,
+        DirectoryEntry, FileEntry, IndexEntry, checkout_root, create_private_directory,
+        logical_index, path_string, preservation_mode, read_file, restore_mode, strings,
         validate_destination, write_file,
     },
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    fs::{self, OpenOptions},
-    io::Write,
+    collections::BTreeMap,
+    fs,
+    io::{Read, Write},
     path::{Path, PathBuf},
 };
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct PreservedIndex {
     entry: IndexEntry,
-    bytes: Vec<u8>,
+    blob: String,
+    size: usize,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct ContentManifest {
     head: String,
+    root_mode: u32,
     index: Vec<PreservedIndex>,
-    files: Vec<FileEntry>,
-    directories: Vec<String>,
+    files: Vec<PreservedFile>,
+    directories: Vec<DirectoryEntry>,
 }
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+struct PreservedFile {
+    path: String,
+    blob: String,
+    size: usize,
+    mode: u32,
+    symlink: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ArchiveUnavailable {
+    pub entry_id: String,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ArchiveListing {
+    pub archives: Vec<ArchiveReceipt>,
+    pub unavailable: Vec<ArchiveUnavailable>,
+}
+
+const MAX_CONTENT_BYTES: usize = 256 * 1024 * 1024;
+const MAX_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_BUNDLE_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_ENTRIES: usize = 10_000;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct ArchiveManifest {
@@ -106,23 +136,36 @@ impl ArchiveDirectory {
         target: &RepositoryTarget,
         cancel: &Cancellation,
     ) -> Result<ArchiveReceipt> {
-        git.authority.authorize(
-            principal,
-            &Intent {
-                target: target.clone(),
-                operation: "archive_protected_content".into(),
-            },
-        )?;
-        git.verify(target, cancel)?;
-        let root = fs::canonicalize(checkout_root(target)?)?;
-        if self.directory.starts_with(&root) {
-            return Err(Error::Invalid(
-                "archive storage must be outside the source checkout".into(),
-            ));
-        }
-        let content = capture_content(git, &root, cancel)?;
-        let directory = self.location(archive_id)?;
-        fs::create_dir(&directory)?;
+        let (root, directory) = (|| -> Result<_> {
+            git.authority.authorize(
+                principal,
+                &Intent {
+                    target: target.clone(),
+                    operation: IntentOperation::ArchiveCapture {
+                        archive_id: archive_id.into(),
+                    },
+                },
+            )?;
+            git.verify(target, cancel)?;
+            if target.head.is_none() {
+                return Err(Error::Invalid("archive requires a committed HEAD".into()));
+            }
+            let root = fs::canonicalize(checkout_root(target)?)?;
+            if self.directory.starts_with(&root) {
+                return Err(Error::Invalid(
+                    "archive storage must be outside the source checkout".into(),
+                ));
+            }
+            let directory = self.location(archive_id)?;
+            if directory.exists() {
+                return Err(Error::Invalid("archive ID already exists".into()));
+            }
+            Ok((root, directory))
+        })()
+        .map_err(|error| Error::NotStarted(error.to_string()))?;
+        create_private_directory(&directory)?;
+        create_private_directory(&directory.join("blobs"))?;
+        let content = capture_content(git, &root, cancel, Some(&directory))?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -141,21 +184,26 @@ impl ArchiveDirectory {
             false,
             cancel,
         )?;
-        if content != capture_content(git, &root, cancel)? {
+        if content != capture_content(git, &root, cancel, None)? {
             return Err(Error::Stale);
         }
         git.verify(target, cancel)?;
         fs::File::open(&bundle)?.sync_all()?;
         let manifest = ArchiveManifest {
-            version: 1,
+            version: 2,
             principal: principal.into(),
             archive_id: archive_id.into(),
             target: target.clone(),
             content,
-            bundle_sha256: format!("{:x}", Sha256::digest(fs::read(&bundle)?)),
+            bundle_sha256: hash_file(&bundle, MAX_BUNDLE_BYTES)?,
         };
         let manifest_bytes =
             serde_json::to_vec(&manifest).map_err(|error| Error::Invalid(error.to_string()))?;
+        if manifest_bytes.len() as u64 > MAX_MANIFEST_BYTES {
+            return Err(Error::Invalid(
+                "archive manifest exceeds its size limit".into(),
+            ));
+        }
         durable_write(&directory.join("manifest.json"), &manifest_bytes)?;
         durable_write(
             &directory.join("manifest.sha256"),
@@ -179,22 +227,37 @@ impl ArchiveDirectory {
         let archive_id = request.archive_id.as_str();
         let managed_root = request.managed_root.as_path();
         let destination = request.destination.as_path();
-        git.authority.authorize(principal, &Intent { target: repository.clone(), operation: format!("restore_archive:{}", serde_json::json!({"archive_id":archive_id,"managed_root":managed_root,"destination":destination})) })?;
-        git.verify(repository, cancel)?;
-        validate_destination(managed_root, destination)?;
-        let directory = self.location(archive_id)?;
-        let manifest = self.load_owned(archive_id, principal)?;
-        let bundle = directory.join("commits.bundle");
-        if format!("{:x}", Sha256::digest(fs::read(&bundle)?)) != manifest.bundle_sha256 {
-            return Err(Error::Invalid("archive bundle integrity mismatch".into()));
-        }
-        let root = checkout_root(repository)?;
-        git.run_checked(
-            root,
-            &strings(&["bundle", "verify", &path_string(&bundle)?]),
-            false,
-            cancel,
-        )?;
+        let (directory, manifest, bundle, root) = (|| -> Result<_> {
+            git.authority.authorize(
+                principal,
+                &Intent {
+                    target: repository.clone(),
+                    operation: IntentOperation::ArchiveRestore {
+                        archive_id: archive_id.into(),
+                        managed_root: managed_root.into(),
+                        destination: destination.into(),
+                    },
+                },
+            )?;
+            git.verify(repository, cancel)?;
+            validate_destination(managed_root, destination)?;
+            let directory = self.location(archive_id)?;
+            let manifest = self.load_owned(archive_id, principal)?;
+            verify_content_blobs(&directory, &manifest.content)?;
+            let bundle = directory.join("commits.bundle");
+            if hash_file(&bundle, MAX_BUNDLE_BYTES)? != manifest.bundle_sha256 {
+                return Err(Error::Invalid("archive bundle integrity mismatch".into()));
+            }
+            let root = checkout_root(repository)?;
+            git.run_checked(
+                root,
+                &strings(&["bundle", "verify", &path_string(&bundle)?]),
+                false,
+                cancel,
+            )?;
+            Ok((directory, manifest, bundle, root))
+        })()
+        .map_err(|error| Error::NotStarted(error.to_string()))?;
         git.run_checked(
             root,
             &strings(&[
@@ -208,17 +271,23 @@ impl ArchiveDirectory {
             cancel,
         )?;
         let refreshed = git.discover(root, cancel)?.ok_or(Error::Stale)?;
-        let created = git.create_worktree(
-            principal,
-            &refreshed,
-            &WorktreeRequest {
-                managed_root: managed_root.into(),
-                destination: destination.into(),
-                commit: manifest.content.head.clone(),
-                include_paths: Vec::new(),
-            },
-            cancel,
-        )?;
+        let created = git
+            .create_worktree(
+                principal,
+                &refreshed,
+                &WorktreeRequest {
+                    managed_root: managed_root.into(),
+                    destination: destination.into(),
+                    commit: manifest.content.head.clone(),
+                    include_paths: Vec::new(),
+                },
+                cancel,
+            )
+            .map_err(|error| {
+                Error::Invalid(format!(
+                    "archive objects were imported; checkout preparation failed: {error}"
+                ))
+            })?;
         if let Some(error) = created.preparation_error {
             return Err(Error::Invalid(format!(
                 "restore checkout retained after materialization failed: {error}"
@@ -226,7 +295,7 @@ impl ArchiveDirectory {
         }
         // Remove only tracked baseline files absent from the exact archived inventory.
         // Refuse unexpected files: never recursively delete an unreviewed directory.
-        let baseline = capture_content(git, destination, cancel)?;
+        let baseline = capture_content(git, destination, cancel, None)?;
         for file in &baseline.files {
             if !manifest
                 .content
@@ -247,11 +316,16 @@ impl ArchiveDirectory {
             }
         }
         let mut baseline_directories = baseline.directories.clone();
-        baseline_directories.sort_by_key(|path| std::cmp::Reverse(path.len()));
+        baseline_directories.sort_by_key(|entry| std::cmp::Reverse(entry.path.len()));
         for directory in baseline_directories {
-            if !manifest.content.directories.contains(&directory) {
+            if !manifest
+                .content
+                .directories
+                .iter()
+                .any(|entry| entry.path == directory.path)
+            {
                 // remove_dir refuses nonempty directories; there is no recursive fallback.
-                fs::remove_dir(destination.join(directory))?;
+                fs::remove_dir(destination.join(&directory.path))?;
             }
         }
         for entry in &baseline.index {
@@ -264,7 +338,10 @@ impl ArchiveDirectory {
         }
         for (number, preserved) in manifest.content.index.iter().enumerate() {
             let temporary = directory.join(format!("blob-{number}.import"));
-            durable_write(&temporary, &preserved.bytes)?;
+            durable_write(
+                &temporary,
+                &load_blob(&directory, &preserved.blob, preserved.size)?,
+            )?;
             let oid = git.run_checked(
                 destination,
                 &strings(&[
@@ -297,14 +374,26 @@ impl ArchiveDirectory {
             )?;
         }
         for directory in &manifest.content.directories {
-            crate::worktrees::validate_relative(Path::new(directory))?;
-            fs::create_dir_all(destination.join(directory))?;
+            crate::worktrees::validate_relative(Path::new(&directory.path))?;
+            create_private_directory(&destination.join(&directory.path))?;
         }
         // Files are sorted so a symlink can never become an ancestor of a later file.
         for file in &manifest.content.files {
-            write_file(destination, file)?;
+            write_file(
+                destination,
+                &FileEntry {
+                    path: file.path.clone(),
+                    bytes: load_blob(&directory, &file.blob, file.size)?,
+                    mode: file.mode,
+                    symlink: file.symlink,
+                },
+            )?;
         }
-        if capture_content(git, destination, cancel)? != manifest.content {
+        for entry in manifest.content.directories.iter().rev() {
+            restore_mode(&destination.join(&entry.path), entry.mode)?;
+        }
+        restore_mode(destination, manifest.content.root_mode)?;
+        if capture_content(git, destination, cancel, None)? != manifest.content {
             return Err(Error::Invalid(
                 "restoration verification failed; destination retained for inspection".into(),
             ));
@@ -352,31 +441,44 @@ impl ArchiveDirectory {
             principal,
             &Intent {
                 target: target.clone(),
-                operation: "inspect_cleanup".into(),
+                operation: IntentOperation::CleanupCheck {
+                    archive_id: archive_id.into(),
+                    pinned: false,
+                    active_writers: 0,
+                },
             },
         )?;
         let manifest = self.load_owned(archive_id, principal)?;
         let changed = target.common_dir != manifest.target.common_dir
             || target.git_dir != manifest.target.git_dir
-            || capture_content(git, checkout_root(target)?, cancel)? != manifest.content;
+            || capture_content(git, checkout_root(target)?, cancel, None)? != manifest.content;
         Ok(CleanupEligibility { eligible: false, changed_since_archive: changed, reason: if changed { "Checkout changed since capture; retain it and create a new archive." } else { "The host has not qualified external-writer quiescence and safe physical removal; checkout retained." }.into() })
     }
 
     fn load(&self, archive_id: &str) -> Result<ArchiveManifest> {
         let location = self.location(archive_id)?;
-        let bytes = fs::read(location.join("manifest.json"))?;
+        let bytes = bounded_read(&location.join("manifest.json"), MAX_MANIFEST_BYTES)?;
         if format!("{:x}", Sha256::digest(&bytes))
-            != fs::read_to_string(location.join("manifest.sha256"))?
+            != String::from_utf8(bounded_read(&location.join("manifest.sha256"), 64)?)
+                .map_err(|_| Error::Invalid("invalid archive checksum".into()))?
         {
             return Err(Error::Invalid("archive manifest integrity mismatch".into()));
         }
-        let manifest: ArchiveManifest =
+        let value: serde_json::Value =
             serde_json::from_slice(&bytes).map_err(|error| Error::Invalid(error.to_string()))?;
-        if manifest.version != 1 {
+        if value.get("version").and_then(serde_json::Value::as_u64) != Some(2) {
+            return Err(Error::Invalid(
+                "unsupported archive manifest version; original archive retained".into(),
+            ));
+        }
+        let manifest: ArchiveManifest =
+            serde_json::from_value(value).map_err(|error| Error::Invalid(error.to_string()))?;
+        if manifest.version != 2 {
             return Err(Error::Invalid(
                 "unsupported archive manifest version".into(),
             ));
         }
+        validate_manifest(&manifest)?;
         Ok(manifest)
     }
 
@@ -394,35 +496,59 @@ impl ArchiveDirectory {
         principal: &str,
         target: &RepositoryTarget,
         cancel: &Cancellation,
-    ) -> Result<Vec<ArchiveReceipt>> {
+    ) -> Result<ArchiveListing> {
         git.authority.authorize(
             principal,
             &Intent {
                 target: target.clone(),
-                operation: "archive_read".into(),
+                operation: IntentOperation::ArchiveList,
             },
         )?;
         git.verify(target, cancel)?;
-        let mut receipts = Vec::new();
+        let mut archives = Vec::new();
+        let mut unavailable = Vec::new();
         for entry in fs::read_dir(&self.directory)? {
-            let path = entry?.path();
-            if !path.is_dir() || !path.join("manifest.json").is_file() {
+            if cancel.is_cancelled() {
+                return Err(Error::Cancelled);
+            }
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
                 continue;
             }
-            let manifest: ArchiveManifest =
-                serde_json::from_slice(&fs::read(path.join("manifest.json"))?)
+            let path = entry.path();
+            let entry_id = entry.file_name().to_string_lossy().into_owned();
+            let result = (|| -> Result<Option<ArchiveReceipt>> {
+                let bytes = bounded_read(&path.join("manifest.json"), MAX_MANIFEST_BYTES)?;
+                let manifest: ArchiveManifest = serde_json::from_slice(&bytes)
                     .map_err(|error| Error::Invalid(error.to_string()))?;
-            if manifest.principal == principal && manifest.target.common_dir == target.common_dir {
+                // Do not expose another principal's recognizable archive metadata.
+                if manifest.principal != principal
+                    || manifest.target.common_dir != target.common_dir
+                {
+                    return Ok(None);
+                }
                 let verified = self.load_owned(&manifest.archive_id, principal)?;
-                receipts.push(receipt(
+                if self.location(&manifest.archive_id)? != path {
+                    return Err(Error::Invalid("archive directory identity mismatch".into()));
+                }
+                Ok(Some(receipt(
                     &verified.archive_id,
                     &verified,
                     has_restoration_proof(&path, &verified)?,
-                ));
+                )))
+            })();
+            match result {
+                Ok(Some(receipt)) => archives.push(receipt),
+                Ok(None) => {},
+                Err(_) => unavailable.push(ArchiveUnavailable { entry_id, message: "Archive unavailable: metadata is incomplete, damaged, unsupported, or exceeds this profile's limits. Original files were retained.".into() }),
             }
         }
-        receipts.sort_by(|left, right| left.archive_id.cmp(&right.archive_id));
-        Ok(receipts)
+        archives.sort_by(|left, right| left.archive_id.cmp(&right.archive_id));
+        unavailable.sort_by(|left, right| left.entry_id.cmp(&right.entry_id));
+        Ok(ArchiveListing {
+            archives,
+            unavailable,
+        })
     }
 }
 
@@ -434,7 +560,10 @@ fn has_restoration_proof(directory: &Path, manifest: &ArchiveManifest) -> Result
             name.starts_with("verified-restoration-") && name.ends_with(".json")
         }) && entry.file_type()?.is_file()
         {
-            let bytes = fs::read(entry.path())?;
+            let bytes = match bounded_read(&entry.path(), 64 * 1024) {
+                Ok(bytes) => bytes,
+                Err(_) => continue,
+            };
             // A crash can leave an incomplete proof file. Its existence alone does
             // not establish a confirmed restoration.
             if let Ok(proof) = serde_json::from_slice::<ArchiveReceipt>(&bytes)
@@ -466,40 +595,70 @@ fn receipt(id: &str, manifest: &ArchiveManifest, verified: bool) -> ArchiveRecei
 }
 
 fn durable_write(path: &Path, bytes: &[u8]) -> Result<()> {
-    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| Error::Invalid("archive file requires a parent".into()))?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    // NamedTempFile creates Unix files as 0600 before any content is written.
+    temporary.write_all(bytes)?;
+    temporary.as_file().sync_all()?;
+    temporary
+        .persist_noclobber(path)
+        .map_err(|error| Error::Io(error.error))?;
+    fs::File::open(parent)?.sync_all()?;
     Ok(())
 }
 
-fn capture_content(git: &Git, root: &Path, cancel: &Cancellation) -> Result<ContentManifest> {
+fn capture_content(
+    git: &Git,
+    root: &Path,
+    cancel: &Cancellation,
+    store: Option<&Path>,
+) -> Result<ContentManifest> {
     let target = git.discover(root, cancel)?.ok_or(Error::Stale)?;
     let head = target
         .head
         .ok_or_else(|| Error::Invalid("archive requires a committed HEAD".into()))?;
     let mut index = Vec::new();
+    let mut budget = 0_usize;
     for entry in logical_index(git, root, cancel)? {
+        if cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
+        if index.len() >= MAX_ENTRIES {
+            return Err(Error::Invalid(
+                "archive index exceeds its inventory limit".into(),
+            ));
+        }
         let bytes = git.run_checked(
             root,
             &strings(&["cat-file", "blob", &entry.oid]),
             false,
             cancel,
         )?;
-        index.push(PreservedIndex { entry, bytes });
+        account_bytes(&mut budget, bytes.len())?;
+        index.push(PreservedIndex {
+            entry,
+            blob: preserve_blob(store, &bytes)?,
+            size: bytes.len(),
+        });
     }
     let mut files = Vec::new();
     let mut directories = Vec::new();
-    collect_files(root, root, &mut files, &mut directories)?;
+    collect_files(
+        root,
+        root,
+        &mut files,
+        &mut directories,
+        &mut budget,
+        store,
+        cancel,
+    )?;
     files.sort_by(|left, right| left.path.cmp(&right.path));
-    directories.sort();
-    let bytes: usize = files.iter().map(|entry| entry.bytes.len()).sum();
-    if bytes > 256 * 1024 * 1024 {
-        return Err(Error::Invalid(
-            "checkout exceeds this archive profile's total size limit".into(),
-        ));
-    }
+    directories.sort_by(|left, right| left.path.cmp(&right.path));
     Ok(ContentManifest {
         head,
+        root_mode: preservation_mode(root, &fs::metadata(root)?)?,
         index,
         files,
         directories,
@@ -509,13 +668,24 @@ fn capture_content(git: &Git, root: &Path, cancel: &Cancellation) -> Result<Cont
 fn collect_files(
     root: &Path,
     directory: &Path,
-    files: &mut Vec<FileEntry>,
-    directories: &mut Vec<String>,
+    files: &mut Vec<PreservedFile>,
+    directories: &mut Vec<DirectoryEntry>,
+    budget: &mut usize,
+    store: Option<&Path>,
+    cancel: &Cancellation,
 ) -> Result<()> {
     for entry in fs::read_dir(directory)? {
+        if cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
         let entry = entry?;
         if directory == root && entry.file_name() == ".git" {
             continue;
+        }
+        if files.len() + directories.len() >= MAX_ENTRIES {
+            return Err(Error::Invalid(
+                "checkout exceeds this archive profile's inventory limit".into(),
+            ));
         }
         let path = entry.path();
         let relative = path_string(
@@ -529,20 +699,176 @@ fn collect_files(
                     "nested repositories require a separately qualified archive profile".into(),
                 ));
             }
-            directories.push(relative);
-            collect_files(root, &path, files, directories)?;
+            directories.push(DirectoryEntry {
+                path: relative,
+                mode: preservation_mode(&path, &metadata)?,
+            });
+            collect_files(root, &path, files, directories, budget, store, cancel)?;
         } else {
-            files.push(read_file(root, &relative)?.ok_or(Error::Stale)?);
+            let file = read_file(root, &relative)?.ok_or(Error::Stale)?;
+            account_bytes(budget, file.bytes.len())?;
+            files.push(PreservedFile {
+                path: file.path,
+                blob: preserve_blob(store, &file.bytes)?,
+                size: file.bytes.len(),
+                mode: file.mode,
+                symlink: file.symlink,
+            });
         }
-        if files.len() + directories.len() > 10_000 {
-            return Err(Error::Invalid(
-                "checkout exceeds this archive profile's inventory limit".into(),
-            ));
+    }
+    Ok(())
+}
+
+fn account_bytes(total: &mut usize, bytes: usize) -> Result<()> {
+    *total = total
+        .checked_add(bytes)
+        .ok_or_else(|| Error::Invalid("archive size overflow".into()))?;
+    if *total > MAX_CONTENT_BYTES {
+        return Err(Error::Invalid(
+            "archive staged and working content exceeds its combined size limit".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn preserve_blob(store: Option<&Path>, bytes: &[u8]) -> Result<String> {
+    let digest = format!("{:x}", Sha256::digest(bytes));
+    if let Some(store) = store {
+        let path = store.join("blobs").join(&digest);
+        match durable_write(&path, bytes) {
+            Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                if hash_file(&path, MAX_CONTENT_BYTES as u64)? != digest {
+                    return Err(Error::Invalid(
+                        "archive content collision or corruption".into(),
+                    ));
+                }
+            }
+            result => result?,
         }
-        if files.iter().map(|entry| entry.bytes.len()).sum::<usize>() > 256 * 1024 * 1024 {
-            return Err(Error::Invalid(
-                "checkout exceeds this archive profile's total size limit".into(),
-            ));
+    }
+    Ok(digest)
+}
+
+fn load_blob(directory: &Path, digest: &str, size: usize) -> Result<Vec<u8>> {
+    if digest.len() != 64
+        || !digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || size > 64 * 1024 * 1024
+    {
+        return Err(Error::Invalid("invalid archive content descriptor".into()));
+    }
+    let bytes = bounded_read(&directory.join("blobs").join(digest), size as u64)?;
+    if bytes.len() != size || format!("{:x}", Sha256::digest(&bytes)) != digest {
+        return Err(Error::Invalid("archive content integrity mismatch".into()));
+    }
+    Ok(bytes)
+}
+
+fn bounded_read(path: &Path, limit: u64) -> Result<Vec<u8>> {
+    let file = crate::repository::open_regular_file(path)?;
+    if file.metadata()?.len() > limit {
+        return Err(Error::Invalid("archive file exceeds its size limit".into()));
+    }
+    let mut bytes = Vec::new();
+    file.take(limit + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > limit {
+        return Err(Error::Invalid("archive file exceeds its size limit".into()));
+    }
+    Ok(bytes)
+}
+
+fn hash_file(path: &Path, limit: u64) -> Result<String> {
+    let mut file = crate::repository::open_regular_file(path)?;
+    if file.metadata()?.len() > limit {
+        return Err(Error::Invalid(
+            "archive bundle exceeds its size limit".into(),
+        ));
+    }
+    let mut digest = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    let mut total = 0_u64;
+    loop {
+        let length = file.read(&mut buffer)?;
+        if length == 0 {
+            break;
+        }
+        total += length as u64;
+        if total > limit {
+            return Err(Error::Invalid("archive file exceeds its size limit".into()));
+        }
+        digest.update(&buffer[..length]);
+    }
+    Ok(format!("{:x}", digest.finalize()))
+}
+
+fn validate_manifest(manifest: &ArchiveManifest) -> Result<()> {
+    if manifest.content.index.len() > MAX_ENTRIES
+        || manifest.content.files.len() + manifest.content.directories.len() > MAX_ENTRIES
+    {
+        return Err(Error::Invalid("archive inventory exceeds its limit".into()));
+    }
+    if manifest.content.root_mode & !0o777 != 0 {
+        return Err(Error::Invalid("invalid root permission bits".into()));
+    }
+    for directory in &manifest.content.directories {
+        crate::worktrees::validate_relative(Path::new(&directory.path))?;
+        if directory.mode & !0o777 != 0 {
+            return Err(Error::Invalid("invalid directory permission bits".into()));
+        }
+    }
+    for file in &manifest.content.files {
+        crate::worktrees::validate_relative(Path::new(&file.path))?;
+        if file.mode & !0o777 != 0 {
+            return Err(Error::Invalid("invalid file permission bits".into()));
+        }
+    }
+    for entry in &manifest.content.index {
+        crate::worktrees::validate_relative(Path::new(&entry.entry.path))?;
+        if !matches!(entry.entry.mode.as_str(), "100644" | "100755" | "120000")
+            || !matches!(entry.entry.oid.len(), 40 | 64)
+            || !entry.entry.oid.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            return Err(Error::Invalid("invalid preserved index entry".into()));
+        }
+    }
+    let mut total = 0;
+    for size in manifest
+        .content
+        .index
+        .iter()
+        .map(|entry| entry.size)
+        .chain(manifest.content.files.iter().map(|entry| entry.size))
+    {
+        account_bytes(&mut total, size)?;
+    }
+    Ok(())
+}
+
+fn verify_content_blobs(directory: &Path, content: &ContentManifest) -> Result<()> {
+    let mut expected = BTreeMap::new();
+    for (digest, size) in content
+        .index
+        .iter()
+        .map(|entry| (&entry.blob, entry.size))
+        .chain(content.files.iter().map(|entry| (&entry.blob, entry.size)))
+    {
+        if digest.len() != 64
+            || !digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+            || size > 64 * 1024 * 1024
+        {
+            return Err(Error::Invalid("invalid archive content descriptor".into()));
+        }
+        if let Some(previous) = expected.insert(digest, size)
+            && previous != size
+        {
+            return Err(Error::Invalid("inconsistent archive content sizes".into()));
+        }
+    }
+    for (digest, size) in expected {
+        let path = directory.join("blobs").join(digest);
+        if fs::symlink_metadata(&path)?.len() != size as u64
+            || hash_file(&path, size as u64)? != *digest
+        {
+            return Err(Error::Invalid("archive content integrity mismatch".into()));
         }
     }
     Ok(())

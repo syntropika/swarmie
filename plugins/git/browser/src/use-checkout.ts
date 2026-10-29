@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { errorMessage, readCheckout } from "./checkout-data";
 import type { Checkout, CheckoutSnapshot } from "./checkout-data";
+import { readOperations } from "./operation-catalog";
 import { pendingKey, readPending, writePending } from "./pending";
 import type {
   GitOperation,
@@ -29,12 +30,22 @@ export function useCheckout(connection: GitConnection | null, path: string, proj
   const [receipt, setReceipt] = useState<GitReceipt | null>(null);
   const [settings, setSettings] = useState<GitSettingsValue | null>(null);
   const [platform, setPlatform] = useState<string | null>(null);
-  const key = pendingKey(connection, path);
+  const [retained, setRetained] = useState({ connection, remote });
+  if (connection !== null && connection !== retained.connection) {
+    setRetained({ connection, remote });
+  }
+  const key = pendingKey(connection ?? retained.connection, path);
+  const [observedRemote, setObservedRemote] = useState<GitRemote | null>(null);
   const [pendingOperation, setPendingOperation] = useState<string | null>(() => readPending(key));
   const [reviewedOperation, setReviewedOperation] = useState<string | null>(null);
   const epoch = useRef(0);
   const active = useRef(true);
   const mutating = useRef(false);
+  const acknowledged = useRef(new Set<string>());
+  const unresolved = useRef<GitReceipt[]>([]);
+  const [operationWarnings, setOperationWarnings] = useState<string[]>([]);
+  const [catalogReady, setCatalogReady] = useState(false);
+  const catalogObserved = useRef(false);
   const apply = useCallback((value: CheckoutSnapshot | null) => {
     if (value === null || value.error === null) {
       setCheckout(value?.checkout ?? null);
@@ -46,19 +57,55 @@ export function useCheckout(connection: GitConnection | null, path: string, proj
     setSettings(value?.settings ?? null);
     setPlatform(value?.platform ?? null);
   }, []);
+  const read = useCallback(async () => {
+    const value = await readCheckout(remote, path, projectId);
+    if (value?.checkout === null || value === null || remote === null) {
+      return { value, catalog: null };
+    }
+    return { value, catalog: await readOperations(remote, value.checkout.target) };
+  }, [remote, path, projectId]);
+  const applyRead = useCallback(
+    ({ value, catalog }: Awaited<ReturnType<typeof read>>) => {
+      if (remote === null) {
+        return;
+      }
+      apply(value);
+      setObservedRemote(remote);
+      const warnings = catalog?.unavailable.map((entry) => entry.message) ?? [];
+      setOperationWarnings(warnings);
+      catalogObserved.current = catalog !== null && warnings.length === 0;
+      setCatalogReady(catalogObserved.current);
+      unresolved.current =
+        catalog?.operations.filter(
+          (entry) =>
+            (entry.state === "unknown" || entry.state === "in_progress") &&
+            !acknowledged.current.has(entry.operation_id),
+        ) ?? [];
+      const [pending] = unresolved.current;
+      const operationId = readPending(key) ?? pending?.operation_id ?? null;
+      writePending(key, operationId);
+      setPendingOperation(operationId);
+      if (pending?.operation_id === operationId) {
+        setReceipt(pending);
+      }
+    },
+    [apply, key, remote],
+  );
   const refresh = useCallback(async () => {
     epoch.current += 1;
     const sequence = epoch.current;
     setBusy(true);
     freshObservation.current = false;
     setFresh(false);
+    catalogObserved.current = false;
+    setCatalogReady(false);
     setFailure(null);
     try {
-      const value = await readCheckout(remote, path, projectId);
+      const result = await read();
       if (sequence === epoch.current) {
-        apply(value);
+        applyRead(result);
       }
-      return sequence === epoch.current && value !== null && value.checkout !== null;
+      return sequence === epoch.current && result.value !== null && result.value.checkout !== null;
     } catch (error: unknown) {
       if (sequence === epoch.current) {
         setFailure(errorMessage(error));
@@ -70,17 +117,19 @@ export function useCheckout(connection: GitConnection | null, path: string, proj
         setLoaded(true);
       }
     }
-  }, [remote, path, projectId, apply]);
+  }, [read, applyRead]);
 
   useEffect(() => {
     active.current = true;
+    freshObservation.current = false;
+    catalogObserved.current = false;
     let current = true;
     const sequence = epoch.current;
     async function open() {
       try {
-        const value = await readCheckout(remote, path, projectId);
+        const result = await read();
         if (current && sequence === epoch.current) {
-          apply(value);
+          applyRead(result);
         }
       } catch (error: unknown) {
         if (current && sequence === epoch.current) {
@@ -89,6 +138,7 @@ export function useCheckout(connection: GitConnection | null, path: string, proj
       } finally {
         if (current && sequence === epoch.current) {
           setLoaded(true);
+          setBusy(false);
         }
       }
     }
@@ -100,7 +150,7 @@ export function useCheckout(connection: GitConnection | null, path: string, proj
       requests.current += 1;
       mounted.current = false;
     };
-  }, [remote, path, projectId, apply]);
+  }, [read, applyRead]);
 
   async function perform(
     build: (operationId: string, target: RepositoryTarget) => GitRequest,
@@ -109,6 +159,7 @@ export function useCheckout(connection: GitConnection | null, path: string, proj
       remote === null ||
       checkout === null ||
       !freshObservation.current ||
+      !catalogObserved.current ||
       busy ||
       readPending(key) !== null ||
       mutating.current
@@ -116,6 +167,8 @@ export function useCheckout(connection: GitConnection | null, path: string, proj
       return null;
     }
     const operationId = crypto.randomUUID();
+    const sequence = epoch.current;
+    const isCurrent = () => active.current && sequence === epoch.current;
     mutating.current = true;
     setBusy(true);
     setFailure(null);
@@ -124,26 +177,31 @@ export function useCheckout(connection: GitConnection | null, path: string, proj
       writePending(key, operationId);
       setPendingOperation(operationId);
       const result = await remote.request(build(operationId, checkout.target));
+      if (!isCurrent()) {
+        return null;
+      }
       if ("receipt" in result) {
-        if (active.current) {
+        if (isCurrent()) {
           setReceipt(result.receipt);
         }
-        if (result.receipt.state === "unknown") {
+        if (result.receipt.state === "unknown" || result.receipt.state === "in_progress") {
           return result;
         }
       }
       writePending(key, null);
-      if (active.current) {
+      if (isCurrent()) {
         setPendingOperation(null);
         await refresh();
       }
-      return active.current ? result : null;
+      return active.current && connection !== null && connection.isCurrent() ? result : null;
     } catch (error: unknown) {
-      setFailure(errorMessage(error));
+      if (isCurrent()) {
+        setFailure(errorMessage(error));
+      }
       return null;
     } finally {
       mutating.current = false;
-      if (active.current) {
+      if (isCurrent()) {
         setBusy(false);
       }
     }
@@ -172,9 +230,13 @@ export function useCheckout(connection: GitConnection | null, path: string, proj
       return;
     }
     setBusy(true);
+    const sequence = epoch.current;
     setFailure(null);
     try {
       const result = await remote.request({ kind: "recover", operation_id: pendingOperation });
+      if (!active.current || sequence !== epoch.current) {
+        return;
+      }
       if (
         result.kind !== "receipt" ||
         result.receipt.operation_id !== pendingOperation ||
@@ -183,15 +245,19 @@ export function useCheckout(connection: GitConnection | null, path: string, proj
         throw new Error("The Git node returned an unexpected recovery receipt.");
       }
       setReceipt(result.receipt);
-      if (result.receipt.state !== "unknown") {
+      if (result.receipt.state !== "unknown" && result.receipt.state !== "in_progress") {
         writePending(key, null);
         setPendingOperation(null);
         await refresh();
       }
     } catch (error: unknown) {
-      setFailure(errorMessage(error));
+      if (active.current && sequence === epoch.current) {
+        setFailure(errorMessage(error));
+      }
     } finally {
-      setBusy(false);
+      if (active.current && sequence === epoch.current) {
+        setBusy(false);
+      }
     }
   }
 
@@ -214,8 +280,15 @@ export function useCheckout(connection: GitConnection | null, path: string, proj
       return;
     }
     try {
-      writePending(key, null);
-      setPendingOperation(null);
+      acknowledged.current.add(pendingOperation);
+      const next = unresolved.current.find(
+        (entry) => !acknowledged.current.has(entry.operation_id),
+      );
+      writePending(key, next?.operation_id ?? null);
+      setPendingOperation(next?.operation_id ?? null);
+      if (next !== undefined) {
+        setReceipt(next);
+      }
       setReviewedOperation(null);
     } catch (error: unknown) {
       setFailure(errorMessage(error));
@@ -223,9 +296,16 @@ export function useCheckout(connection: GitConnection | null, path: string, proj
   }
 
   return {
-    remote,
+    remote: remote ?? retained.remote,
+    connected: connection !== null && connection.isCurrent(),
     checkout,
-    fresh,
+    fresh:
+      fresh &&
+      catalogReady &&
+      observedRemote === remote &&
+      connection !== null &&
+      connection.isCurrent(),
+    operationWarnings,
     busy,
     loaded,
     error: failure,

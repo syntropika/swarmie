@@ -4,6 +4,7 @@ import { responseValue } from "./protocol";
 import type { GitRequest, GitResponse } from "./protocol";
 
 const responses: Record<GitRequest["kind"], GitResponse["kind"]> = {
+  capability_info: "capability_info",
   discover: "repository",
   status: "status",
   diff: "diff",
@@ -20,8 +21,10 @@ const responses: Record<GitRequest["kind"], GitResponse["kind"]> = {
   archive_restore: "archive",
   archive_list: "archives",
   cleanup_check: "cleanup",
-  setup_test: "setup",
+  operations: "operations",
 };
+
+export const gitRequestKinds = Object.freeze(Object.keys(responses));
 
 export type GitConnection = Pick<
   NodeConnection,
@@ -54,6 +57,17 @@ export class GitRemote {
       const response: unknown = await Reflect.apply(method, undefined, [request]);
       this.check();
       const result = responseValue(response);
+      if (
+        result.kind === "operations" &&
+        result.operations.some(
+          (entry) =>
+            entry.principal !== this.identity.principal ||
+            !("target" in request) ||
+            entry.target.common_dir !== request.target.common_dir,
+        )
+      ) {
+        throw new Error("The Git recovery catalog belongs to another principal or repository.");
+      }
       if (
         result.kind !== responses[request.kind] &&
         !(result.kind === "receipt" && "operation_id" in request)

@@ -1,26 +1,36 @@
 import { Button, Input, Label, TextField, VirtualList } from "@swarmie/ui-web";
 import { useEffect, useMemo, useState } from "react";
 
-import type { ArchiveReceipt, StatusEntry } from "./protocol";
+import type { DraftProps } from "./drafts";
+import { readArchives } from "./operation-catalog";
+import type { ArchiveReceipt, StatusEntry, UnavailableEntry } from "./protocol";
 import type { useCheckout } from "./use-checkout";
 
 type State = ReturnType<typeof useCheckout>;
 function candidateKey(entry: StatusEntry) {
   return JSON.stringify([entry.kind, entry.path]);
 }
+function archiveKey(entry: ArchiveReceipt) {
+  return entry.archive_id;
+}
+function unavailableKey(entry: UnavailableEntry) {
+  return entry.entry_id;
+}
 export function WorktreesPanel({
   state,
   projectId,
   onWorktreeCreated,
-}: {
+  drafts,
+  updateDraft,
+}: DraftProps & {
   state: State;
   projectId: string | undefined;
   onWorktreeCreated: ((path: string) => void) | undefined;
 }) {
-  const [destination, setDestination] = useState("");
-  const [root, setRoot] = useState(state.settings?.managed_root ?? "");
-  const [commit, setCommit] = useState(state.checkout?.target.head ?? "");
-  const [included, setIncluded] = useState<string[]>(() => {
+  const destination = drafts.worktreeDestination;
+  const root = drafts.managedRoot ?? state.settings?.managed_root ?? "";
+  const commit = drafts.startingCommit ?? state.checkout?.target.head ?? "";
+  const defaults = useMemo(() => {
     if (state.settings?.include_local_changes !== true) {
       return [];
     }
@@ -31,7 +41,8 @@ export function WorktreesPanel({
           entry.original_path === null ? [entry.path] : [entry.path, entry.original_path],
         ) ?? []
     );
-  });
+  }, [state.settings?.include_local_changes, state.checkout?.status.entries]);
+  const included = drafts.includedPaths ?? defaults;
   const [message, setMessage] = useState<string | null>(null);
   const { checkout } = state;
   const candidates = useMemo(
@@ -90,7 +101,7 @@ export function WorktreesPanel({
           <Input
             value={commit}
             onChange={(event) => {
-              setCommit(event.target.value);
+              updateDraft({ startingCommit: event.target.value });
             }}
             required
           />
@@ -100,7 +111,7 @@ export function WorktreesPanel({
           <Input
             value={root}
             onChange={(event) => {
-              setRoot(event.target.value);
+              updateDraft({ managedRoot: event.target.value });
             }}
             required
           />
@@ -110,7 +121,7 @@ export function WorktreesPanel({
           <Input
             value={destination}
             onChange={(event) => {
-              setDestination(event.target.value);
+              updateDraft({ worktreeDestination: event.target.value });
             }}
             required
           />
@@ -137,11 +148,11 @@ export function WorktreesPanel({
                       entry.original_path === null
                         ? [entry.path]
                         : [entry.path, entry.original_path];
-                    setIncluded((current) =>
-                      event.target.checked
-                        ? [...new Set([...current, ...paths])]
-                        : current.filter((path) => !paths.includes(path)),
-                    );
+                    updateDraft({
+                      includedPaths: event.target.checked
+                        ? [...new Set([...included, ...paths])]
+                        : included.filter((path) => !paths.includes(path)),
+                    });
                   }}
                 />
                 {entry.path}
@@ -181,12 +192,13 @@ function Archives({
   onRestored: ((path: string) => void) | undefined;
 }) {
   const [archives, setArchives] = useState<ArchiveReceipt[]>([]);
+  const [unavailable, setUnavailable] = useState<UnavailableEntry[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const { remote, checkout } = state;
   useEffect(() => {
     let active = true;
-    if (remote === null || checkout === null) {
+    if (remote === null || checkout === null || !state.connected) {
       return () => {
         active = false;
       };
@@ -196,9 +208,11 @@ function Archives({
         return;
       }
       try {
-        const result = await remote.request({ kind: "archive_list", target: checkout.target });
-        if (active && result.kind === "archives") {
+        const result = await readArchives(remote, checkout.target);
+        if (active) {
           setArchives(result.archives);
+          setUnavailable(result.unavailable);
+          setFailure(null);
         }
       } catch (error: unknown) {
         if (active) {
@@ -210,7 +224,7 @@ function Archives({
     return () => {
       active = false;
     };
-  }, [remote, checkout]);
+  }, [remote, checkout, state.connected]);
   const disabled = state.busy || !state.fresh || state.pendingOperation !== null;
   function snapshot() {
     state
@@ -274,38 +288,58 @@ function Archives({
         </p>
       )}
       {message === null ? null : <output className="text-xs leading-5">{message}</output>}
-      <ul className="grid gap-4">
-        {archives.map((archive) => (
-          <li key={archive.archive_id} className="grid gap-2 text-xs">
-            <span className="font-mono break-all">{archive.archive_id}</span>
-            <p className="text-muted">
-              {archive.files} files · {archive.head.slice(0, 8)} ·{" "}
-              {archive.restore_verified ? "Restore verified" : "Restore verification pending"}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                isDisabled={disabled || !root.trim() || !destination.trim()}
-                onPress={() => {
-                  restore(archive.archive_id);
-                }}
-              >
-                Restore to new checkout path
-              </Button>
-              <Button
-                size="sm"
-                variant="tertiary"
-                isDisabled={disabled}
-                onPress={() => {
-                  check(archive.archive_id);
-                }}
-              >
-                Check cleanup eligibility
-              </Button>
+      {unavailable.length === 0 ? null : (
+        <div role="alert" className="text-xs text-danger">
+          <p>Some recovery snapshots could not be read. They have not been removed.</p>
+          <VirtualList
+            items={unavailable}
+            getItemKey={unavailableKey}
+            label="Unreadable recovery snapshots"
+            estimateSize={40}
+            className="h-32"
+            renderItem={(entry) => <p className="py-1 break-words">{entry.message}</p>}
+          />
+        </div>
+      )}
+      {archives.length === 0 ? null : (
+        <VirtualList
+          items={archives}
+          getItemKey={archiveKey}
+          label="Recovery snapshots"
+          estimateSize={112}
+          className="h-64"
+          renderItem={(archive) => (
+            <div className="grid gap-2 py-2 text-xs">
+              <span className="font-mono break-all">{archive.archive_id}</span>
+              <p className="text-muted">
+                {archive.files} files · {archive.head.slice(0, 8)} ·{" "}
+                {archive.restore_verified ? "Restore verified" : "Restore verification pending"}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  isDisabled={disabled || !root.trim() || !destination.trim()}
+                  onPress={() => {
+                    restore(archive.archive_id);
+                  }}
+                >
+                  Restore to new checkout path
+                </Button>
+                <Button
+                  size="sm"
+                  variant="tertiary"
+                  isDisabled={disabled}
+                  onPress={() => {
+                    check(archive.archive_id);
+                  }}
+                >
+                  Check cleanup eligibility
+                </Button>
+              </div>
             </div>
-          </li>
-        ))}
-      </ul>
+          )}
+        />
+      )}
     </div>
   );
 }

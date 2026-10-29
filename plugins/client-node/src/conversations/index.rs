@@ -6,7 +6,11 @@ use super::{
 use sha2::{Digest, Sha256};
 use std::{io::Write, path::PathBuf};
 
-pub(super) struct Index(pub PathBuf);
+pub(super) struct Index {
+    pub path: PathBuf,
+    /// Serializes only lifecycle delivery, never repository execution.
+    pub lifecycle: tokio::sync::Mutex<()>,
+}
 impl Index {
     pub fn page(&self, cursor: Option<String>) -> tembra::Result<CatalogPage> {
         let entries: Vec<_> = self.read()?.into_iter().map(CatalogEntry::from).collect();
@@ -63,7 +67,7 @@ impl Index {
         })
     }
     pub fn read(&self) -> tembra::Result<Vec<Metadata>> {
-        match std::fs::read(&self.0) {
+        match std::fs::read(&self.path) {
             Ok(bytes) => serde_json::from_slice(&bytes).map_err(|_| {
                 failure("the conversation index could not be read; existing data was preserved")
             }),
@@ -79,7 +83,7 @@ impl Index {
 
     pub fn write(&self, records: &[Metadata]) -> tembra::Result<()> {
         let parent = self
-            .0
+            .path
             .parent()
             .ok_or_else(|| failure("the conversation index is unavailable"))?;
         let mut temporary = tempfile::NamedTempFile::new_in(parent)
@@ -91,7 +95,7 @@ impl Index {
             .and_then(|()| temporary.as_file().sync_all())
             .map_err(|_| failure("the conversation index could not be saved"))?;
         temporary
-            .persist(&self.0)
+            .persist(&self.path)
             .map_err(|_| failure("the conversation index could not be saved"))?;
         Ok(())
     }

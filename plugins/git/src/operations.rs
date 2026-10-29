@@ -1,15 +1,18 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap, HashSet},
     fs,
     path::Path,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
 use crate::{
     Authority, Cancellation, CommandOutput, CommandSpec, Commit, Diff, Error, ExtensionOperation,
-    Intent, Journal, JournalEntry, Operation, Outcome, PendingOperation, ProcessExecutor, Receipt,
-    Remote, RepositoryTarget, Request, Response, Result, Status,
+    Intent, IntentOperation, Journal, JournalEntry, Operation, Outcome, PendingOperation,
+    ProcessExecutor, Receipt, Remote, RepositoryTarget, Request, Response, Result, Status,
     repository::{TEXT_LIMIT, cwd, preview, redact, relative_path, utf8},
 };
 
@@ -59,10 +62,11 @@ fn inventory_page<T: serde::Serialize>(
 /// Synchronous capability handle. Hosts offload calls to their execution workers.
 #[derive(Clone)]
 pub struct Git {
-    pub executor: Arc<dyn ProcessExecutor>,
-    pub journal: Arc<dyn Journal>,
-    pub authority: Arc<dyn Authority>,
-    mutations: Arc<Mutex<()>>,
+    pub(crate) executor: Arc<dyn ProcessExecutor>,
+    pub(crate) journal: Arc<dyn Journal>,
+    pub(crate) authority: Arc<dyn Authority>,
+    mutations: Arc<Mutex<HashMap<String, Weak<AtomicBool>>>>,
+    active: Arc<Mutex<HashSet<String>>>,
 }
 
 impl Git {
@@ -75,11 +79,12 @@ impl Git {
             executor,
             journal,
             authority,
-            mutations: Arc::new(Mutex::new(())),
+            mutations: Arc::new(Mutex::new(HashMap::new())),
+            active: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
-    pub fn run(
+    pub(crate) fn run(
         &self,
         cwd: &Path,
         args: &[String],
@@ -121,7 +126,7 @@ impl Git {
         )
     }
 
-    pub fn run_checked(
+    pub(crate) fn run_checked(
         &self,
         cwd: &Path,
         args: &[String],
@@ -135,7 +140,7 @@ impl Git {
         if output.status != 0 {
             return Err(Error::Command {
                 status: output.status,
-                message: redact(&String::from_utf8_lossy(&output.stderr)),
+                message: receipt_output(&output.stderr),
             });
         }
         Ok(output.stdout)
@@ -159,9 +164,13 @@ impl Git {
                     .journal
                     .load(operation_id)?
                     .ok_or_else(|| Error::Invalid("unknown operation ID".into()))?;
-                let (owner, target) = match entry {
-                    JournalEntry::Pending(pending) => (pending.principal, pending.target),
-                    JournalEntry::Settled(receipt) => (receipt.principal, receipt.target),
+                let (owner, target, operation) = match entry {
+                    JournalEntry::Pending(pending) => {
+                        (pending.principal, pending.target, pending.operation)
+                    }
+                    JournalEntry::Settled(receipt) => {
+                        (receipt.principal, receipt.target, receipt.operation)
+                    }
                 };
                 if owner != principal {
                     return Err(Error::Denied(
@@ -172,7 +181,10 @@ impl Git {
                     principal,
                     &Intent {
                         target,
-                        operation: "recover".into(),
+                        operation: IntentOperation::Recover {
+                            operation_id: operation_id.clone(),
+                            operation,
+                        },
                     },
                 );
             }
@@ -180,15 +192,41 @@ impl Git {
                 target, operation, ..
             } => (
                 target,
-                serde_json::to_string(operation)
-                    .map_err(|error| Error::Invalid(error.to_string()))?,
+                IntentOperation::Mutate {
+                    operation: operation.clone(),
+                },
             ),
-            Request::Status { target, .. } => (target, "status".into()),
-            Request::Diff { target, .. } => (target, "diff".into()),
-            Request::History { target, .. } => (target, "history".into()),
-            Request::Remotes { target } => (target, "remotes".into()),
-            Request::Files { target, .. } => (target, "files".into()),
-            Request::File { target, .. } => (target, "file".into()),
+            Request::Status { target, .. } => (target, IntentOperation::Status),
+            Request::Diff {
+                target,
+                path,
+                staged,
+                mode,
+            } => (
+                target,
+                IntentOperation::Diff {
+                    path: path.clone(),
+                    staged: *staged,
+                    mode: *mode,
+                },
+            ),
+            Request::History { target, limit } => {
+                (target, IntentOperation::History { limit: *limit })
+            }
+            Request::Remotes { target } => (target, IntentOperation::Remotes),
+            Request::Files { target, .. } => (target, IntentOperation::Files),
+            Request::File {
+                target,
+                path,
+                revision,
+            } => (
+                target,
+                IntentOperation::File {
+                    path: path.clone(),
+                    revision: revision.clone(),
+                },
+            ),
+            Request::Operations { target, .. } => (target, IntentOperation::Operations),
         };
         self.authority.authorize(
             principal,
@@ -234,7 +272,7 @@ impl Git {
                         principal,
                         &Intent {
                             target: target.clone(),
-                            operation: "discover".into(),
+                            operation: IntentOperation::Discover,
                         },
                     )?;
                 }
@@ -294,7 +332,7 @@ impl Git {
                         if !matches!(output.status, 0 | 1) {
                             return Err(Error::Command {
                                 status: output.status,
-                                message: redact(&String::from_utf8_lossy(&output.stderr)),
+                                message: receipt_output(&output.stderr),
                             });
                         }
                         let (text, truncated) = preview(&output.stdout)?;
@@ -328,7 +366,7 @@ impl Git {
                 if output.status != 0 {
                     return Err(Error::Command {
                         status: output.status,
-                        message: redact(&String::from_utf8_lossy(&output.stderr)),
+                        message: receipt_output(&output.stderr),
                     });
                 }
                 let (text, truncated) = preview(&output.stdout)?;
@@ -502,8 +540,11 @@ impl Git {
                     receipt: Box::new(receipt),
                 })
             }
+            Request::Operations { target, page } => {
+                self.operations(principal, &target, page.as_ref())
+            }
             Request::Recover { operation_id } => Ok(Response::Receipt {
-                receipt: Box::new(self.recover(principal, &operation_id)?),
+                receipt: Box::new(self.inspect_recovery(principal, &operation_id, cancellation)?),
             }),
         }
     }
@@ -525,7 +566,7 @@ impl Git {
         Ok(current)
     }
 
-    pub fn remotes(
+    pub(crate) fn remotes(
         &self,
         target: &RepositoryTarget,
         cancellation: &Cancellation,
@@ -569,10 +610,7 @@ impl Git {
         operation: Operation,
         cancellation: &Cancellation,
     ) -> Result<Receipt> {
-        let _guard = self
-            .mutations
-            .lock()
-            .map_err(|_| Error::Journal("mutation lock poisoned".into()))?;
+        let _guard = self.mutation_guard(&target, cancellation)?;
         if let Some(entry) = self.journal.load(&operation_id)? {
             let (original_target, original_operation) = match &entry {
                 JournalEntry::Pending(value) => (&value.target, &value.operation),
@@ -595,8 +633,9 @@ impl Git {
             principal,
             &Intent {
                 target: target.clone(),
-                operation: serde_json::to_string(&operation)
-                    .map_err(|error| Error::Invalid(error.to_string()))?,
+                operation: IntentOperation::Mutate {
+                    operation: operation.clone(),
+                },
             },
         )?;
         self.verify(&target, cancellation)?;
@@ -616,32 +655,37 @@ impl Git {
             target: target.clone(),
             operation: operation.clone(),
         };
-        if !self.journal.admit(&pending)? {
+        let Some(_active) = self.admit_live(&pending)? else {
             return self.recover(principal, &operation_id);
-        }
+        };
         let outcome = self.run_mutation(&target, &operation, &args, cancellation);
+        let before_effect = matches!(&outcome, Err(MutationFailure::BeforeEffect(_)));
         let (mut state, mut message) = match outcome {
-            Ok(output) if output.status == 0 => (
-                Outcome::Completed,
-                redact(&String::from_utf8_lossy(&output.stdout)),
-            ),
-            Ok(output) => (
+            Ok(output) if output.status == 0 => {
+                (Outcome::Completed, receipt_output(&output.stdout))
+            }
+            Ok(output) => (Outcome::Failed, receipt_output(&output.stderr)),
+            Err(MutationFailure::BeforeEffect(error)) => (
                 Outcome::Failed,
-                redact(&String::from_utf8_lossy(&output.stderr)),
+                format!("Request rejected before execution: {error}"),
             ),
-            Err(error) => (
+            Err(MutationFailure::AfterEffect(error)) => (
                 Outcome::Unknown,
                 format!("{error}; inspect and reconcile before another operation"),
             ),
         };
-        let head = self
-            .optional_value(
+        let head = if before_effect {
+            target.head.clone()
+        } else {
+            self.optional_value(
                 cwd(&target),
                 &["rev-parse", "--verify", "HEAD"],
                 &Cancellation::default(),
             )
-            .unwrap_or(None);
+            .unwrap_or(None)
+        };
         if state == Outcome::Failed
+            && !before_effect
             && (matches!(operation, Operation::Push { .. } | Operation::Fetch { .. })
                 || head != target.head)
         {
@@ -674,7 +718,7 @@ impl Git {
     /// Persist a rejection only when the journal proves no operation was admitted.
     /// Existing admission is recovered without replacing its outcome. Journal failure
     /// remains unresolved; transport error classification is never evidence of rejection.
-    pub fn reject_before_admission(
+    pub(crate) fn reject_before_admission(
         &self,
         principal: &str,
         operation_id: String,
@@ -734,12 +778,14 @@ impl Git {
         operation: &Operation,
         args: &[String],
         cancellation: &Cancellation,
-    ) -> Result<CommandOutput> {
+    ) -> std::result::Result<CommandOutput, MutationFailure> {
         if !matches!(
             operation,
             Operation::Stage { .. } | Operation::Unstage { .. } | Operation::Commit { .. }
         ) {
-            return self.run(cwd(target), args, true, cancellation);
+            return self
+                .run(cwd(target), args, true, cancellation)
+                .map_err(MutationFailure::dispatch);
         }
         let index_path = self.value(
             cwd(target),
@@ -775,7 +821,8 @@ impl Git {
                 if ignored.status == 0 {
                     return Err(Error::Invalid(
                         "ignored files cannot be staged by this profile".into(),
-                    ));
+                    )
+                    .into());
                 }
                 if let Some(file) = crate::worktrees::read_file(Path::new(root), path)? {
                     crate::worktrees::write_file(&snapshot, &file)?;
@@ -805,12 +852,14 @@ impl Git {
             );
         }
         self.verify(target, cancellation)?;
-        let mut output = self.run_with_env(cwd(target), args, true, cancellation, env)?;
+        let mut output = self
+            .run_with_env(cwd(target), args, true, cancellation, env)
+            .map_err(MutationFailure::dispatch)?;
         let failed_commit_index = output.status != 0
             && matches!(operation, Operation::Commit { .. })
-            && session.changed()?;
+            && session.changed().map_err(MutationFailure::AfterEffect)?;
         if output.status == 0 || failed_commit_index {
-            session.install()?;
+            session.install().map_err(MutationFailure::AfterEffect)?;
         }
         if failed_commit_index {
             output
@@ -935,7 +984,7 @@ impl Git {
 
     /// Admit a typed owner facade effect before dispatch. A failed or interrupted
     /// effect is conservatively unknown and is never automatically replayed.
-    pub fn execute_extension(
+    pub(crate) fn execute_extension(
         &self,
         principal: &str,
         extension: ExtensionOperation,
@@ -943,6 +992,7 @@ impl Git {
         effect: impl FnOnce() -> Result<serde_json::Value>,
     ) -> Result<Receipt> {
         let ExtensionOperation {
+            intent,
             operation_id,
             target,
             name,
@@ -953,10 +1003,7 @@ impl Git {
                 "an authenticated principal is required".into(),
             ));
         }
-        let _guard = self
-            .mutations
-            .lock()
-            .map_err(|_| Error::Journal("mutation lock poisoned".into()))?;
+        let _guard = self.mutation_guard(&target, cancellation)?;
         let operation = Operation::Extension { name, arguments };
         if self.journal.load(&operation_id)?.is_some() {
             return self.recover_matching(
@@ -971,8 +1018,7 @@ impl Git {
             principal,
             &Intent {
                 target: target.clone(),
-                operation: serde_json::to_string(&operation)
-                    .map_err(|error| Error::Invalid(error.to_string()))?,
+                operation: intent,
             },
         )?;
         self.verify(&target, cancellation)?;
@@ -982,7 +1028,7 @@ impl Git {
             target: target.clone(),
             operation: operation.clone(),
         };
-        if !self.journal.admit(&pending)? {
+        let Some(_active) = self.admit_live(&pending)? else {
             return self.recover_matching(
                 principal,
                 &operation_id,
@@ -990,9 +1036,14 @@ impl Git {
                 &operation,
                 cancellation,
             );
-        }
+        };
         let (state, result, message) = match effect() {
             Ok(value) => (Outcome::Completed, Some(value), String::new()),
+            Err(Error::NotStarted(message)) => (
+                Outcome::Failed,
+                None,
+                format!("Request rejected before execution: {message}"),
+            ),
             Err(error) => (
                 Outcome::Unknown,
                 None,
@@ -1020,6 +1071,129 @@ impl Git {
         };
         self.journal.finish(&receipt)?;
         Ok(receipt)
+    }
+
+    fn mutation_guard(
+        &self,
+        target: &RepositoryTarget,
+        cancel: &Cancellation,
+    ) -> Result<MutationGuard> {
+        let flag = {
+            let mut locks = self
+                .mutations
+                .lock()
+                .map_err(|_| Error::Journal("mutation lock poisoned".into()))?;
+            locks.retain(|_, value| value.strong_count() > 0);
+            if let Some(flag) = locks.get(&target.common_dir).and_then(Weak::upgrade) {
+                flag
+            } else {
+                let flag = Arc::new(AtomicBool::new(false));
+                locks.insert(target.common_dir.clone(), Arc::downgrade(&flag));
+                flag
+            }
+        };
+        loop {
+            if cancel.is_cancelled() {
+                return Err(Error::Cancelled);
+            }
+            if flag
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                return Ok(MutationGuard(flag));
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    fn admit_live(&self, pending: &PendingOperation) -> Result<Option<ActiveOperation>> {
+        // Recovery waits for publication and live ownership to become visible together.
+        let mut active = self
+            .active
+            .lock()
+            .map_err(|_| Error::Journal("active operation lock poisoned".into()))?;
+        if !self.journal.admit(pending)? {
+            return Ok(None);
+        }
+        active.insert(pending.operation_id.clone());
+        Ok(Some(ActiveOperation {
+            active: self.active.clone(),
+            id: pending.operation_id.clone(),
+        }))
+    }
+
+    fn is_active(&self, operation_id: &str) -> Result<bool> {
+        Ok(self
+            .active
+            .lock()
+            .map_err(|_| Error::Journal("active operation lock poisoned".into()))?
+            .contains(operation_id))
+    }
+
+    fn operations(
+        &self,
+        principal: &str,
+        target: &RepositoryTarget,
+        page: Option<&crate::PageCursor>,
+    ) -> Result<Response> {
+        use sha2::{Digest, Sha256};
+        let scan = self.journal.scan()?;
+        let mut unavailable = scan.unavailable;
+        let mut operations = Vec::new();
+        for entry in scan.entries {
+            let (owner, repository, id) = match &entry {
+                JournalEntry::Pending(value) => {
+                    (&value.principal, &value.target, &value.operation_id)
+                }
+                JournalEntry::Settled(value) => {
+                    (&value.principal, &value.target, &value.operation_id)
+                }
+            };
+            if owner == principal && repository.common_dir == target.common_dir {
+                let receipt = self.recover(principal, id)?;
+                let mut message = receipt.message;
+                if message.len() > 2048 {
+                    let mut end = 2048;
+                    while !message.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    message.truncate(end);
+                    message.push_str("\nAdditional receipt text is omitted from this catalog.");
+                }
+                let entry = crate::RecoveryEntry {
+                    operation_id: receipt.operation_id,
+                    principal: receipt.principal,
+                    target: receipt.target,
+                    state: receipt.state,
+                    message,
+                    head: receipt.head,
+                    operation_digest: format!(
+                        "{:x}",
+                        Sha256::digest(
+                            serde_json::to_vec(&receipt.operation)
+                                .map_err(|error| Error::Journal(error.to_string()))?
+                        )
+                    ),
+                };
+                if serde_json::to_vec(&entry)
+                    .map_err(|error| Error::Journal(error.to_string()))?
+                    .len()
+                    > 24 * 1024
+                {
+                    if unavailable.len() < 33 {
+                        unavailable.push(crate::JournalUnavailable {entry_id:format!("{:x}",Sha256::digest(id.as_bytes())),message:"Operation identity exceeds the catalog budget; retain its durable record for explicit recovery.".into()});
+                    }
+                } else {
+                    operations.push(entry);
+                }
+            }
+        }
+        let (operations, next_page) = inventory_page(operations, page, &target.common_dir)?;
+        Ok(Response::Operations {
+            operations,
+            unavailable,
+            next_page,
+        })
     }
 
     fn committed_index(
@@ -1076,7 +1250,7 @@ impl Git {
         Ok(())
     }
 
-    pub fn recover_matching(
+    pub(crate) fn recover_matching(
         &self,
         principal: &str,
         operation_id: &str,
@@ -1108,6 +1282,155 @@ impl Git {
         self.recover(principal, operation_id)
     }
 
+    fn inspect_recovery(
+        &self,
+        principal: &str,
+        operation_id: &str,
+        cancellation: &Cancellation,
+    ) -> Result<Receipt> {
+        let mut receipt = self.recover(principal, operation_id)?;
+        if receipt.state != Outcome::Unknown {
+            return Ok(receipt);
+        }
+        self.verify_identity(&receipt.target, cancellation)?;
+        let current = self
+            .discover(cwd(&receipt.target), cancellation)?
+            .ok_or(Error::Stale)?;
+        self.verify_identity(&receipt.target, cancellation)?;
+        let mut inspection = crate::RecoveryInspection {
+            head_matches_admission: current.head == receipt.target.head,
+            index_matches_admission: !current.index_fingerprint.is_empty()
+                && current.index_fingerprint == receipt.target.index_fingerprint,
+            repository: current,
+            remote_ref: None,
+            causality_confirmed: false,
+        };
+        if let Operation::Push {
+            remote,
+            source_oid,
+            destination_ref,
+        } = &receipt.operation
+        {
+            // Recovery authorization sees the original complete typed operation.
+            // A changed remote configuration is observed as current configuration,
+            // never silently asserted to be the originally authorized endpoint.
+            let remote_state =
+                self.inspect_remote_ref(&receipt.target, remote, destination_ref, cancellation);
+            let (observed_oid, error) = match remote_state {
+                Ok(value) => (value, None),
+                Err(Error::Cancelled) => return Err(Error::Cancelled),
+                Err(error) => (None, Some(redact(&error.to_string()))),
+            };
+            inspection.remote_ref = Some(crate::RemoteRefInspection {
+                remote: remote.clone(),
+                destination_ref: destination_ref.clone(),
+                matches_requested_source: observed_oid.as_ref() == Some(source_oid),
+                observed_oid,
+                endpoint_matches_admission: None,
+                error,
+            });
+        }
+        let branch = inspection
+            .repository
+            .branch
+            .as_deref()
+            .unwrap_or("detached or unborn");
+        let head = inspection.repository.head.as_deref().unwrap_or("unborn");
+        receipt.message.push_str(&format!("\nRead-only recovery observation: current HEAD {head}; branch {branch}; HEAD matches admission: {}; index matches admission: {}. Observed state does not establish causality or authorize replay.",inspection.head_matches_admission,inspection.index_matches_admission));
+        if let Some(remote) = &inspection.remote_ref {
+            if let Some(error) = &remote.error {
+                receipt.message.push_str(&format!(
+                    "\nRemote ref inspection could not be confirmed: {error}"
+                ));
+            } else {
+                receipt.message.push_str(&format!("\nCurrent configured remote {} ref {} is {}; matches requested source: {}. Remote endpoint identity against admission is unverified.",remote.remote,remote.destination_ref,remote.observed_oid.as_deref().unwrap_or("absent"),remote.matches_requested_source));
+            }
+        }
+        // Preserve the immutable durable receipt; inspection is a fresh projection.
+        let mut result = match receipt.result.take() {
+            Some(serde_json::Value::Object(value)) => value,
+            Some(value) => serde_json::Map::from_iter([("effect_result".into(), value)]),
+            None => serde_json::Map::new(),
+        };
+        result.insert(
+            "reconciliation".into(),
+            serde_json::to_value(inspection).map_err(|error| Error::Invalid(error.to_string()))?,
+        );
+        receipt.result = Some(serde_json::Value::Object(result));
+        Ok(receipt)
+    }
+
+    fn inspect_remote_ref(
+        &self,
+        target: &RepositoryTarget,
+        remote: &str,
+        destination_ref: &str,
+        cancellation: &Cancellation,
+    ) -> Result<Option<String>> {
+        if !destination_ref.starts_with("refs/heads/") {
+            return Err(Error::Invalid(
+                "recovery requires an explicit branch ref".into(),
+            ));
+        }
+        self.selected_remote(target, remote, true, cancellation)?;
+        let endpoint = self.value(
+            cwd(target),
+            &["remote", "get-url", "--push", "--all", remote],
+            cancellation,
+        )?;
+        if endpoint.lines().count() != 1 || endpoint.is_empty() || endpoint.starts_with('-') {
+            return Err(Error::Invalid(
+                "remote recovery requires one explicit push endpoint".into(),
+            ));
+        }
+        self.run_checked(
+            cwd(target),
+            &["check-ref-format".into(), destination_ref.into()],
+            false,
+            cancellation,
+        )?;
+        let output = self.run(
+            cwd(target),
+            &[
+                "ls-remote".into(),
+                "--refs".into(),
+                "--exit-code".into(),
+                "--".into(),
+                endpoint,
+                destination_ref.into(),
+            ],
+            false,
+            cancellation,
+        )?;
+        if output.truncated {
+            return Err(Error::OutputLimit);
+        }
+        if output.status == 2 {
+            return Ok(None);
+        }
+        if output.status != 0 {
+            return Err(Error::Command {
+                status: output.status,
+                message: receipt_output(&output.stderr),
+            });
+        }
+        let mut observed = None;
+        for line in utf8(&output.stdout)?.lines() {
+            let Some((oid, reference)) = line.split_once('\t') else {
+                return Err(Error::Invalid("malformed remote ref observation".into()));
+            };
+            if reference != destination_ref
+                || !matches!(oid.len(), 40 | 64)
+                || !oid.bytes().all(|value| value.is_ascii_hexdigit())
+                || observed.is_some()
+            {
+                return Err(Error::Invalid("ambiguous remote ref observation".into()));
+            }
+            observed = Some(oid.into());
+        }
+        Ok(observed)
+    }
+
     fn recover(&self, principal: &str, operation_id: &str) -> Result<Receipt> {
         self.validate(
             principal,
@@ -1115,9 +1438,79 @@ impl Git {
                 operation_id: operation_id.into(),
             },
         )?;
-        match self.journal.load(operation_id)?.ok_or_else(|| Error::Invalid("unknown operation ID".into()))? {
+        match self
+            .journal
+            .load(operation_id)?
+            .ok_or_else(|| Error::Invalid("unknown operation ID".into()))?
+        {
             JournalEntry::Settled(receipt) => Ok(receipt),
-            JournalEntry::Pending(pending) => Ok(Receipt { operation_id: operation_id.into(), principal: pending.principal, head: pending.target.head.clone(), target: pending.target, operation: pending.operation, result: None, state: Outcome::Unknown, message: "Operation was admitted without a confirmed receipt. Inspect repository and remote state; automatic replay is prohibited.".into() }),
+            JournalEntry::Pending(pending) => {
+                let live = self.is_active(operation_id)?;
+                Ok(Receipt { operation_id: operation_id.into(), principal: pending.principal, head: pending.target.head.clone(), target: pending.target, operation: pending.operation, result: None,
+                    state: if live { Outcome::InProgress } else {Outcome::Unknown},
+                    message: if live {"Operation is still running on this execution handle. Wait for its confirmed receipt; do not replay it."} else {"Operation was admitted without a confirmed receipt. Inspect repository and remote state; automatic replay is prohibited."}.into()
+                })
+            }
+        }
+    }
+}
+
+fn receipt_output(bytes: &[u8]) -> String {
+    const LIMIT: usize = 12 * 1024;
+    // Redact the complete transport token before clipping its display text.
+    let mut text = redact(&String::from_utf8_lossy(bytes));
+    if text.len() > LIMIT {
+        let mut end = LIMIT;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+    }
+    if bytes.len() > LIMIT {
+        format!("{text}\nAdditional native command output was omitted from this receipt.")
+    } else {
+        text
+    }
+}
+
+enum MutationFailure {
+    BeforeEffect(Error),
+    AfterEffect(Error),
+}
+impl MutationFailure {
+    fn dispatch(error: Error) -> Self {
+        if matches!(error, Error::NotStarted(_)) {
+            Self::BeforeEffect(error)
+        } else {
+            Self::AfterEffect(error)
+        }
+    }
+}
+impl From<Error> for MutationFailure {
+    fn from(error: Error) -> Self {
+        Self::BeforeEffect(error)
+    }
+}
+impl From<std::io::Error> for MutationFailure {
+    fn from(error: std::io::Error) -> Self {
+        Self::BeforeEffect(error.into())
+    }
+}
+
+struct MutationGuard(Arc<AtomicBool>);
+impl Drop for MutationGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+struct ActiveOperation {
+    active: Arc<Mutex<HashSet<String>>>,
+    id: String,
+}
+impl Drop for ActiveOperation {
+    fn drop(&mut self) {
+        if let Ok(mut active) = self.active.lock() {
+            active.remove(&self.id);
         }
     }
 }

@@ -68,6 +68,10 @@ pub enum Request {
     Recover {
         operation_id: String,
     },
+    Operations {
+        target: RepositoryTarget,
+        page: Option<PageCursor>,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -99,6 +103,11 @@ pub enum Response {
     },
     Receipt {
         receipt: Box<Receipt>,
+    },
+    Operations {
+        operations: Vec<RecoveryEntry>,
+        unavailable: Vec<crate::JournalUnavailable>,
+        next_page: Option<PageCursor>,
     },
 }
 
@@ -190,12 +199,72 @@ pub struct Remote {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Intent {
     pub target: RepositoryTarget,
-    pub operation: String,
+    pub operation: IntentOperation,
+}
+
+/// Exhaustive host authorization values. Arguments retain their native types.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum IntentOperation {
+    Discover,
+    Status,
+    Diff {
+        path: Option<String>,
+        staged: bool,
+        mode: DiffMode,
+    },
+    History {
+        limit: u32,
+    },
+    Remotes,
+    Files,
+    File {
+        path: String,
+        revision: Option<String>,
+    },
+    Recover {
+        operation_id: String,
+        operation: Operation,
+    },
+    Operations,
+    Mutate {
+        operation: Operation,
+    },
+    Managed {
+        request: Box<crate::ManagedRequest>,
+    },
+    CreateWorktree {
+        request: crate::WorktreeRequest,
+    },
+    Setup {
+        script: crate::SetupScript,
+    },
+    ArchiveCapture {
+        archive_id: String,
+    },
+    ArchiveRestore {
+        archive_id: String,
+        managed_root: std::path::PathBuf,
+        destination: std::path::PathBuf,
+    },
+    CleanupCheck {
+        archive_id: String,
+        pinned: bool,
+        active_writers: usize,
+    },
+    ArchiveList,
+    ConversationHold {
+        conversation_id: String,
+        pinned: bool,
+        archived: bool,
+        active: bool,
+    },
 }
 
 /// Complete identity and arguments for a facade-owned durable operation.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExtensionOperation {
+    pub intent: IntentOperation,
     pub operation_id: String,
     pub target: RepositoryTarget,
     pub name: String,
@@ -225,7 +294,40 @@ pub struct Receipt {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {
+    InProgress,
     Completed,
     Failed,
     Unknown,
+}
+
+/// Read-only observations do not prove which process caused a repository state.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RecoveryInspection {
+    pub repository: RepositoryTarget,
+    pub head_matches_admission: bool,
+    pub index_matches_admission: bool,
+    pub remote_ref: Option<RemoteRefInspection>,
+    pub causality_confirmed: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RemoteRefInspection {
+    pub remote: String,
+    pub destination_ref: String,
+    pub observed_oid: Option<String>,
+    pub matches_requested_source: bool,
+    pub endpoint_matches_admission: Option<bool>,
+    pub error: Option<String>,
+}
+
+/// Bounded catalog projection. Full admitted arguments remain in the journal.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RecoveryEntry {
+    pub operation_id: String,
+    pub principal: String,
+    pub target: RepositoryTarget,
+    pub state: Outcome,
+    pub message: String,
+    pub head: Option<String>,
+    pub operation_digest: String,
 }

@@ -1,4 +1,5 @@
 //! Client admission and projection over the existing Agent Loop and Conversations libraries.
+mod checkout;
 mod index;
 mod projection;
 mod types;
@@ -34,9 +35,11 @@ struct Session {
     providers: Rc<NativeProviders>,
     tools: Rc<CatalogService>,
     catalog: Catalog,
+    git: Option<swarmie_git::GitService>,
+    agent_git_authority: Option<std::sync::Arc<dyn swarmie_git::Authority>>,
     index: Rc<index::Index>,
     state: State<Snapshot>,
-    running: RefCell<Option<Context>>,
+    running: RefCell<Option<RunningContext>>,
     stop_epoch: std::cell::Cell<u64>,
     serial: tokio::sync::Mutex<()>,
 }
@@ -165,6 +168,13 @@ impl Session {
                     && !transcript.pending.is_empty()
                     && self.running.borrow().is_none(),
                 phase,
+                execution_context: metadata
+                    .as_ref()
+                    .and_then(|record| record.execution_context.clone()),
+                lifecycle_warning: metadata
+                    .as_ref()
+                    .and_then(|record| record.lifecycle_warning.clone())
+                    .map(checkout::bounded_warning),
                 label: label.into(),
                 ..current.clone()
             }))
@@ -182,10 +192,15 @@ impl Session {
         if metadata.phase != Phase::Unknown {
             return self.refresh(context).await;
         }
+        let tools = checkout::ScopedTools {
+            inner: self.tools.clone(),
+            binding: metadata.execution_context,
+            authority: self.agent_git_authority.clone(),
+        };
         if let Some(checkpoint) = metadata.checkpoint {
             let settlement = self
                 .agent_history
-                .settle_tools(context, self.tools.as_ref(), checkpoint, acknowledge, None)
+                .settle_tools(context, &tools, checkpoint, acknowledge, None)
                 .await;
             match settlement {
                 Err(_) if !acknowledge && context.check().is_ok() => {
@@ -235,7 +250,15 @@ impl Session {
 
     async fn run(&self, context: Context, input: Submission) -> tembra::Result<RunResult> {
         let may_be_admitted = std::cell::Cell::new(false);
-        match self.run_inner(context, input, &may_be_admitted).await {
+        let result = self
+            .run_inner(context.clone(), input, &may_be_admitted)
+            .await;
+        if self.running.borrow().is_none() {
+            let _ = self.refresh(&context).await;
+            checkout::sync_hold(&self.index, self.git.as_ref(), &self.principal, &self.id).await;
+            let _ = self.refresh(&context).await;
+        }
+        match result {
             Ok(()) => Ok(RunResult::Settled),
             Err(error) if !may_be_admitted.get() => Ok(RunResult::Refused {
                 reason: error.message,
@@ -311,6 +334,23 @@ impl Session {
                 "the conversation submission is invalid or includes unsupported attachments",
             ));
         }
+        if input.execution_context.is_some()
+            && input.draft.execution_context.is_some()
+            && input.execution_context != input.draft.execution_context
+        {
+            return Err(failure("the submission has conflicting checkout bindings"));
+        }
+        let binding = input
+            .execution_context
+            .clone()
+            .or_else(|| input.draft.execution_context.clone());
+        if let Some(existing) = self.index.get(&self.id)?
+            && existing.execution_context != binding
+        {
+            return Err(failure(
+                "the conversation checkout binding cannot be changed",
+            ));
+        }
         let encoded = serde_json::to_vec(&input)
             .map_err(|_| failure("the submission could not be encoded"))?;
         let digest = format!("{:x}", Sha256::digest(encoded));
@@ -323,10 +363,25 @@ impl Session {
         if input.mode == "steer"
             && let Some(running) = self.running.borrow().as_ref()
         {
-            running.cancel()?;
+            // Preparation can hold the serial owner before durable admission exists.
+            // A different pending checkout must not cancel that physical invocation.
+            if running.binding != binding {
+                return Err(failure(
+                    "the running conversation uses another checkout binding",
+                ));
+            }
+            running.context.cancel()?;
         }
         let _serial = self.serial.lock().await;
         context.check()?;
+        // Another first submission may have bound this conversation while we waited.
+        if let Some(existing) = self.index.get(&self.id)?
+            && existing.execution_context != binding
+        {
+            return Err(failure(
+                "the conversation checkout binding cannot be changed",
+            ));
+        }
         self.refresh(&context).await?;
         if self.state.value()?.phase == Phase::Unknown {
             self.settle(&context, false).await?;
@@ -334,7 +389,10 @@ impl Session {
         if self.stop_epoch.get() != stop_epoch {
             return Err(failure("the request was stopped before admission"));
         }
-        *self.running.borrow_mut() = Some(context.clone());
+        *self.running.borrow_mut() = Some(RunningContext {
+            context: context.clone(),
+            binding: binding.clone(),
+        });
         let _running = Running(&self.running);
         if self
             .observe_existing(&context, &input, &digest, may_be_admitted)
@@ -353,7 +411,30 @@ impl Session {
                 "the previous request has an uncertain outcome; observe its history without replaying it",
             ));
         }
-        let tools = self.catalog.snapshot()?.specs();
+        if let Some(binding) = &binding {
+            checkout::validate(
+                self.git.as_ref(),
+                &context,
+                &self.node,
+                &self.principal,
+                binding,
+            )
+            .await?;
+        }
+        let tools = self
+            .catalog
+            .snapshot()?
+            .specs()
+            .into_iter()
+            .filter(|spec| {
+                binding.is_some() || !matches!(spec.name.as_str(), "git_inspect" | "git_mutate")
+            })
+            .collect();
+        let scoped_tools = Rc::new(checkout::ScopedTools {
+            inner: self.tools.clone(),
+            binding: binding.clone(),
+            authority: self.agent_git_authority.clone(),
+        });
         let account = input
             .draft
             .account
@@ -384,6 +465,8 @@ impl Session {
                 receipts: vec![],
                 phase: Phase::Idle,
                 checkpoint: None,
+                execution_context: binding.clone(),
+                lifecycle_warning: None,
             });
         }
         let record = records
@@ -430,6 +513,7 @@ impl Session {
         let at = receipt.head;
         self.index
             .change(&self.id, |record| record.phase = Phase::Working)?;
+        checkout::sync_hold(&self.index, self.git.as_ref(), &self.principal, &self.id).await;
         // Admission is durable before this best-effort presentation update.
         let _ = self.refresh(&context).await;
         let state = self.state.clone();
@@ -452,7 +536,7 @@ impl Session {
                 Ok(projection::bound(next))
             });
         });
-        let agent = Agent::new(Rc::new(model), self.tools.clone()).with_progress(progress);
+        let agent = Agent::new(Rc::new(model), scoped_tools.clone()).with_progress(progress);
         let result = self
             .agent_history
             .execute(
@@ -460,7 +544,10 @@ impl Session {
                 &agent,
                 Request {
                     at,
-                    instructions: String::new(),
+                    instructions: binding.as_ref().map_or_else(String::new, |binding| format!(
+                        "Use the captured Git checkout at {} on node {}. Git tools must target its canonical root/Git-directory identity {}. Other provider tools retain their own resource scope.",
+                        binding.path, binding.node_id, binding.identity
+                    )),
                     tools,
                     max_turns: NonZeroU32::new(16).unwrap(),
                 },
@@ -488,7 +575,7 @@ impl Session {
             && let Some(pending) = checkpoint.clone()
             && let Ok(swarmie_agent_loop::conversation::ToolSettlement::Settled(settled)) = self
                 .agent_history
-                .settle_tools(&context, self.tools.as_ref(), pending, false, None)
+                .settle_tools(&context, scoped_tools.as_ref(), pending, false, None)
                 .await
         {
             phase = Phase::Stopped;
@@ -515,11 +602,21 @@ struct Transcript {
     pending: Vec<swarmie_agent_loop::ToolCall>,
 }
 
-struct Running<'a>(&'a RefCell<Option<Context>>);
+struct RunningContext {
+    context: Context,
+    binding: Option<types::ExecutionContext>,
+}
+
+struct Running<'a>(&'a RefCell<Option<RunningContext>>);
 impl Drop for Running<'_> {
     fn drop(&mut self) {
         self.0.borrow_mut().take();
     }
+}
+
+pub(crate) struct GitExecution {
+    pub service: Option<swarmie_git::GitService>,
+    pub authority: Option<std::sync::Arc<dyn swarmie_git::Authority>>,
 }
 
 pub(crate) fn orbs(
@@ -529,7 +626,12 @@ pub(crate) fn orbs(
     principal: String,
     providers: Rc<NativeProviders>,
     catalog: Catalog,
+    git_execution: GitExecution,
 ) -> tembra::Result<Vec<Orb>> {
+    let GitExecution {
+        service: git,
+        authority: agent_git_authority,
+    } = git_execution;
     let storage: Rc<dyn swarmie_conversations::ConversationStorage> =
         Rc::new(swarmie_storage::sqlite::SqliteConversationStorage::open(
             path.join("conversations.sqlite"),
@@ -539,14 +641,58 @@ pub(crate) fn orbs(
         let storage = storage.clone();
         async move { Ok(storage) }.boxed_local()
     }));
-    let index = Rc::new(index::Index(path.join("conversations.json")));
+    let index = Rc::new(index::Index {
+        path: path.join("conversations.json"),
+        lifecycle: tokio::sync::Mutex::new(()),
+    });
     let public_index = index.clone();
     let public_principal = principal.clone();
-    let listing = Orb::new(CATALOG, 1).service(Service::new(CATALOG, move |declaration| {
-        if declaration.address()?.principal != public_principal || declaration.address()?.key != ["main"] { return Err(failure("conversation access refused")); }
-        Ok(public_index.clone())
-    }).method("list", |index, context, (cursor,): (Option<String>,)| async move { context.check()?; index.page(cursor) })
-      .method("update", |index, context, (id, title, pinned, archived): (String, String, bool, bool)| async move { context.check()?; if title.len() > 512 { return Err(failure("the conversation title is too long")); } index.change(&id, |record| { record.title = title; record.pinned = pinned; record.archived = archived; }) }));
+    let public_git = git.clone();
+    let listing = Orb::new(CATALOG, 1).service(
+        Service::new(CATALOG, move |declaration| {
+            if declaration.address()?.principal != public_principal
+                || declaration.address()?.key != ["main"]
+            {
+                return Err(failure("conversation access refused"));
+            }
+            Ok(public_index.clone())
+        })
+        .method(
+            "list",
+            |index, context, (cursor,): (Option<String>,)| async move {
+                context.check()?;
+                index.page(cursor)
+            },
+        )
+        .method(
+            "update",
+            move |index, context, (id, title, pinned, archived): (String, String, bool, bool)| {
+                let git = public_git.clone();
+                async move {
+                    context.check()?;
+                    if title.len() > 512 {
+                        return Err(failure("the conversation title is too long"));
+                    }
+                    let principal = context.principal()?;
+                    let mut confirmed = index.get(&id)?.ok_or_else(|| failure("the conversation is not indexed"))?;
+                    confirmed.title = title.clone();
+                    confirmed.pinned = pinned;
+                    confirmed.archived = archived;
+                    index.change(&id, |record| {
+                        record.title = title;
+                        record.pinned = pinned;
+                        record.archived = archived;
+                    })?;
+                    checkout::sync_hold(&index, git.as_ref(), &principal, &id).await;
+                    match index.get(&id) {
+                        Ok(Some(current)) => confirmed = current,
+                        _ => confirmed.lifecycle_warning = Some("Conversation metadata was saved. Git retention observation is unavailable; the checkout is retained.".into()),
+                    }
+                    Ok(types::CatalogEntry::from(confirmed))
+                }
+            },
+        ),
+    );
     let sessions =
         Orb::new(SERVICE, 1).service(
             Service::new(SERVICE, move |declaration| {
@@ -573,6 +719,14 @@ pub(crate) fn orbs(
                         admitted: vec![],
                         omitted_messages: 0,
                         can_acknowledge: false,
+                        execution_context: index
+                            .get(id)?
+                            .as_ref()
+                            .and_then(|record| record.execution_context.clone()),
+                        lifecycle_warning: index
+                            .get(id)?
+                            .and_then(|record| record.lifecycle_warning)
+                            .map(checkout::bounded_warning),
                     },
                     1,
                     |value| {
@@ -608,6 +762,8 @@ pub(crate) fn orbs(
                         vec!["main".into()],
                     )?),
                     catalog: catalog.clone(),
+                    git: git.clone(),
+                    agent_git_authority: agent_git_authority.clone(),
                     index: index.clone(),
                     state,
                     running: RefCell::new(None),
@@ -624,6 +780,14 @@ pub(crate) fn orbs(
                         session.settle(&context, false).await?;
                     }
                 }
+                checkout::sync_hold(
+                    &session.index,
+                    session.git.as_ref(),
+                    &session.principal,
+                    &session.id,
+                )
+                .await;
+                session.refresh(&context).await?;
                 Ok(())
             })
             .method(
@@ -638,7 +802,15 @@ pub(crate) fn orbs(
                 }
                 let _serial = session.serial.lock().await;
                 session.refresh(&context).await?;
-                session.settle(&context, true).await
+                session.settle(&context, true).await?;
+                checkout::sync_hold(
+                    &session.index,
+                    session.git.as_ref(),
+                    &session.principal,
+                    &session.id,
+                )
+                .await;
+                session.refresh(&context).await
             })
             .method("stop", |session, context, (): ()| async move {
                 session.stop_epoch.set(
@@ -649,7 +821,7 @@ pub(crate) fn orbs(
                         .ok_or_else(|| failure("the stop sequence is exhausted"))?,
                 );
                 if let Some(running) = session.running.borrow().as_ref() {
-                    running.cancel()?;
+                    running.context.cancel()?;
                 }
                 let _serial = session.serial.lock().await;
                 // The cancelled invocation retains physical ownership until it settles.
@@ -657,6 +829,14 @@ pub(crate) fn orbs(
                 if session.state.value()?.phase == Phase::Unknown {
                     session.settle(&context, false).await?;
                 }
+                checkout::sync_hold(
+                    &session.index,
+                    session.git.as_ref(),
+                    &session.principal,
+                    &session.id,
+                )
+                .await;
+                session.refresh(&context).await?;
                 Ok(())
             }),
         );

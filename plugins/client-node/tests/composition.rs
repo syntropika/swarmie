@@ -31,6 +31,8 @@ async fn a_non_desktop_host_composes_services_with_its_own_identity_and_principa
                     oauth_host: uuid::Uuid::nil(),
                     principal: "embedded-user".into(),
                     directory_root: None,
+                    git: None,
+                    agent_git_authority: None,
                 },
             );
             assert!(invalid.is_err());
@@ -46,6 +48,8 @@ async fn a_non_desktop_host_composes_services_with_its_own_identity_and_principa
                     oauth_host: uuid::Uuid::new_v4(),
                     principal: "embedded-user".into(),
                     directory_root: None,
+                    git: None,
+                    agent_git_authority: None,
                 },
             )
             .unwrap();
@@ -110,35 +114,26 @@ async fn a_non_desktop_host_composes_services_with_its_own_identity_and_principa
             }]))
             .unwrap();
             std::fs::write(&index, &initial).unwrap();
-            let catalog = Rc::new(
-                host.get(
-                    "swarmie.conversation.catalog",
-                    vec!["main".into()],
-                    "embedded-user",
-                )
-                .unwrap(),
-            );
-            for (title, accepted) in [("é".repeat(257), false), ("Confirmed title".into(), true)] {
-                let reference = catalog.clone();
-                let result: tembra::Result<()> = host
-                    .root("embedded-user", move |context| {
-                        async move {
-                            reference
-                                .call(
-                                    &context,
-                                    "update",
-                                    ("indexed-fixture".to_owned(), title, true, false),
-                                )
-                                .await
-                        }
-                        .boxed_local()
-                    })
-                    .await;
-                assert_eq!(result.is_ok(), accepted);
-                if !accepted {
+            let replies = Rc::new(std::cell::RefCell::new(Vec::<serde_json::Value>::new()));
+            let outgoing = replies.clone();
+            let rpc = tembra::rpc::serve(host.clone(), tembra::rpc::Options::new("embedded-user".into(), |_, _| true), move |frame| {
+                outgoing.borrow_mut().push(serde_json::from_slice(&frame).unwrap()); Ok(())
+            });
+            rpc.receive(&serde_json::to_vec(&serde_json::json!({"id":1,"op":"get","payload":{"service":"swarmie.conversation.catalog","key":["main"]}})).unwrap()).unwrap();
+            let catalog = rpc_reply(&replies, 1).await;
+            for (id, title, accepted) in [(2, "é".repeat(257), false), (3, "Confirmed title".into(), true)] {
+                rpc.receive(&serde_json::to_vec(&serde_json::json!({"id":id,"op":"call","payload":{"reference":catalog["ok"]["reference"],"method":"update","arguments":["indexed-fixture",title,true,false]}})).unwrap()).unwrap();
+                let result = rpc_reply(&replies, id).await;
+                assert_eq!(result.get("error").is_none(), accepted, "{result}");
+                if accepted {
+                    assert_eq!(result["ok"]["title"], "Confirmed title");
+                    assert_eq!(result["ok"]["pinned"], true);
+                    assert!(result["ok"]["lifecycleWarning"].is_null());
+                } else {
                     assert_eq!(std::fs::read(&index).unwrap(), initial);
                 }
             }
+            rpc.close();
             let stored: serde_json::Value =
                 serde_json::from_slice(&std::fs::read(&index).unwrap()).unwrap();
             assert_eq!(stored[0]["title"], "Confirmed title");
@@ -147,4 +142,85 @@ async fn a_non_desktop_host_composes_services_with_its_own_identity_and_principa
             assert_eq!(host.kernel().diagnostics().resources, 0);
         })
         .await;
+}
+
+#[tokio::test]
+async fn an_embedding_without_agent_mutation_policy_contributes_only_git_reads() {
+    struct Granted;
+    impl swarmie_git::Authority for Granted {
+        fn authorize_discovery(&self, _: &str, _: &std::path::Path) -> swarmie_git::Result<()> {
+            Ok(())
+        }
+        fn authorize(&self, _: &str, _: &swarmie_git::Intent) -> swarmie_git::Result<()> {
+            Ok(())
+        }
+    }
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let profile = tempfile::tempdir().unwrap();
+            let git = swarmie_git::GitService::new(
+                swarmie_git::Git::new(
+                    std::sync::Arc::new(swarmie_git::NativeProcess),
+                    std::sync::Arc::new(
+                        swarmie_git::DirectoryJournal::open(profile.path().join("operations"))
+                            .unwrap(),
+                    ),
+                    std::sync::Arc::new(Granted),
+                ),
+                profile.path().join("git"),
+            )
+            .unwrap();
+            let host = Host::new(Executor);
+            install(
+                &host,
+                NodeConfiguration {
+                    state: profile.path().into(),
+                    node: NodeId::new("read-only-embedding").unwrap(),
+                    oauth_host: uuid::Uuid::new_v4(),
+                    principal: "embedded-user".into(),
+                    directory_root: None,
+                    git: Some(git),
+                    agent_git_authority: None,
+                },
+            )
+            .unwrap();
+            let tools = host
+                .get(swarmie_tools::SERVICE, vec!["main".into()], "embedded-user")
+                .unwrap();
+            let selection: swarmie_tools::Selection = host
+                .root("embedded-user", move |context| {
+                    async move { tools.call(&context, "list", ()).await }.boxed_local()
+                })
+                .await
+                .unwrap();
+            assert_eq!(
+                selection
+                    .tools
+                    .iter()
+                    .map(|tool| tool.spec.name.as_str())
+                    .collect::<Vec<_>>(),
+                ["git_inspect"]
+            );
+            assert_eq!(selection.tools[0].provider.service, swarmie_git::SERVICE);
+            host.close().await.unwrap();
+        })
+        .await;
+}
+
+async fn rpc_reply(
+    replies: &Rc<std::cell::RefCell<Vec<serde_json::Value>>>,
+    id: u64,
+) -> serde_json::Value {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let index = replies.borrow().iter().position(|reply| reply["id"] == id);
+        if let Some(index) = index {
+            return replies.borrow_mut().remove(index);
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "fixture RPC response timed out"
+        );
+        tokio::task::yield_now().await;
+    }
 }

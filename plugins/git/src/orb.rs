@@ -86,16 +86,53 @@ fn oversized(message: impl Into<String>) -> tembra::Error {
     tembra::Error::new(Code::Exhausted, "swarmie.git.reply_limit", message.into())
 }
 
-fn compact_receipt(mut receipt: crate::Receipt) -> tembra::Result<crate::Receipt> {
+fn compact_receipt(mut receipt: crate::Receipt) -> tembra::Result<WireResponse> {
+    use sha2::Digest;
+    let reconciliation = receipt
+        .result
+        .as_ref()
+        .and_then(|value| value.get("reconciliation"))
+        .and_then(|value| serde_json::from_value::<crate::RecoveryInspection>(value.clone()).ok());
     receipt.result = None;
-    receipt.message = "Operation outcome is retained. Detailed output exceeds the transport limit; inspect the node-owned journal.".into();
-    if reply_size(&receipt)? > MAX_REPLY_BYTES - 128 {
-        return Err(oversized(format!(
-            "Operation {} has retained outcome {:?}; its receipt exceeds the transport limit. Do not replay it.",
-            receipt.operation_id, receipt.state,
-        )));
+    if reply_size(&receipt)? <= MAX_REPLY_BYTES - 128 {
+        return Ok(WireResponse::Core(Box::new(crate::Response::Receipt {
+            receipt: Box::new(receipt),
+        })));
     }
-    Ok(receipt)
+    let message = receipt
+        .message
+        .chars()
+        .rev()
+        .take(1024)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<String>();
+    let summary = crate::RecoveryEntry {
+        operation_digest: format!(
+            "{:x}",
+            sha2::Sha256::digest(
+                serde_json::to_vec(&receipt.operation)
+                    .map_err(|error| unavailable(error.to_string()))?
+            )
+        ),
+        operation_id: receipt.operation_id,
+        principal: receipt.principal,
+        target: receipt.target,
+        state: receipt.state,
+        message: format!("Full admitted arguments remain in the node journal. {message}"),
+        head: receipt.head,
+    };
+    let response = WireResponse::Managed(crate::ManagedResponse::ReceiptSummary {
+        receipt: Box::new(summary),
+        reconciliation: reconciliation.map(Box::new),
+    });
+    if reply_size(&response)? > MAX_REPLY_BYTES {
+        return Err(oversized(
+            "The captured operation identity exceeds the transport limit. Its journal remains retained; do not replay it.",
+        ));
+    }
+    Ok(response)
 }
 
 fn bounded_response(response: WireResponse) -> tembra::Result<WireResponse> {
@@ -108,15 +145,12 @@ fn bounded_response(response: WireResponse) -> tembra::Result<WireResponse> {
             _ => None,
         },
         WireResponse::Managed(crate::ManagedResponse::Worktree { receipt, .. })
-        | WireResponse::Managed(crate::ManagedResponse::Setup { receipt, .. })
         | WireResponse::Managed(crate::ManagedResponse::Archive { receipt, .. }) => Some(*receipt),
         _ => None,
     }.ok_or_else(|| oversized(
         "Git result exceeds the transport limit; choose a narrower query. Pagination is unavailable for this result.",
     ))?;
-    Ok(WireResponse::Core(Box::new(crate::Response::Receipt {
-        receipt: Box::new(compact_receipt(receipt)?),
-    })))
+    compact_receipt(receipt)
 }
 
 async fn worker<T: Send + 'static>(
@@ -304,7 +338,7 @@ fn tool_methods(service: Service<Environment>) -> Service<Environment> {
                     .map(|receipt| Response::Receipt { receipt: Box::new(receipt) })
                 })
                 .await?;
-                if matches!(&response, Response::Receipt { receipt } if receipt.state == crate::Outcome::Unknown)
+                if matches!(&response, Response::Receipt { receipt } if matches!(receipt.state, crate::Outcome::Unknown | crate::Outcome::InProgress))
                 {
                     return Ok(Recovery::Unknown);
                 }
@@ -316,14 +350,21 @@ fn tool_methods(service: Service<Environment>) -> Service<Environment> {
 #[cfg(feature = "tools")]
 fn tool_result(response: Response) -> tembra::Result<swarmie_tools::ToolResult> {
     use swarmie_tools::ToolResult;
-    let response = match bounded_response(WireResponse::Core(Box::new(response)))? {
-        WireResponse::Core(response) => *response,
-        WireResponse::Managed(_) => unreachable!("core response cannot become managed"),
+    let response = bounded_response(WireResponse::Core(Box::new(response)))?;
+    let outcome = match &response {
+        WireResponse::Core(response) => match response.as_ref() {
+            Response::Receipt { receipt } => Some((receipt.state, receipt.message.as_str())),
+            _ => None,
+        },
+        WireResponse::Managed(crate::ManagedResponse::ReceiptSummary { receipt, .. }) => {
+            Some((receipt.state, receipt.message.as_str()))
+        }
+        WireResponse::Managed(_) => None,
     };
-    if let Response::Receipt { receipt } = &response {
-        match receipt.state {
-            crate::Outcome::Failed => return Ok(ToolResult::Failed(receipt.message.clone())),
-            crate::Outcome::Unknown => {
+    if let Some((state, message)) = outcome {
+        match state {
+            crate::Outcome::Failed => return Ok(ToolResult::Failed(message.into())),
+            crate::Outcome::Unknown | crate::Outcome::InProgress => {
                 return Err(unavailable(
                     "Git outcome is unknown; inspect the retained operation before retrying",
                 ));
@@ -401,7 +442,7 @@ pub fn tool_definitions() -> tembra::Result<Vec<swarmie_tools::ToolDefinition>> 
     mutations.push(json!({"type": "object", "required": ["kind", "remote", "source_oid", "destination_ref"],
         "properties": {"kind": {"const": "push"}, "remote": {"type": "string"}, "source_oid": {"type": "string"},
             "destination_ref": {"type": "string"}}, "additionalProperties": false}));
-    [("git_inspect", "Inspect the captured repository without modifying Git state.", json!({"oneOf": reads})),
+    [("git_inspect", "Inspect the captured repository without modifying Git state.", json!({"type":"object", "oneOf": reads})),
         ("git_mutate", "Apply one reviewed Git operation to its captured checkout.", json!({"type": "object",
             "required": ["target", "operation"], "properties": {"target": target, "operation": {"oneOf": mutations}},
             "additionalProperties": false}))]
@@ -462,6 +503,58 @@ mod tests {
         assert_eq!(
             serde_json::to_value(receipt.operation).unwrap(),
             serde_json::to_value(operation).unwrap()
+        );
+    }
+
+    #[test]
+    fn oversized_admitted_arguments_have_a_truthful_bounded_recovery_projection() {
+        let target = crate::RepositoryTarget {
+            root: Some("repo".into()),
+            git_dir: "repo/.git".into(),
+            common_dir: "repo/.git".into(),
+            bare: false,
+            head: None,
+            branch: Some("main".into()),
+            fingerprint: "seen".into(),
+            index_fingerprint: "index".into(),
+            observation_error: None,
+        };
+        let receipt = crate::Receipt {
+            operation_id: "large-admission".into(),
+            principal: "owner".into(),
+            target,
+            operation: crate::Operation::Stage {
+                paths: (0..2000)
+                    .map(|index| format!("{index}-{}", "path".repeat(20)))
+                    .collect(),
+            },
+            state: crate::Outcome::Unknown,
+            message: "Read-only inspection did not prove the previous effect.".into(),
+            head: None,
+            result: None,
+        };
+        let original = serde_json::to_vec(&receipt.operation).unwrap();
+        assert!(original.len() > MAX_REPLY_BYTES);
+        let response = bounded_response(WireResponse::Core(Box::new(crate::Response::Receipt {
+            receipt: Box::new(receipt),
+        })))
+        .unwrap();
+        let bytes = serde_json::to_vec(&response).unwrap();
+        assert!(bytes.len() < MAX_REPLY_BYTES);
+        let decoded: WireResponse = serde_json::from_slice(&bytes).unwrap();
+        match decoded {
+            WireResponse::Managed(crate::ManagedResponse::ReceiptSummary { receipt, .. }) => {
+                assert_eq!(receipt.operation_id, "large-admission");
+                assert_eq!(receipt.state, crate::Outcome::Unknown);
+                assert!(!receipt.operation_digest.is_empty());
+                assert!(receipt.message.contains("did not prove"));
+            }
+            other => panic!("expected a bounded summary {other:?}"),
+        }
+        assert!(
+            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["receipt"]
+                .get("operation")
+                .is_none()
         );
     }
 }

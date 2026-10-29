@@ -157,6 +157,33 @@ test("a compact unknown managed receipt is preserved without inventing a created
   }
 });
 
+test("recovery discovery cannot mix another principal or repository into the catalog", async () => {
+  await Promise.all(
+    [
+      { principal: "bob", target },
+      { principal: "alice", target: { ...target, common_dir: "/other/.git" } },
+    ].map(async (receipt) => {
+      const state = await fixture(() => ({
+        kind: "operations",
+        operations: [
+          {
+            ...receipt,
+            operation_id: "foreign",
+            state: "unknown",
+            message: "interrupted",
+            head: "abc",
+          },
+        ],
+        unavailable: [],
+        next_page: null,
+      }));
+      expect(await rejected(state.remote.request({ kind: "operations", target }))).toContain(
+        "another principal or repository",
+      );
+    }),
+  );
+});
+
 async function rejected(pending: Promise<unknown>) {
   try {
     await pending;

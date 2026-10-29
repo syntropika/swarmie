@@ -1,12 +1,14 @@
 import { expect, test } from "bun:test";
 
 import { createConversationRecords } from "@swarmie/plugin-conversations-browser";
-import type { ConversationExecutionContext } from "@swarmie/plugin-conversations-browser";
+import type {
+  ConversationExecutionApi,
+  ConversationExecutionContext,
+} from "@swarmie/plugin-conversations-browser";
 import { createHost } from "@syntropika/tembra-sdk/node";
 import { sleep } from "bun";
 
 import { initializeClient } from "../src/client/initialize";
-import { createNodeExecution } from "../src/client/node-execution";
 import { createSubmissions } from "../src/client/submissions";
 import { fixtureConnector, fixtureNode } from "./connection-fixture";
 
@@ -158,43 +160,88 @@ test("failed preparation prevents admission and leaves an editable draft", async
   }
 });
 
-test("native conversations refuse an unsupported checkout before acquiring an execution service", async () => {
+test("first checkout admission finalizes both request and draft contexts independently of property order", async () => {
   const client = await initializeClient(createHost(), {
     dev: false,
     nodes: [fixtureNode],
     connector: fixtureConnector,
   });
-  const execution = createNodeExecution(
-    client.connectionState,
+  const records = createConversationRecords(
+    client.conversationState,
+    client.conversationState.commit,
+  );
+  const submitted = Promise.withResolvers<Parameters<ConversationExecutionApi["submit"]>[0]>();
+  const context = {
+    nodeId: fixtureNode.id,
+    principal: fixtureNode.principal,
+    path: "/selected/alias",
+    owner: "git",
+  };
+  const finalized = {
+    ...context,
+    version: 1 as const,
+    path: "/project",
+    identity: JSON.stringify(["/project", "/project/.git", "/project/.git"]),
+  };
+  const submissions = createSubmissions(
     client.nodeConnections,
-    createConversationRecords(client.conversationState, client.conversationState.commit),
-    () => client.activeConversation().id,
+    client.connectionState,
+    records,
+    client.providers,
+    () => ({
+      submit: async (input) => {
+        submitted.resolve(input);
+        return { accepted: true };
+      },
+      stop: async () => undefined,
+    }),
+    client.conversationsUi.lifecycle,
+    client.nextId,
+    null,
+    async () => finalized,
   );
   try {
-    const connection = await client.nodeConnections.open(fixtureNode.id);
-    const context = { nodeId: fixtureNode.id, path: "/project/worktree", owner: "git" };
-    const input = {
-      conversationId: "fixture-conversation",
-      submissionId: "fixture-submission",
-      createConversation: true,
-      draft: client.activeConversation().draft.getSnapshot(),
-      mode: "queue" as const,
-    };
-    const api = execution.factory(connection);
-    const outer = await api.submit(
-      { ...input, executionContext: context },
-      new AbortController().signal,
-    );
-    const draft = await api.submit(
-      { ...input, draft: { ...input.draft, executionContext: context } },
-      new AbortController().signal,
-    );
-    for (const result of [outer, draft]) {
-      expect(result.accepted).toBe(false);
-      expect("reason" in result ? result.reason : "").toContain("captured checkout");
-    }
+    client.providers.state.update((state) => ({
+      ...state,
+      accounts: [
+        {
+          id: "account",
+          providerId: "provider",
+          providerLabel: "Provider",
+          label: "Account",
+          available: true,
+          models: [{ id: "model", label: "Model", efforts: [] }],
+        },
+      ],
+    }));
+    const chat = client.activeConversation();
+    submissions.setConversationContext(chat, context);
+    chat.draft.update((draft) => ({
+      ...draft,
+      text: "Review this checkout",
+      account: "account",
+      model: "model",
+    }));
+    await sleep(10);
+    submissions.send(chat);
+    const input = await submitted.promise;
+    expect(input.executionContext).toEqual(finalized);
+    expect(input.draft.executionContext).toEqual(finalized);
+    expect(input.draft.executionContext?.version).toBe(1);
+    expect(input.draft.executionContext?.identity).toBe(finalized.identity);
+    expect(context.path).toBe("/selected/alias");
+    const { sameExecutionContext } = await import("../src/client/conversation-values");
+    expect(
+      sameExecutionContext(finalized, {
+        identity: finalized.identity,
+        owner: "git",
+        path: "/project",
+        principal: fixtureNode.principal,
+        nodeId: fixtureNode.id,
+        version: 1,
+      }),
+    ).toBe(true);
   } finally {
-    execution.dispose();
     await client.close();
   }
 });

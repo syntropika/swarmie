@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
-use swarmie_git::{Authority, Error, Intent};
+use swarmie_git::{Authority, Error, Intent, IntentOperation, ManagedRequest, Operation};
 
 #[derive(Default)]
 pub(crate) struct DirectoryGrants(Mutex<Vec<PathBuf>>, Mutex<Option<PathBuf>>);
@@ -49,33 +49,66 @@ impl DirectoryGrants {
         }
     }
 
-    fn authorize_destination(&self, operation: &str) -> swarmie_git::Result<()> {
-        let raw = operation
-            .strip_prefix("create_worktree:")
-            .or_else(|| operation.strip_prefix("restore_archive:"));
-        let parsed = serde_json::from_str::<serde_json::Value>(raw.unwrap_or(operation));
-        let Ok(value) = parsed else {
-            return Ok(());
-        };
-        let pair = if raw.is_some() {
-            value["managed_root"]
-                .as_str()
-                .zip(value["destination"].as_str())
-        } else if value["kind"] == "extension" && value["name"] == "worktree_create" {
-            value["arguments"][1]["managed_root"]
-                .as_str()
-                .zip(value["arguments"][1]["destination"].as_str())
-        } else if value["kind"] == "extension" && value["name"] == "archive_restore" {
-            value["arguments"][1]
-                .as_str()
-                .zip(value["arguments"][2].as_str())
-        } else {
-            None
-        };
-        if let Some((root, destination)) = pair {
-            self.managed_destination(root, destination)?;
+    fn authorize_operation(&self, operation: &IntentOperation) -> swarmie_git::Result<()> {
+        match operation {
+            IntentOperation::CreateWorktree { request } => self.managed_destination(
+                &request.managed_root.to_string_lossy(),
+                &request.destination.to_string_lossy(),
+            ),
+            IntentOperation::ArchiveRestore {
+                managed_root,
+                destination,
+                ..
+            } => self.managed_destination(
+                &managed_root.to_string_lossy(),
+                &destination.to_string_lossy(),
+            ),
+            IntentOperation::Managed { request } => match request.as_ref() {
+                ManagedRequest::WorktreeCreate { request, .. } => self.managed_destination(
+                    &request.managed_root.to_string_lossy(),
+                    &request.destination.to_string_lossy(),
+                ),
+                ManagedRequest::ArchiveRestore {
+                    managed_root,
+                    destination,
+                    ..
+                } => self.managed_destination(
+                    &managed_root.to_string_lossy(),
+                    &destination.to_string_lossy(),
+                ),
+                ManagedRequest::CapabilityInfo
+                | ManagedRequest::SettingsGet { .. }
+                | ManagedRequest::SettingsSet { .. }
+                | ManagedRequest::ArchiveCreate { .. }
+                | ManagedRequest::ArchiveList { .. }
+                | ManagedRequest::CleanupCheck { .. } => Ok(()),
+            },
+            IntentOperation::Mutate { operation } => match operation {
+                Operation::Extension { .. } => Err(Error::Denied(
+                    "extension writes require their typed facade".into(),
+                )),
+                Operation::Stage { .. }
+                | Operation::Unstage { .. }
+                | Operation::Commit { .. }
+                | Operation::CreateBranch { .. }
+                | Operation::Fetch { .. }
+                | Operation::Push { .. } => Ok(()),
+            },
+            IntentOperation::Discover
+            | IntentOperation::Status
+            | IntentOperation::Diff { .. }
+            | IntentOperation::History { .. }
+            | IntentOperation::Remotes
+            | IntentOperation::Files
+            | IntentOperation::File { .. }
+            | IntentOperation::Recover { .. }
+            | IntentOperation::Operations
+            | IntentOperation::Setup { .. }
+            | IntentOperation::ArchiveCapture { .. }
+            | IntentOperation::CleanupCheck { .. }
+            | IntentOperation::ArchiveList
+            | IntentOperation::ConversationHold { .. } => Ok(()),
         }
-        Ok(())
     }
 }
 
@@ -97,7 +130,7 @@ impl Authority for DirectoryGrants {
             .as_deref()
             .unwrap_or(&intent.target.git_dir);
         self.authorize_discovery(principal, Path::new(path))?;
-        self.authorize_destination(&intent.operation)
+        self.authorize_operation(&intent.operation)
     }
 }
 
@@ -167,25 +200,24 @@ mod tests {
         let grants = DirectoryGrants::default();
         grants.grant(selected.path()).unwrap();
         *grants.1.lock().unwrap() = Some(managed.path().canonicalize().unwrap());
-        let intent = |root: &Path, destination: &Path| {
-            format!(
-                "create_worktree:{}",
-                serde_json::json!({"managed_root":root,"destination":destination})
-            )
+        let intent = |root: &Path, destination: &Path| IntentOperation::ArchiveRestore {
+            archive_id: "fixture".into(),
+            managed_root: root.into(),
+            destination: destination.into(),
         };
         assert!(
             grants
-                .authorize_destination(&intent(managed.path(), &managed.path().join("new")))
+                .authorize_operation(&intent(managed.path(), &managed.path().join("new")))
                 .is_ok()
         );
         assert!(
             grants
-                .authorize_destination(&intent(selected.path(), &selected.path().join("new")))
+                .authorize_operation(&intent(selected.path(), &selected.path().join("new")))
                 .is_err()
         );
         assert!(
             grants
-                .authorize_destination(&intent(managed.path(), &outside.path().join("new")))
+                .authorize_operation(&intent(managed.path(), &outside.path().join("new")))
                 .is_err()
         );
     }

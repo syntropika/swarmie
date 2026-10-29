@@ -1,8 +1,8 @@
 use std::{fs, path::Path, process::Command, sync::Arc};
 
 use swarmie_git::{
-    Authority, Cancellation, DirectoryJournal, Error, Git, Intent, NativeProcess, Operation,
-    Outcome, PendingOperation, Request, Response, Result,
+    Authority, Cancellation, DirectoryJournal, Error, Git, Intent, Journal, NativeProcess,
+    Operation, Outcome, PendingOperation, Request, Response, Result,
 };
 use tempfile::TempDir;
 
@@ -49,6 +49,32 @@ fn fixture() -> (TempDir, Git) {
         DirectoryJournal::open(directory.path().join(".git/swarmie-journal")).expect("journal");
     let git = Git::new(Arc::new(NativeProcess), Arc::new(journal), Arc::new(Permit));
     (directory, git)
+}
+
+trait Discover {
+    fn discover(
+        &self,
+        path: &Path,
+        cancellation: &Cancellation,
+    ) -> Result<Option<swarmie_git::RepositoryTarget>>;
+}
+impl Discover for Git {
+    fn discover(
+        &self,
+        path: &Path,
+        cancellation: &Cancellation,
+    ) -> Result<Option<swarmie_git::RepositoryTarget>> {
+        match self.execute(
+            "user",
+            Request::Discover {
+                path: path.to_string_lossy().into_owned(),
+            },
+            cancellation,
+        )? {
+            Response::Repository { repository } => Ok(repository),
+            _ => unreachable!("discovery response"),
+        }
+    }
 }
 
 fn mutate(git: &Git, path: &Path, id: &str, operation: Operation) -> swarmie_git::Receipt {
@@ -203,7 +229,8 @@ fn pending_admission_is_unknown_and_private_to_principal() {
         .discover(directory.path(), &Cancellation::default())
         .expect("discover")
         .expect("repo");
-    git.journal
+    DirectoryJournal::open(directory.path().join(".git/swarmie-journal"))
+        .unwrap()
         .admit(&PendingOperation {
             operation_id: "interrupted".into(),
             principal: "user".into(),
@@ -486,12 +513,16 @@ fn staging_uses_reviewed_snapshot_when_editor_changes_file_at_dispatch() {
             NativeProcess.run(command, cancel)
         }
     }
-    let (directory, mut git) = fixture();
+    let (directory, _git) = fixture();
     fs::write(directory.path().join("first.txt"), "reviewed edit\n").expect("edit");
-    git.executor = Arc::new(EditingExecutor {
-        root: directory.path().into(),
-        edited: AtomicBool::new(false),
-    });
+    let git = Git::new(
+        Arc::new(EditingExecutor {
+            root: directory.path().into(),
+            edited: AtomicBool::new(false),
+        }),
+        Arc::new(DirectoryJournal::open(directory.path().join(".git/swarmie-journal")).unwrap()),
+        Arc::new(Permit),
+    );
     let receipt = mutate(
         &git,
         directory.path(),
@@ -525,7 +556,8 @@ fn a_foreign_index_lock_is_preserved() {
             paths: vec!["first.txt".into()],
         },
     );
-    assert_eq!(receipt.state, Outcome::Unknown);
+    assert_eq!(receipt.state, Outcome::Failed);
+    assert!(receipt.message.contains("rejected before execution"));
     assert_eq!(
         fs::read_to_string(lock).expect("foreign lock intact"),
         "another Git writer"
@@ -752,7 +784,8 @@ fn rejection_helper_never_replaces_an_existing_admission() {
     let operation = Operation::Stage {
         paths: vec!["first.txt".into()],
     };
-    git.journal
+    DirectoryJournal::open(directory.path().join(".git/swarmie-journal"))
+        .unwrap()
         .admit(&PendingOperation {
             operation_id: "existing-admission".into(),
             principal: "user".into(),
@@ -761,17 +794,25 @@ fn rejection_helper_never_replaces_an_existing_admission() {
         })
         .expect("admit");
     let recovered = git
-        .reject_before_admission(
+        .execute(
             "user",
-            "existing-admission".into(),
-            target,
-            operation,
-            Error::Io(std::io::Error::other("unresolved settlement")),
+            Request::Mutate {
+                operation_id: "existing-admission".into(),
+                target,
+                operation,
+            },
+            &Cancellation::default(),
         )
         .expect("recover existing admission");
+    let Response::Receipt { receipt: recovered } = recovered else {
+        panic!("receipt")
+    };
     assert_eq!(recovered.state, Outcome::Unknown);
     assert!(matches!(
-        git.journal.load("existing-admission").expect("load"),
+        DirectoryJournal::open(directory.path().join(".git/swarmie-journal"))
+            .unwrap()
+            .load("existing-admission")
+            .expect("load"),
         Some(JournalEntry::Pending(_))
     ));
 }
@@ -1066,4 +1107,688 @@ fn failing_native_hooks_keep_their_staged_edits_without_creating_a_commit() {
     );
     assert!(command(directory.path(), &["diff"]).is_empty());
     assert!(!directory.path().join(".git/index.lock").exists());
+}
+
+#[test]
+fn journal_scan_retains_corrupt_records_and_scopes_recovery_to_owner() {
+    use swarmie_git::JournalEntry;
+    let (directory, git) = fixture();
+    let target = git
+        .discover(directory.path(), &Cancellation::default())
+        .unwrap()
+        .unwrap();
+    let journal_path = directory.path().join(".git/swarmie-journal");
+    let journal = DirectoryJournal::open(&journal_path).unwrap();
+    for (id, principal) in [("mine", "user"), ("theirs", "other")] {
+        assert!(
+            journal
+                .admit(&PendingOperation {
+                    operation_id: id.into(),
+                    principal: principal.into(),
+                    target: target.clone(),
+                    operation: Operation::Stage {
+                        paths: vec!["first.txt".into()]
+                    },
+                })
+                .unwrap()
+        );
+    }
+    let broken = journal_path.join(format!("{}.json", "0".repeat(64)));
+    fs::write(&broken, b"{truncated admission").unwrap();
+    let scan = journal.scan().unwrap();
+    assert_eq!(scan.entries.len(), 2);
+    assert_eq!(scan.unavailable.len(), 1);
+    assert!(broken.exists());
+    assert!(
+        scan.entries
+            .iter()
+            .all(|entry| matches!(entry, JournalEntry::Pending(_)))
+    );
+    let Response::Operations {
+        operations,
+        unavailable,
+        next_page,
+    } = git
+        .execute(
+            "user",
+            Request::Operations { target, page: None },
+            &Cancellation::default(),
+        )
+        .unwrap()
+    else {
+        panic!("operations")
+    };
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].operation_id, "mine");
+    assert_eq!(operations[0].state, Outcome::Unknown);
+    assert_eq!(unavailable.len(), 1);
+    assert!(next_page.is_none());
+    assert!(command(directory.path(), &["diff", "--cached", "--name-only"]).is_empty());
+}
+
+#[test]
+fn atomic_admission_preserves_existing_bytes_and_ignores_abandoned_temporary() {
+    let (directory, git) = fixture();
+    let target = git
+        .discover(directory.path(), &Cancellation::default())
+        .unwrap()
+        .unwrap();
+    let journal_path = directory.path().join(".git/swarmie-journal");
+    let journal = DirectoryJournal::open(&journal_path).unwrap();
+    let pending = PendingOperation {
+        operation_id: "once".into(),
+        principal: "user".into(),
+        target,
+        operation: Operation::Stage {
+            paths: vec!["first.txt".into()],
+        },
+    };
+    fs::write(
+        journal_path.join(".entry-abandoned"),
+        b"partial unpublished bytes",
+    )
+    .unwrap();
+    assert!(journal.admit(&pending).unwrap());
+    assert!(!journal.admit(&pending).unwrap());
+    assert_eq!(journal.scan().unwrap().entries.len(), 1);
+    assert!(journal.scan().unwrap().unavailable.is_empty());
+    assert!(journal.load("once").unwrap().is_some());
+}
+
+#[test]
+fn repository_locks_are_cancellable_and_independent_with_live_recovery() {
+    use std::{
+        sync::{Condvar, Mutex, mpsc},
+        time::Duration,
+    };
+    use swarmie_git::{CommandOutput, CommandSpec, ProcessExecutor};
+    struct BlockingExecutor {
+        blocked_root: std::path::PathBuf,
+        entered: Mutex<Option<mpsc::Sender<()>>>,
+        release: Arc<(Mutex<bool>, Condvar)>,
+    }
+    impl ProcessExecutor for BlockingExecutor {
+        fn run(&self, command: &CommandSpec, cancel: &Cancellation) -> Result<CommandOutput> {
+            if command.cwd == self.blocked_root
+                && command.env.contains_key("GIT_WORK_TREE")
+                && command.args.iter().any(|arg| arg == "add")
+            {
+                if let Some(entered) = self.entered.lock().unwrap().take() {
+                    entered.send(()).unwrap();
+                }
+                let (flag, condition) = &*self.release;
+                let mut ready = flag.lock().unwrap();
+                while !*ready {
+                    ready = condition.wait(ready).unwrap();
+                }
+            }
+            NativeProcess.run(command, cancel)
+        }
+    }
+    let (first, _) = fixture();
+    let (second, _) = fixture();
+    fs::write(first.path().join("first.txt"), "changed one\n").unwrap();
+    fs::write(second.path().join("first.txt"), "changed two\n").unwrap();
+    let release = Arc::new((Mutex::new(false), Condvar::new()));
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let git = Git::new(
+        Arc::new(BlockingExecutor {
+            blocked_root: first.path().canonicalize().unwrap(),
+            entered: Mutex::new(Some(entered_tx)),
+            release: release.clone(),
+        }),
+        Arc::new(DirectoryJournal::open(first.path().join(".git/swarmie-journal")).unwrap()),
+        Arc::new(Permit),
+    );
+    let first_target = git
+        .discover(first.path(), &Cancellation::default())
+        .unwrap()
+        .unwrap();
+    let captured = first_target.clone();
+    let worker = git.clone();
+    let thread = std::thread::spawn(move || {
+        worker.execute(
+            "user",
+            Request::Mutate {
+                operation_id: "live".into(),
+                target: captured,
+                operation: Operation::Stage {
+                    paths: vec!["first.txt".into()],
+                },
+            },
+            &Cancellation::default(),
+        )
+    });
+    let entered = entered_rx.recv_timeout(Duration::from_secs(10));
+    if entered.is_ok() {
+        let response = git
+            .execute(
+                "user",
+                Request::Recover {
+                    operation_id: "live".into(),
+                },
+                &Cancellation::default(),
+            )
+            .unwrap();
+        assert!(
+            matches!(response,Response::Receipt{receipt} if receipt.state==Outcome::InProgress)
+        );
+        let cancellation = Cancellation::default();
+        let cancel_worker = cancellation.clone();
+        let worker = git.clone();
+        let captured = first_target.clone();
+        let waiter = std::thread::spawn(move || {
+            worker.execute(
+                "user",
+                Request::Mutate {
+                    operation_id: "cancel-wait".into(),
+                    target: captured,
+                    operation: Operation::Stage {
+                        paths: vec!["first.txt".into()],
+                    },
+                },
+                &cancel_worker,
+            )
+        });
+        std::thread::sleep(Duration::from_millis(25));
+        cancellation.cancel();
+        assert!(
+            matches!(waiter.join().unwrap().unwrap(),Response::Receipt{receipt} if receipt.state==Outcome::Failed)
+        );
+        // A different repository must complete while the first native effect waits.
+        let other = mutate(
+            &git,
+            second.path(),
+            "independent",
+            Operation::Stage {
+                paths: vec!["first.txt".into()],
+            },
+        );
+        assert_eq!(other.state, Outcome::Completed, "{}", other.message);
+    }
+    *release.0.lock().unwrap() = true;
+    release.1.notify_all();
+    let result = thread.join().unwrap().unwrap();
+    assert!(entered.is_ok(), "native effect never entered");
+    assert!(matches!(result,Response::Receipt{receipt} if receipt.state==Outcome::Completed));
+    let response = git
+        .execute(
+            "user",
+            Request::Recover {
+                operation_id: "live".into(),
+            },
+            &Cancellation::default(),
+        )
+        .unwrap();
+    assert!(matches!(response,Response::Receipt{receipt} if receipt.state==Outcome::Completed));
+}
+
+#[test]
+fn concurrent_journal_adapters_cannot_replace_a_confirmed_receipt() {
+    use std::sync::Barrier;
+    use swarmie_git::{JournalEntry, Receipt};
+    let (directory, git) = fixture();
+    let target = git
+        .discover(directory.path(), &Cancellation::default())
+        .unwrap()
+        .unwrap();
+    let location = directory.path().join(".git/swarmie-journal");
+    let operation = Operation::Stage {
+        paths: vec!["first.txt".into()],
+    };
+    let pending = PendingOperation {
+        operation_id: "settlement-race".into(),
+        principal: "user".into(),
+        target: target.clone(),
+        operation: operation.clone(),
+    };
+    let journal = DirectoryJournal::open(&location).unwrap();
+    assert!(journal.admit(&pending).unwrap());
+    let barrier = Arc::new(Barrier::new(2));
+    let mut threads = Vec::new();
+    for message in ["first confirmed outcome", "second confirmed outcome"] {
+        let journal = DirectoryJournal::open(&location).unwrap();
+        let barrier = barrier.clone();
+        let receipt = Receipt {
+            operation_id: pending.operation_id.clone(),
+            principal: pending.principal.clone(),
+            target: target.clone(),
+            operation: operation.clone(),
+            result: None,
+            state: Outcome::Completed,
+            message: message.into(),
+            head: target.head.clone(),
+        };
+        threads.push(std::thread::spawn(move || {
+            barrier.wait();
+            journal.finish(&receipt)
+        }));
+    }
+    let successes = threads
+        .into_iter()
+        .map(|thread| usize::from(thread.join().unwrap().is_ok()))
+        .sum::<usize>();
+    assert_eq!(successes, 1);
+    assert!(matches!(
+        journal.load(&pending.operation_id).unwrap(),
+        Some(JournalEntry::Settled(_))
+    ));
+    assert_eq!(journal.scan().unwrap().entries.len(), 1);
+    assert!(journal.scan().unwrap().unavailable.is_empty());
+}
+
+#[test]
+fn authorization_receives_typed_arguments_and_denies_before_execution() {
+    use swarmie_git::IntentOperation;
+    struct SelectedPathOnly;
+    impl Authority for SelectedPathOnly {
+        fn authorize(&self, _: &str, intent: &Intent) -> Result<()> {
+            match &intent.operation {
+                IntentOperation::Discover | IntentOperation::Recover { .. } => Ok(()),
+                IntentOperation::Mutate {
+                    operation: Operation::Stage { paths },
+                } if paths == &["first.txt"] => Ok(()),
+                _ => Err(Error::Denied("operation was not granted".into())),
+            }
+        }
+        fn authorize_discovery(&self, _: &str, _: &Path) -> Result<()> {
+            Ok(())
+        }
+    }
+    let (directory, _) = fixture();
+    fs::write(directory.path().join("first.txt"), "authorized edit\n").unwrap();
+    fs::write(directory.path().join("second.txt"), "not granted\n").unwrap();
+    let git = Git::new(
+        Arc::new(NativeProcess),
+        Arc::new(DirectoryJournal::open(directory.path().join(".git/swarmie-journal")).unwrap()),
+        Arc::new(SelectedPathOnly),
+    );
+    let denied = mutate(
+        &git,
+        directory.path(),
+        "deny-second",
+        Operation::Stage {
+            paths: vec!["second.txt".into()],
+        },
+    );
+    assert_eq!(denied.state, Outcome::Failed);
+    assert!(command(directory.path(), &["diff", "--cached", "--name-only"]).is_empty());
+    let permitted = mutate(
+        &git,
+        directory.path(),
+        "allow-first",
+        Operation::Stage {
+            paths: vec!["first.txt".into()],
+        },
+    );
+    assert_eq!(permitted.state, Outcome::Completed, "{}", permitted.message);
+    assert_eq!(
+        command(directory.path(), &["diff", "--cached", "--name-only"]),
+        "first.txt"
+    );
+}
+
+#[test]
+fn explicit_recovery_observes_local_changes_without_replaying_admission() {
+    let (directory, git) = fixture();
+    fs::write(directory.path().join("first.txt"), "external staged edit\n").unwrap();
+    fs::write(
+        directory.path().join("second.txt"),
+        "must remain untracked\n",
+    )
+    .unwrap();
+    let target = git
+        .discover(directory.path(), &Cancellation::default())
+        .unwrap()
+        .unwrap();
+    let journal = DirectoryJournal::open(directory.path().join(".git/swarmie-journal")).unwrap();
+    journal
+        .admit(&PendingOperation {
+            operation_id: "inspect-local".into(),
+            principal: "user".into(),
+            target,
+            operation: Operation::Stage {
+                paths: vec!["second.txt".into()],
+            },
+        })
+        .unwrap();
+    command(directory.path(), &["add", "first.txt"]);
+    let Response::Receipt { receipt } = git
+        .execute(
+            "user",
+            Request::Recover {
+                operation_id: "inspect-local".into(),
+            },
+            &Cancellation::default(),
+        )
+        .unwrap()
+    else {
+        panic!("receipt")
+    };
+    assert_eq!(receipt.state, Outcome::Unknown);
+    let inspection: swarmie_git::RecoveryInspection =
+        serde_json::from_value(receipt.result.unwrap()["reconciliation"].clone()).unwrap();
+    assert!(inspection.head_matches_admission);
+    assert!(!inspection.index_matches_admission);
+    assert!(!inspection.causality_confirmed);
+    assert_eq!(inspection.repository.branch.as_deref(), Some("main"));
+    assert_eq!(
+        command(directory.path(), &["diff", "--cached", "--name-only"]),
+        "first.txt"
+    );
+    assert!(matches!(
+        journal.load("inspect-local").unwrap(),
+        Some(swarmie_git::JournalEntry::Pending(_))
+    ));
+}
+
+#[test]
+fn explicit_push_recovery_inspects_push_endpoint_and_listing_never_queries_remote() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use swarmie_git::{CommandOutput, CommandSpec, ProcessExecutor};
+    struct ObservingExecutor {
+        remote_reads: Arc<AtomicUsize>,
+        mutations: Arc<AtomicUsize>,
+    }
+    impl ProcessExecutor for ObservingExecutor {
+        fn run(&self, command: &CommandSpec, cancel: &Cancellation) -> Result<CommandOutput> {
+            if command.args.iter().any(|arg| arg == "ls-remote") {
+                self.remote_reads.fetch_add(1, Ordering::SeqCst);
+            }
+            if command.args.iter().any(|arg| {
+                matches!(
+                    arg.as_str(),
+                    "push" | "fetch" | "add" | "commit" | "switch" | "update-index" | "restore"
+                )
+            }) {
+                self.mutations.fetch_add(1, Ordering::SeqCst);
+            }
+            NativeProcess.run(command, cancel)
+        }
+    }
+    let (directory, original) = fixture();
+    let fetch = tempfile::tempdir().unwrap();
+    let pushing = tempfile::tempdir().unwrap();
+    command(fetch.path(), &["init", "--bare"]);
+    command(pushing.path(), &["init", "--bare"]);
+    command(
+        directory.path(),
+        &["remote", "add", "origin", fetch.path().to_str().unwrap()],
+    );
+    command(
+        directory.path(),
+        &[
+            "remote",
+            "set-url",
+            "--push",
+            "origin",
+            pushing.path().to_str().unwrap(),
+        ],
+    );
+    let target = original
+        .discover(directory.path(), &Cancellation::default())
+        .unwrap()
+        .unwrap();
+    let source = target.head.clone().unwrap();
+    let operation = Operation::Push {
+        remote: "origin".into(),
+        source_oid: source.clone(),
+        destination_ref: "refs/heads/recovered".into(),
+    };
+    let journal = DirectoryJournal::open(directory.path().join(".git/swarmie-journal")).unwrap();
+    journal
+        .admit(&PendingOperation {
+            operation_id: "inspect-push".into(),
+            principal: "user".into(),
+            target: target.clone(),
+            operation: operation.clone(),
+        })
+        .unwrap();
+    command(
+        directory.path(),
+        &["push", "origin", "HEAD:refs/heads/recovered"],
+    );
+    let reads = Arc::new(AtomicUsize::new(0));
+    let mutations = Arc::new(AtomicUsize::new(0));
+    let git = Git::new(
+        Arc::new(ObservingExecutor {
+            remote_reads: reads.clone(),
+            mutations: mutations.clone(),
+        }),
+        Arc::new(journal),
+        Arc::new(Permit),
+    );
+    git.execute(
+        "user",
+        Request::Operations {
+            target: target.clone(),
+            page: None,
+        },
+        &Cancellation::default(),
+    )
+    .unwrap();
+    assert_eq!(reads.load(Ordering::SeqCst), 0);
+    let Response::Receipt { receipt } = git
+        .execute(
+            "user",
+            Request::Recover {
+                operation_id: "inspect-push".into(),
+            },
+            &Cancellation::default(),
+        )
+        .unwrap()
+    else {
+        panic!("receipt")
+    };
+    assert_eq!(receipt.state, Outcome::Unknown);
+    let inspection: swarmie_git::RecoveryInspection =
+        serde_json::from_value(receipt.result.unwrap()["reconciliation"].clone()).unwrap();
+    let remote = inspection.remote_ref.unwrap();
+    assert_eq!(remote.observed_oid.as_deref(), Some(source.as_str()));
+    assert!(remote.matches_requested_source);
+    assert!(remote.endpoint_matches_admission.is_none());
+    assert!(remote.error.is_none(), "{:?}", remote.error);
+    assert_eq!(reads.load(Ordering::SeqCst), 1);
+    assert_eq!(mutations.load(Ordering::SeqCst), 0);
+    let Response::Receipt { receipt } = git
+        .execute(
+            "user",
+            Request::Mutate {
+                operation_id: "inspect-push".into(),
+                target,
+                operation,
+            },
+            &Cancellation::default(),
+        )
+        .unwrap()
+    else {
+        panic!("receipt")
+    };
+    assert_eq!(receipt.state, Outcome::Unknown);
+    assert_eq!(reads.load(Ordering::SeqCst), 1);
+    assert_eq!(mutations.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn recovery_catalog_projects_large_admitted_arguments_without_losing_identity() {
+    let (directory, git) = fixture();
+    let target = git
+        .discover(directory.path(), &Cancellation::default())
+        .unwrap()
+        .unwrap();
+    let journal = DirectoryJournal::open(directory.path().join(".git/swarmie-journal")).unwrap();
+    let paths = (0..1800)
+        .map(|index| format!("private-selected-argument-{index:04}-{}", "x".repeat(60)))
+        .collect();
+    journal
+        .admit(&PendingOperation {
+            operation_id: "large-selection".into(),
+            principal: "user".into(),
+            target: target.clone(),
+            operation: Operation::Stage { paths },
+        })
+        .unwrap();
+    let response = git
+        .execute(
+            "user",
+            Request::Operations { target, page: None },
+            &Cancellation::default(),
+        )
+        .unwrap();
+    let encoded = serde_json::to_vec(&response).unwrap();
+    assert!(encoded.len() < 24 * 1024);
+    assert!(!String::from_utf8_lossy(&encoded).contains("private-selected-argument"));
+    let Response::Operations { operations, .. } = response else {
+        panic!("operations")
+    };
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].operation_id, "large-selection");
+    assert_eq!(operations[0].operation_digest.len(), 64);
+    assert_eq!(operations[0].state, Outcome::Unknown);
+}
+
+#[test]
+fn successful_large_native_output_keeps_a_durable_confirmed_receipt() {
+    use swarmie_git::{CommandOutput, CommandSpec, ProcessExecutor};
+    struct VerboseExecutor;
+    impl ProcessExecutor for VerboseExecutor {
+        fn run(&self, command: &CommandSpec, cancel: &Cancellation) -> Result<CommandOutput> {
+            let mut result = NativeProcess.run(command, cancel)?;
+            if result.status == 0
+                && command.env.contains_key("GIT_INDEX_FILE")
+                && command.args.iter().any(|arg| arg == "add")
+            {
+                result.stdout = vec![b'x'; 3 * 1024 * 1024];
+            }
+            Ok(result)
+        }
+    }
+    let (directory, _) = fixture();
+    fs::write(directory.path().join("first.txt"), "large stdout stage\n").unwrap();
+    let location = directory.path().join(".git/swarmie-journal");
+    let git = Git::new(
+        Arc::new(VerboseExecutor),
+        Arc::new(DirectoryJournal::open(&location).unwrap()),
+        Arc::new(Permit),
+    );
+    let receipt = mutate(
+        &git,
+        directory.path(),
+        "large-output",
+        Operation::Stage {
+            paths: vec!["first.txt".into()],
+        },
+    );
+    assert_eq!(receipt.state, Outcome::Completed);
+    assert!(receipt.message.contains("output was omitted"));
+    assert!(receipt.message.len() < 13 * 1024);
+    let reopened = Git::new(
+        Arc::new(NativeProcess),
+        Arc::new(DirectoryJournal::open(location).unwrap()),
+        Arc::new(Permit),
+    );
+    let Response::Receipt { receipt: recovered } = reopened
+        .execute(
+            "user",
+            Request::Recover {
+                operation_id: "large-output".into(),
+            },
+            &Cancellation::default(),
+        )
+        .unwrap()
+    else {
+        panic!("receipt")
+    };
+    assert_eq!(recovered.state, Outcome::Completed);
+    assert_eq!(recovered.operation_id, receipt.operation_id);
+    assert_eq!(recovered.message, receipt.message);
+    assert_eq!(
+        command(directory.path(), &["show", ":first.txt"]),
+        "large stdout stage"
+    );
+}
+
+#[test]
+fn recovery_authorization_denial_precedes_native_inspection() {
+    use swarmie_git::{CommandOutput, CommandSpec, ProcessExecutor};
+    struct Deny;
+    impl Authority for Deny {
+        fn authorize(&self, _: &str, _: &Intent) -> Result<()> {
+            Err(Error::Denied("recovery is not granted".into()))
+        }
+    }
+    struct MustNotRun;
+    impl ProcessExecutor for MustNotRun {
+        fn run(&self, _: &CommandSpec, _: &Cancellation) -> Result<CommandOutput> {
+            panic!("denied recovery dispatched a native process")
+        }
+    }
+    let (directory, original) = fixture();
+    let target = original
+        .discover(directory.path(), &Cancellation::default())
+        .unwrap()
+        .unwrap();
+    let journal = DirectoryJournal::open(directory.path().join(".git/swarmie-journal")).unwrap();
+    journal
+        .admit(&PendingOperation {
+            operation_id: "denied-inspection".into(),
+            principal: "user".into(),
+            target,
+            operation: Operation::Stage {
+                paths: vec!["first.txt".into()],
+            },
+        })
+        .unwrap();
+    let git = Git::new(Arc::new(MustNotRun), Arc::new(journal), Arc::new(Deny));
+    assert!(matches!(
+        git.execute(
+            "user",
+            Request::Recover {
+                operation_id: "denied-inspection".into()
+            },
+            &Cancellation::default()
+        ),
+        Err(Error::Denied(_))
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn recovery_refuses_a_rebound_checkout_root() {
+    use std::os::unix::fs::symlink;
+    let (directory, git) = fixture();
+    let (other, _) = fixture();
+    let target = git
+        .discover(directory.path(), &Cancellation::default())
+        .unwrap()
+        .unwrap();
+    // The durable operation journal is outside the root which will be rebound.
+    let journal_directory = tempfile::tempdir().unwrap();
+    let journal = DirectoryJournal::open(journal_directory.path()).unwrap();
+    journal
+        .admit(&PendingOperation {
+            operation_id: "rebound".into(),
+            principal: "user".into(),
+            target,
+            operation: Operation::Stage {
+                paths: vec!["first.txt".into()],
+            },
+        })
+        .unwrap();
+    let git = Git::new(Arc::new(NativeProcess), Arc::new(journal), Arc::new(Permit));
+    let saved = directory
+        .path()
+        .with_extension("preserved-recovery-fixture");
+    fs::rename(directory.path(), &saved).unwrap();
+    symlink(other.path(), directory.path()).unwrap();
+    let result = git.execute(
+        "user",
+        Request::Recover {
+            operation_id: "rebound".into(),
+        },
+        &Cancellation::default(),
+    );
+    fs::remove_file(directory.path()).unwrap();
+    fs::rename(saved, directory.path()).unwrap();
+    assert!(matches!(result, Err(Error::Stale)));
 }

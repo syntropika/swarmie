@@ -32,7 +32,7 @@ export type GitReceipt = {
   operation_id: string;
   principal: string;
   target: RepositoryTarget;
-  state: "completed" | "failed" | "unknown";
+  state: "completed" | "failed" | "unknown" | "in_progress";
   message: string;
   head: string | null;
 };
@@ -79,14 +79,14 @@ export type ArchiveReceipt = {
   restored_target: RepositoryTarget | null;
   cleanup_blocked_reason: string;
 };
-export type SetupOutcome = { status: number; stdout: string; stderr: string; truncated: boolean };
+export type UnavailableEntry = { entry_id: string; message: string };
 export type ManagedMutation =
   | { kind: "settings_set"; project_id?: string; settings: GitSettingsValue }
   | { kind: "worktree_create"; project_id?: string; request: WorktreeRequest }
   | { kind: "archive_create"; archive_id: string }
-  | { kind: "archive_restore"; archive_id: string; managed_root: string; destination: string }
-  | { kind: "setup_test"; project_id?: string };
+  | { kind: "archive_restore"; archive_id: string; managed_root: string; destination: string };
 export type GitRequest =
+  | { kind: "capability_info" }
   | { kind: "discover"; path: string }
   | { kind: "remotes"; target: RepositoryTarget }
   | { kind: "status" | "files"; target: RepositoryTarget; page?: PageCursor }
@@ -96,10 +96,17 @@ export type GitRequest =
   | { kind: "mutate"; operation_id: string; target: RepositoryTarget; operation: GitOperation }
   | { kind: "recover"; operation_id: string }
   | { kind: "settings_get"; target: RepositoryTarget; project_id?: string }
-  | { kind: "archive_list"; target: RepositoryTarget }
+  | { kind: "archive_list"; target: RepositoryTarget; page?: PageCursor }
+  | { kind: "operations"; target: RepositoryTarget; page?: PageCursor }
   | { kind: "cleanup_check"; target: RepositoryTarget; archive_id: string }
   | (ManagedMutation & { operation_id: string; target: RepositoryTarget });
 export type GitResponse =
+  | {
+      kind: "capability_info";
+      api_version: number;
+      execution_available: boolean;
+      operations: string[];
+    }
   | { kind: "repository"; repository: RepositoryTarget | null }
   | { kind: "status"; status: GitStatus; next_page: PageCursor | null }
   | { kind: "diff"; diff: GitDiff }
@@ -111,12 +118,22 @@ export type GitResponse =
   | { kind: "settings"; settings: GitSettingsValue; execution_platform: string }
   | { kind: "worktree"; worktree: CreatedWorktree; receipt: GitReceipt }
   | { kind: "archive"; archive: ArchiveReceipt; receipt: GitReceipt }
-  | { kind: "archives"; archives: ArchiveReceipt[] }
+  | {
+      kind: "archives";
+      archives: ArchiveReceipt[];
+      unavailable: UnavailableEntry[];
+      next_page: PageCursor | null;
+    }
+  | {
+      kind: "operations";
+      operations: GitReceipt[];
+      unavailable: UnavailableEntry[];
+      next_page: PageCursor | null;
+    }
   | {
       kind: "cleanup";
       eligibility: { eligible: boolean; changed_since_archive: boolean; reason: string };
-    }
-  | { kind: "setup"; outcome: SetupOutcome; receipt: GitReceipt };
+    };
 
 function invalid(): never {
   throw new Error("The Git node returned an invalid response. Reconnect to a compatible node.");
@@ -258,14 +275,26 @@ export function receiptValue(input: unknown): GitReceipt {
     operation_id: string(value.operation_id),
     principal: string(value.principal),
     target: targetValue(value.target),
-    state: choice(value.state, ["completed", "failed", "unknown"]),
+    state: choice(value.state, ["completed", "failed", "unknown", "in_progress"]),
     message: string(value.message),
     head: nullableString(value.head),
   };
 }
+function unavailableValue(input: unknown): UnavailableEntry {
+  const value = record(input);
+  return { entry_id: string(value.entry_id), message: string(value.message) };
+}
 export function responseValue(input: unknown): GitResponse {
   const value = record(input);
   switch (value.kind) {
+    case "capability_info": {
+      return {
+        kind: "capability_info",
+        api_version: number(value.api_version),
+        execution_available: boolean(value.execution_available),
+        operations: array(value.operations, string),
+      };
+    }
     case "repository": {
       return {
         kind: "repository",
@@ -337,7 +366,20 @@ export function responseValue(input: unknown): GitResponse {
       };
     }
     case "archives": {
-      return { kind: "archives", archives: array(value.archives, archiveValue) };
+      return {
+        kind: "archives",
+        archives: array(value.archives, archiveValue),
+        unavailable: array(value.unavailable, unavailableValue),
+        next_page: pageValue(value.next_page),
+      };
+    }
+    case "operations": {
+      return {
+        kind: "operations",
+        operations: array(value.operations, receiptValue),
+        unavailable: array(value.unavailable, unavailableValue),
+        next_page: pageValue(value.next_page),
+      };
     }
     case "cleanup": {
       const eligibility = record(value.eligibility);
@@ -348,19 +390,6 @@ export function responseValue(input: unknown): GitResponse {
           changed_since_archive: boolean(eligibility.changed_since_archive),
           reason: string(eligibility.reason),
         },
-      };
-    }
-    case "setup": {
-      const outcome = record(value.outcome);
-      return {
-        kind: "setup",
-        outcome: {
-          status: number(outcome.status),
-          stdout: string(outcome.stdout),
-          stderr: string(outcome.stderr),
-          truncated: boolean(outcome.truncated),
-        },
-        receipt: receiptValue(value.receipt),
       };
     }
     default: {

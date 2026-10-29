@@ -9,8 +9,10 @@ import { StateView } from "./inspector";
 import { ViewToolbar } from "./toolbar";
 
 function ViewContent({ tab }: { tab: Tab | undefined }) {
-  const { openTab, plugins, roster } = useClient();
+  const { openTab, plugins, roster, gitPresentation } = useClient();
   const installed = useSource(plugins);
+  const git = useSource(gitPresentation.state);
+  const gitAvailable = git.enabled && Object.values(git.nodes).some((node) => node.available);
   const conversations = useSource(roster);
   if (tab?.kind === "capability") {
     return tab.owner === "git" ? (
@@ -44,7 +46,7 @@ function ViewContent({ tab }: { tab: Tab | undefined }) {
   }
   return (
     <div className="h-full overflow-auto">
-      <GitLauncher />
+      {gitAvailable ? <GitLauncher /> : null}
       <div className="mx-auto max-w-xl px-7 pb-7">
         <h2 className="mb-4 text-navigation-heading text-muted">Tools</h2>
         <div className="space-y-1">

@@ -1,4 +1,5 @@
 import { useSource } from "@swarmie/client-ui";
+import { ConnectionPhase } from "@swarmie/plugin-connections-browser";
 import { GitSettings, GitView } from "@swarmie/plugin-git-browser";
 import type { CapabilityTab } from "@swarmie/plugin-views-browser";
 import { Button } from "@swarmie/ui-web";
@@ -15,16 +16,29 @@ import { gitDescriptor, gitTarget } from "./targets";
 import type { GitTarget } from "./targets";
 
 export function GitTargetChooser({ onChoose }: { onChoose: (target: GitTarget) => void }) {
-  const { connectionState, projectsState } = useClient();
+  const { connectionState, projectsState, gitPresentation } = useClient();
   const nodes = useSource(connectionState);
+  const git = useSource(gitPresentation.state);
+  const availableNodes = nodes.nodes.filter((entry) => {
+    const capability = git.nodes[entry.id];
+    return (
+      git.enabled &&
+      nodes.sessions[entry.id]?.phase === ConnectionPhase.Connected &&
+      capability?.available === true &&
+      capability.principal === entry.principal &&
+      capability.generation === nodes.sessions[entry.id]?.generation
+    );
+  });
   const projects = useSource(projectsState);
-  const [nodeId, setNodeId] = useState(nodes.selected);
+  const [nodeId, setNodeId] = useState(
+    availableNodes.find((entry) => entry.id === nodes.selected)?.id ?? availableNodes[0]?.id ?? "",
+  );
   const [path, setPath] = useState("");
   const [projectId, setProjectId] = useState<string | undefined>();
   const [pickerError, setPickerError] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const selectionVersion = useRef(0);
-  const node = nodes.nodes.find((entry) => entry.id === nodeId);
+  const node = availableNodes.find((entry) => entry.id === nodeId);
   const folders = projects.personalFolders.filter(
     (entry) =>
       entry.nodeId === nodeId &&
@@ -67,7 +81,7 @@ export function GitTargetChooser({ onChoose }: { onChoose: (target: GitTarget) =
       <label className="grid gap-2 text-xs">
         Execution node
         <select
-          value={nodeId}
+          value={node?.id ?? ""}
           onChange={(event) => {
             selectionVersion.current += 1;
             setNodeId(event.target.value);
@@ -76,7 +90,11 @@ export function GitTargetChooser({ onChoose }: { onChoose: (target: GitTarget) =
           }}
           className="rounded-lg border border-border bg-default px-3 py-2 text-sm"
         >
-          {nodes.nodes.map((entry) => (
+          <option value="">Choose a node with Git support</option>
+          <option value="" disabled>
+            Choose a node with Git support
+          </option>
+          {availableNodes.map((entry) => (
             <option key={entry.id} value={entry.id}>
               {entry.label}
             </option>
@@ -138,7 +156,7 @@ export function GitTargetChooser({ onChoose }: { onChoose: (target: GitTarget) =
           <Button
             type="button"
             variant="secondary"
-            isDisabled={picking}
+            isDisabled={picking || node === undefined}
             onPress={() => {
               chooseDirectory().catch(pickerFailed);
             }}
@@ -159,6 +177,12 @@ export function GitTargetChooser({ onChoose }: { onChoose: (target: GitTarget) =
         The connected node checks repository access. A saved project folder does not grant
         permission.
       </p>
+      {availableNodes.length === 0 ? (
+        <output className="text-xs text-muted">
+          No connected node currently provides the complete Git capability. Enable Git and connect a
+          supported execution node.
+        </output>
+      ) : null}
       <div>
         <Button type="submit" variant="secondary" isDisabled={!node || !path.trim()}>
           Open Git
@@ -189,9 +213,17 @@ function CapturedGitView({ target }: { target: GitTarget }) {
     setConversationContext,
     projects,
     connectionState,
+    gitPresentation,
   } = useClient();
   const nodes = useSource(connectionState);
+  const git = useSource(gitPresentation.state);
   const { connection, error } = useGitConnection(target.nodeId, target.principal);
+  const capability = git.nodes[target.nodeId];
+  const available =
+    git.enabled &&
+    capability?.available === true &&
+    capability.principal === target.principal &&
+    capability.generation === connection?.generation;
   function startConversation(path: string) {
     const chat = createConversation(target.nodeId);
     setConversationContext(chat, {
@@ -211,10 +243,18 @@ function CapturedGitView({ target }: { target: GitTarget }) {
           {error}
         </p>
       )}
+      {available ? null : (
+        <output className="border-b border-border px-4 py-3 text-xs text-muted">
+          {git.enabled
+            ? (capability?.error ??
+              "Git is unavailable on this connection. The last captured view is retained.")
+            : "The Git plugin is disabled. This view is retained until it is enabled again."}
+        </output>
+      )}
       <div className="min-h-0 flex-1">
         <GitView
-          key={`${target.nodeId}:${target.principal}:${connection?.generation ?? "none"}:${target.path}`}
-          connection={connection}
+          key={JSON.stringify([target.nodeId, target.principal, target.path, target.projectId])}
+          connection={available ? connection : null}
           path={target.path}
           nodeLabel={nodes.nodes.find((node) => node.id === target.nodeId)?.label ?? target.nodeId}
           onStartConversation={() => {
@@ -245,7 +285,15 @@ export function GitCapabilityView({ tab }: { tab: CapabilityTab }) {
 }
 
 function CapturedGitSettings({ target, onChange }: { target: GitTarget; onChange: () => void }) {
+  const { gitPresentation } = useClient();
+  const git = useSource(gitPresentation.state);
   const { connection, error } = useGitConnection(target.nodeId, target.principal);
+  const capability = git.nodes[target.nodeId];
+  const available =
+    git.enabled &&
+    capability?.available === true &&
+    capability.principal === target.principal &&
+    capability.generation === connection?.generation;
   return (
     <>
       <div className="mb-6 flex items-center justify-between gap-3">
@@ -261,9 +309,17 @@ function CapturedGitSettings({ target, onChange }: { target: GitTarget; onChange
           {error}
         </p>
       )}
+      {available ? null : (
+        <output className="mb-4 text-xs text-muted">
+          {git.enabled
+            ? (capability?.error ??
+              "Git is unavailable on this connection. Unsaved settings are retained.")
+            : "The Git plugin is disabled. Unsaved settings are retained."}
+        </output>
+      )}
       <GitSettings
-        key={`${target.nodeId}:${target.principal}:${connection?.generation ?? "none"}:${target.path}`}
-        connection={connection}
+        key={JSON.stringify([target.nodeId, target.principal, target.path, target.projectId])}
+        connection={available ? connection : null}
         path={target.path}
         {...(target.projectId !== undefined && target.projectId !== ""
           ? { projectId: target.projectId }

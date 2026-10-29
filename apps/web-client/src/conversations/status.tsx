@@ -72,6 +72,9 @@ export function ConversationStatus({ chat }: { chat: Conversation }) {
           </Button>
         </>
       ) : null}
+      {execution.lifecycleWarning !== undefined && execution.lifecycleWarning !== "" ? (
+        <output className="text-caption text-attention">{execution.lifecycleWarning}</output>
+      ) : null}
       {presentationError === null ? null : (
         <p role="alert" className="text-caption text-danger">
           {presentationError}

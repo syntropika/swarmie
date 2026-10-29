@@ -2,6 +2,8 @@ import { Button, ToggleButton, ToggleButtonGroup } from "@swarmie/ui-web";
 import { FolderOpen, GitCommitHorizontal, RefreshCw } from "lucide-react";
 import { useState } from "react";
 
+import { useActionDrafts } from "./drafts";
+import type { DraftProps } from "./drafts";
 import type { DiffMode } from "./protocol";
 import type { GitConnection } from "./remote";
 import { useCheckout } from "./use-checkout";
@@ -33,7 +35,9 @@ function CheckoutContent({
   compact,
   onLayoutChange,
   onFilterChange,
-}: {
+  drafts,
+  updateDraft,
+}: DraftProps & {
   compact: boolean;
   onLayoutChange: (layout: DiffMode) => void;
   onFilterChange: (filter: ChangesFilter) => void;
@@ -74,6 +78,7 @@ function CheckoutContent({
       <GitWorkspace
         checkout={state.checkout}
         remote={state.remote}
+        readable={state.connected}
         mode={mode}
         disabled={state.busy || !state.fresh || state.pendingOperation !== null}
         mutate={state.mutate}
@@ -91,6 +96,8 @@ function CheckoutContent({
         compact={compact}
         projectId={projectId}
         onWorktreeCreated={onWorktreeCreated}
+        drafts={drafts}
+        updateDraft={updateDraft}
       />
     </>
   );
@@ -105,6 +112,7 @@ export function GitView({
   onStartConversation,
 }: GitViewProps) {
   const state = useCheckout(connection, path, projectId);
+  const drafts = useActionDrafts();
   const { ref, compact, short } = useCompactView();
   const [mode, setMode] = useState<"explore" | "changes">("changes");
   const [panel, setPanel] = useState<Panel>(null);
@@ -215,13 +223,14 @@ export function GitView({
         </div>
       )}
       <GitMessages state={state} />
-      {connection === null ? (
+      {connection === null && state.checkout === null ? (
         <Empty
           title="Connect an execution node"
           detail="Git runs on the node that owns this folder. Configure a connection to inspect files and changes."
         />
       ) : (
         <CheckoutContent
+          {...drafts}
           state={state}
           mode={mode}
           panel={panel}

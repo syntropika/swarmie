@@ -1,7 +1,7 @@
 import { Button, Input, Label, TextField, TextArea } from "@swarmie/ui-web";
 import { useState } from "react";
 
-import type { GitSettingsValue, SetupOutcome, SetupScript } from "./protocol";
+import type { GitSettingsValue, SetupScript } from "./protocol";
 import { RecoveryNotice } from "./recovery-notice";
 import { useCheckout } from "./use-checkout";
 import type { GitViewProps } from "./view";
@@ -35,7 +35,8 @@ export function GitSettings({
   projectId,
 }: Omit<GitViewProps, "onWorktreeCreated">) {
   const state = useCheckout(connection, path, projectId);
-  if (connection === null) {
+  const [draft, setDraft] = useState<GitSettingsValue | null>(null);
+  if (connection === null && state.settings === null) {
     return (
       <Empty
         title="Connect an execution node"
@@ -57,7 +58,7 @@ export function GitSettings({
     <div className="h-full overflow-auto p-6">
       <h2 className="text-lg font-medium">Git</h2>
       <p className="mt-2 mb-6 text-sm text-muted">
-        Preferences for this project on {connection.nodeId}.
+        Preferences for this project on {connection?.nodeId ?? "the disconnected node"}.
       </p>
       {state.error === null ? null : (
         <p role="alert" className="mb-4 text-sm text-danger">
@@ -65,11 +66,12 @@ export function GitSettings({
         </p>
       )}
       <SettingsForm
-        key={JSON.stringify(state.settings)}
         initial={state.settings}
         platform={state.platform}
         state={state}
         projectId={projectId}
+        settings={draft ?? state.settings}
+        setSettings={setDraft}
       />
     </div>
   );
@@ -80,25 +82,26 @@ function SettingsForm({
   platform,
   state,
   projectId,
+  settings,
+  setSettings,
 }: {
   initial: GitSettingsValue;
   platform: string;
   state: SettingsState;
   projectId: string | undefined;
+  settings: GitSettingsValue;
+  setSettings: (settings: GitSettingsValue) => void;
 }) {
-  const [settings, setSettings] = useState(initial);
   const [tab, setTab] = useState<"general" | "setup">("general");
-  const [testConfirmed, setTestConfirmed] = useState(false);
-  const [outcome, setOutcome] = useState<SetupOutcome | null>(null);
   const [saved, setSaved] = useState(false);
   const disabled = state.busy || !state.fresh || state.pendingOperation !== null;
   const dirty = JSON.stringify(initial) !== JSON.stringify(settings);
   const script = settings.setup_by_platform[platform] ?? defaultSetup(platform);
   function updateScript(update: Partial<SetupScript>) {
-    setSettings((current) => ({
-      ...current,
-      setup_by_platform: { ...current.setup_by_platform, [platform]: { ...script, ...update } },
-    }));
+    setSettings({
+      ...settings,
+      setup_by_platform: { ...settings.setup_by_platform, [platform]: { ...script, ...update } },
+    });
   }
   function save() {
     state
@@ -109,19 +112,6 @@ function SettingsForm({
       })
       .then((result) => {
         setSaved(result?.kind === "settings");
-      })
-      .catch(state.fail);
-  }
-  function test() {
-    state
-      .managed({
-        kind: "setup_test",
-        ...(projectId === undefined ? {} : { project_id: projectId }),
-      })
-      .then((result) => {
-        if (result?.kind === "setup") {
-          setOutcome(result.outcome);
-        }
       })
       .catch(state.fail);
   }
@@ -208,42 +198,6 @@ function SettingsForm({
               spellCheck={false}
             />
           </TextField>
-          <div className="grid gap-3 border-t border-border pt-4">
-            <label className="flex items-start gap-2 text-xs leading-5">
-              <input
-                type="checkbox"
-                checked={testConfirmed}
-                onChange={(event) => {
-                  setTestConfirmed(event.target.checked);
-                }}
-                className="mt-1"
-              />
-              Run the saved script in this current checkout to test it. The script can change files
-              and run external commands.
-            </label>
-            <div>
-              <Button
-                size="sm"
-                variant="secondary"
-                isDisabled={disabled || dirty || !testConfirmed || !script.enabled}
-                onPress={test}
-              >
-                Test saved script
-              </Button>
-            </div>
-            {outcome === null ? null : (
-              <div className="grid gap-2">
-                <output className="text-xs">
-                  Exit status: {outcome.status}
-                  {outcome.truncated ? " · output truncated" : ""}
-                </output>
-                <pre className="max-h-64 overflow-auto rounded-lg bg-default p-3 font-mono text-xs leading-5">
-                  {outcome.stdout}
-                  {outcome.stderr}
-                </pre>
-              </div>
-            )}
-          </div>
         </div>
       )}
       <div className="flex items-center gap-3 border-t border-border pt-4">

@@ -182,7 +182,7 @@ pub fn parse_status(bytes: &[u8]) -> Result<Vec<StatusEntry>> {
 }
 
 impl Git {
-    pub fn discover(
+    pub(crate) fn discover(
         &self,
         path: &Path,
         cancellation: &Cancellation,
@@ -287,7 +287,7 @@ impl Git {
         Ok(())
     }
 
-    pub fn verify(
+    pub(crate) fn verify(
         &self,
         target: &RepositoryTarget,
         cancellation: &Cancellation,

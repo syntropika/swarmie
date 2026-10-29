@@ -50,6 +50,7 @@ pub struct CommandOutput {
 }
 
 /// A host may replace native execution; it must settle the child before returning.
+/// Return `Error::NotStarted` only when no process or external effect was dispatched.
 pub trait ProcessExecutor: Send + Sync {
     fn run(&self, command: &CommandSpec, cancellation: &Cancellation) -> Result<CommandOutput>;
 }
@@ -122,7 +123,9 @@ impl ProcessExecutor for NativeProcess {
 #[cfg(unix)]
 fn run_native(command: &CommandSpec, cancellation: &Cancellation) -> Result<CommandOutput> {
     if cancellation.is_cancelled() {
-        return Err(Error::Cancelled);
+        return Err(Error::NotStarted(
+            "operation cancelled before process dispatch".into(),
+        ));
     }
     let mut process = Command::new(&command.program);
     process
@@ -162,7 +165,9 @@ fn run_native(command: &CommandSpec, cancellation: &Cancellation) -> Result<Comm
     }
     // Explicit host-provided overrides are applied after inherited Git routing is removed.
     process.envs(&command.env);
-    let mut child = process.spawn()?;
+    let mut child = process
+        .spawn()
+        .map_err(|error| Error::NotStarted(error.to_string()))?;
     let stdout = child
         .stdout
         .take()

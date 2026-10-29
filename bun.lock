@@ -306,6 +306,7 @@
       "name": "@swarmie/plugin-git-browser",
       "version": "1.0.0",
       "dependencies": {
+        "@swarmie/client-ui": "workspace:*",
         "@swarmie/plugin-connections-browser": "workspace:*",
         "@swarmie/ui-web": "workspace:*",
         "@syntropika/tembra-sdk": "0.2.0",

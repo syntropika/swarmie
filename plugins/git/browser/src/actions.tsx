@@ -2,9 +2,10 @@ import { Button, Input, Label, TextField, TextArea, VirtualList } from "@swarmie
 import { useMemo, useState } from "react";
 
 import type { Checkout } from "./checkout-data";
+import type { DraftProps } from "./drafts";
 import type { GitOperation } from "./protocol";
 
-type ActionProps = {
+type ActionProps = DraftProps & {
   checkout: Checkout;
   disabled: boolean;
   mutate: (operation: GitOperation) => Promise<boolean>;
@@ -12,12 +13,15 @@ type ActionProps = {
   branchPrefix: string;
   commitGuidance: string;
 };
-function useSubmit({ mutate, close }: ActionProps) {
+function useSubmit({ mutate, close, updateDraft }: ActionProps) {
   const [failure, setFailure] = useState<string | null>(null);
   function submit(operation: GitOperation) {
     async function run() {
       try {
         if (await mutate(operation)) {
+          if (operation.kind === "commit") {
+            updateDraft({ commitMessage: "", reviewedIndex: null });
+          }
           close();
         }
       } catch (error: unknown) {
@@ -62,7 +66,7 @@ export function HistoryPanel({ checkout }: { checkout: Checkout }) {
 export function BranchPanel(props: ActionProps) {
   const { submit, error } = useSubmit(props);
   const { checkout, disabled, close } = props;
-  const [name, setName] = useState(props.branchPrefix);
+  const name = props.drafts.branch ?? props.branchPrefix;
 
   return (
     <form
@@ -88,7 +92,7 @@ export function BranchPanel(props: ActionProps) {
           required
           value={name}
           onChange={(event) => {
-            setName(event.target.value);
+            props.updateDraft({ branch: event.target.value });
           }}
           placeholder="feat/your-change"
         />
@@ -112,8 +116,8 @@ export function BranchPanel(props: ActionProps) {
 export function SyncPanel(props: ActionProps) {
   const { submit, error } = useSubmit(props);
   const { checkout, disabled } = props;
-  const [remote, setRemote] = useState("");
-  const [destination, setDestination] = useState("");
+  const { remote } = props.drafts;
+  const destination = props.drafts.pushDestination;
   const selectedRemote =
     checkout.remotes.state === "ready"
       ? checkout.remotes.value.find((entry) => entry.name === remote)
@@ -139,7 +143,7 @@ export function SyncPanel(props: ActionProps) {
         <select
           value={remote}
           onChange={(event) => {
-            setRemote(event.target.value);
+            props.updateDraft({ remote: event.target.value });
           }}
           className="h-10 rounded-lg border border-border bg-default px-3 text-sm"
         >
@@ -176,7 +180,7 @@ export function SyncPanel(props: ActionProps) {
           <Input
             value={destination}
             onChange={(event) => {
-              setDestination(event.target.value);
+              props.updateDraft({ pushDestination: event.target.value });
             }}
             placeholder="refs/heads/feat/your-change"
           />
@@ -223,8 +227,8 @@ function stagedFileKey(entry: { path: string }) {
 export function CommitPanel(props: ActionProps) {
   const { submit, error } = useSubmit(props);
   const { checkout, disabled, close } = props;
-  const [message, setMessage] = useState("");
-  const [reviewed, setReviewed] = useState(false);
+  const message = props.drafts.commitMessage;
+  const reviewed = props.drafts.reviewedIndex === checkout.target.index_fingerprint;
   const staged = useMemo(
     () =>
       checkout.status.entries.filter(
@@ -274,7 +278,7 @@ export function CommitPanel(props: ActionProps) {
           rows={3}
           value={message}
           onChange={(event) => {
-            setMessage(event.target.value);
+            props.updateDraft({ commitMessage: event.target.value });
           }}
         />
       </TextField>
@@ -283,7 +287,9 @@ export function CommitPanel(props: ActionProps) {
           type="checkbox"
           checked={reviewed}
           onChange={(event) => {
-            setReviewed(event.target.checked);
+            props.updateDraft({
+              reviewedIndex: event.target.checked ? checkout.target.index_fingerprint : null,
+            });
           }}
           className="mt-1 accent-foreground"
         />

@@ -24,13 +24,21 @@ mod service;
 mod settings;
 mod worktrees;
 
-pub use archive::{ArchiveDirectory, ArchiveReceipt, ArchiveRestoreRequest, CleanupEligibility};
+pub use archive::{
+    ArchiveDirectory, ArchiveListing, ArchiveReceipt, ArchiveRestoreRequest, ArchiveUnavailable,
+    CleanupEligibility,
+};
 pub use domain::*;
-pub use journal::{Authority, DirectoryJournal, Journal, JournalEntry};
+pub use journal::{
+    Authority, DirectoryJournal, Journal, JournalEntry, JournalScan, JournalUnavailable,
+};
 pub use operations::Git;
 pub use process::{Cancellation, CommandOutput, CommandSpec, NativeProcess, ProcessExecutor};
 pub use repository::parse_status;
-pub use service::{GitService, ManagedRequest, ManagedResponse, WireRequest, WireResponse};
+pub use service::{
+    ArchiveState, ConversationHold, ConversationHoldUpdate, GitService, ManagedRequest,
+    ManagedResponse, WireRequest, WireResponse,
+};
 pub use settings::{DiffLayout, GitSettings, SetupScript};
 pub use worktrees::{CreatedWorktree, SetupOutcome, WorktreeRequest};
 
@@ -39,6 +47,8 @@ pub use worktrees::{CreatedWorktree, SetupOutcome, WorktreeRequest};
 pub enum Error {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("execution did not start: {0}")]
+    NotStarted(String),
     #[error("invalid request: {0}")]
     Invalid(String),
     #[error("Git failed ({status}): {message}")]

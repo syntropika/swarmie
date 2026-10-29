@@ -1,8 +1,8 @@
 //! Detached worktrees and explicit preparation, using the host's process executor.
 
 use crate::{
-    Cancellation, CommandOutput, CommandSpec, Error, Git, Intent, RepositoryTarget, Result,
-    settings::SetupScript,
+    Cancellation, CommandOutput, CommandSpec, Error, Git, Intent, IntentOperation,
+    RepositoryTarget, Result, settings::SetupScript,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -48,8 +48,14 @@ pub(crate) struct IndexEntry {
 pub(crate) struct FileEntry {
     pub path: String,
     pub bytes: Vec<u8>,
-    pub executable: bool,
+    pub mode: u32,
     pub symlink: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct DirectoryEntry {
+    pub path: String,
+    pub mode: u32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -57,6 +63,7 @@ struct IncludedFile {
     path: String,
     index: Option<IndexEntry>,
     working: Option<FileEntry>,
+    directories: Vec<DirectoryEntry>,
 }
 
 impl Git {
@@ -67,57 +74,62 @@ impl Git {
         request: &WorktreeRequest,
         cancel: &Cancellation,
     ) -> Result<CreatedWorktree> {
-        let operation = format!(
-            "create_worktree:{}",
-            serde_json::to_string(request).map_err(|error| Error::Invalid(error.to_string()))?
-        );
-        self.authority.authorize(
-            principal,
-            &Intent {
-                target: source.clone(),
-                operation: operation.clone(),
-            },
-        )?;
-        self.verify(source, cancel)?;
-        let root = checkout_root(source)?;
-        validate_destination(&request.managed_root, &request.destination)?;
-        let resolved = self.run_checked(
-            root,
-            &strings(&[
-                "rev-parse",
-                "--verify",
-                "--end-of-options",
-                &format!("{}^{{commit}}", request.commit),
-            ]),
-            false,
-            cancel,
-        )?;
-        let commit = String::from_utf8(resolved)
-            .map_err(|_| Error::Invalid("non-UTF-8 commit identity".into()))?
-            .trim()
-            .to_owned();
-        let source_head = source.head.clone().ok_or_else(|| {
-            Error::Invalid("an unborn checkout cannot create a managed worktree".into())
-        })?;
-        if !request.include_paths.is_empty() && source_head != commit {
-            return Err(Error::Invalid(
+        let (root, commit, source_head, included) = (|| -> Result<_> {
+            let operation = IntentOperation::CreateWorktree {
+                request: request.clone(),
+            };
+            self.authority.authorize(
+                principal,
+                &Intent {
+                    target: source.clone(),
+                    operation: operation.clone(),
+                },
+            )?;
+            self.verify(source, cancel)?;
+            let root = checkout_root(source)?;
+            validate_destination(&request.managed_root, &request.destination)?;
+            let resolved = self.run_checked(
+                root,
+                &strings(&[
+                    "rev-parse",
+                    "--verify",
+                    "--end-of-options",
+                    &format!("{}^{{commit}}", request.commit),
+                ]),
+                false,
+                cancel,
+            )?;
+            let commit = String::from_utf8(resolved)
+                .map_err(|_| Error::Invalid("non-UTF-8 commit identity".into()))?
+                .trim()
+                .to_owned();
+            let source_head = source.head.clone().ok_or_else(|| {
+                Error::Invalid("an unborn checkout cannot create a managed worktree".into())
+            })?;
+            if !request.include_paths.is_empty() && source_head != commit {
+                return Err(Error::Invalid(
                 "including local changes requires the captured source HEAD as the starting commit"
                     .into(),
             ));
-        }
-        let included = capture_selection(self, root, &request.include_paths, cancel)?;
-        self.verify(source, cancel)?;
-        if included != capture_selection(self, root, &request.include_paths, cancel)? {
-            return Err(Error::Stale);
-        }
-        self.authority.authorize(
-            principal,
-            &Intent {
-                target: source.clone(),
-                operation,
-            },
-        )?;
-        validate_destination(&request.managed_root, &request.destination)?;
+            }
+            let included = capture_selection(self, root, &request.include_paths, cancel)?;
+            self.verify(source, cancel)?;
+            if included != capture_selection(self, root, &request.include_paths, cancel)? {
+                return Err(Error::Stale);
+            }
+            self.authority.authorize(
+                principal,
+                &Intent {
+                    target: source.clone(),
+                    operation,
+                },
+            )?;
+            validate_destination(&request.managed_root, &request.destination)?;
+            Ok((root, commit, source_head, included))
+        })()
+        .map_err(|error| Error::NotStarted(error.to_string()))?;
+        // Restrict the reserved root before Git materializes any tracked content.
+        create_private_directory(&request.destination)?;
         let result = self.run(
             root,
             &[
@@ -189,31 +201,33 @@ impl Git {
         script: &SetupScript,
         cancel: &Cancellation,
     ) -> Result<SetupOutcome> {
-        if !script.enabled {
-            return Err(Error::Invalid("setup is disabled".into()));
-        }
-        self.authority.authorize(
-            principal,
-            &Intent {
-                target: target.clone(),
-                operation: format!(
-                    "setup:{}",
-                    serde_json::to_string(script)
-                        .map_err(|error| Error::Invalid(error.to_string()))?
-                ),
-            },
-        )?;
-        self.verify(target, cancel)?;
-        validate_relative(&script.working_directory)?;
-        let root = fs::canonicalize(checkout_root(target)?)?;
-        let cwd = fs::canonicalize(root.join(&script.working_directory))?;
-        if !cwd.starts_with(&root) {
-            return Err(Error::Invalid(
-                "setup working directory leaves the checkout".into(),
-            ));
-        }
-        let mut args = script.arguments.clone();
-        args.push(script.script.clone());
+        let (cwd, args) = (|| -> Result<_> {
+            if !script.enabled {
+                return Err(Error::Invalid("setup is disabled".into()));
+            }
+            self.authority.authorize(
+                principal,
+                &Intent {
+                    target: target.clone(),
+                    operation: IntentOperation::Setup {
+                        script: script.clone(),
+                    },
+                },
+            )?;
+            self.verify(target, cancel)?;
+            validate_relative(&script.working_directory)?;
+            let root = fs::canonicalize(checkout_root(target)?)?;
+            let cwd = fs::canonicalize(root.join(&script.working_directory))?;
+            if !cwd.starts_with(&root) {
+                return Err(Error::Invalid(
+                    "setup working directory leaves the checkout".into(),
+                ));
+            }
+            let mut args = script.arguments.clone();
+            args.push(script.script.clone());
+            Ok((cwd, args))
+        })()
+        .map_err(|error| Error::NotStarted(error.to_string()))?;
         let CommandOutput {
             status,
             stdout,
@@ -356,6 +370,9 @@ fn capture_selection(
     paths: &[String],
     cancel: &Cancellation,
 ) -> Result<Vec<IncludedFile>> {
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
     let index = logical_index(git, root, cancel)?;
     paths
         .iter()
@@ -396,6 +413,7 @@ fn capture_selection(
                 path: path.clone(),
                 index,
                 working,
+                directories: capture_parents(root, Path::new(path))?,
             })
         })
         .collect()
@@ -407,7 +425,12 @@ fn apply_selection(
     included: &[IncludedFile],
     cancel: &Cancellation,
 ) -> Result<()> {
+    let mut directories = BTreeMap::new();
     for file in included {
+        for directory in &file.directories {
+            create_private_directory(&root.join(&directory.path))?;
+            directories.insert(directory.path.clone(), directory.mode);
+        }
         match &file.index {
             Some(index) => {
                 git.run_checked(
@@ -443,6 +466,9 @@ fn apply_selection(
             }
         }
     }
+    for (path, mode) in directories.iter().rev() {
+        restore_mode(&root.join(path), *mode)?;
+    }
     Ok(())
 }
 
@@ -463,10 +489,12 @@ pub(crate) fn read_file(root: &Path, relative: &str) -> Result<Option<FileEntry>
         Err(error) => return Err(error.into()),
     };
     if metadata.is_symlink() {
+        #[cfg(unix)]
+        reject_extended_metadata(&path)?;
         return Ok(Some(FileEntry {
             path: relative.into(),
             bytes: path_string(&fs::read_link(&path)?)?.into_bytes(),
-            executable: false,
+            mode: 0,
             symlink: true,
         }));
     }
@@ -481,13 +509,7 @@ pub(crate) fn read_file(root: &Path, relative: &str) -> Result<Option<FileEntry>
         ));
     }
     let file = crate::repository::open_regular_file(&path)?;
-    #[cfg(unix)]
-    let executable = {
-        use std::os::unix::fs::PermissionsExt;
-        file.metadata()?.permissions().mode() & 0o111 != 0
-    };
-    #[cfg(not(unix))]
-    let executable = false;
+    let mode = preservation_mode(&path, &file.metadata()?)?;
     use std::io::Read;
     let mut bytes = Vec::new();
     file.take(64 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
@@ -499,7 +521,7 @@ pub(crate) fn read_file(root: &Path, relative: &str) -> Result<Option<FileEntry>
     Ok(Some(FileEntry {
         path: relative.into(),
         bytes,
-        executable,
+        mode,
         symlink: false,
     }))
 }
@@ -511,7 +533,7 @@ pub(crate) fn write_file(root: &Path, entry: &FileEntry) -> Result<()> {
         .parent()
         .ok_or_else(|| Error::Invalid("file has no parent".into()))?;
     validate_parent_chain(root, parent)?;
-    fs::create_dir_all(parent)?;
+    create_private_parents(root, parent)?;
     if !fs::canonicalize(parent)?.starts_with(fs::canonicalize(root)?) {
         return Err(Error::Invalid(
             "destination traverses a symlink outside the checkout".into(),
@@ -533,15 +555,18 @@ pub(crate) fn write_file(root: &Path, entry: &FileEntry) -> Result<()> {
             ));
         }
     } else {
-        fs::write(&path, &entry.bytes)?;
+        use std::io::Write;
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(
-                &path,
-                fs::Permissions::from_mode(if entry.executable { 0o755 } else { 0o644 }),
-            )?;
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
         }
+        let mut file = options.open(&path)?;
+        file.write_all(&entry.bytes)?;
+        file.sync_all()?;
+        restore_mode(&path, entry.mode)?;
     }
     Ok(())
 }
@@ -566,6 +591,177 @@ fn validate_parent_chain(root: &Path, parent: &Path) -> Result<()> {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
         }
+    }
+    Ok(())
+}
+
+pub(crate) fn create_private_directory(path: &Path) -> Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    match builder.create(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            let metadata = fs::symlink_metadata(path)?;
+            if metadata.is_dir() && !metadata.is_symlink() {
+                Ok(())
+            } else {
+                Err(Error::Invalid(
+                    "preservation directory is not a physical directory".into(),
+                ))
+            }
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn create_private_parents(root: &Path, parent: &Path) -> Result<()> {
+    let mut current = root.to_path_buf();
+    for component in parent
+        .strip_prefix(root)
+        .map_err(|_| Error::Invalid("destination leaves checkout".into()))?
+        .components()
+    {
+        current.push(component);
+        create_private_directory(&current)?;
+    }
+    Ok(())
+}
+
+fn capture_parents(root: &Path, path: &Path) -> Result<Vec<DirectoryEntry>> {
+    let mut directories = Vec::new();
+    let mut current = PathBuf::new();
+    if let Some(parent) = path.parent() {
+        for component in parent.components() {
+            current.push(component);
+            let absolute = root.join(&current);
+            let metadata = match fs::symlink_metadata(&absolute) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                Err(error) => return Err(error.into()),
+            };
+            if !metadata.is_dir() || metadata.is_symlink() {
+                return Err(Error::Invalid(
+                    "preservation does not traverse symlink ancestors".into(),
+                ));
+            }
+            directories.push(DirectoryEntry {
+                path: path_string(&current)?,
+                mode: preservation_mode(&absolute, &metadata)?,
+            });
+        }
+    }
+    Ok(directories)
+}
+
+pub(crate) fn preservation_mode(path: &Path, metadata: &fs::Metadata) -> Result<u32> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let mode = metadata.permissions().mode();
+        if mode & 0o7000 != 0 || (metadata.is_file() && metadata.nlink() != 1) {
+            return Err(Error::Invalid(
+                "special permission bits and hard links require another preservation profile"
+                    .into(),
+            ));
+        }
+        reject_extended_metadata(path)?;
+        Ok(mode & 0o777)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, metadata);
+        Err(Error::Invalid(
+            "filesystem permission preservation is not qualified on this platform".into(),
+        ))
+    }
+}
+
+#[cfg(unix)]
+fn reject_extended_metadata(path: &Path) -> Result<()> {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+    let path = CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| Error::Invalid("invalid filesystem path".into()))?;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    let count = unsafe { libc::llistxattr(path.as_ptr(), std::ptr::null_mut(), 0) };
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    let count =
+        unsafe { libc::listxattr(path.as_ptr(), std::ptr::null_mut(), 0, libc::XATTR_NOFOLLOW) };
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios"
+    )))]
+    let count = -1;
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        unsafe extern "C" {
+            fn acl_get_link_np(path: *const libc::c_char, kind: libc::c_int) -> *mut libc::c_void;
+            fn acl_get_entry(
+                acl: *mut libc::c_void,
+                entry_id: libc::c_int,
+                entry: *mut *mut libc::c_void,
+            ) -> libc::c_int;
+            fn acl_free(object: *mut libc::c_void) -> libc::c_int;
+        }
+        // Darwin stores extended ACL entries separately from ordinary xattrs.
+        let acl = unsafe { acl_get_link_np(path.as_ptr(), 0x100) };
+        if acl.is_null() {
+            let error = std::io::Error::last_os_error();
+            // Darwin reports an absent FILESEC_ACL property as ENOENT.
+            if error.raw_os_error() != Some(libc::ENOENT) {
+                return Err(error.into());
+            }
+        } else {
+            let mut entry = std::ptr::null_mut();
+            let entries = unsafe { acl_get_entry(acl, 0, &mut entry) };
+            let entry_error = std::io::Error::last_os_error();
+            unsafe {
+                acl_free(acl);
+            }
+            if entries == 0 {
+                return Err(Error::Invalid(
+                    "extended ACLs require another preservation profile".into(),
+                ));
+            }
+            if entry_error.raw_os_error() != Some(libc::EINVAL) {
+                return Err(entry_error.into());
+            }
+        }
+    }
+    if count > 0 {
+        return Err(Error::Invalid(
+            "extended attributes and ACLs require another preservation profile".into(),
+        ));
+    }
+    if count < 0 {
+        let error = std::io::Error::last_os_error();
+        if !matches!(error.raw_os_error(), Some(libc::ENOTSUP)) {
+            return Err(error.into());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn restore_mode(path: &Path, mode: u32) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if mode & !0o777 != 0 {
+            return Err(Error::Invalid("invalid preserved permission bits".into()));
+        }
+        fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, mode);
+        return Err(Error::Invalid(
+            "filesystem permission preservation is not qualified on this platform".into(),
+        ));
     }
     Ok(())
 }

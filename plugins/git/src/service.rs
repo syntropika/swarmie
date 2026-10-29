@@ -1,20 +1,27 @@
 //! Node-owned persistence and typed product operations over the independent core.
 
+mod catalog;
+mod retention;
+
+pub use retention::{ArchiveState, ConversationHold, ConversationHoldUpdate};
+
 use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::archive::ArchiveUnavailable;
+
 use crate::{
     ArchiveDirectory, ArchiveReceipt, ArchiveRestoreRequest, Cancellation, CleanupEligibility,
-    CreatedWorktree, Error, Git, GitSettings, Intent, Outcome, Receipt, RepositoryTarget, Request,
-    Response, Result, SetupOutcome, WorktreeRequest,
+    CreatedWorktree, Error, Git, GitSettings, Intent, IntentOperation, Outcome, Receipt,
+    RepositoryTarget, Request, Response, Result, WorktreeRequest,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -27,6 +34,7 @@ pub enum WireRequest {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ManagedRequest {
+    CapabilityInfo,
     SettingsGet {
         target: RepositoryTarget,
         project_id: Option<String>,
@@ -43,11 +51,6 @@ pub enum ManagedRequest {
         project_id: Option<String>,
         request: WorktreeRequest,
     },
-    SetupTest {
-        operation_id: String,
-        target: RepositoryTarget,
-        project_id: Option<String>,
-    },
     ArchiveCreate {
         operation_id: String,
         target: RepositoryTarget,
@@ -62,6 +65,7 @@ pub enum ManagedRequest {
     },
     ArchiveList {
         target: RepositoryTarget,
+        page: Option<crate::PageCursor>,
     },
     CleanupCheck {
         target: RepositoryTarget,
@@ -79,6 +83,16 @@ pub enum WireResponse {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ManagedResponse {
+    #[serde(rename = "receipt")]
+    ReceiptSummary {
+        receipt: Box<crate::RecoveryEntry>,
+        reconciliation: Option<Box<crate::RecoveryInspection>>,
+    },
+    CapabilityInfo {
+        api_version: u32,
+        execution_available: bool,
+        operations: Vec<String>,
+    },
     Settings {
         settings: GitSettings,
         execution_platform: String,
@@ -87,16 +101,14 @@ pub enum ManagedResponse {
         worktree: Box<CreatedWorktree>,
         receipt: Box<Receipt>,
     },
-    Setup {
-        outcome: SetupOutcome,
-        receipt: Box<Receipt>,
-    },
     Archive {
         archive: Box<ArchiveReceipt>,
         receipt: Box<Receipt>,
     },
     Archives {
         archives: Vec<ArchiveReceipt>,
+        unavailable: Vec<ArchiveUnavailable>,
+        next_page: Option<crate::PageCursor>,
     },
     Cleanup {
         eligibility: CleanupEligibility,
@@ -109,6 +121,7 @@ pub struct GitService {
     git: Git,
     directory: Arc<PathBuf>,
     archives: Arc<ArchiveDirectory>,
+    retention_lock: Arc<Mutex<()>>,
 }
 
 impl GitService {
@@ -128,6 +141,7 @@ impl GitService {
             git,
             directory: Arc::new(directory),
             archives,
+            retention_lock: Arc::new(Mutex::new(())),
         })
     }
 
@@ -158,11 +172,6 @@ impl GitService {
                                 ..
                             }
                             | ManagedRequest::WorktreeCreate {
-                                operation_id,
-                                target,
-                                ..
-                            }
-                            | ManagedRequest::SetupTest {
                                 operation_id,
                                 target,
                                 ..
@@ -204,7 +213,12 @@ impl GitService {
         }
     }
 
-    fn authorize(&self, principal: &str, target: &RepositoryTarget, operation: &str) -> Result<()> {
+    fn authorize(
+        &self,
+        principal: &str,
+        target: &RepositoryTarget,
+        operation: IntentOperation,
+    ) -> Result<()> {
         if principal.is_empty() {
             return Err(Error::Denied(
                 "an authenticated principal is required".into(),
@@ -223,7 +237,7 @@ impl GitService {
             principal,
             &Intent {
                 target: target.clone(),
-                operation: operation.into(),
+                operation,
             },
         )
     }
@@ -234,30 +248,71 @@ impl GitService {
         request: ManagedRequest,
         cancel: &Cancellation,
     ) -> Result<WireResponse> {
+        if matches!(request, ManagedRequest::CapabilityInfo) {
+            if principal.is_empty() {
+                return Err(Error::Denied(
+                    "an authenticated principal is required".into(),
+                ));
+            }
+            let execution_available = self
+                .git
+                .run_checked(
+                    self.directory.as_ref(),
+                    &["--version".into()],
+                    false,
+                    cancel,
+                )
+                .is_ok();
+            return Ok(WireResponse::Managed(ManagedResponse::CapabilityInfo {
+                api_version: 1,
+                execution_available,
+                operations: [
+                    "capability_info",
+                    "discover",
+                    "status",
+                    "diff",
+                    "history",
+                    "remotes",
+                    "files",
+                    "file",
+                    "mutate",
+                    "recover",
+                    "operations",
+                    "settings_get",
+                    "settings_set",
+                    "worktree_create",
+                    "archive_create",
+                    "archive_restore",
+                    "archive_list",
+                    "cleanup_check",
+                ]
+                .map(str::to_owned)
+                .into(),
+            }));
+        }
+        let intent = IntentOperation::Managed {
+            request: Box::new(request.clone()),
+        };
         let platform = std::env::consts::OS.to_owned();
         let target = match &request {
             ManagedRequest::SettingsGet { target, .. }
             | ManagedRequest::SettingsSet { target, .. }
             | ManagedRequest::WorktreeCreate { target, .. }
-            | ManagedRequest::SetupTest { target, .. }
             | ManagedRequest::ArchiveCreate { target, .. }
             | ManagedRequest::ArchiveRestore { target, .. }
-            | ManagedRequest::ArchiveList { target }
+            | ManagedRequest::ArchiveList { target, .. }
             | ManagedRequest::CleanupCheck { target, .. } => target,
+            ManagedRequest::CapabilityInfo => unreachable!("capability probe returned above"),
         };
-        self.authorize(
-            principal,
-            target,
-            &serde_json::to_string(&request).map_err(invalid_json)?,
-        )?;
+        self.authorize(principal, target, intent.clone())?;
         if matches!(&request, ManagedRequest::SettingsGet { .. }) {
             self.git.verify_identity(target, cancel)?;
         } else {
             self.git.verify(target, cancel)?;
         }
         match request {
+            ManagedRequest::CapabilityInfo => unreachable!("capability probe returned above"),
             ManagedRequest::SettingsGet { target, project_id } => {
-                self.authorize(principal, &target, "settings_read")?;
                 let mut settings = self.settings(principal, &target, project_id.as_deref())?;
                 settings.setup_by_platform.retain(|key, _| key == &platform);
                 Ok(WireResponse::Managed(ManagedResponse::Settings {
@@ -271,7 +326,6 @@ impl GitService {
                 project_id,
                 settings,
             } => {
-                self.authorize(principal, &target, "settings_write")?;
                 validate_settings(&settings, &platform)?;
                 let arguments = json(&(project_id.clone(), &settings))?;
                 let receipt = self.git.execute_extension(
@@ -279,6 +333,7 @@ impl GitService {
                     crate::ExtensionOperation {
                         operation_id,
                         target: target.clone(),
+                        intent: intent.clone(),
                         name: "settings_set".into(),
                         arguments,
                     },
@@ -314,7 +369,6 @@ impl GitService {
                 project_id,
                 request,
             } => {
-                self.authorize(principal, &target, "create_worktree")?;
                 if self.git.journal.load(&operation_id)?.is_none() {
                     crate::worktrees::validate_destination(
                         &request.managed_root,
@@ -338,6 +392,7 @@ impl GitService {
                     crate::ExtensionOperation {
                         operation_id,
                         target: target.clone(),
+                        intent: intent.clone(),
                         name: "worktree_create".into(),
                         arguments,
                     },
@@ -388,48 +443,17 @@ impl GitService {
                     }))),
                 }
             }
-            ManagedRequest::SetupTest {
-                operation_id,
-                target,
-                project_id,
-            } => {
-                self.authorize(principal, &target, "setup")?;
-                let settings = self.settings(principal, &target, project_id.as_deref())?;
-                let script = settings.setup_for(&platform).cloned().ok_or_else(|| {
-                    Error::Invalid("save and enable this node's setup script before testing".into())
-                })?;
-                let receipt = self.git.execute_extension(
-                    principal,
-                    crate::ExtensionOperation {
-                        operation_id,
-                        target: target.clone(),
-                        name: "setup_test".into(),
-                        arguments: json(&script)?,
-                    },
-                    cancel,
-                    || json(&self.git.run_setup(principal, &target, &script, cancel)?),
-                )?;
-                match completed(&receipt) {
-                    Some(value) => Ok(WireResponse::Managed(ManagedResponse::Setup {
-                        outcome: serde_json::from_value(value).map_err(invalid_json)?,
-                        receipt: Box::new(receipt),
-                    })),
-                    None => Ok(WireResponse::Core(Box::new(Response::Receipt {
-                        receipt: Box::new(receipt),
-                    }))),
-                }
-            }
             ManagedRequest::ArchiveCreate {
                 operation_id,
                 target,
                 archive_id,
             } => {
-                self.authorize(principal, &target, "archive_protected_content")?;
                 let receipt = self.git.execute_extension(
                     principal,
                     crate::ExtensionOperation {
                         operation_id,
                         target: target.clone(),
+                        intent: intent.clone(),
                         name: "archive_create".into(),
                         arguments: json(&archive_id)?,
                     },
@@ -453,13 +477,13 @@ impl GitService {
                 managed_root,
                 destination,
             } => {
-                self.authorize(principal, &target, "restore_archive")?;
                 let arguments = json(&(&archive_id, &managed_root, &destination))?;
                 let receipt = self.git.execute_extension(
                     principal,
                     crate::ExtensionOperation {
                         operation_id,
                         target: target.clone(),
+                        intent: intent.clone(),
                         name: "archive_restore".into(),
                         arguments,
                     },
@@ -480,16 +504,11 @@ impl GitService {
                 )?;
                 archive_response(receipt)
             }
-            ManagedRequest::ArchiveList { target } => {
-                self.authorize(principal, &target, "archive_read")?;
-                let mut archives = self.archives.list(&self.git, principal, &target, cancel)?;
-                archives.truncate(32);
-                Ok(WireResponse::Managed(ManagedResponse::Archives {
-                    archives,
-                }))
+            ManagedRequest::ArchiveList { target, page } => {
+                let listing = self.archives.list(&self.git, principal, &target, cancel)?;
+                catalog::archive_page(listing, page)
             }
             ManagedRequest::CleanupCheck { target, archive_id } => {
-                self.authorize(principal, &target, "inspect_cleanup")?;
                 let eligibility = self.archives.cleanup_eligibility(
                     &self.git,
                     principal,

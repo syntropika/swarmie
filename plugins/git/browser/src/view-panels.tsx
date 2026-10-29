@@ -2,6 +2,7 @@ import { Button, Drawer } from "@swarmie/ui-web";
 import { X } from "lucide-react";
 
 import { BranchPanel, CommitPanel, HistoryPanel, SyncPanel } from "./actions";
+import type { DraftProps } from "./drafts";
 import { RecoveryNotice } from "./recovery-notice";
 import type { useCheckout } from "./use-checkout";
 import { WorktreesPanel } from "./worktrees-panel";
@@ -22,6 +23,18 @@ export function GitMessages({ state }: { state: CheckoutState }) {
           {state.receipt.message}
         </output>
       )}
+      {state.operationWarnings.length === 0 ? null : (
+        <div role="alert" className="border-b border-border px-4 py-3 text-sm text-danger">
+          <p>
+            Recovery records are incomplete. New changes are blocked until the node can read them.
+          </p>
+          <ul>
+            {[...new Set(state.operationWarnings)].map((message) => (
+              <li key={message}>{message}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       <RecoveryNotice key={state.pendingOperation} state={state} />
     </>
   );
@@ -33,7 +46,9 @@ function ActionContent({
   close,
   projectId,
   onWorktreeCreated,
-}: {
+  drafts,
+  updateDraft,
+}: DraftProps & {
   state: CheckoutState;
   panel: Exclude<Panel, null>;
   close: () => void;
@@ -50,6 +65,8 @@ function ActionContent({
     close,
     branchPrefix: state.settings?.branch_prefix ?? "",
     commitGuidance: state.settings?.commit_guidance ?? "",
+    drafts,
+    updateDraft,
   };
   if (panel === "history") {
     return <HistoryPanel checkout={state.checkout} />;
@@ -62,7 +79,13 @@ function ActionContent({
   }
   if (panel === "worktrees") {
     return (
-      <WorktreesPanel state={state} projectId={projectId} onWorktreeCreated={onWorktreeCreated} />
+      <WorktreesPanel
+        state={state}
+        projectId={projectId}
+        onWorktreeCreated={onWorktreeCreated}
+        drafts={drafts}
+        updateDraft={updateDraft}
+      />
     );
   }
   return <CommitPanel {...props} />;
@@ -82,7 +105,9 @@ export function CheckoutPanel({
   compact,
   projectId,
   onWorktreeCreated,
-}: {
+  drafts,
+  updateDraft,
+}: DraftProps & {
   state: CheckoutState;
   panel: Panel;
   setPanel: (panel: Panel) => void;
@@ -95,7 +120,9 @@ export function CheckoutPanel({
   }
   const content = (
     <ActionContent
-      key={`${panel}:${state.checkout.target.fingerprint}`}
+      key={panel}
+      drafts={drafts}
+      updateDraft={updateDraft}
       state={state}
       panel={panel}
       close={() => {

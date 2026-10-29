@@ -3162,6 +3162,7 @@ dependencies = [
  "sha2 0.10.9",
  "swarmie-agent-loop",
  "swarmie-conversations",
+ "swarmie-git",
  "swarmie-mcp",
  "swarmie-model-provider-genai",
  "swarmie-provider-auth",
@@ -3485,8 +3486,9 @@ dependencies = [
 
 [[package]]
 name = "tembra"
-version = "0.1.0"
-source = "git+https://github.com/syntropika/tembra?rev=94771d70bfa30a9f87bef8cfb69ff0a117d2f174#94771d70bfa30a9f87bef8cfb69ff0a117d2f174"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f796210c8e8cf0b9e352be5d6bc000c22b4bce6c86ab17f99eada6f5a2e03f00"
 dependencies = [
  "futures",
  "futures-timer",
@@ -3497,8 +3499,9 @@ dependencies = [
 
 [[package]]
 name = "tembra-core"
-version = "0.1.0"
-source = "git+https://github.com/syntropika/tembra?rev=94771d70bfa30a9f87bef8cfb69ff0a117d2f174#94771d70bfa30a9f87bef8cfb69ff0a117d2f174"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64e3e2e2a89fa062a14873060c7ee111b770089049f20e26b9ff588c41632d03"
 
 [[package]]
 name = "tempfile"

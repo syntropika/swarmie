@@ -15,6 +15,8 @@ import type {
 import { defaultConversationTitle } from "@swarmie/plugin-conversations-browser";
 import type { ProvidersApi } from "@swarmie/plugin-providers-browser";
 
+import { sameExecutionContext } from "./conversation-values";
+
 export type ExecutionFactory = (
   connection: NodeConnection,
 ) => ConversationExecutionApi | Promise<ConversationExecutionApi>;
@@ -183,10 +185,7 @@ export function createSubmissions(
       if (executionContext && executionContext.nodeId !== destination) {
         throw new Error("Admission changed the execution node.");
       }
-      if (
-        chat.executionContext &&
-        JSON.stringify(executionContext) !== JSON.stringify(chat.executionContext)
-      ) {
+      if (chat.executionContext && !sameExecutionContext(executionContext, chat.executionContext)) {
         throw new Error("Admission changed the bound conversation directory.");
       }
       const api = await factory(source);
@@ -210,7 +209,12 @@ export function createSubmissions(
           conversationId: chat.id,
           submissionId,
           createConversation: !chat.started,
-          draft: { ...draft, attachments: [...draft.attachments], node: destination },
+          draft: {
+            ...draft,
+            attachments: [...draft.attachments],
+            node: destination,
+            executionContext,
+          },
           mode,
           ...(executionContext ? { executionContext } : {}),
         },

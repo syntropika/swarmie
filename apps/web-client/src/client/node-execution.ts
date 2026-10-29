@@ -14,6 +14,8 @@ import type { DynamicReference } from "@syntropika/tembra-sdk";
 
 import {
   conversationCatalogPage,
+  conversationMetadata,
+  sameExecutionContext,
   conversationProjection,
   refusalReason,
 } from "./conversation-values";
@@ -102,9 +104,27 @@ export function createNodeExecution(
       return;
     }
     const value = conversationProjection(binding.reference.state.value);
+    if (
+      value.executionContext &&
+      (value.executionContext.nodeId !== binding.connection.nodeId ||
+        value.executionContext.principal !== binding.connection.principal)
+    ) {
+      throw new Error("The execution directory belongs to another node or user.");
+    }
+    const existing = records.roster
+      .getSnapshot()
+      .find((record) => record.id === value.conversationId);
+    if (
+      existing?.started === true &&
+      existing.executionContext !== undefined &&
+      !sameExecutionContext(existing.executionContext, value.executionContext)
+    ) {
+      throw new Error("The node changed the bound conversation directory.");
+    }
     binding.phase = value.phase;
     records.update(value.conversationId, (record) => ({
       ...record,
+      executionContext: value.executionContext ?? record.executionContext,
       messages: value.messages,
       execution: {
         ...record.execution,
@@ -112,6 +132,7 @@ export function createNodeExecution(
         label: value.label,
         omittedMessages: value.omittedMessages,
         canAcknowledge: value.canAcknowledge,
+        lifecycleWarning: value.lifecycleWarning,
       },
     }));
   }
@@ -178,13 +199,6 @@ export function createNodeExecution(
     return {
       async submit(input, signal) {
         signal.throwIfAborted();
-        if (input.executionContext !== undefined || input.draft.executionContext !== undefined) {
-          return {
-            accepted: false,
-            reason:
-              "This node cannot yet execute a conversation in its captured checkout. Use an unbound conversation until the node supports Git execution contexts.",
-          };
-        }
         const admitted = Promise.withResolvers<
           { accepted: true } | { accepted: false; reason: string }
         >();
@@ -282,12 +296,20 @@ export function createNodeExecution(
         return;
       }
       for (const value of values) {
+        if (
+          value.executionContext &&
+          (value.executionContext.nodeId !== connection.nodeId ||
+            value.executionContext.principal !== connection.principal)
+        ) {
+          throw new Error("The restored execution directory belongs to another node or user.");
+        }
         if (!records.roster.getSnapshot().some((record) => record.id === value.id)) {
           records.create({
             id: value.id,
             title: value.title,
             started: true,
             node: nodeId,
+            executionContext: value.executionContext,
             pinned: value.pinned,
             archived: value.archived,
             draft: {
@@ -297,9 +319,16 @@ export function createNodeExecution(
               model: value.model,
               effort: value.effort,
               node: nodeId,
+              executionContext: value.executionContext,
             },
             messages: [],
-            execution: { phase: "idle", label: "", queue: [], steering: [] },
+            execution: {
+              phase: "idle",
+              label: "",
+              queue: [],
+              steering: [],
+              lifecycleWarning: value.lifecycleWarning,
+            },
           });
         }
       }
@@ -390,12 +419,17 @@ export function createNodeExecution(
             if (closed || !connection.isCurrent()) {
               throw new Error("The node session has ended.");
             }
-            await callRemote(
-              reference,
-              "update",
-              [id, values.title, values.pinned, values.archived],
-              unavailable,
+            const result = conversationMetadata(
+              await callRemote(
+                reference,
+                "update",
+                [id, values.title, values.pinned, values.archived],
+                unavailable,
+              ),
             );
+            if (result.id !== id) {
+              throw new Error("The metadata confirmation belongs to another conversation.");
+            }
             if (closed || !connection.isCurrent()) {
               throw new Error("The metadata result belongs to an earlier node session.");
             }
@@ -404,9 +438,10 @@ export function createNodeExecution(
                 ? record
                 : {
                     ...record,
-                    title: values.title,
-                    pinned: values.pinned,
-                    archived: values.archived,
+                    title: result.title,
+                    pinned: result.pinned,
+                    archived: result.archived,
+                    execution: { ...record.execution, lifecycleWarning: result.lifecycleWarning },
                   },
             );
           } finally {

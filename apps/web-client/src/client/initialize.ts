@@ -22,6 +22,11 @@ import {
   createConversationRecords,
   defaultConversationTitle,
 } from "@swarmie/plugin-conversations-browser";
+import {
+  createGitPresentation,
+  gitBrowserOrb,
+  gitIntegrationOrb,
+} from "@swarmie/plugin-git-browser";
 import { mcpOrb, createMcpApi } from "@swarmie/plugin-mcp-browser";
 import type { Notification } from "@swarmie/plugin-notifications-browser";
 import { notificationsOrb } from "@swarmie/plugin-notifications-browser";
@@ -98,6 +103,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     providersOrb,
     settingsOrb,
     mcpOrb,
+    gitBrowserOrb,
     notificationsOrb,
     onboardingOrb,
     ...(options.dev ? [appStateOrb] : []),
@@ -117,6 +123,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     views,
     projectsState,
     mcpState,
+    gitState,
   ] = await Promise.all([
     stateOf(conversationsReference),
     stateOf(host.get(connectionsOrb.services["swarmie.connections.ui"], "main")),
@@ -127,6 +134,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     stateOf(host.get(viewsOrb.services["swarmie.views.ui"], "main")),
     stateOf(host.get(projectsDefinition.services["swarmie.projects.ui"], "main")),
     stateOf(host.get(mcpOrb.services["swarmie.mcp.ui"], "main")),
+    stateOf(host.get(gitBrowserOrb.services["swarmie.git.ui"], "main")),
   ]);
   await settings.commit((current) => ({
     ...current,
@@ -213,6 +221,9 @@ export async function initializeClient(host: Host, options: ClientOptions) {
       }));
     }
   });
+  const gitPresentation = createGitPresentation(gitState, connectionState, nodeConnections);
+  const gitIntegrationDefinition = gitIntegrationOrb(gitPresentation);
+  await host.install(gitIntegrationDefinition);
   const providerPresentation = createProvidersPresentation(
     providersState,
     providersState.commit,
@@ -373,6 +384,8 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     settings,
     options.dev,
     {
+      git: async () =>
+        await host.get(gitIntegrationDefinition.services["swarmie.git.integration"], "main"),
       projects: async () =>
         await host.get(
           projectsIntegrationDefinition.services["swarmie.projects.integration"],
@@ -397,6 +410,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
   );
   await host.install(speechDefinition);
   await controls.activate("read-aloud");
+  await controls.activate("git");
   if (options.dev) {
     await controls.activate("app-state");
   }
@@ -506,6 +520,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     connectionState,
     providers,
     mcp,
+    gitPresentation,
     settings,
     onboarding,
     shellState,

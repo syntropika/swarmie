@@ -10,15 +10,20 @@ export function RecoveryNotice({ state }: { state: ReturnType<typeof useCheckout
   }
   const unknown =
     state.receipt?.state === "unknown" && state.receipt.operation_id === state.pendingOperation;
+  const inProgress =
+    state.receipt?.state === "in_progress" && state.receipt.operation_id === state.pendingOperation;
   return (
     <div className="grid gap-3 border-b border-border px-4 py-3 text-sm">
       <p className="break-all">
-        Operation {state.pendingOperation} requires reconciliation before another change.
+        Operation {state.pendingOperation}{" "}
+        {inProgress
+          ? "is still running on this node. Wait for its outcome before another change."
+          : "requires reconciliation before another change."}
       </p>
       <div>
         <Button
           size="sm"
-          isDisabled={state.busy}
+          isDisabled={state.busy || !state.connected}
           onPress={() => {
             state.recover().catch(state.fail);
           }}
@@ -36,7 +41,7 @@ export function RecoveryNotice({ state }: { state: ReturnType<typeof useCheckout
             <Button
               size="sm"
               variant="secondary"
-              isDisabled={state.busy}
+              isDisabled={state.busy || !state.connected}
               onPress={() => {
                 setConfirmed(false);
                 state.reviewUnknown().catch(state.fail);

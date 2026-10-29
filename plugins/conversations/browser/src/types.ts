@@ -1,5 +1,6 @@
 /** Captured execution directory; selecting it never grants access on the node. */
 export type ConversationExecutionContext = {
+  version?: 1;
   nodeId: string;
   principal?: string;
   path: string;
@@ -53,6 +54,7 @@ export type Execution = {
   omittedMessages?: number;
   /** The node can close unfinished tool records after explicit acknowledgement. */
   canAcknowledge?: boolean;
+  lifecycleWarning?: string | undefined;
 };
 export type ConversationData = {
   id: string;

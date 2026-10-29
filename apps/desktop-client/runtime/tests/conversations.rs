@@ -969,3 +969,481 @@ fn repeating_a_live_steer_submission_observes_admission_without_cancelling_or_re
         "only the original submission may invoke inference"
     );
 }
+
+#[cfg(unix)]
+fn captured_checkout(node: &DesktopNode, channel: u64, root: &Path) -> (Value, Value) {
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(root)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        std::process::Command::new("git")
+            .args([
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "commit",
+                "--quiet",
+                "--allow-empty",
+                "-m",
+                "test: initialize fixture"
+            ])
+            .current_dir(root)
+            .status()
+            .unwrap()
+            .success()
+    );
+    node.grant_directory(root).unwrap();
+    let git = get(node, channel, "swarmie.git", "main");
+    let discovered = call(
+        node,
+        channel,
+        &git["reference"],
+        "request",
+        json!([{ "kind":"discover", "path":root }]),
+    );
+    let target = discovered["ok"]["repository"].clone();
+    assert!(target["git_dir"].is_string(), "{discovered}");
+    let descriptor = node.descriptor();
+    let binding = json!({"version":1,"nodeId":descriptor["id"],"principal":descriptor["principal"],"path":target["root"],"owner":"git","identity":serde_json::to_string(&json!([target["root"], target["git_dir"], target["common_dir"]])).unwrap()});
+    (binding, target)
+}
+
+#[test]
+#[cfg(unix)]
+fn checkout_admission_is_bound_persisted_and_restored_with_actual_git_tool_routing() {
+    let directory = tempfile::tempdir().unwrap();
+    let repository = tempfile::tempdir().unwrap();
+    let initial = DesktopNode::open(directory.path().into()).unwrap();
+    let channel = initial.open_shared_channel().unwrap();
+    let (binding, target) = captured_checkout(&initial, channel, repository.path());
+    let tool_reply = Reply {
+        status: 200,
+        first: format!(
+            "{}\n",
+            json!({"model":"fixture-model","message":{"role":"assistant","content":"","tool_calls":[{"id":"git-inspect-call","function":{"name":"git_inspect","arguments":{"kind":"status","target":target}}}]},"done":false})
+        ),
+        tail: format!(
+            "{}\n",
+            json!({"message":{"role":"assistant","content":""},"done":true,"done_reason":"tool_calls","prompt_eval_count":3,"eval_count":5})
+        ),
+        gate: None,
+    };
+    let (endpoint, server) = provider(vec![tool_reply, answer("Repository inspected")]);
+    let account = configure(&initial, channel, &endpoint);
+    let object = session(&initial, channel, "checkout-bound");
+    let mut input = submission(&initial, &account, "checkout-bound", "first");
+    input["executionContext"] = binding.clone();
+    input["draft"]["executionContext"] = binding.clone();
+    let result = call(
+        &initial,
+        channel,
+        &object["reference"],
+        "run",
+        json!([input]),
+    );
+    assert_eq!(result["ok"]["status"], "settled", "{result}");
+    let requests = server.join().unwrap();
+    assert_eq!(
+        requests.len(),
+        3,
+        "one catalog request and two inference turns"
+    );
+    assert!(requests[1].contains("git_inspect"));
+    let request: Value =
+        serde_json::from_str(requests[2].split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert!(
+        request["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| {
+                message["role"] == "tool"
+                    && message["content"].as_str().is_some_and(|content| {
+                        serde_json::from_str::<Value>(content)
+                            .is_ok_and(|result| result["kind"] == "status")
+                    })
+            }),
+        "the second inference turn must contain the Git owner result: {request}"
+    );
+    let snapshot = session(&initial, channel, "checkout-bound");
+    assert_eq!(snapshot["state"]["executionContext"], binding);
+    let stored: Value = serde_json::from_slice(
+        &std::fs::read(directory.path().join("conversations.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(stored[0]["executionContext"], binding);
+    let catalog = get(&initial, channel, "swarmie.conversation.catalog", "main");
+    let listed = call(
+        &initial,
+        channel,
+        &catalog["reference"],
+        "list",
+        json!([null]),
+    );
+    assert_eq!(listed["ok"]["entries"][0]["executionContext"], binding);
+    drop(initial);
+    let restored = DesktopNode::open(directory.path().into()).unwrap();
+    let channel = restored.open_shared_channel().unwrap();
+    let object = session(&restored, channel, "checkout-bound");
+    assert_eq!(object["state"]["executionContext"], binding);
+    let mut changed = submission(&restored, &account, "checkout-bound", "changed-checkout");
+    changed["executionContext"] = binding.clone();
+    changed["executionContext"]["identity"] = json!("another-checkout");
+    let refused = call(
+        &restored,
+        channel,
+        &object["reference"],
+        "run",
+        json!([changed]),
+    );
+    assert_eq!(refused["ok"]["status"], "refused", "{refused}");
+    let missing = call(
+        &restored,
+        channel,
+        &object["reference"],
+        "run",
+        json!([submission(
+            &restored,
+            &account,
+            "checkout-bound",
+            "missing-checkout"
+        )]),
+    );
+    assert_eq!(missing["ok"]["status"], "refused", "{missing}");
+    let mut unavailable = submission(
+        &restored,
+        &account,
+        "checkout-bound",
+        "without-native-grant",
+    );
+    unavailable["executionContext"] = binding;
+    let refused = call(
+        &restored,
+        channel,
+        &object["reference"],
+        "run",
+        json!([unavailable]),
+    );
+    assert_eq!(
+        refused["ok"]["status"], "refused",
+        "a restored context cannot restore filesystem grants: {refused}"
+    );
+    let catalog = get(&restored, channel, "swarmie.conversation.catalog", "main");
+    let archived = call(
+        &restored,
+        channel,
+        &catalog["reference"],
+        "update",
+        json!([
+            "checkout-bound",
+            "Archived without restored filesystem authority",
+            true,
+            true
+        ]),
+    );
+    assert!(
+        archived.get("error").is_none(),
+        "confirmed organizational archival must survive a refused Git snapshot: {archived}"
+    );
+    let snapshot = session(&restored, channel, "checkout-bound");
+    assert!(snapshot["state"]["lifecycleWarning"].is_string());
+    let metadata: Value = serde_json::from_slice(
+        &std::fs::read(directory.path().join("conversations.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(metadata[0]["archived"], true);
+    assert_eq!(metadata[0]["pinned"], true);
+    assert!(metadata[0]["lifecycleWarning"].is_string());
+}
+
+#[test]
+#[cfg(unix)]
+fn checkout_admission_rejects_wrong_node_principal_identity_and_disagreement_before_history() {
+    let directory = tempfile::tempdir().unwrap();
+    let repository = tempfile::tempdir().unwrap();
+    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let (binding, _) = captured_checkout(&node, channel, repository.path());
+    let account = json!({"id":"not-resolved-before-checkout-validation"});
+    let object = session(&node, channel, "invalid-checkout");
+    for (field, replacement) in [
+        ("nodeId", "another-node"),
+        ("principal", "another-principal"),
+        ("identity", "another-checkout"),
+    ] {
+        let mut input = submission(&node, &account, "invalid-checkout", field);
+        input["executionContext"] = binding.clone();
+        input["executionContext"][field] = json!(replacement);
+        let result = call(&node, channel, &object["reference"], "run", json!([input]));
+        assert_eq!(result["ok"]["status"], "refused", "{result}");
+        assert!(
+            !directory.path().join("conversations.json").exists(),
+            "checkout rejection must happen before admission"
+        );
+    }
+    let mut input = submission(&node, &account, "invalid-checkout", "conflicting-contexts");
+    input["executionContext"] = binding.clone();
+    input["draft"]["executionContext"] = binding;
+    input["draft"]["executionContext"]["path"] = json!("/different-resource");
+    let result = call(&node, channel, &object["reference"], "run", json!([input]));
+    assert_eq!(result["ok"]["status"], "refused", "{result}");
+    assert!(!directory.path().join("conversations.json").exists());
+}
+
+#[test]
+#[cfg(unix)]
+fn agent_git_mutation_uses_explicit_native_authority_and_cannot_cross_captured_checkouts() {
+    use swarmie_agent_loop::{Message, ToolResult, conversation::Record};
+    let directory = tempfile::tempdir().unwrap();
+    let repository = tempfile::tempdir().unwrap();
+    let other = tempfile::tempdir().unwrap();
+    std::fs::write(repository.path().join("owned.txt"), "captured checkout\n").unwrap();
+    std::fs::write(other.path().join("owned.txt"), "another checkout\n").unwrap();
+    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let (binding, target) = captured_checkout(&node, channel, repository.path());
+    let (_, other_target) = captured_checkout(&node, channel, other.path());
+    let tool = |target: Value, id: &str| Reply {
+        status: 200,
+        first: format!(
+            "{}\n",
+            json!({"model":"fixture-model","message":{"role":"assistant","content":"","tool_calls":[{"id":id,"function":{"name":"git_mutate","arguments":{"target":target,"operation":{"kind":"stage","paths":["owned.txt"]}}}}]},"done":false})
+        ),
+        tail: format!(
+            "{}\n",
+            json!({"message":{"role":"assistant","content":""},"done":true,"done_reason":"tool_calls","prompt_eval_count":3,"eval_count":5})
+        ),
+        gate: None,
+    };
+    let (endpoint, server) = provider(vec![
+        tool(target, "owned-stage-call"),
+        answer("Staged captured file"),
+        tool(other_target, "cross-stage-call"),
+        answer("Cross-checkout write blocked"),
+    ]);
+    let account = configure(&node, channel, &endpoint);
+    let object = session(&node, channel, "scoped-agent-write");
+    for receipt in ["native-authorized-stage", "cross-checkout-attempt"] {
+        let mut input = submission(&node, &account, "scoped-agent-write", receipt);
+        input["executionContext"] = binding.clone();
+        let result = call(&node, channel, &object["reference"], "run", json!([input]));
+        assert_eq!(result["ok"]["status"], "settled", "{result}");
+    }
+    let staged = |path: &Path| {
+        std::process::Command::new("git")
+            .args(["diff", "--cached", "--name-only"])
+            .current_dir(path)
+            .output()
+            .unwrap()
+            .stdout
+    };
+    assert_eq!(
+        String::from_utf8(staged(repository.path())).unwrap().trim(),
+        "owned.txt"
+    );
+    assert!(
+        staged(other.path()).is_empty(),
+        "even a separately granted repository must not receive the conversation's writes"
+    );
+    let messages = canonical_messages(directory.path(), &node.descriptor(), "scoped-agent-write");
+    assert!(messages.into_iter().any(|record| matches!(
+        serde_json::from_value::<Record>(record).unwrap(),
+        Record::Message(Message::Tool {
+            result: ToolResult::Blocked(_),
+            ..
+        })
+    )));
+    assert_eq!(server.join().unwrap().len(), 5);
+}
+
+#[test]
+#[cfg(unix)]
+fn conversation_archive_and_pin_defer_capture_until_physical_agent_settlement() {
+    let (started, observed) = mpsc::channel();
+    let (release, wait) = mpsc::channel();
+    let mut held = answer("Physical execution finished");
+    held.gate = Some((started, wait));
+    let (endpoint, server) = provider(vec![held]);
+    let directory = tempfile::tempdir().unwrap();
+    let repository = tempfile::tempdir().unwrap();
+    std::fs::write(
+        repository.path().join("user-owned.txt"),
+        "retained local content\n",
+    )
+    .unwrap();
+    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let first = node.open_shared_channel().unwrap();
+    let observer = node.open_shared_channel().unwrap();
+    let (binding, _) = captured_checkout(&node, first, repository.path());
+    let account = configure(&node, first, &endpoint);
+    let object = session(&node, first, "archive-with-live-writer");
+    let mut input = submission(&node, &account, "archive-with-live-writer", "first");
+    input["executionContext"] = binding;
+    start(
+        &node,
+        first,
+        90,
+        &object["reference"],
+        "run",
+        json!([input]),
+    );
+    observed.recv_timeout(WAIT).unwrap();
+    let catalog = get(&node, observer, "swarmie.conversation.catalog", "main");
+    let archived = call(
+        &node,
+        observer,
+        &catalog["reference"],
+        "update",
+        json!([
+            "archive-with-live-writer",
+            "Archived while running",
+            true,
+            true
+        ]),
+    );
+    assert!(archived.get("error").is_none(), "{archived}");
+    let read_hold = || {
+        let files: Vec<_> = std::fs::read_dir(directory.path().join("git/conversation-holds"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "json")
+            })
+            .collect();
+        assert_eq!(files.len(), 1);
+        serde_json::from_slice::<Value>(&std::fs::read(&files[0]).unwrap()).unwrap()
+    };
+    let hold = read_hold();
+    assert_eq!(hold["active"], true);
+    assert_eq!(hold["pinned"], true);
+    assert_eq!(hold["archived"], true);
+    assert_eq!(hold["archive_state"], "deferred");
+    assert!(
+        hold["archive_id"].is_null(),
+        "organizational archive cannot capture while this writer is physically active"
+    );
+    let snapshot = session(&node, observer, "archive-with-live-writer");
+    assert!(
+        snapshot["state"]["lifecycleWarning"]
+            .as_str()
+            .unwrap()
+            .contains("physical execution")
+    );
+    release.send(()).unwrap();
+    let result = response(&node, first, 90);
+    assert_eq!(result["ok"]["status"], "settled", "{result}");
+    let hold = read_hold();
+    assert_eq!(hold["active"], false);
+    assert_eq!(hold["pinned"], true);
+    assert_eq!(hold["archived"], true);
+    assert_eq!(hold["archive_state"], "completed", "{hold}");
+    assert!(hold["archive_id"].is_string());
+    assert!(hold["warning"].is_null());
+    let snapshot = session(&node, observer, "archive-with-live-writer");
+    assert!(snapshot["state"]["lifecycleWarning"].is_null());
+    assert_eq!(
+        std::fs::read_to_string(repository.path().join("user-owned.txt")).unwrap(),
+        "retained local content\n"
+    );
+    let index: Value = serde_json::from_slice(
+        &std::fs::read(directory.path().join("conversations.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(index[0]["archived"], true);
+    assert_eq!(index[0]["pinned"], true);
+    assert_eq!(server.join().unwrap().len(), 2);
+}
+
+#[test]
+#[cfg(unix)]
+fn archiving_an_idle_chat_waits_for_a_different_chat_using_the_same_checkout() {
+    let (started, observed) = mpsc::channel();
+    let (release, wait) = mpsc::channel();
+    let mut held = answer("Other checkout consumer settled");
+    held.gate = Some((started, wait));
+    let (endpoint, server) = provider(vec![answer("Idle chat finished"), held]);
+    let directory = tempfile::tempdir().unwrap();
+    let repository = tempfile::tempdir().unwrap();
+    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let first = node.open_shared_channel().unwrap();
+    let observer = node.open_shared_channel().unwrap();
+    let (binding, _) = captured_checkout(&node, first, repository.path());
+    let account = configure(&node, first, &endpoint);
+    let idle = session(&node, first, "idle-shared-checkout");
+    let mut input = submission(&node, &account, "idle-shared-checkout", "idle-first");
+    input["executionContext"] = binding.clone();
+    let result = call(&node, first, &idle["reference"], "run", json!([input]));
+    assert_eq!(result["ok"]["status"], "settled", "{result}");
+    let writer = session(&node, first, "writer-shared-checkout");
+    let mut input = submission(&node, &account, "writer-shared-checkout", "writer-first");
+    input["executionContext"] = binding;
+    start(
+        &node,
+        first,
+        90,
+        &writer["reference"],
+        "run",
+        json!([input]),
+    );
+    observed.recv_timeout(WAIT).unwrap();
+    let catalog = get(&node, observer, "swarmie.conversation.catalog", "main");
+    let archived = call(
+        &node,
+        observer,
+        &catalog["reference"],
+        "update",
+        json!(["idle-shared-checkout", "Idle chat archived", false, true]),
+    );
+    assert!(archived.get("error").is_none(), "{archived}");
+    assert_eq!(archived["ok"]["archived"], true);
+    assert!(
+        archived["ok"]["lifecycleWarning"]
+            .as_str()
+            .unwrap()
+            .contains("physical execution"),
+        "the confirmed update must expose deferred capture immediately: {archived}"
+    );
+    let read_holds = || {
+        std::fs::read_dir(directory.path().join("git/conversation-holds"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "json")
+            })
+            .map(|path| serde_json::from_slice::<Value>(&std::fs::read(path).unwrap()).unwrap())
+            .collect::<Vec<_>>()
+    };
+    let holds = read_holds();
+    let idle_hold = holds
+        .iter()
+        .find(|hold| hold["conversation_id"] == "idle-shared-checkout")
+        .unwrap();
+    assert_eq!(idle_hold["active"], true);
+    assert_eq!(idle_hold["archive_state"], "deferred");
+    assert!(idle_hold["archive_id"].is_null());
+    release.send(()).unwrap();
+    let result = response(&node, first, 90);
+    assert_eq!(result["ok"]["status"], "settled", "{result}");
+    let holds = read_holds();
+    let idle_hold = holds
+        .iter()
+        .find(|hold| hold["conversation_id"] == "idle-shared-checkout")
+        .unwrap();
+    assert_eq!(idle_hold["active"], false);
+    assert_eq!(
+        idle_hold["archive_state"], "completed",
+        "the other chat's settlement must resume the deferred archive: {idle_hold}"
+    );
+    assert!(idle_hold["archive_id"].is_string());
+    assert!(holds.iter().all(|hold| hold["active"] == false));
+    assert!(repository.path().exists());
+    assert_eq!(server.join().unwrap().len(), 3);
+}

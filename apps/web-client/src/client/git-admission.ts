@@ -13,7 +13,12 @@ export const admitGitContext: SubmissionAdmission = async ({ context, connection
     path: context.path,
   });
   signal.throwIfAborted();
-  if (response.kind !== "repository" || response.repository === null || response.repository.bare) {
+  if (
+    response.kind !== "repository" ||
+    response.repository === null ||
+    response.repository.bare ||
+    response.repository.root === null
+  ) {
     throw new Error("The captured Git checkout is no longer available.");
   }
   const { repository } = response;
@@ -23,5 +28,11 @@ export const admitGitContext: SubmissionAdmission = async ({ context, connection
       "The conversation directory now points to another checkout. Start a new conversation to use it.",
     );
   }
-  return { ...context, identity };
+  return {
+    ...context,
+    version: 1,
+    principal: connection.principal,
+    path: repository.root ?? context.path,
+    identity,
+  };
 };

@@ -15,6 +15,9 @@ pub(super) fn clip(message: &mut Message, limit: usize) {
 }
 
 pub(super) fn bound(mut snapshot: Snapshot) -> Snapshot {
+    snapshot.lifecycle_warning = snapshot
+        .lifecycle_warning
+        .map(super::checkout::bounded_warning);
     for message in &mut snapshot.messages {
         clip(message, 8 * 1024);
     }
@@ -59,6 +62,8 @@ mod tests {
             admitted: vec!["receipt".into()],
             omitted_messages: 0,
             can_acknowledge: false,
+            execution_context: None,
+            lifecycle_warning: Some("\"暖".repeat(1024 * 1024)),
             messages: (0..100)
                 .map(|id| Message {
                     id: id.to_string(),
@@ -70,6 +75,9 @@ mod tests {
         };
         let snapshot = bound(snapshot);
         assert!(serde_json::to_vec(&snapshot).unwrap().len() <= BUDGET);
+        let warning = snapshot.lifecycle_warning.as_ref().unwrap();
+        assert!(warning.len() <= 2048);
+        assert!(warning.ends_with("[warning truncated; inspect the retained Git operation]"));
         assert_eq!(snapshot.messages.last().unwrap().id, "99");
         assert!(snapshot.messages.last().unwrap().truncated);
         assert_eq!(snapshot.messages.len() + snapshot.omitted_messages, 100);

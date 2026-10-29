@@ -20,7 +20,7 @@ impl Authority for Grant {
             principal,
             &Intent {
                 target: unreachable_target(),
-                operation: "discover".into(),
+                operation: swarmie_git::IntentOperation::Discover,
             },
         )
     }
@@ -65,10 +65,7 @@ fn setup() -> (tempfile::TempDir, GitService, swarmie_git::RepositoryTarget) {
         Arc::new(DirectoryJournal::open(directory.path().join("journal")).unwrap()),
         Arc::new(Grant),
     );
-    let target = core
-        .discover(&root, &Cancellation::default())
-        .unwrap()
-        .unwrap();
+    let target = discover(&core, &root);
     let service = GitService::new(core, directory.path().join("state")).unwrap();
     (directory, service, target)
 }
@@ -227,11 +224,7 @@ fn archive_round_trip_is_separate_from_cleanup_permission() {
     git(root, &["add", "file"]);
     std::fs::write(root.join("file"), "unstaged\n").unwrap();
     std::fs::write(root.join("local"), "untracked\n").unwrap();
-    let target = service
-        .git()
-        .discover(root, &Cancellation::default())
-        .unwrap()
-        .unwrap();
+    let target = discover(service.git(), root);
     request(
         &service,
         ManagedRequest::ArchiveCreate {
@@ -395,11 +388,7 @@ fn oversized_identity_keeps_settings_readable_and_never_authorizes_mutations() {
     input.write_all(inventory.as_bytes()).unwrap();
     drop(input);
     assert!(child.wait().unwrap().success());
-    let target = service
-        .git()
-        .discover(&root, &Cancellation::default())
-        .unwrap()
-        .unwrap();
+    let target = discover(service.git(), &root);
     assert_eq!(
         target.observation_error,
         Some(swarmie_git::ObservationError::OutputLimit)
@@ -426,20 +415,12 @@ fn oversized_identity_keeps_settings_readable_and_never_authorizes_mutations() {
         ),
         Err(swarmie_git::Error::OutputLimit)
     ));
-    assert!(matches!(
-        service.git().verify(&target, &Cancellation::default()),
-        Err(swarmie_git::Error::OutputLimit)
-    ));
+    assert_refused(&service, target.clone(), "limited-observation");
     let mut forged = target.clone();
     forged.observation_error = None;
     forged.fingerprint = "forged".into();
     forged.index_fingerprint = "forged".into();
-    assert!(
-        service
-            .git()
-            .verify(&forged, &Cancellation::default())
-            .is_err()
-    );
+    assert_refused(&service, forged, "forged-observation");
     let response = service
         .git()
         .execute(
@@ -459,10 +440,233 @@ fn oversized_identity_keeps_settings_readable_and_never_authorizes_mutations() {
     );
     assert!(!root.join(".git/refs/heads/must-not-exist").exists());
     assert!(!root.join(".git/index.lock").exists());
+    assert_refused(&service, original, "outdated-observation");
+}
+
+fn discover(core: &Git, root: &Path) -> swarmie_git::RepositoryTarget {
+    match core
+        .execute(
+            "owner",
+            Request::Discover {
+                path: root.to_string_lossy().into(),
+            },
+            &Cancellation::default(),
+        )
+        .unwrap()
+    {
+        Response::Repository {
+            repository: Some(target),
+        } => target,
+        response => panic!("expected repository: {response:?}"),
+    }
+}
+
+fn assert_refused(service: &GitService, target: swarmie_git::RepositoryTarget, id: &str) {
+    let response = service
+        .git()
+        .execute(
+            "owner",
+            Request::Mutate {
+                operation_id: id.into(),
+                target,
+                operation: swarmie_git::Operation::CreateBranch {
+                    name: "must-not-exist".into(),
+                },
+            },
+            &Cancellation::default(),
+        )
+        .unwrap();
     assert!(
-        service
-            .git()
-            .verify(&original, &Cancellation::default())
+        matches!(response, Response::Receipt { receipt } if receipt.state == swarmie_git::Outcome::Failed)
+    );
+}
+
+#[test]
+fn conversation_retention_defers_archiving_until_execution_settles_and_survives_reopen() {
+    use swarmie_git::{ArchiveState, ConversationHoldUpdate};
+    let (directory, service, target) = setup();
+    let update = |pinned, archived, active| ConversationHoldUpdate {
+        conversation_id: "chat".into(),
+        pinned,
+        archived,
+        active,
+    };
+    let hold = service
+        .set_conversation_hold(
+            "owner",
+            &target,
+            update(true, false, true),
+            &Cancellation::default(),
+        )
+        .unwrap();
+    assert!(hold.pinned && hold.active);
+    assert_eq!(hold.archive_state, None);
+    let hold = service
+        .set_conversation_hold(
+            "owner",
+            &target,
+            update(true, true, true),
+            &Cancellation::default(),
+        )
+        .unwrap();
+    assert_eq!(hold.archive_state, Some(ArchiveState::Deferred));
+    assert!(hold.warning.is_some());
+    let hold = service
+        .set_conversation_hold(
+            "owner",
+            &target,
+            update(true, true, false),
+            &Cancellation::default(),
+        )
+        .unwrap();
+    assert_eq!(hold.archive_state, Some(ArchiveState::Completed));
+    assert!(hold.warning.is_none());
+    let archive_id = hold.archive_id.clone();
+    let reopened = GitService::new(service.git().clone(), directory.path().join("state")).unwrap();
+    let hold = reopened
+        .set_conversation_hold(
+            "owner",
+            &target,
+            update(false, true, false),
+            &Cancellation::default(),
+        )
+        .unwrap();
+    assert_eq!(hold.archive_id, archive_id);
+    assert_eq!(hold.generation, 1);
+    let response = request(
+        &reopened,
+        ManagedRequest::ArchiveList {
+            target: target.clone(),
+            page: None,
+        },
+    );
+    assert!(
+        matches!(response,WireResponse::Managed(ManagedResponse::Archives{archives,unavailable,..}) if archives.len()==1 && unavailable.is_empty())
+    );
+    assert!(
+        reopened
+            .set_conversation_hold(
+                "other",
+                &target,
+                update(false, false, false),
+                &Cancellation::default()
+            )
             .is_err()
     );
+}
+
+#[test]
+fn interrupted_conversation_capture_is_retained_without_automatic_replay() {
+    use swarmie_git::{ArchiveState, ConversationHoldUpdate};
+    let (directory, service, target) = setup();
+    let update = || ConversationHoldUpdate {
+        conversation_id: "chat".into(),
+        pinned: false,
+        archived: true,
+        active: false,
+    };
+    service
+        .set_conversation_hold("owner", &target, update(), &Cancellation::default())
+        .unwrap();
+    let entry = std::fs::read_dir(directory.path().join("state/conversation-holds"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let mut hold: swarmie_git::ConversationHold =
+        serde_json::from_slice(&std::fs::read(&entry).unwrap()).unwrap();
+    hold.archive_state = Some(ArchiveState::Pending);
+    std::fs::write(&entry, serde_json::to_vec(&hold).unwrap()).unwrap();
+    let reopened = GitService::new(service.git().clone(), directory.path().join("state")).unwrap();
+    let current = reopened
+        .set_conversation_hold("owner", &target, update(), &Cancellation::default())
+        .unwrap();
+    assert_eq!(current.archive_state, Some(ArchiveState::Unknown));
+    assert_eq!(current.generation, 1);
+    assert!(current.warning.unwrap().contains("not replayed"));
+}
+
+#[test]
+fn capability_probe_reports_the_complete_interface_without_granting_a_repository() {
+    let (_directory, service, _) = setup();
+    let response = request(&service, ManagedRequest::CapabilityInfo);
+    assert!(
+        matches!(response,WireResponse::Managed(ManagedResponse::CapabilityInfo{api_version:1,execution_available:true,operations}) if operations.contains(&"capability_info".into()) && operations.contains(&"operations".into()))
+    );
+    assert!(
+        service
+            .execute(
+                "",
+                WireRequest::Managed(ManagedRequest::CapabilityInfo),
+                &Cancellation::default()
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn an_unborn_archive_is_rejected_before_private_snapshot_effects() {
+    let (directory, service, _) = setup();
+    let root = directory.path().join("unborn");
+    std::fs::create_dir(&root).unwrap();
+    git(&root, &["init", "-q"]);
+    let target = discover(service.git(), &root);
+    let response = request(
+        &service,
+        ManagedRequest::ArchiveCreate {
+            operation_id: "unborn".into(),
+            target,
+            archive_id: "unborn".into(),
+        },
+    );
+    assert!(
+        matches!(response,WireResponse::Core(value) if matches!(&*value,Response::Receipt{receipt} if receipt.state==swarmie_git::Outcome::Failed))
+    );
+    assert_eq!(
+        std::fs::read_dir(directory.path().join("state/archives"))
+            .unwrap()
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn archive_catalog_paginates_both_valid_and_incomplete_entries_under_the_frame_budget() {
+    let (directory, service, target) = setup();
+    let archives = directory.path().join("state/archives");
+    for index in 0..350 {
+        std::fs::create_dir(archives.join(format!("{index:064x}"))).unwrap();
+    }
+    let mut page = None;
+    let mut count = 0;
+    let mut pages = 0;
+    loop {
+        let response = request(
+            &service,
+            ManagedRequest::ArchiveList {
+                target: target.clone(),
+                page,
+            },
+        );
+        assert!(serde_json::to_vec(&response).unwrap().len() < 32 * 1024);
+        match response {
+            WireResponse::Managed(ManagedResponse::Archives {
+                archives,
+                unavailable,
+                next_page,
+            }) => {
+                assert!(archives.is_empty());
+                count += unavailable.len();
+                pages += 1;
+                if next_page.is_none() {
+                    break;
+                }
+                page = next_page;
+            }
+            other => panic!("unexpected catalog {other:?}"),
+        }
+    }
+    assert_eq!(count, 350);
+    assert!(pages > 1);
 }

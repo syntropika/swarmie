@@ -125,22 +125,28 @@ function OpenFiles({
   );
 }
 
-type DocumentResult = { key: string; text: string; truncated: boolean; error: string | null };
+type DocumentResult = {
+  key: string;
+  text: string;
+  truncated: boolean;
+  error: string | null;
+  warning?: string;
+};
 
 function useDocument(
   remote: GitRemote,
   checkout: Checkout,
   selection: Selection | null,
-  layout: DiffMode,
+  readable: boolean,
 ) {
   const [result, setResult] = useState<DocumentResult | null>(null);
   const path = selection?.path ?? null;
   const source = selection?.source ?? "file";
   const staged = selection?.staged ?? false;
-  const key = JSON.stringify([path, source, staged, layout, checkout.target.fingerprint]);
+  const key = JSON.stringify([path, source, staged, checkout.target.fingerprint]);
   useEffect(() => {
     let active = true;
-    if (path === null) {
+    if (path === null || !readable) {
       return () => {
         active = false;
       };
@@ -152,7 +158,7 @@ function useDocument(
             target: checkout.target,
             path,
             staged,
-            mode: layout,
+            mode: "unified",
           })
         : remote.request({
             kind: "file",
@@ -173,7 +179,11 @@ function useDocument(
         }
       } catch (error: unknown) {
         if (active) {
-          setResult({ key, text: "", truncated: false, error: errorMessage(error) });
+          setResult((current) =>
+            current?.key === key
+              ? { ...current, warning: errorMessage(error) }
+              : { key, text: "", truncated: false, error: errorMessage(error) },
+          );
         }
       }
     }
@@ -181,7 +191,7 @@ function useDocument(
     return () => {
       active = false;
     };
-  }, [remote, checkout.target, path, source, staged, layout, key]);
+  }, [remote, checkout.target, path, source, staged, key, readable]);
   return result?.key === key ? result : null;
 }
 
@@ -223,6 +233,11 @@ function DocumentContent({
   }
   return (
     <>
+      {result.warning === undefined ? null : (
+        <p role="alert" className="border-b border-border px-4 py-2 text-xs text-danger">
+          Showing the last captured preview. {result.warning}
+        </p>
+      )}
       {selection.source === "diff" ? (
         <DiffView
           text={result.text}
@@ -384,6 +399,7 @@ function documentAccessibility(
 export function GitWorkspace({
   checkout,
   remote,
+  readable,
   mode,
   disabled,
   mutate,
@@ -399,6 +415,7 @@ export function GitWorkspace({
   onFilterChange: (filter: ChangesFilter) => void;
   checkout: Checkout;
   remote: GitRemote;
+  readable: boolean;
   mode: "explore" | "changes";
   disabled: boolean;
   mutate: (operation: GitOperation) => Promise<boolean>;
@@ -437,7 +454,7 @@ export function GitWorkspace({
       setChosenSelection(remaining.at(-1) ?? null);
     }
   }
-  const result = useDocument(remote, checkout, selection, layout);
+  const result = useDocument(remote, checkout, selection, readable);
   const staged = selection?.staged === true ? " · staged" : "";
   const { added, removed } = useMemo(() => changeCounts(result, selection), [result, selection]);
   const fileList =
