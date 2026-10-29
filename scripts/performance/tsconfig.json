@@ -1,0 +1,9 @@
+{
+  "extends": "../../packages/config/ts/base.json",
+  "compilerOptions": {
+    "types": ["bun"],
+    "allowImportingTsExtensions": true,
+    "jsx": "react-jsx"
+  },
+  "include": ["*.ts", "*.tsx"]
+}

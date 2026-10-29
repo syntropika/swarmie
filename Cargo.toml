@@ -21,6 +21,7 @@ members = [
     "tests/fixtures/atomic-journal",
     "tests/fixtures/mcp-server",
     "tests/fixtures/mcp-settings-host",
+    "tests/fixtures/performance",
 ]
 exclude = ["vendor/genai-0.7.0"]
 resolver = "2"

@@ -1,0 +1,15 @@
+[package]
+name = "swarmie-fixture-performance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+swarmie-git = { workspace = true, default-features = false }
+serde_json.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

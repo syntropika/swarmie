@@ -4079,6 +4079,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "swarmie-fixture-performance"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "swarmie-git",
+ "tempfile",
+]
+
+[[package]]
 name = "swarmie-foundation-counter"
 version = "0.1.0"
 dependencies = [

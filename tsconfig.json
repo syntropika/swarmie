@@ -63,6 +63,9 @@
     },
     {
       "path": "plugins/git/browser/tsconfig.json"
+    },
+    {
+      "path": "./scripts/performance/tsconfig.json"
     }
   ]
 }

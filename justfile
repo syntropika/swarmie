@@ -182,3 +182,11 @@ storage-check:
     cargo +{{rust_version}} clippy --locked -p swarmie-storage --no-default-features --all-targets -- -D warnings
     RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D rustdoc::broken_intra_doc_links" cargo +{{rust_version}} doc --locked -p swarmie-storage --no-default-features --no-deps
     cargo +{{rust_version}} clippy --locked -p swarmie-runtime --no-default-features --features rpc --lib -- -D warnings
+
+# Repeat synthetic workloads and compare compatible performance reports.
+perf *arguments:
+    bun run perf "$@"
+
+perf-check:
+    bun run test:perf
+    cargo +{{rust_version}} clippy --locked -p swarmie-fixture-performance --all-targets -- -D warnings
