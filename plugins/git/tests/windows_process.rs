@@ -76,8 +76,14 @@ fn windows_arguments_cwd_and_environment_reach_the_child() {
         .run(&request, &Cancellation::default())
         .unwrap();
     assert_eq!(result.status, 0);
-    let expected = format!("{value}|{}", directory.path().display());
-    assert_eq!(String::from_utf8(result.stdout).unwrap(), expected);
+    let output = String::from_utf8(result.stdout).unwrap();
+    let (argument, cwd) = output.split_once('|').unwrap();
+    assert_eq!(argument, value);
+    // PowerShell can expand the short-name alias supplied by the temporary directory.
+    assert_eq!(
+        fs::canonicalize(cwd).unwrap(),
+        directory.path().canonicalize().unwrap()
+    );
 }
 
 fn descendant(mode: &str) {
