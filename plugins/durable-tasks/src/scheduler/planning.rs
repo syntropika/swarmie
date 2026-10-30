@@ -180,6 +180,7 @@ impl Engine {
                     crate::Rejection::Assigned | crate::Rejection::Revision
                 ) {
                     held.insert(id);
+                    self.control.status.borrow_mut().interrupted.push(id);
                 }
                 self.control.status.borrow_mut().diagnostic =
                     Some(SchedulerDiagnostic::Rejected { task: id, reason });
@@ -200,5 +201,6 @@ impl Engine {
             }
             Ok(Ok(_)) => {}
         }
+        self.control.changes.invalidate();
     }
 }

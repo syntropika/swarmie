@@ -54,7 +54,7 @@ async function deferredActivation() {
   const controls = createPluginControls(
     state,
     false,
-    { projects: acquire, "read-aloud": acquire, "app-state": acquire },
+    { projects: acquire, "read-aloud": acquire, "app-state": acquire, git: acquire },
     () => undefined,
     failed,
   );

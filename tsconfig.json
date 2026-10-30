@@ -60,6 +60,12 @@
     },
     {
       "path": "plugins/mcp/browser/tsconfig.json"
+    },
+    {
+      "path": "plugins/git/browser/tsconfig.json"
+    },
+    {
+      "path": "./scripts/performance/tsconfig.json"
     }
   ]
 }

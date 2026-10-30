@@ -9,13 +9,15 @@ use futures::{
 use std::time::Duration;
 use std::{
     cell::{Cell, RefCell},
+    collections::BTreeSet,
     rc::Rc,
 };
-use swarmie_storage_core::Subscription;
+use swarmie_storage_core::{ChangeSource, Subscription};
 use tembra::{Code, Context, Host, ResourceSignal};
 
 mod attempts;
 mod driver;
+mod observation;
 mod planning;
 mod policy;
 
@@ -26,6 +28,9 @@ struct Control {
     stopping: Cell<bool>,
     dirty: Cell<bool>,
     retry: Cell<bool>,
+    retry_tasks: RefCell<BTreeSet<TaskId>>,
+    active: RefCell<BTreeSet<TaskId>>,
+    changes: ChangeSource,
     send: mpsc::UnboundedSender<()>,
     status: RefCell<SchedulerStatus>,
 }
@@ -46,6 +51,7 @@ impl Control {
     fn stop(&self) {
         self.stopping.set(true);
         let _ = self.send.unbounded_send(());
+        self.changes.invalidate();
     }
 }
 
@@ -76,6 +82,9 @@ impl Engine {
             stopping: Cell::new(false),
             dirty: Cell::new(false),
             retry: Cell::new(false),
+            retry_tasks: RefCell::new(BTreeSet::new()),
+            active: RefCell::new(BTreeSet::new()),
+            changes: ChangeSource::default(),
             send,
             status: RefCell::new(SchedulerStatus::default()),
         });
@@ -141,6 +150,12 @@ impl Engine {
     }
 
     pub fn resume(&self, context: &Context) -> tembra::Result<()> {
+        self.enable(context)?;
+        self.control.wake(true);
+        Ok(())
+    }
+
+    pub fn enable(&self, context: &Context) -> tembra::Result<()> {
         authorize(context)?;
         self.authority.check()?;
         self.signal.check()?;
@@ -149,7 +164,8 @@ impl Engine {
         }
         self.control.enabled.set(true);
         self.control.status.borrow_mut().enabled = true;
-        self.control.wake(true);
+        // Enabling scheduling is not an explicit retry of held work.
+        self.control.wake(false);
         Ok(())
     }
 

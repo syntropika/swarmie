@@ -3,11 +3,11 @@ import { selectStore } from "@swarmie/client-ui";
 import type { SettingsState } from "@swarmie/plugin-settings-browser";
 import type { ReferenceBase } from "@syntropika/tembra-sdk";
 
-type OptionalPlugin = "projects" | "read-aloud" | "app-state";
+type OptionalPlugin = "projects" | "read-aloud" | "app-state" | "git";
 type Activations = Record<OptionalPlugin, () => Promise<ReferenceBase>>;
 
 function optional(id: string): id is OptionalPlugin {
-  return id === "projects" || id === "read-aloud" || id === "app-state";
+  return id === "git" || id === "projects" || id === "read-aloud" || id === "app-state";
 }
 
 /** These controls hold consumer References to known, compiled frontend plugins. */
@@ -37,6 +37,13 @@ export function createPluginControls(
       "Organize conversations and personal folder links.",
       false,
       ["Conversations"],
+    ],
+    [
+      "git",
+      "Git",
+      "Review files, changes and managed worktrees on available nodes.",
+      false,
+      ["Connections", "Views"],
     ],
     ["views", "Views", "Tabs and tools beside the conversation.", true, []],
     ["providers", "Providers", "Provider accounts and available models.", true, []],

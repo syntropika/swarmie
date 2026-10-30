@@ -7,6 +7,7 @@ import type {
 import type {
   Conversation,
   ConversationExecutionApi,
+  ConversationExecutionContext,
   createConversationRecords,
   ConversationsUiApi,
   Execution,
@@ -14,9 +15,21 @@ import type {
 import { defaultConversationTitle } from "@swarmie/plugin-conversations-browser";
 import type { ProvidersApi } from "@swarmie/plugin-providers-browser";
 
+import { sameExecutionContext } from "./conversation-values";
+
 export type ExecutionFactory = (
   connection: NodeConnection,
 ) => ConversationExecutionApi | Promise<ConversationExecutionApi>;
+
+/** Runs before node admission; setup must finish before this boundary returns. */
+export type SubmissionAdmission = (input: {
+  conversationId: string;
+  submissionId: string;
+  createConversation: boolean;
+  context: ConversationExecutionContext | undefined;
+  connection: NodeConnection;
+  signal: AbortSignal;
+}) => Promise<ConversationExecutionContext | undefined>;
 
 type StopBatch = {
   pending: number;
@@ -52,6 +65,7 @@ export function createSubmissions(
     subscribe: (changed: () => void) => () => void;
     limits: { maxTextBytes: number; attachments: boolean };
   } | null = null,
+  beforeSubmit?: SubmissionAdmission,
 ) {
   const pending = new Set<string>();
   const stopBatches = new Map<string, StopBatch>();
@@ -84,7 +98,31 @@ export function createSubmissions(
     if (!nodes.getSnapshot().nodes.some((node) => node.id === nodeId)) {
       throw new Error("The execution node is not configured.");
     }
-    chat.draft.update((draft) => ({ ...draft, node: nodeId }));
+    chat.draft.update((draft) => ({ ...draft, node: nodeId, executionContext: undefined }));
+  }
+  function setConversationContext(chat: Conversation, context: ConversationExecutionContext) {
+    if (
+      chat.started ||
+      chat.node !== null ||
+      pending.has(chat.id) ||
+      chat.execution.getSnapshot().phase === "unknown"
+    ) {
+      throw new Error("The conversation execution directory is already bound.");
+    }
+    if (
+      !nodes
+        .getSnapshot()
+        .nodes.some(
+          (node) =>
+            node.id === context.nodeId &&
+            (context.principal === undefined || node.principal === context.principal),
+        ) ||
+      context.path.trim() === ""
+    ) {
+      throw new Error("Choose a configured node and an execution directory.");
+    }
+    const captured = structuredClone(context);
+    chat.draft.update((draft) => ({ ...draft, node: captured.nodeId, executionContext: captured }));
   }
   function canSend(chat?: Conversation) {
     if (execution === undefined) {
@@ -102,7 +140,7 @@ export function createSubmissions(
       (chat.started || chat.node === null) &&
       nodes.getSnapshot().nodes.some((node) => node.id === conversationNode(chat)) &&
       providers.resolve(draft).available &&
-      chat.execution.getSnapshot().phase !== "unknown"
+      !["unknown", "interrupted"].includes(chat.execution.getSnapshot().phase)
     );
   }
   function send(chat: Conversation, mode: "queue" | "steer" = "queue") {
@@ -118,18 +156,48 @@ export function createSubmissions(
     pending.add(chat.id);
     const factory = execution;
     const destination = conversationNode(chat);
+    let executionContext = structuredClone(chat.executionContext ?? draft.executionContext);
     const submissionId = nextId();
     let dispatched = false;
     let boundHere = false;
     let source: NodeConnection | null = null;
     async function submit() {
       source = await connections.open(destination);
+      if (executionContext && executionContext.nodeId !== destination) {
+        throw new Error("The execution directory belongs to another node.");
+      }
+      if (
+        executionContext?.principal !== undefined &&
+        executionContext.principal !== source.principal
+      ) {
+        throw new Error("The execution directory was selected under another node user.");
+      }
+      if (beforeSubmit) {
+        executionContext = await beforeSubmit({
+          conversationId: chat.id,
+          submissionId,
+          createConversation: !chat.started,
+          context: executionContext,
+          connection: source,
+          signal: controller.signal,
+        });
+      }
+      if (executionContext && executionContext.nodeId !== destination) {
+        throw new Error("Admission changed the execution node.");
+      }
+      if (chat.executionContext && !sameExecutionContext(executionContext, chat.executionContext)) {
+        throw new Error("Admission changed the bound conversation directory.");
+      }
       const api = await factory(source);
       if (!source.isCurrent()) {
         throw new Error("The node session ended before submission.");
       }
       if (chat.node === null) {
-        await records.commit(chat.id, (record) => ({ ...record, node: destination }));
+        await records.commit(chat.id, (record) => ({
+          ...record,
+          node: destination,
+          executionContext,
+        }));
         boundHere = true;
       }
       if (!source.isCurrent()) {
@@ -141,8 +209,14 @@ export function createSubmissions(
           conversationId: chat.id,
           submissionId,
           createConversation: !chat.started,
-          draft: { ...draft, attachments: [...draft.attachments], node: destination },
+          draft: {
+            ...draft,
+            attachments: [...draft.attachments],
+            node: destination,
+            executionContext,
+          },
           mode,
+          ...(executionContext ? { executionContext } : {}),
         },
         controller.signal,
       );
@@ -169,6 +243,7 @@ export function createSubmissions(
             ...record,
             started: true,
             node: destination,
+            executionContext,
             title:
               record.title === defaultConversationTitle
                 ? draft.text.trim().slice(0, 64)
@@ -186,7 +261,8 @@ export function createSubmissions(
           current.phase === "completed" ||
           current.phase === "stopped" ||
           current.phase === "failed" ||
-          current.phase === "unknown"
+          current.phase === "unknown" ||
+          current.phase === "interrupted"
             ? current
             : { ...current, phase: "working", label: "Thinking…" },
         );
@@ -198,7 +274,9 @@ export function createSubmissions(
     }
     function submissionFailed(error: unknown) {
       if (!dispatched && boundHere) {
-        records.update(chat.id, (record) => (record.started ? record : { ...record, node: null }));
+        records.update(chat.id, (record) =>
+          record.started ? record : { ...record, node: null, executionContext: undefined },
+        );
       }
       stopBatches.delete(chat.id);
       chat.execution.update((current) => ({
@@ -311,6 +389,7 @@ export function createSubmissions(
   return {
     conversationNode,
     setConversationNode,
+    setConversationContext,
     canSend,
     subscribeExecution: capability?.subscribe ?? nodes.subscribe,
     send,

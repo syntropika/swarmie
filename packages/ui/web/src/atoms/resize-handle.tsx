@@ -1,7 +1,9 @@
 // Copyright 2026 Syntropika
 // SPDX-License-Identifier: Apache-2.0
+import { mergeProps } from "@react-aria/utils";
 import { useRef, useState } from "react";
 import type { ComponentProps } from "react";
+import { useFocusRing } from "react-aria";
 
 import { cn } from "../classes";
 
@@ -11,9 +13,20 @@ export function ResizeHandle({
   "aria-orientation": orientation = "vertical",
   ...props
 }: ResizeHandleProps) {
+  const { focusProps, isFocused, isFocusVisible } = useFocusRing();
   // A focusable ARIA separator is a resizing control; a native hr would be a static divider.
   /* oxlint-disable jsx-a11y/prefer-tag-over-role */
-  return <div {...props} role="separator" tabIndex={0} aria-orientation={orientation} />;
+  return (
+    <div
+      {...mergeProps(props, focusProps)}
+      role="separator"
+      tabIndex={0}
+      aria-orientation={orientation}
+      data-swarmie-focus=""
+      data-focused={isFocused || undefined}
+      data-focus-visible={isFocusVisible || undefined}
+    />
+  );
   /* oxlint-enable jsx-a11y/prefer-tag-over-role */
 }
 

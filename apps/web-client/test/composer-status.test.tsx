@@ -120,3 +120,24 @@ test("a shortened message shows the canonical-history notice in the actual messa
     expect(markup).toContain("Bounded content");
   }
 });
+
+test("an interrupted turn offers explicit Stop without a working indicator", async () => {
+  const current = await initializeClient(createHost(), { dev: false });
+  client = current;
+  const chat = current.activeConversation();
+  chat.execution.update((value) => ({
+    ...value,
+    phase: "interrupted",
+    label: "Recovery requires Stop.",
+  }));
+  await Bun.sleep(5);
+  const markup = renderToStaticMarkup(
+    <ClientContext value={current}>
+      <ConversationStatus chat={chat} />
+    </ClientContext>,
+  );
+  expect(markup).toContain("Stop interrupted turn");
+  expect(markup).toContain("Recovery requires Stop.");
+  expect(markup).not.toContain('data-slot="thinking-indicator"');
+  expect(markup).not.toContain("Acknowledge unknown outcome");
+});

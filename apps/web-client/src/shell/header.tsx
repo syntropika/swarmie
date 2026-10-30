@@ -251,6 +251,7 @@ function HeaderTitle() {
     const title =
       {
         general: "General",
+        git: "Git",
         conversation: "Conversation",
         connections: "Connections",
         providers: "Providers",

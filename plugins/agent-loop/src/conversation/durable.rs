@@ -15,6 +15,21 @@ pub async fn execute(
 ) -> tembra::Result<Output> {
     execution.check(context)?;
     let input: Request = serde_json::from_value(execution.input()).map_err(invalid)?;
+    execute_request(history, context, agent, execution, input).await
+}
+
+/// Run an owner-issued task whose application input contains a conversation request.
+/// The composer must decode and authorize the immutable task input before calling this
+/// method. Restored progress must match that exact request. Confirmation and recovery
+/// use the same engine and shared storage owner as [`execute`].
+pub async fn execute_request(
+    history: &History,
+    context: &Context,
+    agent: &Agent,
+    execution: &Execution,
+    input: Request,
+) -> tembra::Result<Output> {
+    execution.check(context)?;
     let checkpoint = if let Some(value) = execution.checkpoint() {
         let checkpoint: Checkpoint = serde_json::from_value(value).map_err(invalid)?;
         if checkpoint.input != input {

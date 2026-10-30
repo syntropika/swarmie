@@ -11,6 +11,7 @@ members = [
     "plugins/plugin-manager",
     "plugins/tools",
     "plugins/mcp",
+    "plugins/git",
     "plugins/model-provider-genai",
     "plugins/durable-tasks",
     "plugins/agent-loop",
@@ -20,6 +21,7 @@ members = [
     "tests/fixtures/atomic-journal",
     "tests/fixtures/mcp-server",
     "tests/fixtures/mcp-settings-host",
+    "tests/fixtures/performance",
 ]
 exclude = ["vendor/genai-0.7.0"]
 resolver = "2"
@@ -31,7 +33,7 @@ rust-version = "1.99"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-tembra = { git = "https://github.com/syntropika/tembra", rev = "94771d70bfa30a9f87bef8cfb69ff0a117d2f174" }
+tembra = { version = "=0.2.0", features = ["hooks", "subscriptions", "views"] }
 futures = "0.3"
 futures-timer = "3"
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -42,6 +44,7 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 tempfile = "3"
 swarmie-tools = { path = "plugins/tools" }
 swarmie-mcp = { path = "plugins/mcp" }
+swarmie-git = { path = "plugins/git" }
 swarmie-providers = { path = "plugins/providers" }
 swarmie-storage = { path = "storage" }
 swarmie-storage-core = { path = "storage/core" }

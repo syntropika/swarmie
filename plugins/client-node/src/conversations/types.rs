@@ -5,10 +5,23 @@ use serde::{Deserialize, Serialize};
 pub(super) enum Phase {
     Idle,
     Working,
+    Interrupted,
     Stopped,
     Completed,
     Failed,
     Unknown,
+}
+
+/// Immutable execution binding. Identity is a canonical root/Git-directory tuple.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct ExecutionContext {
+    pub version: u32,
+    pub node_id: String,
+    pub principal: String,
+    pub path: String,
+    pub owner: String,
+    pub identity: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -20,6 +33,8 @@ pub(super) struct Draft {
     pub model: String,
     pub effort: String,
     pub node: String,
+    #[serde(default)]
+    pub execution_context: Option<ExecutionContext>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -29,6 +44,8 @@ pub(super) struct Submission {
     pub create_conversation: bool,
     pub draft: Draft,
     pub mode: String,
+    #[serde(default)]
+    pub execution_context: Option<ExecutionContext>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) struct Message {
@@ -47,6 +64,8 @@ pub(super) struct Snapshot {
     pub admitted: Vec<String>,
     pub omitted_messages: usize,
     pub can_acknowledge: bool,
+    pub execution_context: Option<ExecutionContext>,
+    pub lifecycle_warning: Option<String>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -69,7 +88,15 @@ pub(super) struct Metadata {
     pub receipts: Vec<Receipt>,
     pub phase: Phase,
     #[serde(default)]
+    pub execution_context: Option<ExecutionContext>,
+    #[serde(default)]
     pub checkpoint: Option<swarmie_agent_loop::conversation::Checkpoint>,
+    #[serde(default)]
+    pub task: Option<swarmie_durable_tasks::TaskId>,
+    #[serde(default)]
+    pub stop_requested: bool,
+    #[serde(default)]
+    pub lifecycle_warning: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -96,6 +123,8 @@ pub(super) struct CatalogEntry {
     pub effort: String,
     pub archived: bool,
     pub pinned: bool,
+    pub execution_context: Option<ExecutionContext>,
+    pub lifecycle_warning: Option<String>,
 }
 
 impl From<Metadata> for CatalogEntry {
@@ -108,6 +137,10 @@ impl From<Metadata> for CatalogEntry {
             effort: value.effort,
             archived: value.archived,
             pinned: value.pinned,
+            execution_context: value.execution_context,
+            lifecycle_warning: value
+                .lifecycle_warning
+                .map(super::checkout::bounded_warning),
         }
     }
 }

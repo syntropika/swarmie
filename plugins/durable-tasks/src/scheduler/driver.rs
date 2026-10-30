@@ -51,6 +51,18 @@ impl Engine {
                 held.clear();
                 self.control.status.borrow_mut().interrupted.clear();
                 self.control.status.borrow_mut().diagnostic = None;
+                self.control.retry_tasks.borrow_mut().clear();
+                self.control.changes.invalidate();
+            } else if !self.control.retry_tasks.borrow().is_empty() {
+                let retry = std::mem::take(&mut *self.control.retry_tasks.borrow_mut());
+                self.cursor.set(0);
+                held.retain(|id| !retry.contains(id));
+                self.control
+                    .status
+                    .borrow_mut()
+                    .interrupted
+                    .retain(|id| !retry.contains(id));
+                self.control.changes.invalidate();
             }
             let capacity = if self.options.max_executions == 0 {
                 usize::MAX
@@ -91,6 +103,7 @@ impl Engine {
                                 let id = grant.id;
                                 let scope = Scope::new(grant, self.authority.clone());
                                 active.insert(id, scope.clone());
+                                self.control.active.borrow_mut().insert(id);
                                 calls.push(self.clone().invoke(scope).boxed_local());
                             }
                         }
@@ -129,6 +142,7 @@ impl Engine {
                     if let Some(done) = done {
                         let mut settled = |(id, diagnostic)| {
                             active.remove(&id);
+                            self.control.active.borrow_mut().remove(&id);
                             if let Some(diagnostic) = diagnostic {
                                 held.insert(id);
                                 self.control.status.borrow_mut().interrupted.push(id);
@@ -154,6 +168,7 @@ impl Engine {
                             }
                         }
                         self.control.wake(false);
+                        self.control.changes.invalidate();
                     }
                 },
                 message = receive.next().fuse() => {

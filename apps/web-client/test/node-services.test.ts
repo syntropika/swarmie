@@ -1,7 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
 
 import { NodeProtocol } from "@swarmie/plugin-connections-browser";
-import type { ConversationExecutionApi, Message } from "@swarmie/plugin-conversations-browser";
+import type {
+  ConversationExecutionApi,
+  ConversationExecutionContext,
+  Message,
+} from "@swarmie/plugin-conversations-browser";
 import type {
   ProviderAccount,
   ProviderAuthorizationState,
@@ -46,6 +50,8 @@ type Projection = {
   admitted: string[];
   omittedMessages?: number;
   canAcknowledge?: boolean;
+  executionContext?: ConversationExecutionContext;
+  lifecycleWarning?: string;
 };
 
 async function setup(
@@ -53,6 +59,7 @@ async function setup(
   retryCatalog = false,
   options: {
     refuse?: string;
+    lifecycleWarning?: string;
     failBeforeAdmission?: boolean;
     finishPhase?: "completed" | "failed" | "unknown";
     catalog?: {
@@ -63,6 +70,7 @@ async function setup(
       effort: string;
       archived: boolean;
       pinned: boolean;
+      executionContext?: ConversationExecutionContext;
     }[];
     providerPages?: ProviderAccount[][];
     completeAccount?: ProviderAccount;
@@ -187,6 +195,7 @@ async function setup(
               }
               Object.assign(entry, { title, pinned, archived });
               metadata.push({ id, title, pinned, archived });
+              return { ...entry, lifecycleWarning: options.lifecycleWarning ?? null };
             },
           },
         },
@@ -198,6 +207,10 @@ async function setup(
               phase: "idle",
               label: "",
               admitted: [],
+              ...(() => {
+                const entry = catalog.find((item) => item.id === self.key[0]);
+                return entry?.executionContext ? { executionContext: entry.executionContext } : {};
+              })(),
             }),
           methods: {
             snapshot: (state: State<Projection>) => {
@@ -226,6 +239,7 @@ async function setup(
               state.update(context, (value) => ({
                 ...value,
                 admitted: [input.submissionId],
+                ...(input.executionContext ? { executionContext: input.executionContext } : {}),
                 phase: "working",
                 canAcknowledge: false,
                 messages: [{ id: "user", role: "user", text: input.draft.text }],
@@ -884,4 +898,67 @@ test("a bounded OAuth account preview cannot replace a full provider catalog", a
     "oauth-browser",
   );
   session.dispose();
+});
+
+test("node catalog restores the versioned checkout binding and refuses another node's context", async () => {
+  const context: ConversationExecutionContext = {
+    version: 1,
+    nodeId: "fixture-node",
+    principal: "fixture-user",
+    path: "/project/worktree",
+    owner: "git",
+    identity: JSON.stringify([
+      "/project/worktree",
+      "/project/.git/worktrees/worktree",
+      "/project/.git",
+    ]),
+  };
+  const { client } = await setup(undefined, false, {
+    catalog: [
+      {
+        id: "checkout-chat",
+        title: "Checkout chat",
+        account: "fixture-account",
+        model: "fixture-model",
+        effort: "low",
+        archived: false,
+        pinned: true,
+        executionContext: context,
+      },
+    ],
+  });
+  const restored = client.roster.getSnapshot().find((chat) => chat.id === "checkout-chat");
+  expect(restored?.executionContext).toEqual(context);
+  expect(restored?.draft.getSnapshot().executionContext).toEqual(context);
+  if (restored === undefined) {
+    throw new Error("Expected restored checkout conversation.");
+  }
+  expect(() => {
+    client.setConversationContext(restored, { ...context, path: "/other" });
+  }).toThrow("already bound");
+});
+
+test("an idle archive exposes retention failure separately from confirmed chat metadata", async () => {
+  const { client } = await setup(undefined, false, {
+    lifecycleWarning: "Archive capture was denied; the checkout remains retained.",
+    catalog: [
+      {
+        id: "idle-archive",
+        title: "Idle chat",
+        account: "fixture-account",
+        model: "fixture-model",
+        effort: "low",
+        archived: false,
+        pinned: false,
+      },
+    ],
+  });
+  const chat = client.roster.getSnapshot().find((item) => item.id === "idle-archive");
+  if (chat === undefined) {
+    throw new Error("Expected restored conversation.");
+  }
+  client.archive(chat);
+  await Bun.sleep(30);
+  expect(chat.archived).toBe(true);
+  expect(chat.execution.getSnapshot().lifecycleWarning).toContain("Archive capture was denied");
 });

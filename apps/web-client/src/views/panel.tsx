@@ -4,13 +4,25 @@ import { Button, Tabs } from "@swarmie/ui-web";
 
 import { useClient } from "../client/context";
 import { ConversationPanel } from "../conversations/conversation";
+import { GitCapabilityView, GitLauncher } from "../git/workspace";
 import { StateView } from "./inspector";
 import { ViewToolbar } from "./toolbar";
 
 function ViewContent({ tab }: { tab: Tab | undefined }) {
-  const { openTab, plugins, roster } = useClient();
+  const { openTab, plugins, roster, gitPresentation } = useClient();
   const installed = useSource(plugins);
+  const git = useSource(gitPresentation.state);
+  const gitAvailable = git.enabled && Object.values(git.nodes).some((node) => node.available);
   const conversations = useSource(roster);
+  if (tab?.kind === "capability") {
+    return tab.owner === "git" ? (
+      <GitCapabilityView tab={tab} />
+    ) : (
+      <output className="block p-6 text-sm text-muted">
+        The capability for this view is unavailable.
+      </output>
+    );
+  }
   if (tab?.kind === "conversation") {
     const chat = conversations.find((entry) => entry.id === tab.conversationId);
     return chat ? (
@@ -33,20 +45,23 @@ function ViewContent({ tab }: { tab: Tab | undefined }) {
     );
   }
   return (
-    <div className="mx-auto max-w-xl px-7 pt-14">
-      <h2 className="mb-4 text-navigation-heading text-muted">Tools</h2>
-      <div className="space-y-1">
-        {installed.some((plugin) => plugin.id === "app-state" && plugin.enabled) ? (
-          <Button
-            variant="ghost"
-            onPress={() => {
-              openTab("state");
-            }}
-            className="w-full justify-start"
-          >
-            App state
-          </Button>
-        ) : null}
+    <div className="h-full overflow-auto">
+      {gitAvailable ? <GitLauncher /> : null}
+      <div className="mx-auto max-w-xl px-7 pb-7">
+        <h2 className="mb-4 text-navigation-heading text-muted">Tools</h2>
+        <div className="space-y-1">
+          {installed.some((plugin) => plugin.id === "app-state" && plugin.enabled) ? (
+            <Button
+              variant="ghost"
+              onPress={() => {
+                openTab("state");
+              }}
+              className="w-full justify-start"
+            >
+              App state
+            </Button>
+          ) : null}
+        </div>
       </div>
     </div>
   );

@@ -18,8 +18,19 @@ pub enum Method {
     Get,
     List,
     Resume,
+    /// Enable scheduling without retrying local holds. Repeated calls are idempotent.
+    Enable,
     Wake,
     Inspect,
+    /// `(TaskId,)` returns `Option<TaskSnapshot>` for the task owner or host.
+    Observe,
+    /// `(TaskId,)` waits for local settlement or interruption. Cancellation releases
+    /// only this observer. It does not cancel the task or reconcile external effects.
+    Wait,
+    /// `(TaskId,)` returns `()` and clears only this owner's local hold. The caller
+    /// must choose recovery explicitly and reconcile unknown effects before retry.
+    /// This operation does not enable a paused scheduler.
+    WakeTask,
 }
 
 impl Method {
@@ -30,8 +41,12 @@ impl Method {
             Self::Get => "get",
             Self::List => "list",
             Self::Resume => "resume",
+            Self::Enable => "enable",
             Self::Wake => "wake",
             Self::Inspect => "inspect",
+            Self::Observe => "observe",
+            Self::Wait => "wait",
+            Self::WakeTask => "wake_task",
         }
     }
 }
@@ -182,8 +197,30 @@ pub fn orb(host: Host, storage: StorageFactory, definitions: Definitions, option
         |engine, context, (): ()| async move { engine.value()?.resume(&context) },
     )
     .method(
+        Method::Enable.as_str(),
+        |engine, context, (): ()| async move { engine.value()?.enable(&context) },
+    )
+    .method(
         Method::Wake.as_str(),
         |engine, context, (): ()| async move { engine.value()?.wake(&context) },
+    )
+    .method(
+        Method::Observe.as_str(),
+        |engine, context, (id,): (TaskId,)| async move {
+            engine.value()?.observe(&context, id).await
+        },
+    )
+    .method(
+        Method::Wait.as_str(),
+        |engine, context, (id,): (TaskId,)| async move {
+            engine.value()?.wait(&context, id).await
+        },
+    )
+    .method(
+        Method::WakeTask.as_str(),
+        |engine, context, (id,): (TaskId,)| async move {
+            engine.value()?.wake_task(&context, id).await
+        },
     )
     .method(
         Method::Inspect.as_str(),

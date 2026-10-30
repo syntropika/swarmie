@@ -220,7 +220,19 @@ impl Execution {
 
     /// Confirms a result even if the handler has further physical cleanup to perform.
     /// The execution slot and assignment remain held until physical settlement.
+    /// An in-flight checkpoint settles before this completion is dispatched.
     pub async fn complete(&self, context: &Context, result: Value) -> tembra::Result<()> {
+        while self.scope.busy.get() {
+            self.check(context)?;
+            let (send, receive) = oneshot::channel();
+            self.scope.idle.borrow_mut().push(send);
+            let signal = context.signal();
+            futures::select_biased! {
+                () = signal.cancelled().fuse() => { self.check(context)?; },
+                () = self.cancelled().fuse() => { self.check(context)?; },
+                _ = receive.fuse() => {},
+            }
+        }
         self.dispatch(context, Write::Progress(Progress::Complete(result)))
             .await
     }

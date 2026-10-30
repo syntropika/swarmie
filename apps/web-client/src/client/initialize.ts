@@ -22,6 +22,11 @@ import {
   createConversationRecords,
   defaultConversationTitle,
 } from "@swarmie/plugin-conversations-browser";
+import {
+  createGitPresentation,
+  gitBrowserOrb,
+  gitIntegrationOrb,
+} from "@swarmie/plugin-git-browser";
 import { mcpOrb, createMcpApi } from "@swarmie/plugin-mcp-browser";
 import type { Notification } from "@swarmie/plugin-notifications-browser";
 import { notificationsOrb } from "@swarmie/plugin-notifications-browser";
@@ -35,12 +40,13 @@ import { providersOrb } from "@swarmie/plugin-providers-browser";
 import { readAloudOrb } from "@swarmie/plugin-read-aloud-browser";
 import { loadToolDetails, settingsOrb } from "@swarmie/plugin-settings-browser";
 import type { ToolDetailsPersistence } from "@swarmie/plugin-settings-browser";
-import type { Tab } from "@swarmie/plugin-views-browser";
+import type { BuiltinTab, CapabilityView } from "@swarmie/plugin-views-browser";
 import { createViewsApi, viewsOrb } from "@swarmie/plugin-views-browser";
 import type { ReferenceBase } from "@syntropika/tembra-sdk";
 import type { Host } from "@syntropika/tembra-sdk/runtime";
 
 import { createDirectoryBrowser } from "./directories";
+import { admitGitContext } from "./git-admission";
 import { createNodeExecution } from "./node-execution";
 import { observeOnboarding } from "./onboarding";
 import { createPluginControls } from "./plugins";
@@ -97,6 +103,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     providersOrb,
     settingsOrb,
     mcpOrb,
+    gitBrowserOrb,
     notificationsOrb,
     onboardingOrb,
     ...(options.dev ? [appStateOrb] : []),
@@ -116,6 +123,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     views,
     projectsState,
     mcpState,
+    gitState,
   ] = await Promise.all([
     stateOf(conversationsReference),
     stateOf(host.get(connectionsOrb.services["swarmie.connections.ui"], "main")),
@@ -126,6 +134,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     stateOf(host.get(viewsOrb.services["swarmie.views.ui"], "main")),
     stateOf(host.get(projectsDefinition.services["swarmie.projects.ui"], "main")),
     stateOf(host.get(mcpOrb.services["swarmie.mcp.ui"], "main")),
+    stateOf(host.get(gitBrowserOrb.services["swarmie.git.ui"], "main")),
   ]);
   await settings.commit((current) => ({
     ...current,
@@ -212,6 +221,9 @@ export async function initializeClient(host: Host, options: ClientOptions) {
       }));
     }
   });
+  const gitPresentation = createGitPresentation(gitState, connectionState, nodeConnections);
+  const gitIntegrationDefinition = gitIntegrationOrb(gitPresentation);
+  await host.install(gitIntegrationDefinition);
   const providerPresentation = createProvidersPresentation(
     providersState,
     providersState.commit,
@@ -254,6 +266,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     conversationsUi.lifecycle,
     nextId,
     nodeExecution,
+    admitGitContext,
   );
   let firstConversation: Conversation | undefined;
   function activeConversation(): Conversation {
@@ -267,7 +280,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
   }
   function openConversation(id: string) {
     navigate({ active: id, section: "conversations" });
-    views.update((current) => ({ ...current, conversationVisible: true, mobile: "conversation" }));
+    viewCommands.showConversation();
     const chat = roster.getSnapshot().find((entry) => entry.id === id);
     if (nodeExecution !== null && chat?.node !== null && chat?.node !== undefined) {
       nodeExecution.observe(chat.node, id).catch(records.fail);
@@ -331,9 +344,13 @@ export async function initializeClient(host: Host, options: ClientOptions) {
       }
     }
   }
-  function openTab(kind: Tab["kind"] = "start") {
+  function openTab(kind: BuiltinTab["kind"] = "start") {
     navigate({ section: "conversations" });
     viewCommands.open(kind, activeConversation());
+  }
+  function openCapabilityTab(descriptor: CapabilityView & { title: string }) {
+    navigate({ section: "conversations" });
+    viewCommands.openCapability(descriptor);
   }
   const projectsPresentation: ProjectsPresentation = {
     api: projects,
@@ -367,6 +384,8 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     settings,
     options.dev,
     {
+      git: async () =>
+        await host.get(gitIntegrationDefinition.services["swarmie.git.integration"], "main"),
       projects: async () =>
         await host.get(
           projectsIntegrationDefinition.services["swarmie.projects.integration"],
@@ -391,6 +410,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
   );
   await host.install(speechDefinition);
   await controls.activate("read-aloud");
+  await controls.activate("git");
   if (options.dev) {
     await controls.activate("app-state");
   }
@@ -500,6 +520,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     connectionState,
     providers,
     mcp,
+    gitPresentation,
     settings,
     onboarding,
     shellState,
@@ -521,6 +542,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     togglePin,
     archive,
     openTab,
+    openCapabilityTab,
     closeTab: viewCommands.close,
     showConversation: viewCommands.showConversation,
     toggleConversation: viewCommands.toggleConversation,

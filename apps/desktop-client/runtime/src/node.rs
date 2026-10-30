@@ -3,7 +3,7 @@ use std::{
     collections::{BTreeMap, VecDeque},
     path::PathBuf,
     rc::Rc,
-    sync::mpsc,
+    sync::{Arc, mpsc},
     thread,
 };
 use swarmie_runtime::{NodeId, rpc};
@@ -42,6 +42,7 @@ pub struct DesktopNode {
     worker: Option<thread::JoinHandle<()>>,
     id: String,
     _lock: std::fs::File,
+    git_grants: Option<Arc<crate::git::DirectoryGrants>>,
 }
 
 impl DesktopNode {
@@ -94,6 +95,15 @@ impl DesktopNode {
             .and_then(|value| uuid::Uuid::parse_str(value).ok())
             .filter(|value| !value.is_nil())
             .ok_or("native OAuth host identity is invalid")?;
+        let git_grants =
+            cfg!(any(unix, windows)).then(|| Arc::new(crate::git::DirectoryGrants::default()));
+        let git = git_grants
+            .as_ref()
+            .map(|grants| {
+                crate::git::service(&state, grants.clone())
+                    .map(|service| (service, grants.clone() as Arc<dyn swarmie_git::Authority>))
+            })
+            .transpose()?;
         let (sender, receiver) = mpsc::sync_channel(64);
         let (ready, started) = mpsc::sync_channel(1);
         let worker_id = id.clone();
@@ -117,6 +127,7 @@ impl DesktopNode {
                     worker_id,
                     oauth_host,
                     directory_root,
+                    git,
                 )));
             })
             .map_err(|_| "native runtime could not start")?;
@@ -128,11 +139,23 @@ impl DesktopNode {
             worker: Some(worker),
             id,
             _lock: lock,
+            git_grants,
         })
     }
 
     pub fn descriptor(&self) -> serde_json::Value {
         serde_json::json!({"id": self.id, "principal": PRINCIPAL})
+    }
+
+    /// Authorize the selected directory after an explicit embedding-owned user action.
+    /// Callers must not forward an arbitrary path from an untrusted browser request.
+    pub fn grant_directory(&self, path: &std::path::Path) -> std::io::Result<()> {
+        self.git_grants
+            .as_ref()
+            .ok_or_else(|| {
+                std::io::Error::other("native Git execution is not qualified on this platform")
+            })?
+            .grant(path)
     }
 
     pub fn open_channel(&self) -> Result<u64, String> {
@@ -187,6 +210,8 @@ impl Drop for DesktopNode {
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
+        // Explicit release also closes a short fork/exec inheritance window in other workers.
+        let _ = self._lock.unlock();
     }
 }
 
@@ -197,18 +222,30 @@ async fn serve(
     id: String,
     oauth_host: uuid::Uuid,
     directory_root: Option<PathBuf>,
+    git: Option<(swarmie_git::GitService, Arc<dyn swarmie_git::Authority>)>,
 ) {
     let host = Host::new(Executor);
+    let (git, agent_git_authority) = match git {
+        Some((service, authority)) => (Some(service), Some(authority)),
+        None => (None, None),
+    };
     let configuration = NodeId::new(id).map(|node| swarmie_client_node::NodeConfiguration {
         state,
         node,
         oauth_host,
         principal: PRINCIPAL.into(),
         directory_root,
+        git,
+        agent_git_authority,
     });
     let installed =
         configuration.and_then(|configuration| swarmie_client_node::install(&host, configuration));
     if let Err(error) = installed {
+        let _ = host.close().await;
+        let _ = ready.send(Err(error.to_string()));
+        return;
+    }
+    if let Err(error) = swarmie_client_node::start(&host).await {
         let _ = host.close().await;
         let _ = ready.send(Err(error.to_string()));
         return;
@@ -347,6 +384,7 @@ fn permits_service(service: &str, key: Option<&[String]>) -> bool {
                 | "swarmie.mcp.settings"
                 | "swarmie.tools"
                 | "swarmie.directories"
+                | "swarmie.git"
         ) && key.is_none_or(|key| {
             if service == "swarmie.conversation.session" {
                 key.len() == 1
@@ -519,6 +557,95 @@ mod tests {
             json!({"reference":reference,"method":"list","arguments":[{"path":state.path().to_str().unwrap(),"cursor":null}]}),
         );
         assert_eq!(refused["error"]["code"], "forbidden");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn git_shares_the_native_host_and_requires_a_separate_directory_grant() {
+        let state = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let repository = root.path().join("project");
+        std::fs::create_dir(&repository).unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "--quiet"])
+                .current_dir(&repository)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let node = DesktopNode::with_directory_root(state.path().into(), Some(root.path().into()))
+            .unwrap();
+        let channel = node.open_channel().unwrap();
+        let directories = request(
+            &node,
+            channel,
+            1,
+            "get",
+            json!({"service":"swarmie.directories","key":["main"]}),
+        );
+        let listed = request(
+            &node,
+            channel,
+            2,
+            "call",
+            json!({"reference": directories["ok"]["reference"],"method":"list","arguments":[{"path":null,"cursor":null}]}),
+        );
+        assert_eq!(listed["ok"]["directories"][0]["name"], "project");
+        let git = request(
+            &node,
+            channel,
+            3,
+            "get",
+            json!({"service":"swarmie.git","key":["main"]}),
+        );
+        let reference = git["ok"]["reference"]
+            .as_u64()
+            .unwrap_or_else(|| panic!("Git acquisition failed: {git}"));
+        let discover = |id| {
+            request(
+                &node,
+                channel,
+                id,
+                "call",
+                json!({"reference":reference,"method":"request","arguments":[{"kind":"discover","path":repository}]}),
+            )
+        };
+        assert!(
+            discover(4).get("error").is_some(),
+            "listing a directory must not authorize Git"
+        );
+        node.grant_directory(&repository).unwrap();
+        let discovered = discover(5);
+        assert_eq!(discovered["ok"]["kind"], "repository", "{discovered}");
+        let target = discovered["ok"]["repository"].clone();
+        let status = request(
+            &node,
+            channel,
+            6,
+            "call",
+            json!({"reference":reference,"method":"request","arguments":[{"kind":"status","target":target}]}),
+        );
+        assert_eq!(status["ok"]["kind"], "status", "{status}");
+        let settings = request(
+            &node,
+            channel,
+            7,
+            "call",
+            json!({"reference":reference,"method":"request","arguments":[{"kind":"settings_get","target":target,"project_id":null}]}),
+        );
+        assert_eq!(settings["ok"]["kind"], "settings", "{settings}");
+        let providers = request(
+            &node,
+            channel,
+            8,
+            "get",
+            json!({"service":"swarmie.providers.settings","key":["main"]}),
+        );
+        assert!(
+            providers["ok"]["reference"].is_u64(),
+            "Git must share the existing provider host: {providers}"
+        );
     }
 
     #[test]

@@ -15,6 +15,7 @@
     "@swarmie/plugin-application-shell-browser": "workspace:*",
     "@swarmie/plugin-connections-browser": "workspace:*",
     "@swarmie/plugin-conversations-browser": "workspace:*",
+    "@swarmie/plugin-git-browser": "workspace:*",
     "@swarmie/plugin-mcp-browser": "workspace:*",
     "@swarmie/plugin-notifications-browser": "workspace:*",
     "@swarmie/plugin-onboarding-browser": "workspace:*",

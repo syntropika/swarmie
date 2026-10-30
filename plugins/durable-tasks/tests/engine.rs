@@ -1188,3 +1188,124 @@ fn signal_owner_authorization_and_committed_notification_resume_waiting_work() {
     assert!(h.storage.receipts.borrow()[&(id, key)].consumed);
     h.close();
 }
+
+#[test]
+fn observer_sees_interruption_and_targeted_wake_preserves_other_holds() {
+    let allowed = Rc::new(Cell::new(false));
+    let gate = allowed.clone();
+    let calls = Rc::new(RefCell::new(BTreeMap::<TaskId, usize>::new()));
+    let observed = calls.clone();
+    let handler = Orb::new("fixture.task", 1).service(
+        Service::new("fixture.task", move |_| {
+            Ok((gate.clone(), observed.clone()))
+        })
+        .method(
+            TaskMethod::Execute.as_str(),
+            |state, _, execution: Execution| async move {
+                *state.1.borrow_mut().entry(execution.id()).or_default() += 1;
+                if !state.0.get() {
+                    return Err(tembra::Error::new(
+                        Code::Unavailable,
+                        "fixture.interruption",
+                        "injected outage",
+                    ));
+                }
+                Ok(TaskOutcome::Completed(execution.input()))
+            },
+        ),
+    );
+    let mut h = Harness::new(Rc::default(), handler, |_| {});
+    let first = h.create(1.into());
+    let second = h.create(2.into());
+    let tasks = h.tasks.clone();
+    let host = h.host.clone();
+    let mut observation = Box::pin(host.root(HOST_PRINCIPAL, move |context| {
+        async move {
+            tasks
+                .call::<_, TaskObservation>(&context, Method::Wait.as_str(), (first,))
+                .await
+        }
+        .boxed_local()
+    }));
+    h.pool.run_until(async {
+        assert!(futures::poll!(&mut observation).is_pending());
+    });
+    h.resume();
+    assert_eq!(
+        h.pool.run_until(observation).unwrap(),
+        TaskObservation::Interrupted
+    );
+    assert_eq!(
+        h.call::<_, Option<TaskSnapshot>>(Method::Observe, (second,))
+            .unwrap()
+            .unwrap()
+            .observation,
+        TaskObservation::Interrupted
+    );
+    allowed.set(true);
+    h.call::<_, ()>(Method::Enable, ()).unwrap();
+    h.pool.run_until_stalled();
+    assert_eq!(
+        calls.borrow()[&first],
+        1,
+        "repeated startup must preserve local holds"
+    );
+    h.call::<_, ()>(Method::WakeTask, (first,)).unwrap();
+    assert_eq!(
+        h.call::<_, TaskObservation>(Method::Wait, (first,))
+            .unwrap(),
+        TaskObservation::Settled
+    );
+    h.pool.run_until_stalled();
+    assert_eq!(calls.borrow()[&first], 2);
+    assert_eq!(calls.borrow()[&second], 1);
+    assert_eq!(h.status().interrupted, vec![second]);
+    let tasks = h.tasks.clone();
+    for method in [Method::Observe, Method::Wait, Method::WakeTask] {
+        let tasks = tasks.clone();
+        let denied = h.pool.run_until(h.host.root("other-user", move |context| {
+            async move {
+                tasks
+                    .call::<_, TaskObservation>(&context, method.as_str(), (second,))
+                    .await
+            }
+            .boxed_local()
+        }));
+        assert_eq!(denied.unwrap_err().code, Code::Forbidden);
+    }
+    h.close();
+}
+
+#[test]
+fn completion_waits_for_an_owned_checkpoint_without_busy_polling() {
+    let storage = Rc::new(Memory::default());
+    let (release, waiting) = oneshot::channel();
+    *storage.gate.borrow_mut() = Some(waiting);
+    let handler =
+        Orb::new("fixture.task", 1).service(Service::new("fixture.task", |_| Ok(())).method(
+            TaskMethod::Execute.as_str(),
+            |_, context, execution: Execution| async move {
+                let mut write = Box::pin(execution.commit(&context, 40.into()));
+                assert!(futures::poll!(&mut write).is_pending());
+                drop(write);
+                execution.complete(&context, 42.into()).await?;
+                Ok(TaskOutcome::Completed(Value::Null))
+            },
+        ));
+    let mut h = Harness::new(storage.clone(), handler, |_| {});
+    let id = h.create(1.into());
+    h.resume();
+    assert_eq!(storage.checkpoint_calls.get(), 1);
+    assert_eq!(storage.records.borrow()[&id].status, TaskStatus::Ready);
+    release.send(()).unwrap();
+    assert_eq!(
+        h.call::<_, TaskObservation>(Method::Wait, (id,)).unwrap(),
+        TaskObservation::Settled
+    );
+    assert_eq!(storage.records.borrow()[&id].checkpoint, Some(40.into()));
+    assert_eq!(
+        storage.records.borrow()[&id].status,
+        TaskStatus::Completed(42.into())
+    );
+    h.close();
+}

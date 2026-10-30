@@ -128,6 +128,7 @@ fn answer(text: &str) -> Reply {
 }
 
 fn read_request(stream: &mut TcpStream) -> String {
+    stream.set_nonblocking(false).unwrap();
     stream.set_read_timeout(Some(WAIT)).unwrap();
     let mut data = Vec::new();
     let (end, length) = loop {
@@ -372,6 +373,28 @@ fn rejected_provider_response_settles_failed_and_allows_a_new_explicit_message()
     );
 }
 
+fn saved_turn(path: &Path, id: &str) -> swarmie_durable_tasks::TaskRecord {
+    use swarmie_durable_tasks::TaskStorage;
+    let metadata: Value =
+        serde_json::from_slice(&std::fs::read(path.join("conversations.json")).unwrap()).unwrap();
+    let task = metadata
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|record| record["id"] == id)
+        .unwrap()["task"]
+        .clone();
+    let id = serde_json::from_value(task).unwrap();
+    let storage = swarmie_storage::sqlite::SqliteOwner::new(path.join("conversations.sqlite"))
+        .tasks()
+        .unwrap();
+    futures::executor::block_on(async {
+        let record = storage.get(id).await.unwrap().unwrap();
+        storage.close().await.unwrap();
+        record
+    })
+}
+
 fn interrupted_stream(kind: &str) {
     let (started, observed) = mpsc::channel();
     let (release, wait) = mpsc::channel();
@@ -407,6 +430,16 @@ fn interrupted_stream(kind: &str) {
         assert!(Instant::now() < deadline, "stream preview was not observed");
         thread::sleep(Duration::from_millis(1));
     }
+    let record = saved_turn(directory.path(), kind);
+    assert!(record.assignment.is_some());
+    assert!(matches!(
+        record.status,
+        swarmie_durable_tasks::TaskStatus::Ready
+    ));
+    let checkpoint = record.checkpoint.unwrap();
+    assert_eq!(checkpoint["phase"]["kind"], "model_pending");
+    assert!(checkpoint["phase"]["request"].is_string());
+    assert!(checkpoint["input"].get("context").is_none());
     let remote = session(&node, observer, kind);
     match kind {
         "disconnect" => node.close_channel(first),
@@ -439,11 +472,12 @@ fn interrupted_stream(kind: &str) {
     }
     let deadline = Instant::now() + WAIT;
     loop {
-        let snapshot = session(&node, observer, kind);
+        // Observe emitted State only. A snapshot call could repair a broken tail projection.
+        let snapshot = peek(&node, observer, kind);
         if snapshot["state"]["phase"] != "working" {
             assert_eq!(
                 snapshot["state"]["phase"],
-                if kind == "steer" {
+                if kind == "steer" || kind == "disconnect" {
                     "completed"
                 } else {
                     "stopped"
@@ -457,12 +491,14 @@ fn interrupted_stream(kind: &str) {
                     .iter()
                     .any(|message| message["id"] == "preview")
             );
-            assert!(
-                !snapshot["state"]["messages"]
+            assert_eq!(
+                snapshot["state"]["messages"]
                     .as_array()
                     .unwrap()
                     .iter()
-                    .any(|message| message["text"] == "Uncommitted preview")
+                    .any(|message| message["text"] == "Uncommitted preview"),
+                kind == "disconnect",
+                "only observation was released; explicit stop still discards the unsettled preview"
             );
             break;
         }
@@ -491,7 +527,7 @@ fn interrupted_stream(kind: &str) {
 }
 
 #[test]
-fn closing_the_observer_settles_stopped_and_allows_a_new_explicit_message() {
+fn closing_the_observer_preserves_admitted_durable_work_and_allows_a_new_explicit_message() {
     interrupted_stream("disconnect");
 }
 
@@ -967,5 +1003,901 @@ fn repeating_a_live_steer_submission_observes_admission_without_cancelling_or_re
         server.join().unwrap().len(),
         2,
         "only the original submission may invoke inference"
+    );
+}
+
+#[cfg(unix)]
+fn captured_checkout(node: &DesktopNode, channel: u64, root: &Path) -> (Value, Value) {
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(root)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        std::process::Command::new("git")
+            .args([
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "commit",
+                "--quiet",
+                "--allow-empty",
+                "-m",
+                "test: initialize fixture"
+            ])
+            .current_dir(root)
+            .status()
+            .unwrap()
+            .success()
+    );
+    node.grant_directory(root).unwrap();
+    let git = get(node, channel, "swarmie.git", "main");
+    let discovered = call(
+        node,
+        channel,
+        &git["reference"],
+        "request",
+        json!([{ "kind":"discover", "path":root }]),
+    );
+    let target = discovered["ok"]["repository"].clone();
+    assert!(target["git_dir"].is_string(), "{discovered}");
+    let descriptor = node.descriptor();
+    let binding = json!({"version":1,"nodeId":descriptor["id"],"principal":descriptor["principal"],"path":target["root"],"owner":"git","identity":serde_json::to_string(&json!([target["root"], target["git_dir"], target["common_dir"]])).unwrap()});
+    (binding, target)
+}
+
+#[test]
+#[cfg(unix)]
+fn checkout_admission_is_bound_persisted_and_restored_with_actual_git_tool_routing() {
+    let directory = tempfile::tempdir().unwrap();
+    let repository = tempfile::tempdir().unwrap();
+    let initial = DesktopNode::open(directory.path().into()).unwrap();
+    let channel = initial.open_shared_channel().unwrap();
+    let (binding, target) = captured_checkout(&initial, channel, repository.path());
+    let tool_reply = Reply {
+        status: 200,
+        first: format!(
+            "{}\n",
+            json!({"model":"fixture-model","message":{"role":"assistant","content":"","tool_calls":[{"id":"git-inspect-call","function":{"name":"git_inspect","arguments":{"kind":"status","target":target}}}]},"done":false})
+        ),
+        tail: format!(
+            "{}\n",
+            json!({"message":{"role":"assistant","content":""},"done":true,"done_reason":"tool_calls","prompt_eval_count":3,"eval_count":5})
+        ),
+        gate: None,
+    };
+    let (endpoint, server) = provider(vec![tool_reply, answer("Repository inspected")]);
+    let account = configure(&initial, channel, &endpoint);
+    let object = session(&initial, channel, "checkout-bound");
+    let mut input = submission(&initial, &account, "checkout-bound", "first");
+    input["executionContext"] = binding.clone();
+    input["draft"]["executionContext"] = binding.clone();
+    let result = call(
+        &initial,
+        channel,
+        &object["reference"],
+        "run",
+        json!([input]),
+    );
+    assert_eq!(result["ok"]["status"], "settled", "{result}");
+    let requests = server.join().unwrap();
+    assert_eq!(
+        requests.len(),
+        3,
+        "one catalog request and two inference turns"
+    );
+    assert!(requests[1].contains("git_inspect"));
+    let request: Value =
+        serde_json::from_str(requests[2].split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert!(
+        request["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| {
+                message["role"] == "tool"
+                    && message["content"].as_str().is_some_and(|content| {
+                        serde_json::from_str::<Value>(content)
+                            .is_ok_and(|result| result["kind"] == "status")
+                    })
+            }),
+        "the second inference turn must contain the Git owner result: {request}"
+    );
+    let snapshot = session(&initial, channel, "checkout-bound");
+    assert_eq!(snapshot["state"]["executionContext"], binding);
+    let stored: Value = serde_json::from_slice(
+        &std::fs::read(directory.path().join("conversations.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(stored[0]["executionContext"], binding);
+    let catalog = get(&initial, channel, "swarmie.conversation.catalog", "main");
+    let listed = call(
+        &initial,
+        channel,
+        &catalog["reference"],
+        "list",
+        json!([null]),
+    );
+    assert_eq!(listed["ok"]["entries"][0]["executionContext"], binding);
+    drop(initial);
+    let restored = DesktopNode::open(directory.path().into()).unwrap();
+    let channel = restored.open_shared_channel().unwrap();
+    let object = session(&restored, channel, "checkout-bound");
+    assert_eq!(object["state"]["executionContext"], binding);
+    let mut changed = submission(&restored, &account, "checkout-bound", "changed-checkout");
+    changed["executionContext"] = binding.clone();
+    changed["executionContext"]["identity"] = json!("another-checkout");
+    let refused = call(
+        &restored,
+        channel,
+        &object["reference"],
+        "run",
+        json!([changed]),
+    );
+    assert_eq!(refused["ok"]["status"], "refused", "{refused}");
+    let missing = call(
+        &restored,
+        channel,
+        &object["reference"],
+        "run",
+        json!([submission(
+            &restored,
+            &account,
+            "checkout-bound",
+            "missing-checkout"
+        )]),
+    );
+    assert_eq!(missing["ok"]["status"], "refused", "{missing}");
+    let mut unavailable = submission(
+        &restored,
+        &account,
+        "checkout-bound",
+        "without-native-grant",
+    );
+    unavailable["executionContext"] = binding;
+    let refused = call(
+        &restored,
+        channel,
+        &object["reference"],
+        "run",
+        json!([unavailable]),
+    );
+    assert_eq!(
+        refused["ok"]["status"], "refused",
+        "a restored context cannot restore filesystem grants: {refused}"
+    );
+    let catalog = get(&restored, channel, "swarmie.conversation.catalog", "main");
+    let archived = call(
+        &restored,
+        channel,
+        &catalog["reference"],
+        "update",
+        json!([
+            "checkout-bound",
+            "Archived without restored filesystem authority",
+            true,
+            true
+        ]),
+    );
+    assert!(
+        archived.get("error").is_none(),
+        "confirmed organizational archival must survive a refused Git snapshot: {archived}"
+    );
+    let snapshot = session(&restored, channel, "checkout-bound");
+    assert!(snapshot["state"]["lifecycleWarning"].is_string());
+    let metadata: Value = serde_json::from_slice(
+        &std::fs::read(directory.path().join("conversations.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(metadata[0]["archived"], true);
+    assert_eq!(metadata[0]["pinned"], true);
+    assert!(metadata[0]["lifecycleWarning"].is_string());
+}
+
+#[test]
+#[cfg(unix)]
+fn checkout_admission_rejects_wrong_node_principal_identity_and_disagreement_before_history() {
+    let directory = tempfile::tempdir().unwrap();
+    let repository = tempfile::tempdir().unwrap();
+    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let (binding, _) = captured_checkout(&node, channel, repository.path());
+    let account = json!({"id":"not-resolved-before-checkout-validation"});
+    let object = session(&node, channel, "invalid-checkout");
+    for (field, replacement) in [
+        ("nodeId", "another-node"),
+        ("principal", "another-principal"),
+        ("identity", "another-checkout"),
+    ] {
+        let mut input = submission(&node, &account, "invalid-checkout", field);
+        input["executionContext"] = binding.clone();
+        input["executionContext"][field] = json!(replacement);
+        let result = call(&node, channel, &object["reference"], "run", json!([input]));
+        assert_eq!(result["ok"]["status"], "refused", "{result}");
+        assert!(
+            !directory.path().join("conversations.json").exists(),
+            "checkout rejection must happen before admission"
+        );
+    }
+    let mut input = submission(&node, &account, "invalid-checkout", "conflicting-contexts");
+    input["executionContext"] = binding.clone();
+    input["draft"]["executionContext"] = binding;
+    input["draft"]["executionContext"]["path"] = json!("/different-resource");
+    let result = call(&node, channel, &object["reference"], "run", json!([input]));
+    assert_eq!(result["ok"]["status"], "refused", "{result}");
+    assert!(!directory.path().join("conversations.json").exists());
+}
+
+#[test]
+#[cfg(unix)]
+fn agent_git_mutation_uses_explicit_native_authority_and_cannot_cross_captured_checkouts() {
+    use swarmie_agent_loop::{Message, ToolResult, conversation::Record};
+    let directory = tempfile::tempdir().unwrap();
+    let repository = tempfile::tempdir().unwrap();
+    let other = tempfile::tempdir().unwrap();
+    std::fs::write(repository.path().join("owned.txt"), "captured checkout\n").unwrap();
+    std::fs::write(other.path().join("owned.txt"), "another checkout\n").unwrap();
+    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let (binding, target) = captured_checkout(&node, channel, repository.path());
+    let (_, other_target) = captured_checkout(&node, channel, other.path());
+    let tool = |target: Value, id: &str| Reply {
+        status: 200,
+        first: format!(
+            "{}\n",
+            json!({"model":"fixture-model","message":{"role":"assistant","content":"","tool_calls":[{"id":id,"function":{"name":"git_mutate","arguments":{"target":target,"operation":{"kind":"stage","paths":["owned.txt"]}}}}]},"done":false})
+        ),
+        tail: format!(
+            "{}\n",
+            json!({"message":{"role":"assistant","content":""},"done":true,"done_reason":"tool_calls","prompt_eval_count":3,"eval_count":5})
+        ),
+        gate: None,
+    };
+    let (endpoint, server) = provider(vec![
+        tool(target, "owned-stage-call"),
+        answer("Staged captured file"),
+        tool(other_target, "cross-stage-call"),
+        answer("Cross-checkout write blocked"),
+    ]);
+    let account = configure(&node, channel, &endpoint);
+    let object = session(&node, channel, "scoped-agent-write");
+    for receipt in ["native-authorized-stage", "cross-checkout-attempt"] {
+        let mut input = submission(&node, &account, "scoped-agent-write", receipt);
+        input["executionContext"] = binding.clone();
+        let result = call(&node, channel, &object["reference"], "run", json!([input]));
+        assert_eq!(result["ok"]["status"], "settled", "{result}");
+    }
+    let staged = |path: &Path| {
+        std::process::Command::new("git")
+            .args(["diff", "--cached", "--name-only"])
+            .current_dir(path)
+            .output()
+            .unwrap()
+            .stdout
+    };
+    assert_eq!(
+        String::from_utf8(staged(repository.path())).unwrap().trim(),
+        "owned.txt"
+    );
+    assert!(
+        staged(other.path()).is_empty(),
+        "even a separately granted repository must not receive the conversation's writes"
+    );
+    let messages = canonical_messages(directory.path(), &node.descriptor(), "scoped-agent-write");
+    assert!(messages.into_iter().any(|record| matches!(
+        serde_json::from_value::<Record>(record).unwrap(),
+        Record::Message(Message::Tool {
+            result: ToolResult::Blocked(_),
+            ..
+        })
+    )));
+    assert_eq!(server.join().unwrap().len(), 5);
+}
+
+#[test]
+#[cfg(unix)]
+fn conversation_archive_and_pin_defer_capture_until_physical_agent_settlement() {
+    let (started, observed) = mpsc::channel();
+    let (release, wait) = mpsc::channel();
+    let mut held = answer("Physical execution finished");
+    held.gate = Some((started, wait));
+    let (endpoint, server) = provider(vec![held]);
+    let directory = tempfile::tempdir().unwrap();
+    let repository = tempfile::tempdir().unwrap();
+    std::fs::write(
+        repository.path().join("user-owned.txt"),
+        "retained local content\n",
+    )
+    .unwrap();
+    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let first = node.open_shared_channel().unwrap();
+    let observer = node.open_shared_channel().unwrap();
+    let (binding, _) = captured_checkout(&node, first, repository.path());
+    let account = configure(&node, first, &endpoint);
+    let object = session(&node, first, "archive-with-live-writer");
+    let mut input = submission(&node, &account, "archive-with-live-writer", "first");
+    input["executionContext"] = binding;
+    start(
+        &node,
+        first,
+        90,
+        &object["reference"],
+        "run",
+        json!([input]),
+    );
+    observed.recv_timeout(WAIT).unwrap();
+    let catalog = get(&node, observer, "swarmie.conversation.catalog", "main");
+    let archived = call(
+        &node,
+        observer,
+        &catalog["reference"],
+        "update",
+        json!([
+            "archive-with-live-writer",
+            "Archived while running",
+            true,
+            true
+        ]),
+    );
+    assert!(archived.get("error").is_none(), "{archived}");
+    let read_hold = || {
+        let files: Vec<_> = std::fs::read_dir(directory.path().join("git/conversation-holds"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "json")
+            })
+            .collect();
+        assert_eq!(files.len(), 1);
+        serde_json::from_slice::<Value>(&std::fs::read(&files[0]).unwrap()).unwrap()
+    };
+    let hold = read_hold();
+    assert_eq!(hold["active"], true);
+    assert_eq!(hold["pinned"], true);
+    assert_eq!(hold["archived"], true);
+    assert_eq!(hold["archive_state"], "deferred");
+    assert!(
+        hold["archive_id"].is_null(),
+        "organizational archive cannot capture while this writer is physically active"
+    );
+    let snapshot = session(&node, observer, "archive-with-live-writer");
+    assert!(
+        snapshot["state"]["lifecycleWarning"]
+            .as_str()
+            .unwrap()
+            .contains("physical execution")
+    );
+    release.send(()).unwrap();
+    let result = response(&node, first, 90);
+    assert_eq!(result["ok"]["status"], "settled", "{result}");
+    let hold = read_hold();
+    assert_eq!(hold["active"], false);
+    assert_eq!(hold["pinned"], true);
+    assert_eq!(hold["archived"], true);
+    assert_eq!(hold["archive_state"], "completed", "{hold}");
+    assert!(hold["archive_id"].is_string());
+    assert!(hold["warning"].is_null());
+    let snapshot = session(&node, observer, "archive-with-live-writer");
+    assert!(snapshot["state"]["lifecycleWarning"].is_null());
+    assert_eq!(
+        std::fs::read_to_string(repository.path().join("user-owned.txt")).unwrap(),
+        "retained local content\n"
+    );
+    let index: Value = serde_json::from_slice(
+        &std::fs::read(directory.path().join("conversations.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(index[0]["archived"], true);
+    assert_eq!(index[0]["pinned"], true);
+    assert_eq!(server.join().unwrap().len(), 2);
+}
+
+#[test]
+#[cfg(unix)]
+fn archiving_an_idle_chat_waits_for_a_different_chat_using_the_same_checkout() {
+    let (started, observed) = mpsc::channel();
+    let (release, wait) = mpsc::channel();
+    let mut held = answer("Other checkout consumer settled");
+    held.gate = Some((started, wait));
+    let (endpoint, server) = provider(vec![answer("Idle chat finished"), held]);
+    let directory = tempfile::tempdir().unwrap();
+    let repository = tempfile::tempdir().unwrap();
+    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let first = node.open_shared_channel().unwrap();
+    let observer = node.open_shared_channel().unwrap();
+    let (binding, _) = captured_checkout(&node, first, repository.path());
+    let account = configure(&node, first, &endpoint);
+    let idle = session(&node, first, "idle-shared-checkout");
+    let mut input = submission(&node, &account, "idle-shared-checkout", "idle-first");
+    input["executionContext"] = binding.clone();
+    let result = call(&node, first, &idle["reference"], "run", json!([input]));
+    assert_eq!(result["ok"]["status"], "settled", "{result}");
+    let writer = session(&node, first, "writer-shared-checkout");
+    let mut input = submission(&node, &account, "writer-shared-checkout", "writer-first");
+    input["executionContext"] = binding;
+    start(
+        &node,
+        first,
+        90,
+        &writer["reference"],
+        "run",
+        json!([input]),
+    );
+    observed.recv_timeout(WAIT).unwrap();
+    let catalog = get(&node, observer, "swarmie.conversation.catalog", "main");
+    let archived = call(
+        &node,
+        observer,
+        &catalog["reference"],
+        "update",
+        json!(["idle-shared-checkout", "Idle chat archived", false, true]),
+    );
+    assert!(archived.get("error").is_none(), "{archived}");
+    assert_eq!(archived["ok"]["archived"], true);
+    assert!(
+        archived["ok"]["lifecycleWarning"]
+            .as_str()
+            .unwrap()
+            .contains("physical execution"),
+        "the confirmed update must expose deferred capture immediately: {archived}"
+    );
+    let read_holds = || {
+        std::fs::read_dir(directory.path().join("git/conversation-holds"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "json")
+            })
+            .map(|path| serde_json::from_slice::<Value>(&std::fs::read(path).unwrap()).unwrap())
+            .collect::<Vec<_>>()
+    };
+    let holds = read_holds();
+    let idle_hold = holds
+        .iter()
+        .find(|hold| hold["conversation_id"] == "idle-shared-checkout")
+        .unwrap();
+    assert_eq!(idle_hold["active"], true);
+    assert_eq!(idle_hold["archive_state"], "deferred");
+    assert!(idle_hold["archive_id"].is_null());
+    release.send(()).unwrap();
+    let result = response(&node, first, 90);
+    assert_eq!(result["ok"]["status"], "settled", "{result}");
+    let holds = read_holds();
+    let idle_hold = holds
+        .iter()
+        .find(|hold| hold["conversation_id"] == "idle-shared-checkout")
+        .unwrap();
+    assert_eq!(idle_hold["active"], false);
+    assert_eq!(
+        idle_hold["archive_state"], "completed",
+        "the other chat's settlement must resume the deferred archive: {idle_hold}"
+    );
+    assert!(idle_hold["archive_id"].is_string());
+    assert!(holds.iter().all(|hold| hold["active"] == false));
+    assert!(repository.path().exists());
+    assert_eq!(server.join().unwrap().len(), 3);
+}
+
+#[test]
+#[ignore = "subprocess fixture for durable admission recovery"]
+fn admitted_turn_bootstrap_child() {
+    use futures::task::{LocalFutureObj, LocalSpawn, SpawnError};
+    struct Executor;
+    impl LocalSpawn for Executor {
+        fn spawn_local_obj(&self, future: LocalFutureObj<'static, ()>) -> Result<(), SpawnError> {
+            tokio::task::spawn_local(future);
+            Ok(())
+        }
+    }
+    let profile =
+        std::path::PathBuf::from(std::env::var_os("SWARMIE_ADMISSION_CHILD_PROFILE").unwrap());
+    let profile_lock = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(profile.join("owner.lock"))
+        .unwrap();
+    profile_lock.try_lock().unwrap();
+    let descriptor: Value =
+        serde_json::from_str(&std::env::var("SWARMIE_ADMISSION_CHILD_NODE").unwrap()).unwrap();
+    let account: Value =
+        serde_json::from_str(&std::env::var("SWARMIE_ADMISSION_CHILD_ACCOUNT").unwrap()).unwrap();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    tokio::task::LocalSet::new().block_on(&runtime, async {
+        let host = tembra::Host::new(Executor);
+        swarmie_client_node::install(&host, swarmie_client_node::NodeConfiguration {
+            state: profile.clone(), node: swarmie_runtime::NodeId::new(descriptor["id"].as_str().unwrap()).unwrap(),
+            oauth_host: uuid::Uuid::new_v4(), principal: descriptor["principal"].as_str().unwrap().into(),
+            directory_root: None, git: None, agent_git_authority: None,
+        }).unwrap();
+        let principal = descriptor["principal"].as_str().unwrap().to_string();
+        let input = json!({"conversationId":"restart-admission","submissionId":"restart-receipt","createConversation":true,"draft":{"text":"Hello","attachments":[],"account":account["id"],"model":"fixture-model","effort":"","node":descriptor["id"]},"mode":"queue"});
+        let output = std::rc::Rc::new(std::cell::RefCell::new(Vec::<Value>::new()));
+        let delivered = output.clone();
+        let connection = tembra::rpc::serve(host, tembra::rpc::Options::new(principal, |_, _| true), move |frame| {
+            delivered.borrow_mut().push(serde_json::from_slice(&frame).unwrap());
+            Ok(())
+        });
+        connection.receive(&serde_json::to_vec(&json!({"id":1,"op":"get","payload":{"service":"swarmie.conversation.session","key":["restart-admission"]}})).unwrap()).unwrap();
+        let deadline = Instant::now() + WAIT;
+        let reference = loop {
+            if let Some(reply) = output.borrow_mut().pop() {
+                assert!(reply.get("error").is_none(), "{reply}");
+                break reply["ok"]["reference"].clone();
+            }
+            assert!(Instant::now() < deadline, "the child session did not open");
+            tokio::task::yield_now().await;
+        };
+        connection.receive(&serde_json::to_vec(&json!({"id":2,"op":"call","payload":{"reference":reference,"method":"run","arguments":[input]}})).unwrap()).unwrap();
+        let deadline = Instant::now() + WAIT;
+        loop {
+            let index = profile.join("conversations.json");
+            if index.exists() {
+                use swarmie_durable_tasks::TaskStorage;
+                let metadata: Value = serde_json::from_slice(&std::fs::read(index).unwrap()).unwrap();
+                if let Some(id) = metadata[0].get("task") {
+                    let storage = swarmie_storage::sqlite::SqliteOwner::new(profile.join("conversations.sqlite")).tasks().unwrap();
+                    let task = storage.get(serde_json::from_value(id.clone()).unwrap()).await.unwrap();
+                    storage.close().await.unwrap();
+                    if let Some(task) = task {
+                        assert!(matches!(task.status, swarmie_durable_tasks::TaskStatus::Ready));
+                        assert!(task.assignment.is_none());
+                        assert!(task.checkpoint.is_none());
+                        if std::env::var("SWARMIE_ADMISSION_CHILD_STEER").as_deref() == Ok("1") {
+                            connection.receive(&serde_json::to_vec(&json!({"op":"cancel","payload":{"id":2}})).unwrap()).unwrap();
+                            loop {
+                                if output.borrow().iter().any(|reply| reply["id"] == 2) {
+                                    break;
+                                }
+                                assert!(Instant::now() < deadline, "the cancelled observer did not settle");
+                                tokio::task::yield_now().await;
+                            }
+                            let mut steered = input.clone();
+                            steered["submissionId"] = json!("steer-after-detach");
+                            steered["mode"] = json!("steer");
+                            connection.receive(&serde_json::to_vec(&json!({"id":3,"op":"call","payload":{"reference":reference,"method":"run","arguments":[steered]}})).unwrap()).unwrap();
+                            loop {
+                                let metadata: Value = serde_json::from_slice(&std::fs::read(profile.join("conversations.json")).unwrap()).unwrap();
+                                if metadata[0]["stopRequested"] == true {
+                                    break;
+                                }
+                                assert!(Instant::now() < deadline, "steer did not stop the detached admitted task");
+                                tokio::task::yield_now().await;
+                            }
+                        }
+                        // End without host cleanup after atomic user/task admission, before dispatch.
+                        std::process::exit(0);
+                    }
+                }
+            }
+            assert!(Instant::now() < deadline, "durable admission did not appear");
+            tokio::task::yield_now().await;
+        }
+    });
+}
+
+#[test]
+fn restarting_the_real_client_executes_a_durably_admitted_turn_once() {
+    restart_admitted_turn(false);
+}
+
+#[test]
+fn steering_a_detached_queued_turn_is_persisted_before_restart_without_model_dispatch() {
+    restart_admitted_turn(true);
+}
+
+fn restart_admitted_turn(steer: bool) {
+    let (endpoint, server) = provider(if steer {
+        vec![]
+    } else {
+        vec![answer("Recovered admitted turn")]
+    });
+    let directory = tempfile::tempdir().unwrap();
+    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let account = configure(&node, channel, &endpoint);
+    let descriptor = node.descriptor();
+    drop(node);
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--ignored",
+            "--exact",
+            "admitted_turn_bootstrap_child",
+            "--nocapture",
+        ])
+        .env("SWARMIE_ADMISSION_CHILD_PROFILE", directory.path())
+        .env("SWARMIE_ADMISSION_CHILD_NODE", descriptor.to_string())
+        .env("SWARMIE_ADMISSION_CHILD_ACCOUNT", account.to_string())
+        .env(
+            "SWARMIE_ADMISSION_CHILD_STEER",
+            if steer { "1" } else { "0" },
+        )
+        .output()
+        .unwrap();
+    assert!(
+        child.status.success(),
+        "{} {}",
+        String::from_utf8_lossy(&child.stdout),
+        String::from_utf8_lossy(&child.stderr)
+    );
+    let before = saved_turn(directory.path(), "restart-admission");
+    assert!(before.assignment.is_none());
+    assert!(before.checkpoint.is_none());
+    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let object = session(&node, channel, "restart-admission");
+        if object["state"]["phase"] == if steer { "stopped" } else { "completed" } {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the admitted turn was not recovered: {object}"
+        );
+        thread::sleep(Duration::from_millis(1));
+    }
+    let after = saved_turn(directory.path(), "restart-admission");
+    assert_eq!(before.spec.id, after.spec.id);
+    assert!(matches!(
+        after.status,
+        swarmie_durable_tasks::TaskStatus::Completed(_)
+    ));
+    assert!(after.assignment.is_none());
+    if steer {
+        assert!(after.checkpoint.is_none());
+    } else {
+        assert_eq!(after.checkpoint.unwrap()["phase"]["kind"], "finished");
+    }
+    assert_eq!(
+        server.join().unwrap().len(),
+        if steer { 1 } else { 2 },
+        "one catalog read, and a model call only for the uninterrupted task"
+    );
+}
+
+fn client_answer_sample(prior: usize) -> u64 {
+    let (endpoint, server) = provider(vec![answer("Done")]);
+    let directory = tempfile::tempdir().unwrap();
+    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let account = configure(&node, channel, &endpoint);
+    if prior != 0 {
+        seed_history(
+            directory.path(),
+            &node.descriptor(),
+            &account,
+            "performance",
+            "stopped",
+            (0..prior)
+                .map(|_| swarmie_agent_loop::Message::User {
+                    content: "x".repeat(128),
+                })
+                .collect(),
+        );
+    }
+    let object = session(&node, channel, "performance");
+    let mut input = submission(&node, &account, "performance", "measured-turn");
+    input["draft"]["text"] = json!("Add one");
+    let started = Instant::now();
+    let result = call(&node, channel, &object["reference"], "run", json!([input]));
+    let elapsed = started.elapsed().as_nanos() as u64;
+    assert_eq!(result["ok"]["status"], "settled", "{result}");
+    let task = saved_turn(directory.path(), "performance");
+    assert!(matches!(
+        task.status,
+        swarmie_durable_tasks::TaskStatus::Completed(_)
+    ));
+    assert!(task.assignment.is_none());
+    assert_eq!(task.checkpoint.unwrap()["phase"]["kind"], "finished");
+    let requests = server.join().unwrap();
+    assert_eq!(requests.len(), 2);
+    let payload: Value =
+        serde_json::from_str(requests[1].split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(
+        payload["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| message["role"] == "user")
+            .count(),
+        prior + 1
+    );
+    let snapshot = session(&node, channel, "performance");
+    assert_eq!(snapshot["state"]["phase"], "completed");
+    assert!(snapshot["state"]["messages"].as_array().unwrap().len() <= 24);
+    assert!(serde_json::to_vec(&snapshot["state"]).unwrap().len() <= 48 * 1024);
+    elapsed
+}
+
+#[test]
+fn large_history_preserves_full_model_input_and_a_bounded_view() {
+    client_answer_sample(1000);
+}
+
+#[test]
+#[ignore = "manual optimized client performance probe; no timing gate in tests"]
+fn persisted_client_answer_performance() {
+    let prior: usize = std::env::var("SWARMIE_PERF_PRIOR")
+        .unwrap_or_else(|_| "0".into())
+        .parse()
+        .unwrap();
+    let repetitions: usize = std::env::var("SWARMIE_PERF_REPETITIONS")
+        .unwrap_or_else(|_| "20".into())
+        .parse()
+        .unwrap();
+    assert!([0, 100, 1000].contains(&prior));
+    assert!([5, 20, 60].contains(&repetitions));
+    let mut samples = Vec::new();
+    for iteration in 0..repetitions + 5 {
+        let elapsed = client_answer_sample(prior);
+        if iteration >= 5 {
+            samples.push(elapsed);
+        }
+    }
+    println!(
+        "PERF_CLIENT_TURN {}",
+        json!({"prior_messages":prior,"message_bytes":128,"warmups":5,"turn_samples_ns":samples,"model_calls":1,"completion_verified":true,"scope":"native client RPC user admission through durable task release and presentation refresh; loopback HTTP streaming provider; setup, history seed, assertions and close excluded"})
+    );
+}
+
+#[test]
+fn a_presentation_write_failure_does_not_hold_a_confirmed_model_answer() {
+    let (entered, started) = mpsc::channel();
+    let (release, released) = mpsc::channel();
+    let (endpoint, server) = provider(vec![Reply {
+        status: 200,
+        first: delta("Confirmed answer", false),
+        tail: delta("", true),
+        gate: Some((entered, released)),
+    }]);
+    let profile = tempfile::tempdir().unwrap();
+    let node = DesktopNode::open(profile.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let account = configure(&node, channel, &endpoint);
+    let object = session(&node, channel, "presentation-failure");
+    start(
+        &node,
+        channel,
+        90,
+        &object["reference"],
+        "run",
+        json!([submission(
+            &node,
+            &account,
+            "presentation-failure",
+            "presentation-receipt"
+        )]),
+    );
+    started.recv_timeout(WAIT).unwrap();
+    let index = profile.path().join("conversations.json");
+    let backup = profile.path().join("fixture-index-backup");
+    std::fs::rename(&index, &backup).unwrap();
+    std::fs::create_dir(&index).unwrap();
+    release.send(()).unwrap();
+    let result = response(&node, channel, 90);
+    assert_eq!(result["ok"]["status"], "settled", "{result}");
+    std::fs::remove_dir(&index).unwrap();
+    std::fs::rename(&backup, &index).unwrap();
+    let snapshot = session(&node, channel, "presentation-failure");
+    assert_eq!(snapshot["state"]["phase"], "completed", "{snapshot}");
+    assert!(
+        snapshot["state"]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| message["text"] == "Confirmed answer")
+    );
+    assert_eq!(server.join().unwrap().len(), 2);
+}
+
+#[test]
+fn lease_loss_overrides_cached_final_phases_and_stop_unblocks_the_next_turn() {
+    use swarmie_durable_tasks::{CommitOutcome, TaskChange, TaskRecord, TaskStatus, TaskStorage};
+    let (entered, started) = mpsc::channel();
+    let (release, released) = mpsc::channel();
+    let (endpoint, server) = provider(vec![
+        Reply {
+            status: 200,
+            first: delta("Unconfirmed stream", false),
+            tail: delta("", true),
+            gate: Some((entered, released)),
+        },
+        answer("Explicit next turn"),
+    ]);
+    let profile = tempfile::tempdir().unwrap();
+    let node = DesktopNode::open(profile.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let account = configure(&node, channel, &endpoint);
+    let object = session(&node, channel, "lease-loss");
+    start(
+        &node,
+        channel,
+        90,
+        &object["reference"],
+        "run",
+        json!([submission(&node, &account, "lease-loss", "lease-receipt")]),
+    );
+    started.recv_timeout(WAIT).unwrap();
+    let index = profile.path().join("conversations.json");
+    let metadata: Value = serde_json::from_slice(&std::fs::read(&index).unwrap()).unwrap();
+    let id = serde_json::from_value(metadata[0]["task"].clone()).unwrap();
+    let storage =
+        swarmie_storage::sqlite::SqliteOwner::new(profile.path().join("conversations.sqlite"))
+            .tasks()
+            .unwrap();
+    // Shorten the current assignment through the real storage contract. The next
+    // checkpoint or renewal must reject the expired token and revoke the attempt.
+    futures::executor::block_on(async {
+        let task = storage.get(id).await.unwrap().unwrap();
+        let assignment = task.assignment.unwrap();
+        assert!(matches!(
+            storage
+                .commit(vec![TaskChange::Renew {
+                    id,
+                    attempt: assignment.attempt,
+                    lease_ms: std::num::NonZeroU64::new(1).unwrap(),
+                }])
+                .await
+                .unwrap(),
+            CommitOutcome::Applied { .. }
+        ));
+    });
+    thread::sleep(Duration::from_millis(20));
+    release.send(()).unwrap();
+    let result = response(&node, channel, 90);
+    assert_eq!(result["ok"]["status"], "settled", "{result}");
+    let task: TaskRecord = futures::executor::block_on(storage.get(id))
+        .unwrap()
+        .unwrap();
+    assert_eq!(task.status, TaskStatus::Ready);
+    assert!(task.assignment.is_none());
+    for stale in [None, Some("stopped"), Some("unknown")] {
+        if let Some(stale) = stale {
+            let mut metadata: Value =
+                serde_json::from_slice(&std::fs::read(&index).unwrap()).unwrap();
+            metadata[0]["phase"] = json!(stale);
+            std::fs::write(&index, serde_json::to_vec(&metadata).unwrap()).unwrap();
+        }
+        let snapshot = session(&node, channel, "lease-loss");
+        assert_eq!(snapshot["state"]["phase"], "interrupted", "{snapshot}");
+        assert_eq!(snapshot["state"]["canAcknowledge"], false);
+    }
+    let stopped = call(&node, channel, &object["reference"], "stop", json!([]));
+    assert!(stopped.get("error").is_none(), "{stopped}");
+    assert_eq!(
+        session(&node, channel, "lease-loss")["state"]["phase"],
+        "stopped"
+    );
+    let next = call(
+        &node,
+        channel,
+        &object["reference"],
+        "run",
+        json!([submission(
+            &node,
+            &account,
+            "lease-loss",
+            "next-explicit-receipt"
+        )]),
+    );
+    assert_eq!(next["ok"]["status"], "settled", "{next}");
+    assert_eq!(
+        session(&node, channel, "lease-loss")["state"]["phase"],
+        "completed"
+    );
+    futures::executor::block_on(storage.close()).unwrap();
+    assert_eq!(
+        server.join().unwrap().len(),
+        3,
+        "the interrupted turn must not dispatch another model request"
     );
 }

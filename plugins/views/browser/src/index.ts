@@ -1,13 +1,30 @@
 import { updatePresentation } from "@swarmie/client-ui";
 import { orb } from "@syntropika/tembra-sdk";
 
-export type Tab = {
+export type ViewValue =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly ViewValue[]
+  | { readonly [key: string]: ViewValue };
+
+/** Serializable capability descriptors preserve the target captured when a tab opens. */
+export type CapabilityView = {
+  owner: string;
+  view: string;
+  target: Readonly<Record<string, ViewValue>>;
+};
+
+export type BuiltinTab = {
   id: string;
   title: string;
 } & (
   | { kind: "start" | "notes" | "state" }
   | { kind: "conversation"; conversationId: string; temporary?: true }
 );
+export type CapabilityTab = CapabilityView & { id: string; kind: "capability"; title: string };
+export type Tab = BuiltinTab | CapabilityTab;
 export type ViewsState = {
   tabs: Tab[];
   tab: string;
