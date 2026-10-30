@@ -16,7 +16,8 @@ swarmie-git = { path = "../git", features = ["tools"] }
 swarmie-providers.workspace = true
 swarmie-provider-auth.workspace = true
 swarmie-model-provider-genai.workspace = true
-swarmie-agent-loop = { workspace = true, features = ["conversations"] }
+swarmie-agent-loop = { workspace = true, features = ["conversations", "durable-tasks"] }
+swarmie-durable-tasks.workspace = true
 swarmie-conversations.workspace = true
 swarmie-storage.workspace = true
 sha2 = "0.10"

@@ -1,7 +1,9 @@
 //! Client admission and projection over the existing Agent Loop and Conversations libraries.
 mod checkout;
+mod execution;
 mod index;
 mod projection;
+pub(crate) mod tasks;
 mod types;
 
 use crate::providers::NativeProviders;
@@ -9,11 +11,10 @@ use futures::FutureExt;
 use sha2::{Digest, Sha256};
 use std::{cell::RefCell, num::NonZeroU32, path::PathBuf, rc::Rc};
 use swarmie_agent_loop::{
-    Agent, Message as AgentMessage,
+    Message as AgentMessage,
     conversation::{History, Record, Request},
 };
 use swarmie_conversations::{ConversationId, Conversations, EntryDraft, EntryId, Read};
-use swarmie_providers::Progress;
 use swarmie_tools::{Catalog, CatalogService};
 use tembra::{Context, Host, Orb, Service, State};
 use types::{Metadata, Phase, Receipt, RunResult, Snapshot, Submission};
@@ -32,6 +33,7 @@ struct Session {
     history_id: ConversationId,
     history: Conversations,
     agent_history: History,
+    tasks: Rc<tasks::Tasks>,
     providers: Rc<NativeProviders>,
     tools: Rc<CatalogService>,
     catalog: Catalog,
@@ -68,7 +70,7 @@ impl Session {
         };
         result.head = Some(conversation.head);
         let mut request = Read::new(conversation.head);
-        request.limit = std::num::NonZeroU16::new(1).unwrap();
+        request.limit = std::num::NonZeroU16::new(32).unwrap();
         loop {
             let page = self.history.read(context, request.clone()).await?;
             for entry in page.entries {
@@ -127,12 +129,53 @@ impl Session {
         let metadata = self.index.get(&self.id)?;
         let mut phase = metadata.as_ref().map_or(Phase::Idle, |record| record.phase);
         if phase == Phase::Working && self.running.borrow().is_none() {
-            phase = if transcript.pending.is_empty() {
-                Phase::Stopped
+            let task = if let Some(id) = metadata.as_ref().and_then(|record| record.task) {
+                self.tasks
+                    .storage
+                    .get(id)
+                    .await
+                    .map_err(|error| failure(&error.to_string()))?
             } else {
-                Phase::Unknown
+                None
             };
-            self.index.change(&self.id, |record| record.phase = phase)?;
+            let active = task.as_ref().is_some_and(|task| {
+                matches!(
+                    task.status,
+                    swarmie_durable_tasks::TaskStatus::Ready
+                        | swarmie_durable_tasks::TaskStatus::Waiting(_)
+                )
+            });
+            if !active {
+                phase = if !transcript.pending.is_empty() {
+                    Phase::Unknown
+                } else if let Some(task) = &task {
+                    match &task.status {
+                        swarmie_durable_tasks::TaskStatus::Completed(value) => {
+                            match serde_json::from_value::<tasks::Outcome>(value.clone())
+                                .map_err(|_| failure("invalid confirmed turn outcome"))?
+                            {
+                                tasks::Outcome::Settled { phase } => phase,
+                                tasks::Outcome::StopRequested => Phase::Stopped,
+                            }
+                        }
+                        swarmie_durable_tasks::TaskStatus::Failed(_) => Phase::Failed,
+                        _ => Phase::Stopped,
+                    }
+                } else {
+                    Phase::Stopped
+                };
+                let checkpoint = task
+                    .and_then(|task| task.checkpoint)
+                    .map(serde_json::from_value)
+                    .transpose()
+                    .map_err(|_| failure("invalid confirmed task checkpoint"))?;
+                self.index.change(&self.id, |record| {
+                    record.phase = phase;
+                    if record.checkpoint.is_none() {
+                        record.checkpoint = checkpoint;
+                    }
+                })?;
+            }
         }
         if phase == Phase::Unknown && transcript.pending.is_empty() {
             phase = Phase::Stopped;
@@ -313,6 +356,21 @@ impl Session {
         Ok(true)
     }
 
+    async fn wait_turn(&self, context: &Context) -> tembra::Result<()> {
+        if let Some(task) = self.index.get(&self.id)?.and_then(|record| record.task)
+            && self
+                .tasks
+                .storage
+                .get(task)
+                .await
+                .map_err(|error| failure(&error.to_string()))?
+                .is_some()
+        {
+            self.tasks.wait(context, task).await?;
+        }
+        Ok(())
+    }
+
     async fn run_inner(
         &self,
         context: Context,
@@ -360,20 +418,20 @@ impl Session {
         {
             return Ok(());
         }
-        if input.mode == "steer"
-            && let Some(running) = self.running.borrow().as_ref()
-        {
+        let previous = self.running.borrow().clone();
+        if input.mode == "steer" {
             // Preparation can hold the serial owner before durable admission exists.
             // A different pending checkout must not cancel that physical invocation.
-            if running.binding != binding {
+            if previous.is_some_and(|running| running.binding != binding) {
                 return Err(failure(
                     "the running conversation uses another checkout binding",
                 ));
             }
-            running.context.cancel()?;
+            self.request_stop().await?;
         }
         let _serial = self.serial.lock().await;
         context.check()?;
+        self.wait_turn(&context).await?;
         // Another first submission may have bound this conversation while we waited.
         if let Some(existing) = self.index.get(&self.id)?
             && existing.execution_context != binding
@@ -392,8 +450,9 @@ impl Session {
         *self.running.borrow_mut() = Some(RunningContext {
             context: context.clone(),
             binding: binding.clone(),
+            execution: None,
         });
-        let _running = Running(&self.running);
+        let _running = Running(&self.running, context.clone());
         if self
             .observe_existing(&context, &input, &digest, may_be_admitted)
             .await?
@@ -430,17 +489,12 @@ impl Session {
                 binding.is_some() || !matches!(spec.name.as_str(), "git_inspect" | "git_mutate")
             })
             .collect();
-        let scoped_tools = Rc::new(checkout::ScopedTools {
-            inner: self.tools.clone(),
-            binding: binding.clone(),
-            authority: self.agent_git_authority.clone(),
-        });
         let account = input
             .draft
             .account
             .as_deref()
             .ok_or_else(|| failure("select a provider account"))?;
-        let model = self
+        let _model = self
             .providers
             .model(
                 &self.principal,
@@ -450,6 +504,7 @@ impl Session {
             )
             .await?;
         context.check()?;
+        let task = swarmie_durable_tasks::TaskId::new();
         let mut records = self.index.read()?;
         if !records.iter().any(|record| record.id == self.id) {
             records.push(Metadata {
@@ -465,6 +520,8 @@ impl Session {
                 receipts: vec![],
                 phase: Phase::Idle,
                 checkpoint: None,
+                task: None,
+                stop_requested: false,
                 execution_context: binding.clone(),
                 lifecycle_warning: None,
             });
@@ -477,6 +534,9 @@ impl Session {
         record.model = input.draft.model.clone();
         record.effort = input.draft.effort.clone();
         record.checkpoint = None;
+        record.task = Some(task);
+        record.stop_requested = false;
+        record.phase = Phase::Working;
         record.receipts.push(Receipt {
             id: input.submission_id.clone(),
             digest,
@@ -503,47 +563,19 @@ impl Session {
             .parse::<EntryId>()
             .map_err(|_| failure("the submission identity is invalid"))?;
         may_be_admitted.set(true);
-        let receipt = self
-            .history
-            .append(&context, conversation.head, vec![entry])
-            .await?;
-        if receipt.confirmation != swarmie_conversations::WriteConfirmation::Committed {
-            return Err(failure("the message append is not confirmed"));
-        }
-        let at = receipt.head;
-        self.index
-            .change(&self.id, |record| record.phase = Phase::Working)?;
-        checkout::sync_hold(&self.index, self.git.as_ref(), &self.principal, &self.id).await;
-        // Admission is durable before this best-effort presentation update.
-        let _ = self.refresh(&context).await;
-        let state = self.state.clone();
-        let progress = Progress::new(move |context, preview| {
-            let _ = state.update(context, |current| {
-                let mut next = current.clone();
-                if next
-                    .messages
-                    .last()
-                    .is_some_and(|message| message.id == "preview")
-                {
-                    next.messages.pop();
-                }
-                next.messages.push(types::Message {
-                    id: "preview".into(),
-                    role: "assistant".into(),
-                    text: preview.content,
-                    truncated: false,
-                });
-                Ok(projection::bound(next))
-            });
-        });
-        let agent = Agent::new(Rc::new(model), scoped_tools.clone()).with_progress(progress);
-        let result = self
-            .agent_history
-            .execute(
-                &context,
-                &agent,
-                Request {
-                    at,
+        self.tasks.admit(
+            &context,
+            &self.history,
+            task,
+            entry,
+            tasks::Input {
+                session: self.id.clone(),
+                account: account.into(),
+                model: input.draft.model,
+                effort: input.draft.effort,
+                binding: binding.clone(),
+                request: Request {
+                    at: conversation.head,
                     instructions: binding.as_ref().map_or_else(String::new, |binding| format!(
                         "Use the captured Git checkout at {} on node {}. Git tools must target its canonical root/Git-directory identity {}. Other provider tools retain their own resource scope.",
                         binding.path, binding.node_id, binding.identity
@@ -551,43 +583,10 @@ impl Session {
                     tools,
                     max_turns: NonZeroU32::new(16).unwrap(),
                 },
-            )
-            .await;
-        let (mut phase, mut checkpoint) = match result {
-            Ok(_) => (Phase::Completed, None),
-            Err(error) => {
-                let checkpoint = error.checkpoint.map(|value| *value);
-                let phase = if checkpoint
-                    .as_ref()
-                    .is_some_and(|value| value.has_unfinished_tools())
-                {
-                    Phase::Unknown
-                } else if context.check().is_err() {
-                    Phase::Stopped
-                } else {
-                    Phase::Failed
-                };
-                (phase, checkpoint)
-            }
-        };
-        if phase == Phase::Unknown
-            && context.check().is_ok()
-            && let Some(pending) = checkpoint.clone()
-            && let Ok(swarmie_agent_loop::conversation::ToolSettlement::Settled(settled)) = self
-                .agent_history
-                .settle_tools(&context, scoped_tools.as_ref(), pending, false, None)
-                .await
-        {
-            phase = Phase::Stopped;
-            checkpoint = Some(settled);
-        }
-        // Physical settlement always records the outcome, including observer cancellation.
-        self.index.change(&self.id, |record| {
-            record.phase = phase;
-            record.checkpoint = checkpoint;
-        })?;
-        drop(_running);
-        // Observation cannot replace a confirmed execution outcome.
+            },
+        ).await?;
+        checkout::sync_hold(&self.index, self.git.as_ref(), &self.principal, &self.id).await;
+        self.tasks.wait(&context, task).await?;
         let _ = self.refresh(&context).await;
         Ok(())
     }
@@ -602,15 +601,24 @@ struct Transcript {
     pending: Vec<swarmie_agent_loop::ToolCall>,
 }
 
+#[derive(Clone)]
 struct RunningContext {
     context: Context,
     binding: Option<types::ExecutionContext>,
+    execution: Option<swarmie_durable_tasks::Execution>,
 }
 
-struct Running<'a>(&'a RefCell<Option<RunningContext>>);
+struct Running<'a>(&'a RefCell<Option<RunningContext>>, Context);
 impl Drop for Running<'_> {
     fn drop(&mut self) {
-        self.0.borrow_mut().take();
+        if self
+            .0
+            .borrow()
+            .as_ref()
+            .is_some_and(|running| running.context.root == self.1.root)
+        {
+            self.0.borrow_mut().take();
+        }
     }
 }
 
@@ -632,10 +640,31 @@ pub(crate) fn orbs(
         service: git,
         authority: agent_git_authority,
     } = git_execution;
+    let owner = swarmie_storage::sqlite::SqliteOwner::new(path.join("conversations.sqlite"));
     let storage: Rc<dyn swarmie_conversations::ConversationStorage> =
-        Rc::new(swarmie_storage::sqlite::SqliteConversationStorage::open(
-            path.join("conversations.sqlite"),
-        )?);
+        Rc::new(owner.conversations()?);
+    let task_storage: Rc<dyn swarmie_durable_tasks::TaskStorage> =
+        Rc::new(owner.tasks().map_err(|error| failure(&error.to_string()))?);
+    let options = swarmie_durable_tasks::Options::new(
+        tasks::Executor,
+        std::num::NonZeroU64::new(5_000).unwrap(),
+        Rc::new(|duration| async move { tokio::time::sleep(duration).await }.boxed_local()),
+    );
+    let tasks = Rc::new(tasks::Tasks {
+        storage: task_storage.clone(),
+        executor: options.executor,
+    });
+    let scheduler = swarmie_durable_tasks::orb(
+        host.clone(),
+        Rc::new(move || {
+            let storage = task_storage.clone();
+            async move { Ok(storage) }.boxed_local()
+        }),
+        swarmie_durable_tasks::Definitions::new([tasks::definition()])
+            .map_err(|error| failure(&error.to_string()))?,
+        options,
+    );
+    let handler = tasks::handler(host.clone());
     let history = Conversations::new(storage.clone());
     let history_orb = swarmie_conversations::orb(Rc::new(move || {
         let storage = storage.clone();
@@ -748,6 +777,7 @@ pub(crate) fn orbs(
                     principal: principal.clone(),
                     history_id,
                     history: history.clone(),
+                    tasks: tasks.clone(),
                     agent_history: History::bind(
                         &declaration,
                         host.clone(),
@@ -774,7 +804,9 @@ pub(crate) fn orbs(
             .lifetime(tembra::core::Lifetime::Referenced, 30_000)
             .method("snapshot", |session, context, (): ()| async move {
                 session.refresh(&context).await?;
-                if session.running.borrow().is_none() {
+                if session.running.borrow().is_none()
+                    && session.state.value()?.phase == Phase::Unknown
+                {
                     let _serial = session.serial.lock().await;
                     if session.state.value()?.phase == Phase::Unknown {
                         session.settle(&context, false).await?;
@@ -794,6 +826,12 @@ pub(crate) fn orbs(
                 "run",
                 |session, context, (input,): (Submission,)| async move {
                     session.run(context, input).await
+                },
+            )
+            .method(
+                "execute_task",
+                |session, context, execution: swarmie_durable_tasks::Execution| async move {
+                    session.execute_task(context, execution).await
                 },
             )
             .method("acknowledge", |session, context, (): ()| async move {
@@ -820,11 +858,10 @@ pub(crate) fn orbs(
                         .checked_add(1)
                         .ok_or_else(|| failure("the stop sequence is exhausted"))?,
                 );
-                if let Some(running) = session.running.borrow().as_ref() {
-                    running.context.cancel()?;
-                }
+                session.request_stop().await?;
                 let _serial = session.serial.lock().await;
-                // The cancelled invocation retains physical ownership until it settles.
+                // The task retains physical ownership even after its observer is gone.
+                session.wait_turn(&context).await?;
                 session.refresh(&context).await?;
                 if session.state.value()?.phase == Phase::Unknown {
                     session.settle(&context, false).await?;
@@ -840,5 +877,5 @@ pub(crate) fn orbs(
                 Ok(())
             }),
         );
-    Ok(vec![history_orb, listing, sessions])
+    Ok(vec![history_orb, scheduler, handler, listing, sessions])
 }

@@ -245,6 +245,11 @@ async fn serve(
         let _ = ready.send(Err(error.to_string()));
         return;
     }
+    if let Err(error) = swarmie_client_node::start(&host).await {
+        let _ = host.close().await;
+        let _ = ready.send(Err(error.to_string()));
+        return;
+    }
     if ready.send(Ok(())).is_err() {
         let _ = host.close().await;
         return;

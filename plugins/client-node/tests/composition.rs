@@ -53,6 +53,7 @@ async fn a_non_desktop_host_composes_services_with_its_own_identity_and_principa
                 },
             )
             .unwrap();
+            swarmie_client_node::start(&host).await.unwrap();
             let identity = host
                 .get(NODE_SERVICE, vec![NODE_KEY.into()], "embedded-user")
                 .unwrap();
@@ -184,6 +185,7 @@ async fn an_embedding_without_agent_mutation_policy_contributes_only_git_reads()
                 },
             )
             .unwrap();
+            swarmie_client_node::start(&host).await.unwrap();
             let tools = host
                 .get(swarmie_tools::SERVICE, vec!["main".into()], "embedded-user")
                 .unwrap();

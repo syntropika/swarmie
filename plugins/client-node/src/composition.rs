@@ -27,6 +27,8 @@ pub struct NodeConfiguration {
 /// The caller owns the host and its shutdown. Calls require a Tokio local executor with
 /// I/O, time and blocking-task support. Credential custody uses the OS credential store;
 /// public account metadata and conversation history use the supplied profile directory.
+/// Task scheduling starts paused. Call [`crate::start`] after installation to enable
+/// admitted work and recovery through the host's complete composition.
 ///
 /// # Errors
 /// Returns the capability installation or profile-storage error. On failure the caller

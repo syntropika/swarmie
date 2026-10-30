@@ -15,6 +15,8 @@ axum = "0.8"
 tokio-util = "0.7"
 
 [dev-dependencies]
+swarmie-durable-tasks.workspace = true
+swarmie-storage.workspace = true
 futures.workspace = true
 serde.workspace = true
 swarmie-mcp.workspace = true

@@ -265,7 +265,10 @@ fn native_provider_configuration_executes_and_restores_history_without_replaying
         "swarmie.conversation.session",
         "client-fixture",
     );
-    assert_eq!(session["state"]["phase"], "stopped");
+    assert_eq!(
+        session["state"]["phase"], "completed",
+        "the confirmed durable task repairs stale presentation metadata"
+    );
     assert_eq!(
         session["state"]["admitted"],
         json!(["submission-fixture"]),
@@ -283,8 +286,8 @@ fn native_provider_configuration_executes_and_restores_history_without_replaying
         "client-fixture",
     );
     assert_eq!(
-        session["state"]["phase"], "stopped",
-        "a stopped model request does not imply uncertain tool effects"
+        session["state"]["phase"], "completed",
+        "confirmed task completion repairs stale metadata without replay"
     );
     let mut next = submission;
     next["submissionId"] = json!("next-submission");

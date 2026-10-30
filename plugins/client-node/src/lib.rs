@@ -10,5 +10,10 @@ mod providers;
 
 pub use composition::{NodeConfiguration, install};
 
+/// Enable recovery and scheduling after the host has installed the complete node composition.
+pub async fn start(host: &tembra::Host) -> tembra::Result<()> {
+    conversations::tasks::start(host).await
+}
+
 /// Public provider-authorization session service installed by this composition.
 pub const AUTHORIZATION_SERVICE: &str = providers::oauth::SERVICE;

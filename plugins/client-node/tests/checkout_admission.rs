@@ -208,6 +208,7 @@ async fn concurrent_first(mode: &str, churn: bool) {
         },
     )
     .unwrap();
+    swarmie_client_node::start(&host).await.unwrap();
     let output = Rc::new(std::cell::RefCell::new(Vec::<Value>::new()));
     let outgoing = output.clone();
     let connection = tembra::rpc::serve(

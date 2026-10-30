@@ -286,6 +286,22 @@ fn interrupted_native_tool(kind: &str) {
             .and_then(|data| serde_json::from_slice::<Value>(&data).ok())
             .is_some()
     });
+    {
+        use swarmie_durable_tasks::TaskStorage;
+        let id =
+            serde_json::from_value(index(state.path(), kind).unwrap()["task"].clone()).unwrap();
+        let storage =
+            swarmie_storage::sqlite::SqliteOwner::new(state.path().join("conversations.sqlite"))
+                .tasks()
+                .unwrap();
+        let task = futures::executor::block_on(async {
+            let task = storage.get(id).await.unwrap().unwrap();
+            storage.close().await.unwrap();
+            task
+        });
+        assert!(task.assignment.is_some());
+        assert_eq!(task.checkpoint.unwrap()["phase"]["kind"], "tool_pending");
+    }
     let effect: Value = serde_json::from_slice(&std::fs::read(&gate).unwrap()).unwrap();
     assert_eq!(effect["effect_count"], 1);
     assert_ne!(effect["pid"], std::process::id());
@@ -315,13 +331,10 @@ fn interrupted_native_tool(kind: &str) {
     }
     std::fs::write(gate.with_extension("release"), b"release").unwrap();
     if kind == "disconnect" {
-        wait_until("cancelled native tool checkpoint was not persisted", || {
-            index(state.path(), kind).is_some_and(|record| {
-                record["phase"] == "unknown" && !record["checkpoint"].is_null()
-            })
-        });
-        let checkpoint = index(state.path(), kind).unwrap()["checkpoint"].clone();
-        assert!(checkpoint.to_string().contains("mcp.fixture.counter.add"));
+        wait_until(
+            "observer release must preserve the admitted tool and turn",
+            || index(state.path(), kind).is_some_and(|record| record["phase"] == "completed"),
+        );
     } else {
         let cancelled = owner.response(running);
         assert!(
@@ -339,7 +352,7 @@ fn interrupted_native_tool(kind: &str) {
     let settled = observer.get("swarmie.conversation.session", kind);
     assert_eq!(
         settled["state"]["phase"],
-        if kind == "steer" {
+        if kind == "steer" || kind == "disconnect" {
             "completed"
         } else {
             "stopped"
@@ -370,8 +383,8 @@ fn interrupted_native_tool(kind: &str) {
     if kind != "steer" {
         assert_eq!(
             provider.requests.lock().unwrap().len(),
-            2,
-            "reconciliation must not call the model again"
+            if kind == "disconnect" { 3 } else { 2 },
+            "observer release allows the original turn to finish; explicit stop only reconciles"
         );
         let fresh = observer.call(
             &observed["reference"],
@@ -390,10 +403,10 @@ fn interrupted_native_tool(kind: &str) {
     let requests = provider.requests.lock().unwrap();
     assert_eq!(
         requests.len(),
-        3,
-        "one catalog read, the original tool request, and the explicit new turn"
+        if kind == "disconnect" { 4 } else { 3 },
+        "model requests must match continued or explicitly interrupted execution"
     );
-    let messages = requests[2].1["messages"].as_array().unwrap();
+    let messages = requests.last().unwrap().1["messages"].as_array().unwrap();
     let tool = messages
         .iter()
         .find(|message| message["role"] == "tool")
@@ -409,7 +422,7 @@ fn interrupted_native_tool(kind: &str) {
 }
 
 #[test]
-fn native_disconnect_persists_and_recovers_the_real_tool_checkpoint_without_replay() {
+fn native_disconnect_preserves_the_durable_tool_and_completes_without_replay() {
     interrupted_native_tool("disconnect");
 }
 

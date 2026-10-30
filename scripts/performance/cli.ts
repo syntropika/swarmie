@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util";
 
+import { runClient } from "./client";
 import { compare, reportValue } from "./model";
 import { run, selectCases } from "./runner";
 
@@ -7,6 +8,7 @@ const help = `Usage:
   bun run perf list [--suite quick|full] [--case <prefix>]
   bun run perf run --output <new-directory-outside-repository> [--suite quick|full] [--case <prefix>] [--samples 5] [--warmups 1] [--timeout-ms 180000] [--baseline <report.json>]
   bun run perf compare --baseline <report.json> --current <report.json> [--case <prefix>]
+  bun run perf client --output <new-directory-outside-repository> [--suite quick|full] [--samples 5] [--warmups 1] [--timeout-ms 180000]
 
 Runs use synthetic repositories and deterministic model/tool providers only.
 Select --case agent. for native turn costs: direct, managed, durable and conversation-backed.
@@ -20,6 +22,7 @@ Machine, workload, toolchain and sample policies must match. Baselines are never
 Measured RAM capacity may differ by at most 5%; the raw capacities remain in each report.
 SSR measures server rendering; browser layout, scrolling and native UI remain separate.
 SSR time is the mean of five warm renders per worker; cold render time is also retained.
+The client command measures actual native RPC, history, durable tasks, projection and a local HTTP streaming fixture; its report is separate from the library comparison format.
 Worker resources include fixture setup and cleanup. They are not a simultaneous tree peak.`;
 
 function count(
@@ -33,6 +36,38 @@ function count(
     throw new Error(`Expected an integer from ${minimum} to ${maximum}.`);
   }
   return result;
+}
+
+async function clientCommand(values: {
+  output: string;
+  suite: "quick" | "full";
+  case?: string;
+  baseline?: string;
+  current?: string;
+  samples?: string;
+  warmups?: string;
+  "timeout-ms"?: string;
+}) {
+  if (values.case !== undefined || values.baseline !== undefined || values.current !== undefined) {
+    throw new Error(
+      "The client probe records a separate baseline and does not accept library case comparisons.",
+    );
+  }
+  const results = await runClient({
+    output: values.output,
+    samples: count(values.samples, 5, 2, 20),
+    warmups: count(values.warmups, 1, 0, 5),
+    timeoutMs: count(values["timeout-ms"], 180_000, 1000, 600_000),
+    full: values.suite === "full",
+  });
+  console.log(JSON.stringify(results, null, 2));
+}
+
+function selectedSuite(suite = "quick"): "quick" | "full" {
+  if (suite !== "quick" && suite !== "full") {
+    throw new Error("Unknown performance suite.");
+  }
+  return suite;
 }
 
 async function main() {
@@ -58,11 +93,12 @@ async function main() {
   if (positionals.length !== 1) {
     throw new Error(help);
   }
-  const suite = values.suite ?? "quick";
-  if (suite !== "quick" && suite !== "full") {
-    throw new Error("Unknown performance suite.");
-  }
+  const suite = selectedSuite(values.suite);
   const [operation] = positionals;
+  if (operation === "client" && values.output !== undefined) {
+    await clientCommand({ ...values, output: values.output, suite });
+    return;
+  }
   if (operation === "list") {
     console.log(JSON.stringify(selectCases(suite, values.case ?? null), null, 2));
     return;

@@ -91,6 +91,10 @@ pub(super) struct Metadata {
     #[serde(default)]
     pub checkpoint: Option<swarmie_agent_loop::conversation::Checkpoint>,
     #[serde(default)]
+    pub task: Option<swarmie_durable_tasks::TaskId>,
+    #[serde(default)]
+    pub stop_requested: bool,
+    #[serde(default)]
     pub lifecycle_warning: Option<String>,
 }
 
