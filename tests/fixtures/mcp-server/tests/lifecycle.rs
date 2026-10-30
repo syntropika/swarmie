@@ -397,12 +397,14 @@ async fn cancellation_during_local_handshake_and_http_discovery_settles_promptly
                     .unwrap();
                 assert!(catalog.snapshot().unwrap().tools.is_empty());
                 if is_local {
-                    let pid = std::fs::read_to_string(&pid_path)
-                        .unwrap()
-                        .parse::<u32>()
-                        .unwrap();
                     #[cfg(target_os = "linux")]
-                    assert!(!std::path::Path::new(&format!("/proc/{pid}")).exists());
+                    {
+                        let pid = std::fs::read_to_string(&pid_path)
+                            .unwrap()
+                            .parse::<u32>()
+                            .unwrap();
+                        assert!(!std::path::Path::new(&format!("/proc/{pid}")).exists());
+                    }
                 } else {
                     assert_eq!(counter.catalog_reads(), 1);
                 }

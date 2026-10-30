@@ -221,6 +221,7 @@ async fn qualify_agent(configuration: Configuration) {
         result["structuredContent"]["business"]["_meta"],
         "public-business-value"
     );
+    #[cfg(target_os = "linux")]
     let pid = result["structuredContent"]["pid"].as_u64().unwrap();
     let model_calls = script.calls();
     assert_eq!(model_calls.len(), 2);
@@ -545,15 +546,17 @@ async fn failed_negotiation_and_incomplete_discovery_reap_the_local_process() {
                         .is_err()
                 );
                 host.close().await.unwrap();
-                let pid = std::fs::read_to_string(pid_path)
-                    .unwrap()
-                    .parse::<u32>()
-                    .unwrap();
                 #[cfg(target_os = "linux")]
-                assert!(
-                    !std::path::Path::new(&format!("/proc/{pid}")).exists(),
-                    "failed connection must reap its process before returning"
-                );
+                {
+                    let pid = std::fs::read_to_string(pid_path)
+                        .unwrap()
+                        .parse::<u32>()
+                        .unwrap();
+                    assert!(
+                        !std::path::Path::new(&format!("/proc/{pid}")).exists(),
+                        "failed connection must reap its process before returning"
+                    );
+                }
             }
         })
         .await;
