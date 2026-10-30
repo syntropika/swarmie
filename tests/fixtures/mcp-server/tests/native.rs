@@ -66,9 +66,10 @@ impl<'a> Rpc<'a> {
 
     fn cancel_before_release(&mut self, id: u64) {
         self.send("cancel", json!({"id":id}));
-        // Cancel changes the root synchronously in receive(). This native poll
-        // follows that frame in the worker queue, before the effect is released.
-        self.poll();
+        // Cancel changes the root synchronously in receive(). A later RPC reply
+        // confirms input delivery before the effect is released; polling only drains output.
+        let acknowledged = self.request("describe", json!({}));
+        assert!(acknowledged.get("error").is_none(), "{acknowledged}");
     }
 
     fn request(&mut self, op: &str, payload: Value) -> Value {
@@ -319,7 +320,7 @@ fn interrupted_native_tool(kind: &str) {
         _ => unreachable!(),
     };
     if kind == "disconnect" {
-        // The ordered poll confirms that Close cancelled the original root.
+        // Output closes immediately; the worker releases the observer independently.
         assert_eq!(
             node.poll(owner.channel).unwrap_err(),
             "native channel ended"

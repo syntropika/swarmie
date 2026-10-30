@@ -2,8 +2,7 @@ use futures::task::{LocalFutureObj, LocalSpawn, SpawnError};
 use std::{
     collections::{BTreeMap, VecDeque},
     path::PathBuf,
-    rc::Rc,
-    sync::{Arc, mpsc},
+    sync::{Arc, Mutex, mpsc},
     thread,
 };
 use swarmie_runtime::{NodeId, rpc};
@@ -22,9 +21,14 @@ enum Command {
         response: mpsc::SyncSender<Result<u64, String>>,
     },
     Frame(u64, Vec<u8>),
-    Poll(u64, mpsc::SyncSender<Result<Vec<Vec<u8>>, String>>),
-    Close(u64),
+    #[cfg(test)]
+    Pause(mpsc::SyncSender<()>, mpsc::Receiver<()>),
     Stop,
+}
+
+struct Transport {
+    input: mpsc::Receiver<Command>,
+    output: Arc<Mutex<BTreeMap<u64, Output>>>,
 }
 
 #[derive(Clone, Copy)]
@@ -39,6 +43,7 @@ impl LocalSpawn for Executor {
 /// An embedding-owned worker. Capability calls use Tembra's existing byte protocol.
 pub struct DesktopNode {
     sender: mpsc::SyncSender<Command>,
+    output: Arc<Mutex<BTreeMap<u64, Output>>>,
     worker: Option<thread::JoinHandle<()>>,
     id: String,
     _lock: std::fs::File,
@@ -105,6 +110,8 @@ impl DesktopNode {
             })
             .transpose()?;
         let (sender, receiver) = mpsc::sync_channel(64);
+        let output = Arc::new(Mutex::new(BTreeMap::new()));
+        let worker_output = output.clone();
         let (ready, started) = mpsc::sync_channel(1);
         let worker_id = id.clone();
         let worker = thread::Builder::new()
@@ -121,7 +128,10 @@ impl DesktopNode {
                     }
                 };
                 runtime.block_on(tokio::task::LocalSet::new().run_until(serve(
-                    receiver,
+                    Transport {
+                        input: receiver,
+                        output: worker_output,
+                    },
                     ready,
                     state,
                     worker_id,
@@ -136,6 +146,7 @@ impl DesktopNode {
             .map_err(|_| "native runtime did not initialize")??;
         Ok(Self {
             sender,
+            output,
             worker: Some(worker),
             id,
             _lock: lock,
@@ -189,18 +200,23 @@ impl DesktopNode {
             .map_err(|_| "native input budget exhausted".into())
     }
 
+    /// Drain a bounded batch without scheduling work on the capability executor.
+    /// An empty batch leaves the channel open while its RPC calls are still pending.
+    /// Polling does not acknowledge input delivery or RPC completion.
     pub fn poll(&self, generation: u64) -> Result<Vec<Vec<u8>>, String> {
-        let (send, receive) = mpsc::sync_channel(1);
-        self.sender
-            .try_send(Command::Poll(generation, send))
-            .map_err(|_| "native input budget exhausted")?;
-        receive
-            .recv_timeout(std::time::Duration::from_secs(2))
-            .map_err(|_| "native channel did not respond".to_owned())?
+        self.output
+            .lock()
+            .map_err(|_| "native output is unavailable")?
+            .get_mut(&generation)
+            .map(Output::drain)
+            .ok_or_else(|| "native channel ended".into())
     }
 
+    /// Close output now. The worker cancels the RPC connection when it next runs.
     pub fn close_channel(&self, generation: u64) {
-        let _ = self.sender.try_send(Command::Close(generation));
+        if let Ok(mut output) = self.output.lock() {
+            output.remove(&generation);
+        }
     }
 }
 
@@ -216,7 +232,7 @@ impl Drop for DesktopNode {
 }
 
 async fn serve(
-    receiver: mpsc::Receiver<Command>,
+    transport: Transport,
     ready: mpsc::SyncSender<Result<(), String>>,
     state: PathBuf,
     id: String,
@@ -224,6 +240,10 @@ async fn serve(
     directory_root: Option<PathBuf>,
     git: Option<(swarmie_git::GitService, Arc<dyn swarmie_git::Authority>)>,
 ) {
+    let Transport {
+        input: receiver,
+        output,
+    } = transport;
     let host = Host::new(Executor);
     let (git, agent_git_authority) = match git {
         Some((service, authority)) => (Some(service), Some(authority)),
@@ -259,6 +279,7 @@ async fn serve(
     let mut tick = tokio::time::interval(std::time::Duration::from_millis(2));
     'running: loop {
         tick.tick().await;
+        channels.retain(|_, channel| channel.is_open());
         for _ in 0..64 {
             let command = match receiver.try_recv() {
                 Ok(command) => command,
@@ -268,52 +289,53 @@ async fn serve(
             match command {
                 Command::Open { shared, response } => {
                     if !shared {
-                        for channel in channels.values() {
-                            channel.connection.close();
-                        }
                         channels.clear();
                     }
-                    channels.retain(|_, channel| !channel.connection.is_closed());
+                    channels.retain(|_, channel| channel.is_open());
                     if channels.len() >= 8 {
                         let _ = response.send(Err("native client limit reached".into()));
                         continue;
                     }
                     generation += 1;
-                    channels.insert(generation, Channel::new(&host));
-                    let _ = response.send(Ok(generation));
+                    match Channel::new(&host, generation, output.clone()) {
+                        Ok(channel) => {
+                            channels.insert(generation, channel);
+                            if response.send(Ok(generation)).is_err() {
+                                channels.remove(&generation);
+                            }
+                        }
+                        Err(error) => {
+                            let _ = response.send(Err(error));
+                        }
+                    }
                 }
                 Command::Frame(version, frame) => {
                     if let Some(channel) = channels.get(&version) {
-                        let _ = channel.connection.receive(&frame);
-                    }
-                }
-                Command::Poll(version, response) => {
-                    let result = match channels.get(&version) {
-                        Some(channel) if !channel.connection.is_closed() => {
-                            Ok(channel.output.borrow_mut().drain())
+                        if channel.is_open() {
+                            let _ = channel.connection.receive(&frame);
                         }
-                        _ => Err("native channel ended".into()),
-                    };
-                    let _ = response.send(result);
-                }
-                Command::Close(version) => {
-                    if let Some(channel) = channels.remove(&version) {
-                        channel.connection.close();
+                        if !channel.is_open() {
+                            channels.remove(&version);
+                        }
                     }
+                }
+                #[cfg(test)]
+                Command::Pause(entered, release) => {
+                    let _ = entered.send(());
+                    let _ = release.recv();
                 }
                 Command::Stop => break 'running,
             }
         }
     }
-    for channel in channels.values() {
-        channel.connection.close();
-    }
+    channels.clear();
     let _ = host.close().await;
 }
 
 struct Channel {
     connection: rpc::Connection,
-    output: Rc<std::cell::RefCell<Output>>,
+    generation: u64,
+    output: Arc<Mutex<BTreeMap<u64, Output>>>,
 }
 
 #[derive(Default)]
@@ -358,17 +380,58 @@ impl Output {
 }
 
 impl Channel {
-    fn new(host: &Host) -> Self {
-        let output = Rc::new(std::cell::RefCell::new(Output::default()));
+    fn is_open(&self) -> bool {
+        !self.connection.is_closed()
+            && self
+                .output
+                .lock()
+                .is_ok_and(|output| output.contains_key(&self.generation))
+    }
+
+    fn new(
+        host: &Host,
+        generation: u64,
+        output: Arc<Mutex<BTreeMap<u64, Output>>>,
+    ) -> Result<Self, String> {
+        output
+            .lock()
+            .map_err(|_| "native output is unavailable")?
+            .insert(generation, Output::default());
         let outgoing = output.clone();
         let mut options = rpc::Options::new(PRINCIPAL.into(), permits_service);
         options.max_frame = MAX_FRAME;
         options.max_pending = 16;
         options.max_references = 16;
         let connection = rpc::serve(host.clone(), options, move |frame| {
-            outgoing.borrow_mut().push(frame)
+            outgoing
+                .lock()
+                .map_err(|_| {
+                    tembra::Error::new(
+                        tembra::Code::Unavailable,
+                        "desktop.output",
+                        "native output is unavailable",
+                    )
+                })?
+                .get_mut(&generation)
+                .ok_or_else(|| {
+                    tembra::Error::new(tembra::Code::Gone, "desktop.output", "native channel ended")
+                })?
+                .push(frame)
         });
-        Self { connection, output }
+        Ok(Self {
+            connection,
+            generation,
+            output,
+        })
+    }
+}
+
+impl Drop for Channel {
+    fn drop(&mut self) {
+        self.connection.close();
+        if let Ok(mut output) = self.output.lock() {
+            output.remove(&self.generation);
+        }
     }
 }
 
@@ -674,6 +737,95 @@ mod tests {
             std::fs::read(directory.path().join("mcp.json")).unwrap(),
             contents
         );
+    }
+
+    #[test]
+    fn polling_remains_available_while_the_capability_worker_is_busy() {
+        let directory = tempfile::tempdir().unwrap();
+        let node = DesktopNode::open(directory.path().into()).unwrap();
+        let channel = node.open_shared_channel().unwrap();
+        let (entered, started) = mpsc::sync_channel(1);
+        let (release, resume) = mpsc::sync_channel(1);
+        node.sender.send(Command::Pause(entered, resume)).unwrap();
+        started.recv().unwrap();
+
+        let result = node.poll(channel);
+        release.send(()).unwrap();
+
+        assert_eq!(result, Ok(vec![]));
+        assert!(node.poll(channel).unwrap().is_empty());
+    }
+
+    #[test]
+    fn busy_worker_retains_rpc_output_and_accepts_close_with_a_full_input_queue() {
+        let directory = tempfile::tempdir().unwrap();
+        let node = DesktopNode::open(directory.path().into()).unwrap();
+        let first = node.open_shared_channel().unwrap();
+        let second = node.open_shared_channel().unwrap();
+        node.frame(
+            first,
+            serde_json::to_vec(&json!({
+                "id": 1,
+                "op": "get",
+                "payload": {"service": "swarmie.node", "key": ["main"]}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while node.output.lock().unwrap()[&first].frames.is_empty() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "RPC output did not arrive"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let (entered, started) = mpsc::sync_channel(1);
+        let (release, resume) = mpsc::sync_channel(1);
+        node.sender.send(Command::Pause(entered, resume)).unwrap();
+        started.recv().unwrap();
+        for _ in 0..64 {
+            node.frame(u64::MAX, vec![]).unwrap();
+        }
+
+        let full = node.frame(u64::MAX, vec![]);
+        let buffered = node.poll(first);
+        let empty = node.poll(first);
+        let other = node.poll(second);
+        node.close_channel(first);
+        let closed = node.poll(first);
+        release.send(()).unwrap();
+
+        assert_eq!(full.unwrap_err(), "native input budget exhausted");
+        let frames = buffered.unwrap();
+        assert_eq!(frames.len(), 1);
+        let response: Value = serde_json::from_slice(&frames[0]).unwrap();
+        assert_eq!(response["id"], 1);
+        assert!(response["ok"]["reference"].is_number(), "{response}");
+        assert_eq!(empty, Ok(vec![]));
+        assert_eq!(other, Ok(vec![]));
+        assert_eq!(closed.unwrap_err(), "native channel ended");
+        assert!(node.poll(second).unwrap().is_empty());
+    }
+
+    #[test]
+    fn malformed_input_ends_only_its_channel_before_the_next_poll() {
+        let directory = tempfile::tempdir().unwrap();
+        let node = DesktopNode::open(directory.path().into()).unwrap();
+        let first = node.open_shared_channel().unwrap();
+        let second = node.open_shared_channel().unwrap();
+        node.frame(first, b"invalid JSON".to_vec()).unwrap();
+        let (entered, started) = mpsc::sync_channel(1);
+        let (release, resume) = mpsc::sync_channel(1);
+        node.sender.send(Command::Pause(entered, resume)).unwrap();
+        started.recv().unwrap();
+
+        let closed = node.poll(first);
+        let open = node.poll(second);
+        release.send(()).unwrap();
+
+        assert_eq!(closed.unwrap_err(), "native channel ended");
+        assert_eq!(open, Ok(vec![]));
     }
 
     #[test]
