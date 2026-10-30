@@ -2,7 +2,7 @@ export const fixtureVersion = 1;
 
 export type PerformanceCase = {
   id: string;
-  engine: "rust" | "bun";
+  engine: "rust" | "rust-agent" | "bun";
   operation: string;
   size: number;
   scope: string;
@@ -66,6 +66,27 @@ const renderCases: PerformanceCase[] = [
   },
 ];
 
+function agentCases(suite: "quick" | "full"): PerformanceCase[] {
+  const repetitions = suite === "full" ? 60 : 20;
+  const boundaries = {
+    direct: "Host root plus Agent execute",
+    managed: "native Reference call plus model/tool provider calls",
+    durable: "task creation through terminal commit and assignment release",
+    conversation: "task creation through terminal commit and assignment release",
+  };
+  return Object.entries(boundaries).flatMap(([mode, boundary]) =>
+    [false, true].flatMap((tool) =>
+      [0, 100, 1000].map((prior) => ({
+        id: `agent.${mode}.${tool ? "tool" : "answer"}.h${prior}`,
+        engine: "rust-agent" as const,
+        operation: `agent.${mode}.${tool ? "tool" : "answer"}.${repetitions}`,
+        size: prior + 1,
+        scope: `median of ${repetitions} native mock turns after five warmups per fresh process; ${boundary}; setup, history seeding, verification and close excluded; ${prior} prior 256-byte messages`,
+      })),
+    ),
+  );
+}
+
 export function cases(suite: "quick" | "full"): PerformanceCase[] {
   const larger = new Map([
     ["inventory", 5000],
@@ -78,5 +99,6 @@ export function cases(suite: "quick" | "full"): PerformanceCase[] {
       size: suite === "full" ? (larger.get(entry.operation) ?? entry.size) : entry.size,
     })),
     ...renderCases,
+    ...agentCases(suite),
   ];
 }

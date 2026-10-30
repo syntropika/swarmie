@@ -8,7 +8,11 @@ const help = `Usage:
   bun run perf run --output <new-directory-outside-repository> [--suite quick|full] [--case <prefix>] [--samples 5] [--warmups 1] [--timeout-ms 180000] [--baseline <report.json>]
   bun run perf compare --baseline <report.json> --current <report.json> [--case <prefix>]
 
-Runs use synthetic repositories only. The native worker is built in release mode.
+Runs use synthetic repositories and deterministic model/tool providers only.
+Select --case agent. for native turn costs: direct, managed, durable and conversation-backed.
+Each turn worker keeps 20 (quick) or 60 (full) raw turn samples after five internal warmups.
+Turn elapsed_ms is the worker median; worker CPU/RSS include all setup and cleanup.
+Network/model generation, streaming, recovery and UI submission are outside these turn cases. The native worker is built in release mode.
 Each sample uses a fresh process; warmups warm filesystem/tool caches, not a retained JIT.
 Relative gates: median +20%/2 ms, p95 +30%/2 ms, worker peak RSS +20%/4 MiB.
 Native command/row/HTML counts must not increase. Timing CV above 20% requires a repeat.

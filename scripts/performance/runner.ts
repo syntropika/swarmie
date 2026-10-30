@@ -75,7 +75,12 @@ export function budgetFindings(report: PerformanceReport): string[] {
   );
 }
 
-async function collect(options: RunOptions, binary: string, output: string) {
+async function collect(
+  options: RunOptions,
+  binary: string,
+  agentBinary: string | null,
+  output: string,
+) {
   const selected = selectCases(options.suite, options.filter);
   const measured = new Map<string, Sample[]>();
   for (const entry of selected) {
@@ -105,7 +110,11 @@ async function collect(options: RunOptions, binary: string, output: string) {
       return;
     }
     const { entry, round, phase } = job;
-    const result = await sample(entry, binary, path.join(output, "fixtures"), options.timeoutMs);
+    const worker = entry.engine === "rust-agent" ? agentBinary : binary;
+    if (worker === null) {
+      throw new Error("The selected native turn worker is unavailable.");
+    }
+    const result = await sample(entry, worker, path.join(output, "fixtures"), options.timeoutMs);
     await Bun.write(
       path.join(output, `${phase}-${round}-${entry.id}.json`),
       JSON.stringify(result, null, 2),
@@ -136,9 +145,9 @@ export async function run(options: RunOptions): Promise<boolean> {
   await mkdir(output);
   await mkdir(path.join(output, "fixtures"));
   try {
-    const prepared = await prepare();
-    const measured = await collect(options, prepared.binary, output);
-    const { nativeBinarySha256, ...initialSource } = prepared.source;
+    const prepared = await prepare(selectCases(options.suite, options.filter));
+    const measured = await collect(options, prepared.binary, prepared.agentBinary, output);
+    const { nativeBinarySha256, agentBinarySha256, ...initialSource } = prepared.source;
     if (JSON.stringify(initialSource) !== JSON.stringify(await sourceIdentity())) {
       throw new Error(
         "The source changed during measurement. Results were retained but cannot establish a baseline.",
@@ -150,7 +159,11 @@ export async function run(options: RunOptions): Promise<boolean> {
       suite: options.suite,
       samples: options.samples,
       warmups: options.warmups,
-      source: { ...initialSource, nativeBinarySha256 },
+      source: {
+        ...initialSource,
+        nativeBinarySha256,
+        ...(agentBinarySha256 === undefined ? {} : { agentBinarySha256 }),
+      },
       environment: prepared.environment,
       cases: measured,
     };

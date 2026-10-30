@@ -220,3 +220,27 @@ test("an explicit comparison prefix isolates cases without hiding missing covera
   expect(compare(before, after, "git.").status).toBe("incomparable");
   expect(before.cases.length).toBe(2);
 });
+
+test("turn workloads preserve the historical context sizes and separate native worker identity", () => {
+  const selected = selectCases("full", "agent.");
+  expect(selected).toHaveLength(24);
+  expect([...new Set(selected.map((entry) => entry.size))]).toEqual([1, 101, 1001]);
+  expect(
+    selected.every((entry) => entry.engine === "rust-agent" && entry.operation.endsWith(".60")),
+  ).toBe(true);
+  const report = fixture();
+  const [entry] = selected;
+  if (entry === undefined) {
+    throw new Error("Missing native turn case.");
+  }
+  report.cases[0] = {
+    ...entry,
+    metrics: { elapsed_ms: statistics([1, 1, 1, 1, 1]) },
+    resources: {},
+  };
+  report.source.agentBinarySha256 = "turn-worker";
+  expect(reportValue(report).source.agentBinarySha256).toBe("turn-worker");
+  expect(reportValue(report).cases[0]?.engine).toBe("rust-agent");
+  delete report.source.agentBinarySha256;
+  expect(() => reportValue(report)).toThrow("worker identity");
+});

@@ -18,7 +18,13 @@ export type PerformanceReport = {
   suite: "quick" | "full";
   samples: number;
   warmups: number;
-  source: { revision: string; dirty: boolean; worktreeSha256: string; nativeBinarySha256: string };
+  source: {
+    revision: string;
+    dirty: boolean;
+    worktreeSha256: string;
+    nativeBinarySha256: string;
+    agentBinarySha256?: string;
+  };
   environment: Record<string, string | number>;
   cases: CaseResult[];
 };
@@ -133,7 +139,7 @@ export function reportValue(value: unknown): PerformanceReport {
   }
   const entries = input.cases.map((item): CaseResult => {
     const entry = record(item);
-    if (entry.engine !== "rust" && entry.engine !== "bun") {
+    if (entry.engine !== "rust" && entry.engine !== "rust-agent" && entry.engine !== "bun") {
       throw new TypeError("Unknown performance engine.");
     }
     const metrics = measurements(entry.metrics, samples);
@@ -150,6 +156,12 @@ export function reportValue(value: unknown): PerformanceReport {
       resources: measurements(entry.resources, samples),
     };
   });
+  if (
+    entries.some((entry) => entry.engine === "rust-agent") &&
+    source.agentBinarySha256 === undefined
+  ) {
+    throw new TypeError("Native turn measurements require their worker identity.");
+  }
   if (new Set(entries.map((entry) => entry.id)).size !== entries.length) {
     throw new TypeError("Duplicate performance case.");
   }
@@ -164,6 +176,9 @@ export function reportValue(value: unknown): PerformanceReport {
       dirty: source.dirty,
       worktreeSha256: text(source.worktreeSha256),
       nativeBinarySha256: text(source.nativeBinarySha256),
+      ...(source.agentBinarySha256 === undefined
+        ? {}
+        : { agentBinarySha256: text(source.agentBinarySha256) }),
     },
     environment,
     cases: entries,

@@ -66,7 +66,8 @@ async function command(args: string[]): Promise<string> {
   return stdout.trim();
 }
 
-async function nativeBinary(rust: string): Promise<string> {
+async function nativeBinary(rust: string, agent = false): Promise<string> {
+  const name = agent ? "swarmie-fixture-agent-performance" : "swarmie-fixture-performance";
   const output = await command([
     "cargo",
     `+${rust}`,
@@ -75,13 +76,16 @@ async function nativeBinary(rust: string): Promise<string> {
     "--release",
     "-p",
     "swarmie-fixture-performance",
+    "--bin",
+    name,
+    ...(agent ? ["--features", "agent-turns"] : []),
     "--message-format=json",
   ]);
   for (const line of output.split("\n").toReversed()) {
     const message = record(JSON.parse(line));
     if (
       message.reason === "compiler-artifact" &&
-      record(message.target).name === "swarmie-fixture-performance" &&
+      record(message.target).name === name &&
       typeof message.executable === "string"
     ) {
       return message.executable;
@@ -143,20 +147,20 @@ export async function sample(
   timeoutMs: number,
 ): Promise<Sample> {
   const args =
-    entry.engine === "rust"
-      ? [binary, entry.operation, String(entry.size), fixtures, String(timeoutMs)]
-      : [
+    entry.engine === "bun"
+      ? [
           process.execPath,
           path.join(repository, "scripts/performance/render.tsx"),
           entry.operation,
           String(entry.size),
-        ];
+        ]
+      : [binary, entry.operation, String(entry.size), fixtures, String(timeoutMs)];
   const child = Bun.spawn(args, {
     cwd: repository,
     env: { ...process.env, NODE_ENV: "production", NODE_OPTIONS: "", BUN_OPTIONS: "" },
     stdout: "pipe",
     stderr: "pipe",
-    ...(entry.engine === "bun" ? { timeout: timeoutMs } : {}),
+    ...(entry.engine === "rust" ? {} : { timeout: timeoutMs }),
   });
   const [stdout, stderr, code] = await Promise.all([
     new Response(child.stdout).text(),
@@ -188,7 +192,7 @@ export async function sample(
   return { metrics, resources, verified: record(payload.verified_items) };
 }
 
-export async function prepare() {
+export async function prepare(selected: readonly PerformanceCase[] = []) {
   const tools = await Bun.file(path.join(repository, "mise.toml")).text();
   const rust = /^rust = "(?<version>[\d.]+)"$/mu.exec(tools)?.groups?.version;
   const manager = record(
@@ -200,6 +204,15 @@ export async function prepare() {
   const source = await sourceIdentity();
   console.log("Building the locked release worker; build time is outside workload timing.");
   const binary = await nativeBinary(rust);
+  const agentBinary = selected.some((entry) => entry.engine === "rust-agent")
+    ? await nativeBinary(rust, true)
+    : null;
+  const agentBinarySha256 =
+    agentBinary === null
+      ? undefined
+      : createHash("sha256")
+          .update(await Bun.file(agentBinary).bytes())
+          .digest("hex");
   const nativeBinarySha256 = createHash("sha256")
     .update(await Bun.file(binary).bytes())
     .digest("hex");
@@ -233,5 +246,14 @@ export async function prepare() {
       )
       .digest("hex"),
   };
-  return { binary, source: { ...source, nativeBinarySha256 }, environment };
+  return {
+    binary,
+    agentBinary,
+    source: {
+      ...source,
+      nativeBinarySha256,
+      ...(agentBinarySha256 === undefined ? {} : { agentBinarySha256 }),
+    },
+    environment,
+  };
 }

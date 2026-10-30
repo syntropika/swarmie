@@ -4082,8 +4082,16 @@ dependencies = [
 name = "swarmie-fixture-performance"
 version = "0.1.0"
 dependencies = [
+ "futures",
+ "futures-timer",
  "serde_json",
+ "swarmie-agent-loop",
+ "swarmie-conversations",
+ "swarmie-durable-tasks",
  "swarmie-git",
+ "swarmie-providers",
+ "swarmie-storage",
+ "tembra",
  "tempfile",
 ]
 

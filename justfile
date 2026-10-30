@@ -189,4 +189,4 @@ perf *arguments:
 
 perf-check:
     bun run test:perf
-    cargo +{{rust_version}} clippy --locked -p swarmie-fixture-performance --all-targets -- -D warnings
+    cargo +{{rust_version}} clippy --locked -p swarmie-fixture-performance --all-features --all-targets -- -D warnings

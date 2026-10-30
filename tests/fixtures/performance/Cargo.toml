@@ -6,7 +6,28 @@ rust-version.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+agent-turns = ["dep:futures", "dep:futures-timer", "dep:swarmie-agent-loop", "dep:swarmie-providers", "dep:swarmie-durable-tasks", "dep:swarmie-conversations", "dep:swarmie-storage", "dep:tembra"]
+
+[[bin]]
+name = "swarmie-fixture-performance"
+path = "src/main.rs"
+
+[[bin]]
+name = "swarmie-fixture-agent-performance"
+path = "src/agent.rs"
+required-features = ["agent-turns"]
+
 [dependencies]
+futures = { workspace = true, optional = true }
+futures-timer = { workspace = true, optional = true }
+swarmie-agent-loop = { workspace = true, optional = true, features = ["durable-tasks", "conversations"] }
+swarmie-providers = { workspace = true, optional = true, features = ["mock"] }
+swarmie-durable-tasks = { workspace = true, optional = true }
+swarmie-conversations = { workspace = true, optional = true }
+swarmie-storage = { workspace = true, optional = true }
+tembra = { workspace = true, optional = true }
+
 swarmie-git = { workspace = true, default-features = false }
 serde_json.workspace = true
 tempfile.workspace = true
