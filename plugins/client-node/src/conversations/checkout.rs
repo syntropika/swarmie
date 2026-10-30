@@ -254,7 +254,9 @@ pub(super) async fn sync_hold(
     let active = related.iter().any(|record| {
         matches!(
             record.phase,
-            super::types::Phase::Working | super::types::Phase::Unknown
+            super::types::Phase::Working
+                | super::types::Phase::Unknown
+                | super::types::Phase::Interrupted
         )
     });
     let ids: Vec<_> = related.iter().map(|record| record.id.clone()).collect();

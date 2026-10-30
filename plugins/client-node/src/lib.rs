@@ -11,6 +11,8 @@ mod providers;
 pub use composition::{NodeConfiguration, install};
 
 /// Enable recovery and scheduling after the host has installed the complete node composition.
+/// Repeated calls do not retry held tasks. A new host recovers admitted tasks from
+/// their confirmed checkpoints; local interruption holds do not survive a restart.
 pub async fn start(host: &tembra::Host) -> tembra::Result<()> {
     conversations::tasks::start(host).await
 }

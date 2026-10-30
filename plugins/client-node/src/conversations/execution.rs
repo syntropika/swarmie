@@ -137,19 +137,20 @@ impl Session {
                             "invalid confirmed task checkpoint",
                         )
                     })?;
-                let phase = if checkpoint
+                let stop_requested = self
+                    .index
+                    .get(&self.id)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|record| record.stop_requested);
+                let phase = if !stop_requested && execution.check(&context).is_err() {
+                    Phase::Interrupted
+                } else if checkpoint
                     .as_ref()
                     .is_some_and(|value| value.has_unfinished_tools())
                 {
                     Phase::Unknown
-                } else if context.check().is_err()
-                    || self
-                        .index
-                        .get(&self.id)
-                        .ok()
-                        .flatten()
-                        .is_some_and(|record| record.stop_requested)
-                {
+                } else if stop_requested {
                     Phase::Stopped
                 } else {
                     Phase::Failed
@@ -188,7 +189,7 @@ impl Session {
                     Ok(()) => {
                         running.context.cancel()?;
                     }
-                    Err(error) if error.code == tembra::Code::Cancelled => {
+                    Err(_) if execution.check(&running.context).is_err() => {
                         // The persisted stop intent survives lease revocation. The caller
                         // joins the attempt and wakes only this held task to consume it.
                     }

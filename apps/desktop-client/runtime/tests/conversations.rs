@@ -1797,3 +1797,106 @@ fn a_presentation_write_failure_does_not_hold_a_confirmed_model_answer() {
     );
     assert_eq!(server.join().unwrap().len(), 2);
 }
+
+#[test]
+fn lease_loss_overrides_cached_final_phases_and_stop_unblocks_the_next_turn() {
+    use swarmie_durable_tasks::{CommitOutcome, TaskChange, TaskRecord, TaskStatus, TaskStorage};
+    let (entered, started) = mpsc::channel();
+    let (release, released) = mpsc::channel();
+    let (endpoint, server) = provider(vec![
+        Reply {
+            status: 200,
+            first: delta("Unconfirmed stream", false),
+            tail: delta("", true),
+            gate: Some((entered, released)),
+        },
+        answer("Explicit next turn"),
+    ]);
+    let profile = tempfile::tempdir().unwrap();
+    let node = DesktopNode::open(profile.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let account = configure(&node, channel, &endpoint);
+    let object = session(&node, channel, "lease-loss");
+    start(
+        &node,
+        channel,
+        90,
+        &object["reference"],
+        "run",
+        json!([submission(&node, &account, "lease-loss", "lease-receipt")]),
+    );
+    started.recv_timeout(WAIT).unwrap();
+    let index = profile.path().join("conversations.json");
+    let metadata: Value = serde_json::from_slice(&std::fs::read(&index).unwrap()).unwrap();
+    let id = serde_json::from_value(metadata[0]["task"].clone()).unwrap();
+    let storage =
+        swarmie_storage::sqlite::SqliteOwner::new(profile.path().join("conversations.sqlite"))
+            .tasks()
+            .unwrap();
+    // Shorten the current assignment through the real storage contract. The next
+    // checkpoint or renewal must reject the expired token and revoke the attempt.
+    futures::executor::block_on(async {
+        let task = storage.get(id).await.unwrap().unwrap();
+        let assignment = task.assignment.unwrap();
+        assert!(matches!(
+            storage
+                .commit(vec![TaskChange::Renew {
+                    id,
+                    attempt: assignment.attempt,
+                    lease_ms: std::num::NonZeroU64::new(1).unwrap(),
+                }])
+                .await
+                .unwrap(),
+            CommitOutcome::Applied { .. }
+        ));
+    });
+    thread::sleep(Duration::from_millis(20));
+    release.send(()).unwrap();
+    let result = response(&node, channel, 90);
+    assert_eq!(result["ok"]["status"], "settled", "{result}");
+    let task: TaskRecord = futures::executor::block_on(storage.get(id))
+        .unwrap()
+        .unwrap();
+    assert_eq!(task.status, TaskStatus::Ready);
+    assert!(task.assignment.is_none());
+    for stale in [None, Some("stopped"), Some("unknown")] {
+        if let Some(stale) = stale {
+            let mut metadata: Value =
+                serde_json::from_slice(&std::fs::read(&index).unwrap()).unwrap();
+            metadata[0]["phase"] = json!(stale);
+            std::fs::write(&index, serde_json::to_vec(&metadata).unwrap()).unwrap();
+        }
+        let snapshot = session(&node, channel, "lease-loss");
+        assert_eq!(snapshot["state"]["phase"], "interrupted", "{snapshot}");
+        assert_eq!(snapshot["state"]["canAcknowledge"], false);
+    }
+    let stopped = call(&node, channel, &object["reference"], "stop", json!([]));
+    assert!(stopped.get("error").is_none(), "{stopped}");
+    assert_eq!(
+        session(&node, channel, "lease-loss")["state"]["phase"],
+        "stopped"
+    );
+    let next = call(
+        &node,
+        channel,
+        &object["reference"],
+        "run",
+        json!([submission(
+            &node,
+            &account,
+            "lease-loss",
+            "next-explicit-receipt"
+        )]),
+    );
+    assert_eq!(next["ok"]["status"], "settled", "{next}");
+    assert_eq!(
+        session(&node, channel, "lease-loss")["state"]["phase"],
+        "completed"
+    );
+    futures::executor::block_on(storage.close()).unwrap();
+    assert_eq!(
+        server.join().unwrap().len(),
+        3,
+        "the interrupted turn must not dispatch another model request"
+    );
+}

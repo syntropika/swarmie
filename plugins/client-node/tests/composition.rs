@@ -292,3 +292,34 @@ async fn a_non_desktop_host_observes_and_stops_a_held_turn_without_provider_disp
         assert_eq!(host.kernel().diagnostics().resources, 0);
     }).await;
 }
+
+#[tokio::test]
+async fn an_embedding_cannot_bind_a_user_to_the_reserved_host_principal() {
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            for principal in ["", swarmie_durable_tasks::HOST_PRINCIPAL] {
+                let profile = tempfile::tempdir().unwrap();
+                let host = Host::new(Executor);
+                let result = install(
+                    &host,
+                    NodeConfiguration {
+                        state: profile.path().into(),
+                        node: NodeId::new("embedded-fixture").unwrap(),
+                        oauth_host: uuid::Uuid::new_v4(),
+                        principal: principal.into(),
+                        directory_root: None,
+                        git: None,
+                        agent_git_authority: None,
+                    },
+                );
+                assert_eq!(result.unwrap_err().code, tembra::Code::Invalid);
+                assert!(!profile.path().join("conversations.sqlite").exists());
+                assert!(
+                    host.get(NODE_SERVICE, vec![NODE_KEY.into()], principal)
+                        .is_err()
+                );
+                host.close().await.unwrap();
+            }
+        })
+        .await;
+}

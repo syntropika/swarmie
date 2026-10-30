@@ -1,7 +1,7 @@
 //! Task-scoped observation and explicit readmission through the scheduler owner.
 use super::Engine;
 use crate::{
-    TaskId, TaskObservation, TaskStatus,
+    TaskId, TaskObservation, TaskSnapshot, TaskStatus,
     authority::{Reason, error, storage_error},
 };
 use futures::{FutureExt, channel::oneshot};
@@ -10,7 +10,11 @@ use tembra::{Code, Context};
 
 impl Engine {
     /// This is local physical observation, not cross-executor effect reconciliation.
-    pub async fn observe(&self, context: &Context, id: TaskId) -> tembra::Result<TaskObservation> {
+    pub async fn observe(
+        &self,
+        context: &Context,
+        id: TaskId,
+    ) -> tembra::Result<Option<TaskSnapshot>> {
         context.check()?;
         self.authority.check()?;
         self.signal.check()?;
@@ -22,10 +26,11 @@ impl Engine {
             .storage
             .get(id)
             .await
-            .map_err(storage_error)?
-            .ok_or_else(|| error(Code::Invalid, Reason::Scope, "task does not exist"))?;
+            .map_err(storage_error)?;
         context.check()?;
         self.authority.check()?;
+        self.signal.check()?;
+        let Some(task) = task else { return Ok(None) };
         let principal = context.principal()?;
         if principal != crate::HOST_PRINCIPAL && task.principal != principal {
             return Err(error(
@@ -34,7 +39,7 @@ impl Engine {
                 "observation requires task owner",
             ));
         }
-        if matches!(
+        let observation = if matches!(
             task.status,
             TaskStatus::Completed(_) | TaskStatus::Failed(_)
         ) && !self.control.active.borrow().contains(&id)
@@ -43,14 +48,15 @@ impl Engine {
                 .as_ref()
                 .is_none_or(|assignment| assignment.executor != self.options.executor)
         {
-            Ok(TaskObservation::Settled)
+            TaskObservation::Settled
         } else if self.control.status.borrow().interrupted.contains(&id)
             && !self.control.retry_tasks.borrow().contains(&id)
         {
-            Ok(TaskObservation::Interrupted)
+            TaskObservation::Interrupted
         } else {
-            Ok(TaskObservation::Pending)
-        }
+            TaskObservation::Pending
+        };
+        Ok(Some(TaskSnapshot { task, observation }))
     }
 
     /// Losing this observer never cancels the attempt. Subscribe before reading,
@@ -74,7 +80,11 @@ impl Engine {
                 })
             })
             .collect();
-            let observed = self.observe(context, id).await?;
+            let observed = self
+                .observe(context, id)
+                .await?
+                .ok_or_else(|| error(Code::Invalid, Reason::Scope, "task does not exist"))?
+                .observation;
             if observed != TaskObservation::Pending {
                 return Ok(observed);
             }
@@ -91,7 +101,13 @@ impl Engine {
     /// The task owner must reconcile unknown effects before choosing readmission.
     /// This call cannot resume the scheduler, reclaim another executor or change input.
     pub async fn wake_task(&self, context: &Context, id: TaskId) -> tembra::Result<()> {
-        if self.observe(context, id).await? == TaskObservation::Interrupted {
+        if self
+            .observe(context, id)
+            .await?
+            .ok_or_else(|| error(Code::Invalid, Reason::Scope, "task does not exist"))?
+            .observation
+            == TaskObservation::Interrupted
+        {
             self.control.retry_tasks.borrow_mut().insert(id);
             self.control.wake(false);
         }

@@ -12,8 +12,8 @@ use std::{num::NonZeroU32, rc::Rc};
 use swarmie_agent_loop::conversation::Request;
 use swarmie_conversations::{Conversations, EntryDraft, WriteConfirmation};
 use swarmie_durable_tasks::{
-    self as durable, CommitOutcome, TaskChange, TaskDefinition, TaskId, TaskObservation, TaskSpec,
-    TaskStorage,
+    self as durable, CommitOutcome, TaskChange, TaskDefinition, TaskId, TaskObservation,
+    TaskSnapshot, TaskSpec, TaskStorage,
 };
 use tembra::{Context, Host, Orb, Service};
 
@@ -107,7 +107,11 @@ impl Tasks {
         scheduler.call(context, method.as_str(), (id,)).await
     }
 
-    pub async fn observe(&self, context: &Context, id: TaskId) -> tembra::Result<TaskObservation> {
+    pub async fn observe(
+        &self,
+        context: &Context,
+        id: TaskId,
+    ) -> tembra::Result<Option<TaskSnapshot>> {
         self.call(context, durable::Method::Observe, id).await
     }
 
@@ -162,7 +166,7 @@ pub(crate) async fn start(host: &Host) -> tembra::Result<()> {
     host.root(durable::HOST_PRINCIPAL, move |context| {
         async move {
             scheduler
-                .call(&context, durable::Method::Resume.as_str(), ())
+                .call(&context, durable::Method::Enable.as_str(), ())
                 .await
         }
         .boxed_local()

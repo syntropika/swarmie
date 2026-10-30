@@ -1236,11 +1236,20 @@ fn observer_sees_interruption_and_targeted_wake_preserves_other_holds() {
         TaskObservation::Interrupted
     );
     assert_eq!(
-        h.call::<_, TaskObservation>(Method::Observe, (second,))
-            .unwrap(),
+        h.call::<_, Option<TaskSnapshot>>(Method::Observe, (second,))
+            .unwrap()
+            .unwrap()
+            .observation,
         TaskObservation::Interrupted
     );
     allowed.set(true);
+    h.call::<_, ()>(Method::Enable, ()).unwrap();
+    h.pool.run_until_stalled();
+    assert_eq!(
+        calls.borrow()[&first],
+        1,
+        "repeated startup must preserve local holds"
+    );
     h.call::<_, ()>(Method::WakeTask, (first,)).unwrap();
     assert_eq!(
         h.call::<_, TaskObservation>(Method::Wait, (first,))

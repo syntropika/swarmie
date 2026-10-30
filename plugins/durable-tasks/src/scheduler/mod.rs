@@ -150,6 +150,12 @@ impl Engine {
     }
 
     pub fn resume(&self, context: &Context) -> tembra::Result<()> {
+        self.enable(context)?;
+        self.control.wake(true);
+        Ok(())
+    }
+
+    pub fn enable(&self, context: &Context) -> tembra::Result<()> {
         authorize(context)?;
         self.authority.check()?;
         self.signal.check()?;
@@ -158,7 +164,8 @@ impl Engine {
         }
         self.control.enabled.set(true);
         self.control.status.borrow_mut().enabled = true;
-        self.control.wake(true);
+        // Enabling scheduling is not an explicit retry of held work.
+        self.control.wake(false);
         Ok(())
     }
 

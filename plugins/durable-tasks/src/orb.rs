@@ -18,9 +18,11 @@ pub enum Method {
     Get,
     List,
     Resume,
+    /// Enable scheduling without retrying local holds. Repeated calls are idempotent.
+    Enable,
     Wake,
     Inspect,
-    /// `(TaskId,)` returns [`crate::TaskObservation`] for the task owner or host.
+    /// `(TaskId,)` returns `Option<TaskSnapshot>` for the task owner or host.
     Observe,
     /// `(TaskId,)` waits for local settlement or interruption. Cancellation releases
     /// only this observer. It does not cancel the task or reconcile external effects.
@@ -39,6 +41,7 @@ impl Method {
             Self::Get => "get",
             Self::List => "list",
             Self::Resume => "resume",
+            Self::Enable => "enable",
             Self::Wake => "wake",
             Self::Inspect => "inspect",
             Self::Observe => "observe",
@@ -192,6 +195,10 @@ pub fn orb(host: Host, storage: StorageFactory, definitions: Definitions, option
     .method(
         Method::Resume.as_str(),
         |engine, context, (): ()| async move { engine.value()?.resume(&context) },
+    )
+    .method(
+        Method::Enable.as_str(),
+        |engine, context, (): ()| async move { engine.value()?.enable(&context) },
     )
     .method(
         Method::Wake.as_str(),

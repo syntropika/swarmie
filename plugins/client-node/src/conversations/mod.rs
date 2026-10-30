@@ -128,22 +128,21 @@ impl Session {
         let transcript = self.transcript(context).await?;
         let metadata = self.index.get(&self.id)?;
         let mut phase = metadata.as_ref().map_or(Phase::Idle, |record| record.phase);
-        if matches!(phase, Phase::Working | Phase::Interrupted) && self.running.borrow().is_none() {
-            let task = if let Some(id) = metadata.as_ref().and_then(|record| record.task) {
-                self.tasks
-                    .storage
-                    .get(id)
-                    .await
-                    .map_err(|error| failure(&error.to_string()))?
+        if self.running.borrow().is_none()
+            && (metadata
+                .as_ref()
+                .is_some_and(|record| record.task.is_some())
+                || matches!(phase, Phase::Working | Phase::Interrupted))
+        {
+            let observed = if let Some(id) = metadata.as_ref().and_then(|record| record.task) {
+                self.tasks.observe(context, id).await?
             } else {
                 None
             };
-            let interrupted = if let Some(task) = &task {
-                self.tasks.observe(context, task.spec.id).await?
-                    == swarmie_durable_tasks::TaskObservation::Interrupted
-            } else {
-                false
-            };
+            let interrupted = observed.as_ref().is_some_and(|value| {
+                value.observation == swarmie_durable_tasks::TaskObservation::Interrupted
+            });
+            let task = observed.map(|value| value.task);
             let active = !interrupted
                 && task.as_ref().is_some_and(|task| {
                     matches!(
@@ -152,7 +151,9 @@ impl Session {
                             | swarmie_durable_tasks::TaskStatus::Waiting(_)
                     )
                 });
-            if !active {
+            if active {
+                phase = Phase::Working;
+            } else {
                 phase = if interrupted {
                     Phase::Interrupted
                 } else if !transcript.pending.is_empty() {
@@ -173,11 +174,29 @@ impl Session {
                 } else {
                     Phase::Stopped
                 };
-                let checkpoint = task
-                    .and_then(|task| task.checkpoint)
+            }
+            // Tool reconciliation can finish after the durable turn result. Do not
+            // restore its old unknown phase or checkpoint once history is settled.
+            if phase == Phase::Unknown && transcript.pending.is_empty() {
+                phase = Phase::Stopped;
+            }
+            let checkpoint = if phase == Phase::Unknown
+                && metadata
+                    .as_ref()
+                    .is_some_and(|record| record.checkpoint.is_none())
+            {
+                task.and_then(|task| task.checkpoint)
                     .map(serde_json::from_value)
                     .transpose()
-                    .map_err(|_| failure("invalid confirmed task checkpoint"))?;
+                    .map_err(|_| failure("invalid confirmed task checkpoint"))?
+            } else {
+                None
+            };
+            if metadata
+                .as_ref()
+                .is_some_and(|record| record.phase != phase)
+                || checkpoint.is_some()
+            {
                 self.index.change(&self.id, |record| {
                     record.phase = phase;
                     if record.checkpoint.is_none() {
@@ -186,6 +205,7 @@ impl Session {
                 })?;
             }
         }
+
         if phase == Phase::Unknown && transcript.pending.is_empty() {
             phase = Phase::Stopped;
             self.index.change(&self.id, |record| {
@@ -380,24 +400,21 @@ impl Session {
                 .map_err(|error| failure(&error.to_string()))?
                 .is_some()
         {
-            loop {
-                match self.tasks.wait(context, task).await? {
-                    swarmie_durable_tasks::TaskObservation::Settled => break,
-                    swarmie_durable_tasks::TaskObservation::Interrupted
-                        if metadata.stop_requested =>
-                    {
-                        // Only explicit, persisted Stop can readmit a held turn. The handler
-                        // checks that intent before model or tool dispatch.
-                        self.tasks.wake(context, task).await?;
-                    }
-                    _ => {
-                        return Err(tembra::Error::new(
-                            tembra::Code::Unavailable,
-                            "conversation.recovery_required",
-                            "the previous turn was interrupted; stop it before continuing",
-                        ));
-                    }
-                }
+            let mut observed = self.tasks.wait(context, task).await?;
+            if observed == swarmie_durable_tasks::TaskObservation::Interrupted
+                && metadata.stop_requested
+            {
+                // One explicit Stop can readmit this held task once. The handler
+                // consumes the persisted intent before model or tool dispatch.
+                self.tasks.wake(context, task).await?;
+                observed = self.tasks.wait(context, task).await?;
+            }
+            if observed != swarmie_durable_tasks::TaskObservation::Settled {
+                return Err(tembra::Error::new(
+                    tembra::Code::Unavailable,
+                    "conversation.recovery_required",
+                    "the previous turn was interrupted; stop it before continuing",
+                ));
             }
         }
         Ok(())

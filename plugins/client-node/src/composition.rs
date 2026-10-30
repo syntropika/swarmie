@@ -43,6 +43,12 @@ pub fn install(host: &Host, configuration: NodeConfiguration) -> tembra::Result<
         git,
         agent_git_authority,
     } = configuration;
+    if principal.is_empty() || principal == swarmie_durable_tasks::HOST_PRINCIPAL {
+        return Err(tembra::Error::invalid(
+            "client-node.principal",
+            "a non-host user principal is required",
+        ));
+    }
     if oauth_host.is_nil() {
         return Err(tembra::Error::invalid(
             "client-node.oauth_host",
