@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub(super) enum Phase {
     Idle,
     Working,
+    Interrupted,
     Stopped,
     Completed,
     Failed,

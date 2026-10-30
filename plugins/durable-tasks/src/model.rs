@@ -132,6 +132,19 @@ pub enum TaskStatus {
     Failed(TaskFailure),
 }
 
+/// Local execution observation, separate from the durable task status.
+/// `Settled` means a terminal record has no assignment on this executor. It does
+/// not prove that external effects or another executor have stopped.
+/// `Interrupted` means this executor has joined the attempt and holds automatic
+/// readmission until an explicit recovery decision. It is not a terminal result.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskObservation {
+    Pending,
+    Settled,
+    Interrupted,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Assignment {
     pub executor: ExecutorId,

@@ -13,8 +13,8 @@ pub use definitions::Definitions;
 pub use execution::Execution;
 pub use model::{
     Assignment, AttemptId, ExecutorId, SignalDelivery, SignalKey, SignalReceipt, TaskDefinition,
-    TaskFailure, TaskId, TaskOutcome, TaskPageRequest, TaskRecord, TaskSpec, TaskState, TaskStatus,
-    TaskSummary, WaitFor, WaitState,
+    TaskFailure, TaskId, TaskObservation, TaskOutcome, TaskPageRequest, TaskRecord, TaskSpec,
+    TaskState, TaskStatus, TaskSummary, WaitFor, WaitState,
 };
 pub use orb::{HOST_PRINCIPAL, INSTANCE_KEY, Method, SERVICE, TaskMethod, orb};
 pub use scheduler::{

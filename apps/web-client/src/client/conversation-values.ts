@@ -84,6 +84,7 @@ function executionPhase(value: unknown): Execution["phase"] {
     case "queued":
     case "working":
     case "stopping":
+    case "interrupted":
     case "stopped":
     case "completed":
     case "failed":

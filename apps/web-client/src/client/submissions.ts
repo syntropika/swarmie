@@ -140,7 +140,7 @@ export function createSubmissions(
       (chat.started || chat.node === null) &&
       nodes.getSnapshot().nodes.some((node) => node.id === conversationNode(chat)) &&
       providers.resolve(draft).available &&
-      chat.execution.getSnapshot().phase !== "unknown"
+      !["unknown", "interrupted"].includes(chat.execution.getSnapshot().phase)
     );
   }
   function send(chat: Conversation, mode: "queue" | "steer" = "queue") {
@@ -261,7 +261,8 @@ export function createSubmissions(
           current.phase === "completed" ||
           current.phase === "stopped" ||
           current.phase === "failed" ||
-          current.phase === "unknown"
+          current.phase === "unknown" ||
+          current.phase === "interrupted"
             ? current
             : { ...current, phase: "working", label: "Thinking…" },
         );

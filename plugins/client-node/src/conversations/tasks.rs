@@ -5,16 +5,15 @@ use super::{
 };
 use futures::{
     FutureExt,
-    channel::oneshot,
     task::{LocalFutureObj, LocalSpawn, SpawnError},
 };
 use serde::{Deserialize, Serialize};
-use std::{cell::RefCell, num::NonZeroU32, rc::Rc};
+use std::{num::NonZeroU32, rc::Rc};
 use swarmie_agent_loop::conversation::Request;
 use swarmie_conversations::{Conversations, EntryDraft, WriteConfirmation};
 use swarmie_durable_tasks::{
-    self as durable, CommitOutcome, ExecutorId, TaskChange, TaskDefinition, TaskId, TaskSpec,
-    TaskStatus, TaskStorage,
+    self as durable, CommitOutcome, TaskChange, TaskDefinition, TaskId, TaskObservation, TaskSpec,
+    TaskStorage,
 };
 use tembra::{Context, Host, Orb, Service};
 
@@ -46,7 +45,7 @@ impl Outcome {
 
 pub(super) struct Tasks {
     pub storage: Rc<dyn TaskStorage>,
-    pub executor: ExecutorId,
+    pub host: Host,
 }
 
 impl Tasks {
@@ -94,45 +93,31 @@ impl Tasks {
         }
     }
 
-    /// Wait for physical release on this executor. Losing an observer never cancels work.
-    pub async fn wait(&self, context: &Context, id: TaskId) -> tembra::Result<()> {
-        loop {
-            context.check()?;
-            let (send, receive) = oneshot::channel();
-            let notify = Rc::new(RefCell::new(Some(send)));
-            let changed = notify.clone();
-            let _subscription = self.storage.changes().subscribe(move || {
-                if let Some(send) = changed.borrow_mut().take() {
-                    let _ = send.send(());
-                }
-            });
-            let _owner = self.storage.owner().changes().subscribe(move || {
-                if let Some(send) = notify.borrow_mut().take() {
-                    let _ = send.send(());
-                }
-            });
-            let record = self
-                .storage
-                .get(id)
-                .await
-                .map_err(|error| failure(&error.to_string()))?
-                .ok_or_else(|| failure("the admitted turn is missing"))?;
-            if matches!(
-                record.status,
-                TaskStatus::Completed(_) | TaskStatus::Failed(_)
-            ) && record
-                .assignment
-                .as_ref()
-                .is_none_or(|assignment| assignment.executor != self.executor)
-            {
-                return Ok(());
-            }
-            let signal = context.signal();
-            futures::select_biased! {
-                () = signal.cancelled().fuse() => return context.check(),
-                _ = receive.fuse() => {},
-            }
-        }
+    async fn call<R: 'static>(
+        &self,
+        context: &Context,
+        method: durable::Method,
+        id: TaskId,
+    ) -> tembra::Result<R> {
+        let scheduler = self.host.get(
+            durable::SERVICE,
+            vec![durable::INSTANCE_KEY.into()],
+            durable::HOST_PRINCIPAL,
+        )?;
+        scheduler.call(context, method.as_str(), (id,)).await
+    }
+
+    pub async fn observe(&self, context: &Context, id: TaskId) -> tembra::Result<TaskObservation> {
+        self.call(context, durable::Method::Observe, id).await
+    }
+
+    /// Wait for local physical settlement or explicit recovery. Observer loss does not stop work.
+    pub async fn wait(&self, context: &Context, id: TaskId) -> tembra::Result<TaskObservation> {
+        self.call(context, durable::Method::Wait, id).await
+    }
+
+    pub async fn wake(&self, context: &Context, id: TaskId) -> tembra::Result<()> {
+        self.call(context, durable::Method::WakeTask, id).await
     }
 }
 
@@ -145,8 +130,9 @@ pub(super) fn handler(host: Host) -> Orb {
         durable::TaskMethod::Execute.as_str(),
         |host, context, execution: durable::Execution| async move {
             execution.check(&context)?;
-            let input: Input = serde_json::from_value(execution.input())
-                .map_err(|_| failure("invalid persisted turn input"))?;
+            let input: Input = serde_json::from_value(execution.input()).map_err(|_| {
+                tembra::Error::invalid("conversation.input", "invalid persisted turn input")
+            })?;
             let session = host.get(SERVICE, vec![input.session], &context.principal()?)?;
             let result = session
                 .call::<_, durable::TaskOutcome>(&context, "execute_task", execution)

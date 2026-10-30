@@ -13,18 +13,22 @@ export function activityLabel(execution: Execution): string {
     queued: "Waiting to start…",
     working: "Working…",
     stopping: "Stopping…",
+    interrupted: "Execution interrupted. Stop this turn before sending a new message.",
     stopped: "Stopped",
     failed: "The request failed. You can send a new message.",
     unknown: "The request outcome is not confirmed.",
   };
-  if (["stopped", "failed", "unknown"].includes(execution.phase) && execution.label !== "") {
+  if (
+    ["stopped", "failed", "unknown", "interrupted"].includes(execution.phase) &&
+    execution.label !== ""
+  ) {
     return execution.label;
   }
   return labels[execution.phase];
 }
 
 export function ConversationStatus({ chat }: { chat: Conversation }) {
-  const { acknowledgeUnknown, conversationState, conversationError } = useClient();
+  const { acknowledgeUnknown, conversationState, conversationError, stop } = useClient();
   const execution = useSource(chat.execution);
   const presentationError = useSource(conversationError);
   const [acknowledging, setAcknowledging] = useState(false);
@@ -52,6 +56,17 @@ export function ConversationStatus({ chat }: { chat: Conversation }) {
         >
           {label}
         </output>
+      ) : null}
+      {execution.phase === "interrupted" ? (
+        <Button
+          variant="secondary"
+          size="sm"
+          onPress={() => {
+            stop(chat);
+          }}
+        >
+          Stop interrupted turn
+        </Button>
       ) : null}
       {execution.phase === "unknown" && execution.canAcknowledge === true ? (
         <>

@@ -43,6 +43,7 @@ export type Execution = {
     | "queued"
     | "working"
     | "stopping"
+    | "interrupted"
     | "stopped"
     | "completed"
     | "failed"

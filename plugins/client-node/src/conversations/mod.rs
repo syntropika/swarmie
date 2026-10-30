@@ -128,7 +128,7 @@ impl Session {
         let transcript = self.transcript(context).await?;
         let metadata = self.index.get(&self.id)?;
         let mut phase = metadata.as_ref().map_or(Phase::Idle, |record| record.phase);
-        if phase == Phase::Working && self.running.borrow().is_none() {
+        if matches!(phase, Phase::Working | Phase::Interrupted) && self.running.borrow().is_none() {
             let task = if let Some(id) = metadata.as_ref().and_then(|record| record.task) {
                 self.tasks
                     .storage
@@ -138,15 +138,24 @@ impl Session {
             } else {
                 None
             };
-            let active = task.as_ref().is_some_and(|task| {
-                matches!(
-                    task.status,
-                    swarmie_durable_tasks::TaskStatus::Ready
-                        | swarmie_durable_tasks::TaskStatus::Waiting(_)
-                )
-            });
+            let interrupted = if let Some(task) = &task {
+                self.tasks.observe(context, task.spec.id).await?
+                    == swarmie_durable_tasks::TaskObservation::Interrupted
+            } else {
+                false
+            };
+            let active = !interrupted
+                && task.as_ref().is_some_and(|task| {
+                    matches!(
+                        task.status,
+                        swarmie_durable_tasks::TaskStatus::Ready
+                            | swarmie_durable_tasks::TaskStatus::Waiting(_)
+                    )
+                });
             if !active {
-                phase = if !transcript.pending.is_empty() {
+                phase = if interrupted {
+                    Phase::Interrupted
+                } else if !transcript.pending.is_empty() {
                     Phase::Unknown
                 } else if let Some(task) = &task {
                     match &task.status {
@@ -191,6 +200,9 @@ impl Session {
             Phase::Stopped => "Stopped",
             Phase::Failed => "The request failed. You can send a new message.",
             Phase::Working => "Thinking…",
+            Phase::Interrupted => {
+                "Execution interrupted. Stop this turn before sending a new message; unfinished effects will not be replayed."
+            }
             _ => "",
         };
         self.state.update(context, |current| {
@@ -229,6 +241,7 @@ impl Session {
         if self.running.borrow().is_some() {
             return Err(failure("the request is still physically running"));
         }
+        self.wait_turn(context).await?;
         let Some(metadata) = self.index.get(&self.id)? else {
             return Err(failure("there is no recorded outcome to acknowledge"));
         };
@@ -357,7 +370,8 @@ impl Session {
     }
 
     async fn wait_turn(&self, context: &Context) -> tembra::Result<()> {
-        if let Some(task) = self.index.get(&self.id)?.and_then(|record| record.task)
+        if let Some(metadata) = self.index.get(&self.id)?
+            && let Some(task) = metadata.task
             && self
                 .tasks
                 .storage
@@ -366,7 +380,25 @@ impl Session {
                 .map_err(|error| failure(&error.to_string()))?
                 .is_some()
         {
-            self.tasks.wait(context, task).await?;
+            loop {
+                match self.tasks.wait(context, task).await? {
+                    swarmie_durable_tasks::TaskObservation::Settled => break,
+                    swarmie_durable_tasks::TaskObservation::Interrupted
+                        if metadata.stop_requested =>
+                    {
+                        // Only explicit, persisted Stop can readmit a held turn. The handler
+                        // checks that intent before model or tool dispatch.
+                        self.tasks.wake(context, task).await?;
+                    }
+                    _ => {
+                        return Err(tembra::Error::new(
+                            tembra::Code::Unavailable,
+                            "conversation.recovery_required",
+                            "the previous turn was interrupted; stop it before continuing",
+                        ));
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -652,7 +684,7 @@ pub(crate) fn orbs(
     );
     let tasks = Rc::new(tasks::Tasks {
         storage: task_storage.clone(),
-        executor: options.executor,
+        host: host.clone(),
     });
     let scheduler = swarmie_durable_tasks::orb(
         host.clone(),
@@ -682,7 +714,7 @@ pub(crate) fn orbs(
             if declaration.address()?.principal != public_principal
                 || declaration.address()?.key != ["main"]
             {
-                return Err(failure("conversation access refused"));
+                return Err(tembra::Error::new(tembra::Code::Forbidden, "conversation.principal", "conversation access refused"));
             }
             Ok(public_index.clone())
         })
@@ -727,10 +759,17 @@ pub(crate) fn orbs(
             Service::new(SERVICE, move |declaration| {
                 let address = declaration.address()?;
                 let [id] = address.key.as_slice() else {
-                    return Err(failure("invalid conversation key"));
+                    return Err(tembra::Error::invalid(
+                        "conversation.key",
+                        "invalid conversation key",
+                    ));
                 };
                 if address.principal != principal || id.is_empty() || id.len() > 255 {
-                    return Err(failure("conversation access refused"));
+                    return Err(tembra::Error::new(
+                        tembra::Code::Forbidden,
+                        "conversation.principal",
+                        "conversation access refused",
+                    ));
                 }
                 let history_id = uuid::Uuid::new_v5(
                     &uuid::Uuid::NAMESPACE_URL,

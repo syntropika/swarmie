@@ -1747,3 +1747,53 @@ fn persisted_client_answer_performance() {
         json!({"prior_messages":prior,"message_bytes":128,"warmups":5,"turn_samples_ns":samples,"model_calls":1,"completion_verified":true,"scope":"native client RPC user admission through durable task release and presentation refresh; loopback HTTP streaming provider; setup, history seed, assertions and close excluded"})
     );
 }
+
+#[test]
+fn a_presentation_write_failure_does_not_hold_a_confirmed_model_answer() {
+    let (entered, started) = mpsc::channel();
+    let (release, released) = mpsc::channel();
+    let (endpoint, server) = provider(vec![Reply {
+        status: 200,
+        first: delta("Confirmed answer", false),
+        tail: delta("", true),
+        gate: Some((entered, released)),
+    }]);
+    let profile = tempfile::tempdir().unwrap();
+    let node = DesktopNode::open(profile.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let account = configure(&node, channel, &endpoint);
+    let object = session(&node, channel, "presentation-failure");
+    start(
+        &node,
+        channel,
+        90,
+        &object["reference"],
+        "run",
+        json!([submission(
+            &node,
+            &account,
+            "presentation-failure",
+            "presentation-receipt"
+        )]),
+    );
+    started.recv_timeout(WAIT).unwrap();
+    let index = profile.path().join("conversations.json");
+    let backup = profile.path().join("fixture-index-backup");
+    std::fs::rename(&index, &backup).unwrap();
+    std::fs::create_dir(&index).unwrap();
+    release.send(()).unwrap();
+    let result = response(&node, channel, 90);
+    assert_eq!(result["ok"]["status"], "settled", "{result}");
+    std::fs::remove_dir(&index).unwrap();
+    std::fs::rename(&backup, &index).unwrap();
+    let snapshot = session(&node, channel, "presentation-failure");
+    assert_eq!(snapshot["state"]["phase"], "completed", "{snapshot}");
+    assert!(
+        snapshot["state"]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| message["text"] == "Confirmed answer")
+    );
+    assert_eq!(server.join().unwrap().len(), 2);
+}

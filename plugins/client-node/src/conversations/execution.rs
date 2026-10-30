@@ -1,6 +1,6 @@
 //! Attempt-owned client execution over the existing conversation task adapter.
 use super::{
-    Running, RunningContext, Session, checkout, failure, projection, tasks,
+    Running, RunningContext, Session, checkout, projection, tasks,
     types::{self, Phase},
 };
 use std::rc::Rc;
@@ -15,19 +15,23 @@ impl Session {
         execution: swarmie_durable_tasks::Execution,
     ) -> tembra::Result<swarmie_durable_tasks::TaskOutcome> {
         execution.check(&context)?;
-        let input: tasks::Input = serde_json::from_value(execution.input())
-            .map_err(|_| failure("invalid persisted client turn"))?;
-        let metadata = self
-            .index
-            .get(&self.id)?
-            .ok_or_else(|| failure("the turn is not indexed"))?;
+        let input: tasks::Input = serde_json::from_value(execution.input()).map_err(|_| {
+            tembra::Error::invalid("conversation.input", "invalid persisted client turn")
+        })?;
+        let metadata = self.index.get(&self.id)?.ok_or_else(|| {
+            tembra::Error::invalid("conversation.index", "the turn is not indexed")
+        })?;
         if input.session != self.id
             || context.principal()? != self.principal
+            || metadata.principal != self.principal
+            || metadata.node != self.node
             || metadata.task != Some(execution.id())
             || metadata.execution_context != input.binding
             || input.request.at.conversation != self.history_id
         {
-            return Err(failure(
+            return Err(tembra::Error::new(
+                tembra::Code::Forbidden,
+                "conversation.binding",
                 "the task belongs to another conversation or checkout",
             ));
         }
@@ -36,8 +40,13 @@ impl Session {
                 .checkpoint()
                 .map(serde_json::from_value)
                 .transpose()
-                .map_err(|_| failure("invalid stored turn checkpoint"))?;
-            self.index.change(&self.id, |record| {
+                .map_err(|_| {
+                    tembra::Error::invalid(
+                        "conversation.checkpoint",
+                        "invalid stored turn checkpoint",
+                    )
+                })?;
+            let _ = self.index.change(&self.id, |record| {
                 record.phase = if checkpoint.as_ref().is_some_and(
                     |value: &swarmie_agent_loop::conversation::Checkpoint| {
                         value.has_unfinished_tools()
@@ -48,13 +57,15 @@ impl Session {
                     Phase::Stopped
                 };
                 record.checkpoint = checkpoint;
-            })?;
+            });
             return Ok(swarmie_durable_tasks::TaskOutcome::Completed(
                 tasks::Outcome::StopRequested.value(),
             ));
         }
-        self.index
-            .change(&self.id, |record| record.phase = Phase::Working)?;
+        if metadata.phase != Phase::Working {
+            self.index
+                .change(&self.id, |record| record.phase = Phase::Working)?;
+        }
         *self.running.borrow_mut() = Some(RunningContext {
             context: context.clone(),
             binding: input.binding.clone(),
@@ -120,13 +131,25 @@ impl Session {
                     .checkpoint()
                     .map(serde_json::from_value)
                     .transpose()
-                    .map_err(|_| failure("invalid confirmed task checkpoint"))?;
+                    .map_err(|_| {
+                        tembra::Error::invalid(
+                            "conversation.checkpoint",
+                            "invalid confirmed task checkpoint",
+                        )
+                    })?;
                 let phase = if checkpoint
                     .as_ref()
                     .is_some_and(|value| value.has_unfinished_tools())
                 {
                     Phase::Unknown
-                } else if context.check().is_err() {
+                } else if context.check().is_err()
+                    || self
+                        .index
+                        .get(&self.id)
+                        .ok()
+                        .flatten()
+                        .is_some_and(|record| record.stop_requested)
+                {
                     Phase::Stopped
                 } else {
                     Phase::Failed
@@ -134,11 +157,11 @@ impl Session {
                 (phase, checkpoint)
             }
         };
-        // Physical settlement always records the outcome, including observer cancellation.
-        self.index.change(&self.id, |record| {
+        // The durable task outcome is authoritative if this presentation write fails.
+        let _ = self.index.change(&self.id, |record| {
             record.phase = phase;
             record.checkpoint = checkpoint;
-        })?;
+        });
         drop(_running);
         checkout::sync_hold(&self.index, self.git.as_ref(), &self.principal, &self.id).await;
         // Observation cannot replace a confirmed execution outcome.
@@ -158,20 +181,20 @@ impl Session {
         let running = self.running.borrow().clone();
         if let Some(running) = running {
             if let Some(execution) = &running.execution {
-                loop {
-                    match execution
-                        .complete(&running.context, tasks::Outcome::StopRequested.value())
-                        .await
-                    {
-                        Err(error) if error.reason == "swarmie.tasks.busy" => {
-                            tokio::task::yield_now().await
-                        }
-                        outcome => {
-                            let _ = running.context.cancel();
-                            return outcome;
-                        }
+                match execution
+                    .complete(&running.context, tasks::Outcome::StopRequested.value())
+                    .await
+                {
+                    Ok(()) => {
+                        running.context.cancel()?;
                     }
+                    Err(error) if error.code == tembra::Code::Cancelled => {
+                        // The persisted stop intent survives lease revocation. The caller
+                        // joins the attempt and wakes only this held task to consume it.
+                    }
+                    Err(error) => return Err(error),
                 }
+                return Ok(());
             }
             running.context.cancel()?;
         }
