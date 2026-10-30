@@ -472,7 +472,8 @@ fn interrupted_stream(kind: &str) {
     }
     let deadline = Instant::now() + WAIT;
     loop {
-        let snapshot = session(&node, observer, kind);
+        // Observe emitted State only. A snapshot call could repair a broken tail projection.
+        let snapshot = peek(&node, observer, kind);
         if snapshot["state"]["phase"] != "working" {
             assert_eq!(
                 snapshot["state"]["phase"],

@@ -152,7 +152,11 @@ impl Session {
                     )
                 });
             if active {
-                phase = Phase::Working;
+                // A handler can project its result before the scheduler joins it.
+                // Keep that result while the durable record is still Ready.
+                if matches!(phase, Phase::Idle | Phase::Working | Phase::Interrupted) {
+                    phase = Phase::Working;
+                }
             } else {
                 phase = if interrupted {
                     Phase::Interrupted
