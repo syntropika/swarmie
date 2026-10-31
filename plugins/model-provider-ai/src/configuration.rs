@@ -303,7 +303,13 @@ impl Configuration {
     }
 }
 
-/// Native credential owner resolves only at final physical attempt admission.
+/// Native credential custody resolves only at final physical attempt admission.
+///
+/// Context cancellation or explicit Stop may drop observation of this future.
+/// Independently started I/O must retain its physical owner and secret cleanup
+/// until settlement; a dropped observer proves neither cancellation nor completion.
+/// Authorization, renewal and mutating credential workflows retain their own owners
+/// outside this custody call. Cancelling a model wait grants no replay authority.
 pub trait Credentials {
     fn acquire<'a>(
         &'a self,

@@ -1268,6 +1268,118 @@ mod protection {
             .await;
     }
 
+    #[derive(Clone)]
+    struct Waiting {
+        entered: Rc<tokio::sync::Notify>,
+        retired: Rc<Cell<bool>>,
+        binding: Rc<RefCell<Option<ExecutionBinding>>>,
+        physical: Option<(Rc<tokio::sync::Notify>, Rc<Cell<bool>>)>,
+    }
+    struct Retire(Rc<Cell<bool>>);
+    impl Drop for Retire {
+        fn drop(&mut self) {
+            self.0.set(true);
+        }
+    }
+    impl Waiting {
+        fn pending<T>(&self) -> futures::future::LocalBoxFuture<'_, tembra::Result<T>> {
+            async move {
+                let _retire = Retire(self.retired.clone());
+                if let Some((release, settled)) = self.physical.clone() {
+                    tokio::task::spawn_local(async move {
+                        release.notified().await;
+                        settled.set(true);
+                    });
+                }
+                self.entered.notify_one();
+                futures::future::pending().await
+            }
+            .boxed_local()
+        }
+    }
+    impl Credentials for Waiting {
+        fn acquire<'a>(
+            &'a self,
+            _: &'a Context,
+            admitted: &'a provider::AdmittedAttempt,
+            _: &'a str,
+        ) -> futures::future::LocalBoxFuture<'a, tembra::Result<ModelCredential>> {
+            *self.binding.borrow_mut() = admitted.execution().cloned();
+            self.pending()
+        }
+    }
+    impl ModelDecisions for Waiting {
+        fn request<'a>(
+            &'a self,
+            execution: &'a ExecutionBinding,
+            _: &'a DecisionIntent,
+        ) -> futures::future::LocalBoxFuture<'a, tembra::Result<HumanDecision>> {
+            *self.binding.borrow_mut() = Some(execution.clone());
+            self.pending()
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn explicit_stop_retires_pre_dispatch_waits_without_losing_physical_credential_reads() {
+        LocalSet::new().run_until(async {
+            for credential_wait in [false, true] {
+                let server = Server::new(vec![Reply::ok(wire(Provider::OpenAi, false))]).await;
+                let requests = server.calls.clone();
+                let host = Host::new(LocalExecutor);
+                let authority = Authority::new();
+                let shell = authority.authenticate_shell(ShellIdentity { cloud: None, account: None, installation: Uuid::new_v4(), generation: Uuid::new_v4() });
+                let binding = authority.execution(&shell, ExecutionIdentity { account: None, execution: Uuid::new_v4(), generation: Uuid::new_v4(), project: None, agent: None, conversation: None, main_agent: true }).unwrap();
+                let contexts = ExecutionContexts::new(authority);
+                let release = Rc::new(tokio::sync::Notify::new());
+                let settled = Rc::new(Cell::new(false));
+                let waiting = Rc::new(Waiting {
+                    entered: Rc::new(tokio::sync::Notify::new()), retired: Rc::new(Cell::new(false)),
+                    binding: Rc::new(RefCell::new(None)),
+                    physical: credential_wait.then(|| (release.clone(), settled.clone())),
+                });
+                let decisions: Rc<dyn ModelDecisions> = if credential_wait { Rc::new(Decisions { shell, count: Rc::new(Cell::new(0)), allow: true }) } else { waiting.clone() };
+                let credentials: Rc<dyn Credentials> = if credential_wait { waiting.clone() } else { Rc::new(Secrets) };
+                let connection = configuration(Provider::OpenAi, &server.endpoint).connections.remove(0);
+                let stop = swarmie_ai::StopHandle::new();
+                let model = qualified_model(connection.clone(), key().model, credentials, ModelProtection::Guarded {
+                    guard: ModelGuard::new("stop-wait".into(), PluginGrant::bundled(CorePlugin::ModelProtection, "stop-wait".into()), None),
+                    executions: contexts.clone(), decisions,
+                }).unwrap().with_stop(stop.clone());
+                let next = qualified_model(connection, key().model, Rc::new(Secrets), ModelProtection::Unprotected).unwrap();
+                host.root("alice", move |context| async move {
+                    let scoped = contexts.bind(&context, binding.clone()).unwrap();
+                    let request = input(false);
+                    let call = model.complete(scoped.context(), OperationId::new(), &request);
+                    futures::pin_mut!(call);
+                    tokio::select! {
+                        _ = waiting.entered.notified() => {},
+                        result = &mut call => panic!("expected a pending pre-dispatch wait: {result:?}"),
+                    }
+                    assert!(requests.borrow().is_empty());
+                    stop.cancel();
+                    let error = tokio::time::timeout(Duration::from_secs(1), &mut call).await.expect("explicit Stop must settle a pending pre-dispatch wait").unwrap_err();
+                    assert_eq!(error.code, Code::Cancelled);
+                    assert_eq!(error.reason, "swarmie.models.ai.not_dispatched");
+                    assert!(scoped.context().check().is_ok());
+                    assert!(binding.is_live(), "Stop must not close the parent execution");
+                    assert!(waiting.retired.get());
+                    assert!(!waiting.binding.borrow().as_ref().unwrap().is_live(), "unanswered decisions must lose their scoped authority");
+                    assert!(requests.borrow().is_empty());
+                    if credential_wait {
+                        assert!(!settled.get(), "a cancelled observer is not physical settlement");
+                        release.notify_one();
+                        tokio::time::timeout(Duration::from_secs(1), async { while !settled.get() { tokio::task::yield_now().await; } }).await.unwrap();
+                    }
+                    next.complete(scoped.context(), OperationId::new(), &request).await?;
+                    Ok(())
+                }.boxed_local()).await.unwrap();
+                assert_eq!(server.calls.borrow().len(), 1, "only the fresh authorized operation may dispatch");
+                close(&host).await;
+                server.finish().await;
+            }
+        }).await;
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn every_dispatched_attempt_reports_its_actual_protection_status() {
         use swarmie_providers::SubmissionProtection;

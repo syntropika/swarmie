@@ -264,7 +264,9 @@ continuation records are retained separately from the visible response budget.
 These limits do not bound every allocation. Complete requests use a total deadline.
 Streams use separate header and idle-read deadlines.
 
-The provider does not retry HTTP requests or follow redirects. Cancellation
+The provider does not retry HTTP requests or follow redirects. Explicit Stop retires
+unanswered model and credential decisions before dispatch. Independently started
+credential I/O retains its physical owner until settlement. Cancellation
 suppresses progress and can prevent dispatch. After dispatch, the host retains the AI terminal result until the physical HTTP
 future settles. Managed Tembra calls retain their invocation ownership. Cancellation cannot
 prove that remote computation or billing stopped. Direct callers own their futures.

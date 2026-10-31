@@ -5,7 +5,7 @@ use serde_json::json;
 use swarmie_project_context::{Configuration, Inventory, ProjectContext, Scope, Selection};
 use swarmie_providers::{ContextSources, SourceKind};
 use swarmie_tools::{ToolCall, ToolDecision, ToolProvider, ToolResult, ToolSpec};
-use tembra::{Context, Host, Reference};
+use tembra::{Context, Host};
 
 pub(super) const TOOL: &str = "skill_read";
 
@@ -322,12 +322,6 @@ pub(super) struct SkillTools {
     provider: ToolProvider,
     principal: String,
 }
-struct Lease(Reference);
-impl Drop for Lease {
-    fn drop(&mut self) {
-        let _ = self.0.release();
-    }
-}
 
 impl SkillTools {
     pub fn new(host: Host, session: String, principal: String) -> tembra::Result<Self> {
@@ -350,11 +344,11 @@ impl SkillTools {
         if context.principal()? != self.principal {
             return Err(failure("skill provider belongs to another principal"));
         }
-        let lease = Lease(self.host.get(
+        let reference = self.host.get(
             &self.provider.service,
             self.provider.key.clone(),
             &self.principal,
-        )?);
-        lease.0.call(context, method, args).await
+        )?;
+        reference.call(context, method, args).await
     }
 }

@@ -194,13 +194,16 @@ impl AiModel {
         prepared: PreparedCall,
     ) -> tembra::Result<ModelResponse> {
         context.check().map_err(crate::error::before_dispatch)?;
+        let stopped_error = || {
+            Error::new(
+                Code::Cancelled,
+                "swarmie.models.ai.not_dispatched",
+                "the operation was stopped before dispatch",
+            )
+        };
         let check_stop = || {
             if self.stop.as_ref().is_some_and(|stop| stop.is_cancelled()) {
-                Err(Error::new(
-                    Code::Cancelled,
-                    "swarmie.models.ai.not_dispatched",
-                    "the operation was stopped before dispatch",
-                ))
+                Err(stopped_error())
             } else {
                 Ok(())
             }
@@ -218,20 +221,35 @@ impl AiModel {
         }
         context.check().map_err(crate::error::before_dispatch)?;
         check_stop()?;
-        let admitted = self
-            .protection
-            .admit(
-                context,
-                operation,
-                prepared,
-                &format!("{}:{}", self.connection.id.as_str(), self.model.as_str()),
-            )
-            .await
-            .map_err(crate::error::before_dispatch)?;
-        let mut authentication = self
-            .authentication(context, admitted)
-            .await
-            .map_err(crate::error::before_dispatch)?;
+        let stopped = async {
+            if let Some(stop) = &self.stop {
+                stop.cancelled().await;
+            } else {
+                futures::future::pending::<()>().await;
+            }
+        };
+        futures::pin_mut!(stopped);
+        let authenticate = async {
+            let admitted = self
+                .protection
+                .admit(
+                    context,
+                    operation,
+                    prepared,
+                    &format!("{}:{}", self.connection.id.as_str(), self.model.as_str()),
+                )
+                .await?;
+            check_stop()?;
+            self.authentication(context, admitted).await
+        };
+        futures::pin_mut!(authenticate);
+        // Ending observation retires unanswered decisions and the scoped binding.
+        // Credential I/O retains its physical owner independently of this wait.
+        let mut authentication = tokio::select! {
+            biased;
+            _ = &mut stopped => return Err(stopped_error()),
+            result = &mut authenticate => result.map_err(crate::error::before_dispatch)?,
+        };
         if let Some(progress) = progress {
             progress.publish(
                 context,
@@ -254,14 +272,6 @@ impl AiModel {
         let stop = execution.stop_handle();
         let terminal = execution.wait();
         futures::pin_mut!(terminal);
-        let stopped = async {
-            if let Some(stop) = &self.stop {
-                stop.cancelled().await;
-            } else {
-                futures::future::pending::<()>().await;
-            }
-        };
-        futures::pin_mut!(stopped);
         let interval = std::time::Duration::from_millis(self.connection.progress_interval_ms.get());
         let mut last: Option<tokio::time::Instant> = None;
         let mut pending: Option<String> = None;
