@@ -669,11 +669,13 @@ async fn cancellation_suppresses_previews_without_turning_them_into_receipts() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn coalescing_retains_only_latest_text_and_flushes_the_settled_preview() {
-    LocalSet::new().run_until(async {
+    for batch_size in [1, 2, 128] {
+        LocalSet::new().run_until(async {
         let mut frames = reply(Provider::OpenAi, false);
         frames.interval = Duration::ZERO;
         let chunk = frames.parts[0].replace("Do", "x");
-        frames.parts.splice(0..2, std::iter::repeat_n(chunk, 128));
+        let deltas = std::iter::repeat_n(chunk, 128).collect::<Vec<_>>();
+        frames.parts.splice(0..2, deltas.chunks(batch_size).map(|parts| parts.concat()));
         let server = Server::streaming(vec![frames]).await;
         let mut config = configuration(Provider::OpenAi, &server.endpoint);
         config.connections[0].progress_interval_ms = std::num::NonZeroU64::new(60_000).unwrap();
@@ -685,13 +687,25 @@ async fn coalescing_retains_only_latest_text_and_flushes_the_settled_preview() {
         let collect = previews.clone();
         let observation = reference.state::<Option<ModelProgress>>().unwrap().subscribe(move |value| { if let Some(value) = value.as_ref() { collect.borrow_mut().push(value.content.clone()); } Ok(()) }).unwrap();
         let output = call::<_,ExecutionResult>(&host, reference.clone(), "alice", Method::Execute.as_str(), request(false)).await.unwrap().unwrap();
-        assert_eq!(previews.borrow().as_slice(), [String::new(), String::new(), "x".into(), "x".repeat(128)]);
+        {
+            let trace = previews.borrow();
+            // A latest-value stream can combine deltas before the consumer runs.
+            // It still emits at most one intermediate value before the settled text.
+            assert!((3..=4).contains(&trace.len()), "batch {batch_size}: {trace:?}");
+            assert_eq!(&trace[..2], &[String::new(), String::new()]);
+            assert_eq!(trace.last(), Some(&"x".repeat(128)));
+            for preview in &trace[2..trace.len() - 1] {
+                assert!((1..=128).contains(&preview.len()));
+                assert!(preview.bytes().all(|byte| byte == b'x'));
+            }
+        }
         assert_eq!(reference.state::<Option<ModelProgress>>().unwrap().value().unwrap().as_ref().as_ref().unwrap().content, "x".repeat(128));
         assert!(matches!(&output.messages[0], swarmie_providers::Message::Assistant(m) if m.content.len() == 128));
         drop(observation);
         close(&host).await;
         server.finish().await;
     }).await;
+    }
 }
 
 #[tokio::test(flavor = "current_thread")]
