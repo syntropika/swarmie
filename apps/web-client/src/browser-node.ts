@@ -1,4 +1,4 @@
-import type { Node } from "@swarmie/plugin-connections-browser";
+import type { Node } from "@swarmie/plugin-client-node-browser";
 
 type Descriptor = Omit<Node, "url"> & { url: string };
 

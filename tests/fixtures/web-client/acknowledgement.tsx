@@ -7,7 +7,7 @@ import type { ClientUi } from "../../../apps/web-client/src/client/initialize";
 import { ConversationStatus } from "../../../apps/web-client/src/conversations/status";
 import { MessageRow } from "../../../apps/web-client/src/conversations/message-row";
 import { useSource } from "../../../packages/client-ui/src/index";
-import { NodeProtocol } from "../../../plugins/connections/browser/src/index";
+import { NodeProtocol } from "../../../plugins/client-node/browser/src/index";
 
 import "../../../apps/web-client/src/styles.css";
 

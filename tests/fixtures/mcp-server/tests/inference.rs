@@ -14,9 +14,7 @@ use swarmie_fixture_mcp_server::{Counter, serve_http};
 use swarmie_mcp::{
     self as mcp, Configuration, Endpoint, Limits, Observation, Protocol, ServerBinding, ServerId,
 };
-use swarmie_model_provider_ai::{
-    AiModel, Connection, ConnectionId, Credentials, ModelId, Provider,
-};
+use swarmie_providers::ai::{AiModel, Connection, ConnectionId, Credentials, ModelId, Provider};
 use swarmie_providers::{AgentContext, Message, Progress, ToolResult};
 use swarmie_tools::{self as tools, Catalog, CatalogService};
 use tembra::{Host, Reference};
@@ -34,15 +32,13 @@ impl Credentials for Secrets {
     fn acquire<'a>(
         &'a self,
         context: &'a tembra::Context,
-        _admitted: &'a swarmie_model_provider_ai::AdmittedAttempt,
+        _admitted: &'a swarmie_providers::ai::AdmittedAttempt,
         _key: &'a str,
-    ) -> futures::future::LocalBoxFuture<
-        'a,
-        tembra::Result<swarmie_model_provider_ai::ModelCredential>,
-    > {
+    ) -> futures::future::LocalBoxFuture<'a, tembra::Result<swarmie_providers::ai::ModelCredential>>
+    {
         Box::pin(async move {
             context.check()?;
-            swarmie_model_provider_ai::ModelCredential::new(
+            swarmie_providers::ai::ModelCredential::new(
                 "synthetic-secret".into(),
                 "[secret]".into(),
             )
@@ -92,9 +88,9 @@ fn mount(configuration: Configuration, catalog: &Catalog) -> (Host, Rc<Reference
 fn qualified_snapshot(
     connection: &Connection,
     model: &ModelId,
-) -> tembra::Result<std::sync::Arc<swarmie_model_provider_ai::catalog::Snapshot>> {
+) -> tembra::Result<std::sync::Arc<swarmie_providers::ai::catalog::Snapshot>> {
     use std::num::NonZeroU64;
-    use swarmie_model_provider_ai::catalog::*;
+    use swarmie_providers::ai::catalog::*;
     let identity = connection.model_identity(model)?;
     let evidence = Evidence {
         source: "explicit synthetic HTTP qualification".into(),
@@ -260,7 +256,7 @@ async fn stdio_mcp_catalog_routes_a_real_ai_tool_call_once_and_preserves_canonic
                     connection,
                     id,
                     Rc::new(Secrets),
-                    swarmie_model_provider_ai::ModelProtection::Unprotected,
+                    swarmie_providers::ai::ModelProtection::Unprotected,
                 )
                 .unwrap()
                 .with_metadata(metadata)

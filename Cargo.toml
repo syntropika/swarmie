@@ -9,25 +9,19 @@ members = [
     "crates/storage",
     "crates/storage/core",
     "plugins/providers",
-    "crates/model-catalog",
+    "plugins/cloud",
     "crates/ai",
     "xtask",
-    "plugins/provider-auth",
     "plugins/vault",
-    "plugins/cloud-account",
-    "plugins/device-linking",
     "plugins/permissions",
-    "plugins/model-submission-protection",
     "plugins/plugin-manager",
     "plugins/tools",
     "plugins/mcp",
     "plugins/git",
-    "plugins/model-provider-ai",
     "plugins/durable-tasks",
     "plugins/agent-loop",
     "plugins/conversations",
     "plugins/context",
-    "plugins/project-context",
     "plugins/commands",
     "tests/fixtures/foundation-counter",
     "tests/fixtures/durable-documents",
@@ -61,17 +55,14 @@ swarmie-tools = { path = "plugins/tools" }
 swarmie-mcp = { path = "plugins/mcp" }
 swarmie-git = { path = "plugins/git" }
 swarmie-providers = { path = "plugins/providers" }
-swarmie-model-catalog = { path = "crates/model-catalog" }
+swarmie-cloud = { path = "plugins/cloud" }
 swarmie-storage = { path = "crates/storage" }
 swarmie-storage-core = { path = "crates/storage/core" }
 swarmie-conversations = { path = "plugins/conversations" }
 swarmie-context = { path = "plugins/context" }
-swarmie-project-context = { path = "plugins/project-context" }
 swarmie-commands = { path = "plugins/commands" }
 swarmie-durable-tasks = { path = "plugins/durable-tasks" }
 swarmie-plugin-manager = { path = "plugins/plugin-manager" }
-swarmie-provider-auth = { path = "plugins/provider-auth" }
-swarmie-model-provider-ai = { path = "plugins/model-provider-ai" }
 swarmie-agent-loop = { path = "plugins/agent-loop" }
 swarmie-runtime = { path = "crates/runtime" }
 swarmie-client-node = { path = "plugins/client-node" }

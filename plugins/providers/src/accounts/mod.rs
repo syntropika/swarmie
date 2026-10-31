@@ -23,7 +23,7 @@ use std::{
     rc::{Rc, Weak},
     sync::{Arc, OnceLock},
 };
-use swarmie_model_catalog::{Catalog, ResolutionError, Snapshot, sources::ModelsDev};
+use swarmie_ai::catalog::{Catalog, ResolutionError, Snapshot, sources::ModelsDev};
 
 pub(super) fn failure(message: &str) -> tembra::Error {
     tembra::Error::new(tembra::Code::Unavailable, "providers.settings", message)

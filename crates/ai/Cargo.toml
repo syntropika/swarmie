@@ -11,7 +11,6 @@ telemetry = []
 
 [dependencies]
 async-openai = { version = "=0.42.2", default-features = false, features = ["response-types", "chat-completion-types"] }
-swarmie-model-catalog.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 sha2 = "0.10"
 uuid.workspace = true
@@ -42,3 +41,9 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["r
 
 [lints]
 workspace = true
+
+[build-dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+ureq = "=3.5.0"

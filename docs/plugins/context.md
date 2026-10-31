@@ -1,5 +1,8 @@
 # Context and commands
 
+The `environment` module discovers and captures scoped AGENTS instructions and
+skills for the current request. See [Context sources](context-sources.md).
+
 `swarmie-context` provides compaction plans, projection references and operation
 transitions. `swarmie-commands` provides application command metadata and invocation
 through ordinary Tembra references. These libraries do not create a scheduler,

@@ -4,7 +4,7 @@ import type {
   Connections,
   ConnectionsState,
   NodeConnection,
-} from "@swarmie/plugin-connections-browser";
+} from "@swarmie/plugin-client-node-browser";
 import type { ConversationsUiApi } from "@swarmie/plugin-conversations-browser";
 import { Icon } from "@swarmie/ui-web";
 import type { DynamicReference } from "@syntropika/tembra-sdk";

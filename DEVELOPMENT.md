@@ -66,7 +66,7 @@ and catalogs. These checks do not qualify device-specific native runtime behavio
 - `crates/runtime/`: the embeddable runtime.
 - `crates/storage/`: the shared storage API and feature-gated `src/sqlite/` implementation.
 - `crates/storage/core/`: internal contracts used by independent capabilities.
-- `crates/model-catalog/`: independent model metadata and preparation.
+- `crates/ai/`: independent model metadata and preparation.
 - `plugins/providers/`: shared model/provider types and its browser presentation.
 - `plugins/`: independent capability libraries and their optional Tembra orb composition.
 - `tests/fixtures/`: synthetic behavior and SDK authoring fixtures.

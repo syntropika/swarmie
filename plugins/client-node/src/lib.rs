@@ -28,4 +28,4 @@ pub async fn start(host: &tembra::Host) -> tembra::Result<()> {
 /// Public provider-authorization session service installed by this composition.
 pub const AUTHORIZATION_SERVICE: &str = providers::oauth::SERVICE;
 
-pub use swarmie_project_context::Configuration as ProjectContextConfiguration;
+pub use swarmie_context::environment::Configuration as EnvironmentConfiguration;

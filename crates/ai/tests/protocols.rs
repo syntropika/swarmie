@@ -3,12 +3,12 @@ use std::{
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
-use swarmie_ai::{
-    AuthProfile, ChatProfile, Effect, Error, Failure, Model, Protocol, Timeouts, WireMode,
-};
-use swarmie_model_catalog::{
+use swarmie_ai::catalog::{
     Capability, Catalog, Evidence, Layer, LimitClaim, Limits, ModelIdentity, Precision,
     Preparation, Requirements, Snapshot, SourceRecord,
+};
+use swarmie_ai::{
+    AuthProfile, ChatProfile, Effect, Error, Failure, Model, Protocol, Timeouts, WireMode,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},

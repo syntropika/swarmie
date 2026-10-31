@@ -1,3 +1,4 @@
+use crate::catalog::ModelIdentity;
 use crate::{
     Error, Outcome, Protocol,
     framing::{Frame, Framer},
@@ -5,7 +6,6 @@ use crate::{
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
-use swarmie_model_catalog::ModelIdentity;
 use tokio::sync::watch;
 
 /// Protocol terminal recognition and raw event retention. Reassembly runs only

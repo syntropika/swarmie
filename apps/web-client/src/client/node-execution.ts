@@ -3,7 +3,7 @@ import type {
   Connections,
   ConnectionsState,
   NodeConnection,
-} from "@swarmie/plugin-connections-browser";
+} from "@swarmie/plugin-client-node-browser";
 import type {
   Conversation,
   ConversationExecutionApi,

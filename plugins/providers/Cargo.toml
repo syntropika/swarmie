@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Shared model requests, provider interfaces and optional scripted test providers"
+description = "Model contracts, provider authentication, submission protection and native inference"
 
 [features]
 default = []
@@ -14,11 +14,31 @@ mock = []
 tembra.workspace = true
 futures.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
 uuid.workspace = true
-swarmie-model-catalog.workspace = true
 zeroize = "1"
 sha2 = "0.10"
+swarmie-ai.workspace = true
+base64 = "0.22"
+jsonwebtoken = { version = "=10.4.0", default-features = false, features = ["rust_crypto"] }
+oauth2 = { version = "=5.0.0", default-features = false, features = ["timing-resistant-secret-traits"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "stream"] }
+thiserror.workspace = true
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+swarmie-permissions = { path = "../permissions", features = ["tembra"] }
+secrets_scanner = { version = "=0.2.3", default-features = false }
+hmac = "0.12"
+rand = "0.8"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+rsa = { version = "=0.9.10", features = ["pem", "sha2"] }
+swarmie-context.workspace = true
+swarmie-agent-loop = { path = "../agent-loop", features = ["durable-tasks", "conversations"] }
+swarmie-durable-tasks.workspace = true
+swarmie-conversations.workspace = true
+swarmie-storage.workspace = true
+tempfile.workspace = true
+tokio = { version = "1", features = ["macros", "net", "io-util", "rt", "time"] }

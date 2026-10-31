@@ -1,4 +1,4 @@
-use swarmie_model_catalog::{
+use swarmie_ai::catalog::{
     Capability, Catalog, Evidence, Layer, LimitClaim, Limits, ModelIdentity, Precision,
     Preparation, Requirements, SourceRecord,
 };

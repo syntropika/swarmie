@@ -43,3 +43,6 @@ fn validate_reason(reason: &str) -> tembra::Result<()> {
 fn invalid(message: &str) -> tembra::Error {
     tembra::Error::invalid("swarmie.context.operation", message)
 }
+
+/// Scoped input discovery and capture for the current execution environment.
+pub mod environment;

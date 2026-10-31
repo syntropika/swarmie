@@ -123,7 +123,7 @@ If all enrolled private keys are lost, old values cannot be recovered.
 
 ## Final model submission protection
 
-`swarmie-model-submission-protection` is a separate core module, enabled by default without a
+`swarmie_providers::protection` is the Providers content-inspection module. It is enabled without a
 permission prompt. Its pinned offline detector inspects final provider-shaped text/JSON, including
 tool descriptions, schemas and decoded JSON fields/keys, before credential acquisition. Duplicate
 JSON keys, unsupported coverage, truncated scans and unavailable enabled engines block submission.

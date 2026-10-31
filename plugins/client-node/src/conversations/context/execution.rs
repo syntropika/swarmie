@@ -148,7 +148,7 @@ impl Session {
         &self,
         context: &Context,
         execution: &Execution,
-        model: &swarmie_model_provider_ai::AiModel,
+        model: &swarmie_providers::ai::AiModel,
         work: &Work,
         owner: &mut Owner,
     ) -> tembra::Result<()> {
@@ -460,7 +460,7 @@ impl Session {
         let result = async {
             let scope = self.enter_execution(context)?;
             let protection = scope.as_ref().map_or(
-                swarmie_model_provider_ai::ModelProtection::Unprotected,
+                swarmie_providers::ai::ModelProtection::Unprotected,
                 |value| value.protection(),
             );
             let model = self
@@ -491,7 +491,7 @@ impl Session {
     pub(in crate::conversations) async fn drive_context(
         &self,
         context: &Context,
-        model: Rc<swarmie_model_provider_ai::AiModel>,
+        model: Rc<swarmie_providers::ai::AiModel>,
         agent: &Agent,
         execution: &Execution,
         input: crate::conversations::tasks::Input,

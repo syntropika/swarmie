@@ -2,7 +2,7 @@
 use super::{Session, checkout, failure, types::ExecutionContext};
 use serde::Deserialize;
 use serde_json::json;
-use swarmie_project_context::{Configuration, Inventory, ProjectContext, Scope, Selection};
+use swarmie_context::environment::{Configuration, Environment, Inventory, Scope, Selection};
 use swarmie_providers::{ContextSources, SourceKind};
 use swarmie_tools::{ToolCall, ToolDecision, ToolProvider, ToolResult, ToolSpec};
 use tembra::{Context, Host};
@@ -21,18 +21,15 @@ pub(super) fn tool_spec() -> tembra::Result<ToolSpec> {
     Ok(ToolSpec { name: swarmie_tools::ToolName::new(TOOL)?, description: "Read the instructions or a UTF-8 supporting file of an advertised skill. Use its exact id and revision. Paths are relative to that skill package. Reading does not execute code or grant permissions.".into(), input_schema: json!({"type":"object","additionalProperties":false,"properties":{"id":{"type":"string"},"revision":{"type":"string"},"path":{"type":"string"}},"required":["id","revision","path"]}) })
 }
 
-fn open(
-    binding: &ExecutionContext,
-    configuration: Configuration,
-) -> tembra::Result<ProjectContext> {
-    ProjectContext::new(
+fn open(binding: &ExecutionContext, configuration: Configuration) -> tembra::Result<Environment> {
+    Environment::new(
         Scope::new(&binding.path, &binding.path).map_err(source_error)?,
         configuration,
     )
     .map_err(source_error)
 }
-fn source_error(error: swarmie_project_context::Error) -> tembra::Error {
-    tembra::Error::invalid("swarmie.project_context.source", error.to_string())
+fn source_error(error: swarmie_context::environment::Error) -> tembra::Error {
+    tembra::Error::invalid("swarmie.context.source", error.to_string())
 }
 
 pub(super) fn with_sources(
@@ -112,7 +109,8 @@ impl Session {
         binding: Option<&ExecutionContext>,
         text: &str,
     ) -> tembra::Result<Option<ContextSources>> {
-        let (Some(configuration), Some(binding)) = (&self.project_configuration, binding) else {
+        let (Some(configuration), Some(binding)) = (&self.environment_configuration, binding)
+        else {
             if text.trim_start().starts_with("/skill:") {
                 return Err(failure(
                     "skill use requires an enabled project capability and a captured checkout",
@@ -152,7 +150,7 @@ impl Session {
         Ok(Some(sources))
     }
 
-    pub(super) async fn project_inventory(
+    pub(super) async fn environment_inventory(
         &self,
         context: &Context,
         binding: &ExecutionContext,
@@ -172,7 +170,7 @@ impl Session {
         )
         .await?;
         let configuration = self
-            .project_configuration
+            .environment_configuration
             .clone()
             .ok_or_else(|| failure("project content is disabled"))?;
         let binding = binding.clone();
@@ -198,7 +196,7 @@ impl Session {
         context.check()?;
         if context.principal()? != self.principal
             || call.name.as_str() != TOOL
-            || self.project_configuration.is_none()
+            || self.environment_configuration.is_none()
         {
             return Err(failure("skill read is not authorized"));
         }
@@ -295,7 +293,7 @@ impl Session {
         )
         .await?;
         let configuration = self
-            .project_configuration
+            .environment_configuration
             .clone()
             .ok_or_else(|| failure("project content is disabled"))?;
         let selected = Selection {

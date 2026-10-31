@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use swarmie_model_catalog::Snapshot;
+use swarmie_ai::catalog::Snapshot;
 
 /// Milliseconds encoded as a canonical decimal string. The wire value retains
 /// all u64 values without conversion through a floating-point JSON number.

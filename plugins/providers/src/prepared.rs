@@ -1,7 +1,7 @@
 use crate::{MetadataFreshness, ModelResponse, OperationId, invalid};
 use futures::future::LocalBoxFuture;
 use serde::{Deserialize, Serialize};
-use swarmie_model_catalog::{
+use swarmie_ai::catalog::{
     Capability, Limit, ModelIdentity, NativeCompaction, NativeOutputMaximum, Snapshot,
 };
 
@@ -22,7 +22,7 @@ pub struct OperationalModel {
 
 impl OperationalModel {
     pub fn from_snapshot(snapshot: &Snapshot) -> tembra::Result<Self> {
-        let limit = |value: &swarmie_model_catalog::Metadata<Limit>| {
+        let limit = |value: &swarmie_ai::catalog::Metadata<Limit>| {
             value
                 .known()
                 .cloned()

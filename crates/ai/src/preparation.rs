@@ -1,3 +1,4 @@
+use crate::catalog::{Capability, ModelIdentity, Snapshot};
 use crate::{Error, Execution, Failure, Protocol};
 use reqwest::{
     Client, Url,
@@ -9,7 +10,6 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use swarmie_model_catalog::{Capability, ModelIdentity, Snapshot};
 use zeroize::Zeroizing;
 
 /// Authentication profiles are explicit. Anonymous access is limited to native Ollama.

@@ -1,5 +1,6 @@
 //! Shared model requests, provider operations and native Tembra references.
-//! This library has no Agent Loop, task scheduler, platform storage or concrete provider dependency.
+//! Model contracts, authentication, final-content protection and native inference share this capability.
+//! The embedding supplies execution, credential custody and durable task ownership.
 pub mod accounts;
 mod factory;
 mod freshness;
@@ -38,3 +39,7 @@ pub use sources::{
     ContextSources, MAX_CONTEXT_SOURCE_BYTES, MAX_SOURCE_BYTES, SourceKind, SourcePart,
     SourceScope, digest as source_digest,
 };
+
+pub mod ai;
+pub mod auth;
+pub mod protection;

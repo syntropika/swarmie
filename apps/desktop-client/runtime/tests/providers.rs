@@ -80,7 +80,7 @@ fn shared_channels_are_independent_bounded_and_exclusively_replaceable() {
 #[test]
 fn native_provider_configuration_executes_and_restores_history_without_replaying_a_submission() {
     // Native startup compiles the bundled rules before this fixture starts accepting requests.
-    assert!(swarmie_model_submission_protection::Detector::bundled().is_some());
+    assert!(swarmie_providers::protection::Detector::bundled().is_some());
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
     listener.set_nonblocking(true).unwrap();

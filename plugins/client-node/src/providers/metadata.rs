@@ -8,11 +8,11 @@ use std::{
     collections::BTreeMap,
     sync::{Arc, OnceLock},
 };
-use swarmie_model_catalog::{
+use swarmie_ai::catalog::{
     Capability, Catalog, Evidence, Layer, Limits, Preparation, Requirements, ResolutionError,
     Snapshot, SourceRecord, sources::ModelsDev,
 };
-use swarmie_model_provider_ai::{Connection, ModelId};
+use swarmie_providers::ai::{Connection, ModelId};
 
 /// Optional facts returned during account discovery. They stay private and do
 /// not enlarge the account/UI projection. The endpoint fences later rebinding.
@@ -123,7 +123,7 @@ impl ModelMetadata {
             native_output_maximum: Capability::default(),
             native_compaction: Capability::Unsupported {
                 evidence: Evidence {
-                    source: "swarmie-model-provider-ai".into(),
+                    source: "swarmie-providers".into(),
                     revision: "swarmie-ai:v1:message-contract-v1".into(),
                     layer: Layer::Adapter,
                     observed_at_ms: qualifications::REVIEWED_AT_MS,
@@ -157,8 +157,8 @@ impl ModelMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use swarmie_model_catalog::{LimitClaim, Precision};
-    use swarmie_model_provider_ai::{ConnectionId, Provider};
+    use swarmie_ai::catalog::{LimitClaim, Precision};
+    use swarmie_providers::ai::{ConnectionId, Provider};
 
     fn fixture() -> (SavedAccount, Connection, ModelId) {
         let mut saved = super::super::tests::account("deployment", 1);
@@ -179,7 +179,7 @@ mod tests {
     fn selected_metadata_reuses_one_snapshot_and_cannot_cross_model_or_endpoint() {
         let (saved, connection, model) = fixture();
         let metadata = ModelMetadata::default();
-        let now = swarmie_provider_auth::now_ms();
+        let now = swarmie_providers::auth::now_ms();
         let first = metadata
             .prepare(&saved, &connection, &model, "", now)
             .unwrap();

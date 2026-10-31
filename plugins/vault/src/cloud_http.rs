@@ -10,7 +10,7 @@ use std::{
     rc::Rc,
     time::{Duration, Instant},
 };
-use swarmie_cloud_account::AccountSession;
+use swarmie_cloud::account::AccountSession;
 use swarmie_permissions::transport::ChannelBinding;
 use uuid::Uuid;
 
@@ -331,18 +331,18 @@ impl From<Outcome> for CommitOutcome {
         }
     }
 }
-fn account_error(error: swarmie_cloud_account::Error) -> Error {
+fn account_error(error: swarmie_cloud::account::Error) -> Error {
     match error {
-        swarmie_cloud_account::Error::Refused => Error::CloudRefused,
-        swarmie_cloud_account::Error::Revoked => Error::Revoked,
-        swarmie_cloud_account::Error::Forbidden => Error::Forbidden,
-        swarmie_cloud_account::Error::Invalid | swarmie_cloud_account::Error::Integrity => {
+        swarmie_cloud::account::Error::Refused => Error::CloudRefused,
+        swarmie_cloud::account::Error::Revoked => Error::Revoked,
+        swarmie_cloud::account::Error::Forbidden => Error::Forbidden,
+        swarmie_cloud::account::Error::Invalid | swarmie_cloud::account::Error::Integrity => {
             Error::Integrity
         }
-        swarmie_cloud_account::Error::SignInRequired
-        | swarmie_cloud_account::Error::RefreshUnknown => Error::SignInRequired,
-        swarmie_cloud_account::Error::ProtectedStorageUnavailable => Error::Unavailable,
-        swarmie_cloud_account::Error::Unavailable => Error::Offline,
+        swarmie_cloud::account::Error::SignInRequired
+        | swarmie_cloud::account::Error::RefreshUnknown => Error::SignInRequired,
+        swarmie_cloud::account::Error::ProtectedStorageUnavailable => Error::Unavailable,
+        swarmie_cloud::account::Error::Unavailable => Error::Offline,
     }
 }
 

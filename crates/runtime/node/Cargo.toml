@@ -17,14 +17,12 @@ swarmie-plugin-manager.workspace = true
 tembra = { workspace = true, features = ["rpc"] }
 tokio = { version = "1", features = ["rt", "time", "net", "sync", "macros"] }
 uuid.workspace = true
-
 zeroize = "1"
-swarmie-vault = { workspace = true, features = ["native-keyring", "cloud-client", "executors", "tools"] }
-swarmie-cloud-account = { path = "../../../plugins/cloud-account", features = ["native-keyring"] }
+swarmie-vault = { workspace = true, features = ["cloud-client", "executors", "native-keyring", "provider-credentials", "tools"] }
 swarmie-permissions = { path = "../../../plugins/permissions", features = ["tembra", "tls"] }
-swarmie-model-submission-protection = { path = "../../../plugins/model-submission-protection" }
-swarmie-model-provider-ai = { path = "../../../plugins/model-provider-ai", features = ["vault-credentials"] }
 swarmie-storage = { workspace = true, features = ["sqlite"] }
+swarmie-providers.workspace = true
+swarmie-cloud = { workspace = true, features = ["native-keyring"] }
 
 [dev-dependencies]
 swarmie-durable-tasks.workspace = true

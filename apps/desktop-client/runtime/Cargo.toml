@@ -25,9 +25,9 @@ swarmie-runtime.workspace = true
 swarmie-durable-tasks.workspace = true
 swarmie-conversations.workspace = true
 swarmie-storage.workspace = true
-swarmie-model-submission-protection = { path = "../../../plugins/model-submission-protection" }
 swarmie-agent-loop = { workspace = true, features = ["conversations"] }
 tempfile.workspace = true
+swarmie-providers.workspace = true
 
 [lints]
 workspace = true

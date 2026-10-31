@@ -1,8 +1,20 @@
 # Providers
 
-`swarmie-providers` defines model requests, results and progress. It has no Agent Loop,
-scheduler or storage dependency. `swarmie-model-provider-ai` implements this API
-for HTTP providers and can expose it as a Tembra orb.
+`swarmie-providers` owns model requests, results, progress, authentication and
+final-content protection. Its `ai` module implements HTTP inference and can expose
+it as a Tembra orb. The host supplies credential custody and execution ownership.
+
+The package contains these modules:
+
+| Module | Responsibility |
+| --- | --- |
+| Root contracts and `accounts` | Model values, prepared requests and account workflows. |
+| `auth` | Native provider authorization and credential exchange. |
+| `protection` | Offline inspection and admission of final request content. |
+| `ai` | Native inference through the independent AI protocol library. |
+
+Vault supplies its credential adapter as `swarmie_vault::VaultCredentials` with
+the `provider-credentials` feature. Providers does not depend on Vault.
 
 The shared Rust API lives in `plugins/providers/`, alongside its existing browser package.
 Agent Loop and provider implementations share these types directly. This dependency does
@@ -15,7 +27,7 @@ Tokio I/O runtime. Set `MODEL_API_KEY` through the application's credential setu
 
 ```rust
 use std::rc::Rc;
-use swarmie_model_provider_ai::{
+use swarmie_providers::ai::{
     Connection, ConnectionId, EnvironmentCredentials, AiModel, ModelId, Provider,
     ModelProtection,
 };
@@ -48,13 +60,13 @@ async fn generate(context: &tembra::Context) -> tembra::Result<ModelResponse> {
 
 `AgentContext` holds host instructions, optional captured sources and canonical messages.
 Providers encode and measure `AgentContext::model_messages()` to include current sources.
-See [Skills and project instructions](project-context.md). Tembra's `Context` carries
+See [Skills and project instructions](context-sources.md). Tembra's `Context` carries
 call authority and cancellation. These types have separate roles.
 
 ## Compose an orb
 
 Pass `Configuration { connections }`, `Rc<dyn Credentials>` and `ModelProtection` to
-`swarmie_model_provider_ai::orb`, then install the returned orb in the host.
+`swarmie_providers::ai::orb`, then install the returned orb in the host.
 Resolve `SERVICE` with `ModelKey::segments()`: the key contains the connection ID
 and model ID. Each connection admits an explicit list of models.
 
@@ -281,6 +293,6 @@ provider returns `Unknown`: it has no portable remote-operation lookup. A local
 `OperationId` does not make an HTTP request idempotent. An interrupted or incomplete
 stream therefore does not permit automatic replay.
 
-Enable the `mock` feature on `swarmie-providers` or `swarmie-model-provider-ai` for
+Enable the `mock` feature on `swarmie-providers` for
 scripted test providers. The feature is off by default. It does not change the
 production model API.

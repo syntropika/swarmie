@@ -1,6 +1,6 @@
 use std::num::NonZeroU64;
+use swarmie_ai::catalog::{Capability, Limit, ModelIdentity, Precision};
 use swarmie_context::{Budget, BudgetDecision, BudgetPolicy};
-use swarmie_model_catalog::{Capability, Limit, ModelIdentity, Precision};
 use swarmie_providers::PreparationPolicy;
 use swarmie_providers::{
     Component, ComponentKind, CountPrecision, Measurement, MetadataFreshness, OperationId,
@@ -292,7 +292,7 @@ fn published_inspection_validates_arithmetic_and_preserves_stale_measurements() 
 
 #[test]
 fn native_reservation_requires_its_distinct_proof_and_cannot_hide_a_lower_policy_ceiling() {
-    use swarmie_model_catalog::{Evidence, Layer, NativeOutputMaximum, OutputAccounting};
+    use swarmie_ai::catalog::{Evidence, Layer, NativeOutputMaximum, OutputAccounting};
     let mut request = description(85);
     request.output_reservation = OutputReservation::NativeMaximum;
     assert!(request.validate().is_err());

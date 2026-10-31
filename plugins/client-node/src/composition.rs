@@ -8,7 +8,7 @@ use tembra::Host;
 #[derive(Clone)]
 pub struct NodeConfiguration {
     /// Optional native project content. The host chooses all additional roots.
-    pub project_context: Option<swarmie_project_context::Configuration>,
+    pub environment: Option<swarmie_context::environment::Configuration>,
     /// Existing profile directory. The embedding must hold its exclusive writer lock.
     pub state: PathBuf,
     /// Stable identity persisted by the embedding.
@@ -51,7 +51,7 @@ pub fn orbs(
         directory_root,
         git,
         agent_git_authority,
-        project_context,
+        environment,
     } = configuration;
     if principal.is_empty() || principal == swarmie_durable_tasks::HOST_PRINCIPAL {
         return Err(tembra::Error::invalid(
@@ -134,7 +134,7 @@ pub fn orbs(
             service: git,
             authority: agent_git_authority,
             owner: execution,
-            project_context,
+            environment,
         },
     )?);
     Ok(definitions)

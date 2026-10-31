@@ -158,7 +158,7 @@ fn observed_provider(
     std::sync::Arc<std::sync::atomic::AtomicUsize>,
 ) {
     // Compile the bundled public rules before starting this fixture's network deadline.
-    assert!(swarmie_model_submission_protection::Detector::bundled().is_some());
+    assert!(swarmie_providers::protection::Detector::bundled().is_some());
     let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let observed = count.clone();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1523,7 +1523,7 @@ fn admitted_turn_bootstrap_child() {
         .unwrap();
     tokio::task::LocalSet::new().block_on(&runtime, async {
         let host = tembra::Host::new(Executor);
-        host.install(swarmie_client_node::orbs(&host, swarmie_client_node::NodeConfiguration { project_context: None,
+        host.install(swarmie_client_node::orbs(&host, swarmie_client_node::NodeConfiguration { environment: None,
             state: profile.clone(), node: swarmie_runtime::NodeId::new(descriptor["id"].as_str().unwrap()).unwrap(),
             oauth_host: uuid::Uuid::new_v4(), principal: descriptor["principal"].as_str().unwrap().into(),
             directory_root: None, git: None, agent_git_authority: None,

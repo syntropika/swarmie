@@ -1,10 +1,10 @@
 mod native;
 mod openai;
 
+use crate::catalog::{ModelIdentity, Snapshot};
 use crate::{Error, Failure, WireMode};
 use reqwest::Url;
 use serde_json::Value;
-use swarmie_model_catalog::{ModelIdentity, Snapshot};
 
 /// A protocol profile is explicit and never inferred from endpoint/model text.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

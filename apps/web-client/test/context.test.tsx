@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 
-import { NodeProtocol } from "@swarmie/plugin-connections-browser";
+import { NodeProtocol } from "@swarmie/plugin-client-node-browser";
 import { ContextPanel } from "@swarmie/plugin-context-browser/views";
 import { orb } from "@syntropika/tembra-sdk";
 import type { State, Context } from "@syntropika/tembra-sdk";

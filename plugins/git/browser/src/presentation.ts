@@ -5,8 +5,8 @@ import type {
   ConnectionsState,
   Node,
   NodeConnectionState,
-} from "@swarmie/plugin-connections-browser";
-import { ConnectionPhase } from "@swarmie/plugin-connections-browser";
+} from "@swarmie/plugin-client-node-browser";
+import { ConnectionPhase } from "@swarmie/plugin-client-node-browser";
 import { orb } from "@syntropika/tembra-sdk";
 
 import { errorMessage } from "./checkout-data";

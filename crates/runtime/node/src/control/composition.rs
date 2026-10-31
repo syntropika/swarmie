@@ -1,8 +1,9 @@
 //! Native composition entry. Only the real logical execution owner supplies project/agent facts.
 use super::*;
 use std::collections::BTreeMap;
-use swarmie_model_provider_ai::{Configuration as Models, ModelProtection, VaultCredentials};
 use swarmie_permissions::{BoundExecutionContext, ExecutionContexts};
+use swarmie_providers::ai::{Configuration as Models, ModelProtection};
+use swarmie_vault::VaultCredentials;
 use swarmie_vault::{
     executors::{BashExecutor, HttpExecutor},
     tools::VaultTools,
@@ -184,11 +185,11 @@ impl NativeAgent {
         configuration: Models,
         references: BTreeMap<String, SecretReference>,
         metadata: impl Fn(
-            &swarmie_model_provider_ai::Connection,
-            &swarmie_model_provider_ai::ModelId,
-        ) -> tembra::Result<
-            std::sync::Arc<swarmie_model_provider_ai::catalog::Snapshot>,
-        > + 'static,
+            &swarmie_providers::ai::Connection,
+            &swarmie_providers::ai::ModelId,
+        )
+            -> tembra::Result<std::sync::Arc<swarmie_providers::ai::catalog::Snapshot>>
+        + 'static,
     ) -> tembra::Result<Orb> {
         let mut plugins = BTreeMap::new();
         for connection in &configuration.connections {
@@ -203,7 +204,7 @@ impl NativeAgent {
                 );
             }
         }
-        let credentials: Rc<dyn swarmie_model_provider_ai::Credentials> =
+        let credentials: Rc<dyn swarmie_providers::ai::Credentials> =
             if let Some(active) = &self.active {
                 Rc::new(VaultCredentials::new(
                     active.node.clone(),
@@ -218,21 +219,19 @@ impl NativeAgent {
                 }
                 Rc::new(NoCredentials)
             };
-        swarmie_model_provider_ai::orb(configuration, credentials, self.protection(), metadata)
+        swarmie_providers::ai::orb(configuration, credentials, self.protection(), metadata)
     }
 }
 
 struct NoCredentials;
-impl swarmie_model_provider_ai::Credentials for NoCredentials {
+impl swarmie_providers::ai::Credentials for NoCredentials {
     fn acquire<'a>(
         &'a self,
         _: &'a Context,
-        _: &'a swarmie_model_provider_ai::AdmittedAttempt,
+        _: &'a swarmie_providers::ai::AdmittedAttempt,
         _: &'a str,
-    ) -> futures::future::LocalBoxFuture<
-        'a,
-        tembra::Result<swarmie_model_provider_ai::ModelCredential>,
-    > {
+    ) -> futures::future::LocalBoxFuture<'a, tembra::Result<swarmie_providers::ai::ModelCredential>>
+    {
         Box::pin(async { Err(unavailable()) })
     }
 }

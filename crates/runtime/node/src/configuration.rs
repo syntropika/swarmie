@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
-use swarmie_cloud_account::Endpoints;
+use swarmie_cloud::account::Endpoints;
 use swarmie_vault::{CeremonyReceipt, VaultIdentity};
 use uuid::Uuid;
 

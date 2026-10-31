@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Model context projections and compaction operation transitions"
+description = "Model context sources, projections and compaction transitions"
 
 [features]
 default = []
@@ -19,8 +19,15 @@ uuid.workspace = true
 swarmie-commands.workspace = true
 swarmie-conversations.workspace = true
 swarmie-providers.workspace = true
-swarmie-model-catalog.workspace = true
 swarmie-durable-tasks = { workspace = true, optional = true }
+swarmie-ai.workspace = true
+
+serde_yaml_ng = "0.10"
+sha2 = "0.10"
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

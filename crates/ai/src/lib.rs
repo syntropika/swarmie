@@ -35,7 +35,7 @@ pub use async_openai::types::{chat as chat_types, responses as response_types};
 pub use protocol::{ChatProfile, Protocol};
 
 /// Shared model facts and the existing operational snapshot cache.
-pub use swarmie_model_catalog as catalog;
+pub mod catalog;
 
 /// Shared canonical completion records and reported usage values.
 pub use codecs::completion::{CompletionRequest, CompletionResponse, Usage};

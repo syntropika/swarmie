@@ -33,7 +33,7 @@ async fn storage_opens_only_when_declared_capabilities_activate() {
             let definitions = swarmie_client_node::orbs(
                 &host,
                 NodeConfiguration {
-                    project_context: None,
+                    environment: None,
                     state: profile.path().into(),
                     node: NodeId::new("embedded-fixture").unwrap(),
                     oauth_host: uuid::Uuid::new_v4(),
@@ -80,7 +80,7 @@ async fn invalid_storage_fails_in_managed_activation_and_preserves_existing_byte
             let definitions = swarmie_client_node::orbs(
                 &host,
                 NodeConfiguration {
-                    project_context: None,
+                    environment: None,
                     state: profile.path().into(),
                     node: NodeId::new("embedded-fixture").unwrap(),
                     oauth_host: uuid::Uuid::new_v4(),
@@ -111,7 +111,7 @@ async fn a_non_desktop_host_composes_services_with_its_own_identity_and_principa
             let host = Host::new(Executor);
             let invalid = install_fixture(
                 &host,
-                NodeConfiguration { project_context: None,
+                NodeConfiguration { environment: None,
                     state: PathBuf::from(profile.path()),
                     node: NodeId::new("embedded-fixture").unwrap(),
                     oauth_host: uuid::Uuid::nil(),
@@ -128,7 +128,7 @@ async fn a_non_desktop_host_composes_services_with_its_own_identity_and_principa
             );
             install_fixture(
                 &host,
-                NodeConfiguration { project_context: None,
+                NodeConfiguration { environment: None,
                     state: PathBuf::from(profile.path()),
                     node: NodeId::new("embedded-fixture").unwrap(),
                     oauth_host: uuid::Uuid::new_v4(),
@@ -261,7 +261,7 @@ async fn an_embedding_without_agent_mutation_policy_contributes_only_git_reads()
             install_fixture(
                 &host,
                 NodeConfiguration {
-                    project_context: None,
+                    environment: None,
                     state: profile.path().into(),
                     node: NodeId::new("read-only-embedding").unwrap(),
                     oauth_host: uuid::Uuid::new_v4(),
@@ -323,7 +323,7 @@ async fn a_non_desktop_host_observes_and_stops_a_held_turn_without_provider_disp
     tokio::task::LocalSet::new().run_until(async {
         let profile = tempfile::tempdir().unwrap();
         let host = Host::new(Executor);
-        install_fixture(&host, NodeConfiguration { project_context: None,
+        install_fixture(&host, NodeConfiguration { environment: None,
             state: profile.path().into(), node: NodeId::new("embedded-fixture").unwrap(),
             oauth_host: uuid::Uuid::new_v4(), principal: "embedded-user".into(),
             directory_root: None, git: None, agent_git_authority: None,
@@ -390,7 +390,7 @@ async fn an_embedding_cannot_bind_a_user_to_the_reserved_host_principal() {
                 let result = install_fixture(
                     &host,
                     NodeConfiguration {
-                        project_context: None,
+                        environment: None,
                         state: profile.path().into(),
                         node: NodeId::new("embedded-fixture").unwrap(),
                         oauth_host: uuid::Uuid::new_v4(),
@@ -446,7 +446,7 @@ async fn execution_owner_refusal_settles_the_durable_turn_without_retry_or_model
         let profile = tempfile::tempdir().unwrap();
         let host = Host::new(Executor);
         let owner = Rc::new(Refused(std::cell::Cell::new(0)));
-        host.install(swarmie_client_node::orbs(&host, NodeConfiguration { project_context: None,
+        host.install(swarmie_client_node::orbs(&host, NodeConfiguration { environment: None,
             state: profile.path().into(), node: NodeId::new("embedded-fixture").unwrap(),
             oauth_host: uuid::Uuid::new_v4(), principal: "embedded-user".into(),
             directory_root: None, git: None, agent_git_authority: None,

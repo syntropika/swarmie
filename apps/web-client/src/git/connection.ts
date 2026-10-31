@@ -1,5 +1,5 @@
 import { useSource } from "@swarmie/client-ui";
-import type { NodeConnection } from "@swarmie/plugin-connections-browser";
+import type { NodeConnection } from "@swarmie/plugin-client-node-browser";
 import { useEffect, useState } from "react";
 
 import { useClient } from "../client/context";

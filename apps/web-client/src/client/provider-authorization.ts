@@ -1,4 +1,4 @@
-import type { NodeConnection } from "@swarmie/plugin-connections-browser";
+import type { NodeConnection } from "@swarmie/plugin-client-node-browser";
 import type {
   ProviderAuthorizationSession,
   ProviderAuthorizationState,

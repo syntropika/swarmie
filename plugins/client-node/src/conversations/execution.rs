@@ -37,7 +37,7 @@ impl Session {
         }
         if let Some(sources) = &input.request.sources {
             sources.validate()?;
-            if self.project_configuration.is_none()
+            if self.environment_configuration.is_none()
                 || sources.scope().node != self.node
                 || sources.scope().principal != self.principal
                 || input
@@ -132,7 +132,7 @@ impl Session {
             let scope = self.enter_execution(&context)?;
             let context = scope.as_ref().map_or(&context, |scope| scope.context());
             let protection = scope.as_ref().map_or(
-                swarmie_model_provider_ai::ModelProtection::Unprotected,
+                swarmie_providers::ai::ModelProtection::Unprotected,
                 |scope| scope.protection(),
             );
             if let Some(binding) = &input.binding {

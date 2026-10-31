@@ -7,7 +7,7 @@ use std::{
     rc::Rc,
     sync::Arc,
 };
-use swarmie_model_catalog::{
+use swarmie_ai::catalog::{
     Capability, Evidence, Layer, LimitClaim, Limits, ModelIdentity, Precision, Preparation,
     Requirements, Snapshot, SourceRecord,
 };

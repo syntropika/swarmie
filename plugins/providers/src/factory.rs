@@ -5,7 +5,7 @@ use crate::{Model, invalid, settings::Account};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::{rc::Rc, sync::Arc};
-use swarmie_model_catalog::{Preparation, Snapshot, SourceRecord};
+use swarmie_ai::catalog::{Preparation, Snapshot, SourceRecord};
 use zeroize::Zeroizing;
 
 /// Native account persistence, with the existing flat private configuration.
@@ -171,7 +171,7 @@ mod tests {
     use crate::{ModelRequest, ModelResponse, OperationId};
     use futures::future::LocalBoxFuture;
     use std::cell::Cell;
-    use swarmie_model_catalog::{Capability, Catalog, Limits, ModelIdentity, Requirements};
+    use swarmie_ai::catalog::{Capability, Catalog, Limits, ModelIdentity, Requirements};
     use tembra::Context;
 
     fn metadata(revision: &str) -> ModelMetadataInput {

@@ -109,7 +109,7 @@ rust-check: rust-fmt-check rust-source-check rust-clippy
 tembra-authoring-test: tembra-plugins
     bun test tests/fixtures/tembra-sdk/sdk.test.ts
 
-foundation-check: project-context-check rust-check model-catalog-check storage-check tools-check context-check agent-loop-check model-provider-check runtime-rpc-check ai-check ai-auth-check
+foundation-check: rust-check storage-check tools-check context-check agent-loop-check providers-check runtime-rpc-check ai-check
 
 # Qualify context transitions and commands without another scheduler or provider engine.
 context-check:
@@ -144,11 +144,10 @@ rust-lock-workspace:
     cargo +{{rust_version}} update --workspace
 
 # Qualify native HTTP adapters and the explicitly opt-in scripted provider.
-model-provider-check:
+providers-check:
     cargo +{{rust_version}} test --locked -p swarmie-providers --no-default-features
-    cargo +{{rust_version}} test --locked -p swarmie-model-provider-ai --no-default-features
-    cargo +{{rust_version}} test --locked -p swarmie-model-provider-ai --features mock
-    cargo +{{rust_version}} clippy --locked -p swarmie-model-provider-ai --all-features --all-targets -- -D warnings
+    cargo +{{rust_version}} test --locked -p swarmie-providers --features mock
+    cargo +{{rust_version}} clippy --locked -p swarmie-providers --all-features --all-targets -- -D warnings
 
 # Qualify the published SDK separately from native Rust library checks.
 sdk-check: tembra-authoring-test
@@ -179,7 +178,7 @@ desktop-dev:
     bun run dev:desktop
 
 desktop-build:
-    SWARMIE_MODEL_CATALOG_REFRESH="$(date +%s)-$$" bun run build:desktop
+    SWARMIE_AI_CATALOG_REFRESH="$(date +%s)-$$" bun run build:desktop
 
 # Qualify shared protected hosting and both concrete local adapters.
 node-check:
@@ -208,7 +207,7 @@ desktop-check: desktop-bridge-check
     bun run test:desktop
 
 desktop-package platform:
-    SWARMIE_MODEL_CATALOG_REFRESH="$(date +%s)-$$" bun run build:desktop
+    SWARMIE_AI_CATALOG_REFRESH="$(date +%s)-$$" bun run build:desktop
     bun run package:desktop --target {{ quote(platform) }}
 
 
@@ -233,24 +232,19 @@ perf-check:
     bun run test:perf
     cargo +{{rust_version}} clippy --locked -p swarmie-fixture-performance --all-features --all-targets -- -D warnings
 
-# Refresh public metadata into Cargo OUT_DIR and embed it in the library.
-model-catalog-build:
-    SWARMIE_MODEL_CATALOG_REFRESH="$(date +%s)-$$" cargo +{{rust_version}} build --locked -p swarmie-model-catalog
-
-model-catalog-check:
-    cargo +{{rust_version}} test --locked -p swarmie-model-catalog
-    cargo +{{rust_version}} clippy --locked -p swarmie-model-catalog --all-targets -- -D warnings
-    RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D rustdoc::broken_intra_doc_links" cargo +{{rust_version}} doc --locked -p swarmie-model-catalog --no-deps
+# Refresh public metadata into the AI library build output.
+ai-catalog-build:
+    SWARMIE_AI_CATALOG_REFRESH="$(date +%s)-$$" cargo +{{rust_version}} build --locked -p swarmie-ai
 
 # Qualify optional native custody and transport features without changing default composition.
 rust-clippy-native:
     cargo +{{rust_version}} clippy --locked -p swarmie-vault -p swarmie-permissions --all-features --all-targets -- -D warnings
 
 # Qualify independent linking, native account custody and the shared bootstrap contract.
-device-linking-check:
-    cargo +{{rust_version}} clippy --locked -p swarmie-device-linking --all-features --all-targets -- -D warnings
-    cargo +{{rust_version}} test --locked -p swarmie-device-linking --all-features
-    RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D rustdoc::broken_intra_doc_links" cargo +{{rust_version}} doc --locked -p swarmie-device-linking --all-features --no-deps
+cloud-check:
+    cargo +{{rust_version}} clippy --locked -p swarmie-cloud --all-features --all-targets -- -D warnings
+    cargo +{{rust_version}} test --locked -p swarmie-cloud --all-features
+    RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D rustdoc::broken_intra_doc_links" cargo +{{rust_version}} doc --locked -p swarmie-cloud --all-features --no-deps
 
 # Qualify the independent protocol library without mounting it in a runtime.
 ai-check:
@@ -260,21 +254,5 @@ ai-check:
     cargo +{{rust_version}} clippy --locked -p swarmie-ai --all-features --all-targets -- -D warnings
     RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D rustdoc::broken_intra_doc_links" cargo +{{rust_version}} doc --locked -p swarmie-ai --all-features --no-deps
 
-# Qualify the optional credential handoff without changing current provider consumers.
-ai-auth-check:
-    cargo +{{rust_version}} test --locked -p swarmie-provider-auth
-    cargo +{{rust_version}} test --locked -p swarmie-provider-auth --features ai
-    cargo +{{rust_version}} clippy --locked -p swarmie-provider-auth --all-features --all-targets -- -D warnings
-    RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D rustdoc::broken_intra_doc_links" cargo +{{rust_version}} doc --locked -p swarmie-provider-auth --all-features --no-deps
-
 ai-dependencies:
     cargo +{{rust_version}} tree --locked -p swarmie-ai --edges normal
-
-# Qualify native project content independently and through conversation composition.
-project-context-check:
-    cargo +{{rust_version}} test --locked -p swarmie-project-context
-    cargo +{{rust_version}} test --locked -p swarmie-agent-loop --all-features
-    cargo +{{rust_version}} test --locked -p swarmie-context --test textual --test budget
-    cargo +{{rust_version}} test --locked -p swarmie-client-node --test checkout_admission
-    cargo +{{rust_version}} clippy --locked -p swarmie-project-context -p swarmie-client-node --all-features --all-targets -- -D warnings
-    RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D rustdoc::broken_intra_doc_links" cargo +{{rust_version}} doc --locked -p swarmie-project-context -p swarmie-client-node --no-deps

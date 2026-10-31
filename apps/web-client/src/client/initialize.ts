@@ -7,7 +7,7 @@ import {
   applicationShellOrb,
   createNavigation,
 } from "@swarmie/plugin-application-shell-browser";
-import type { Connector, Node } from "@swarmie/plugin-connections-browser";
+import type { Connector, Node } from "@swarmie/plugin-client-node-browser";
 import {
   Connections,
   connectionsOrb,
@@ -15,7 +15,7 @@ import {
   ConnectionPhase,
   ConnectionFailureKind,
   unconfiguredNode,
-} from "@swarmie/plugin-connections-browser";
+} from "@swarmie/plugin-client-node-browser";
 import { contextUiOrb, createContextPresentation } from "@swarmie/plugin-context-browser";
 import type { Conversation, ConversationsUiApi } from "@swarmie/plugin-conversations-browser";
 import {

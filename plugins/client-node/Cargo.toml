@@ -15,13 +15,9 @@ swarmie-mcp.workspace = true
 swarmie-tools.workspace = true
 swarmie-git = { path = "../git", features = ["tools"] }
 swarmie-providers.workspace = true
-swarmie-context = { workspace=true, features=["durable-tasks"] }
+swarmie-context = { workspace = true, features = ["durable-tasks"] }
 swarmie-commands.workspace = true
-swarmie-project-context.workspace = true
-swarmie-model-catalog.workspace = true
 swarmie-ai.workspace = true
-swarmie-provider-auth.workspace = true
-swarmie-model-provider-ai.workspace = true
 swarmie-agent-loop = { workspace = true, features = ["conversations", "durable-tasks", "context-projection"] }
 swarmie-durable-tasks.workspace = true
 swarmie-conversations.workspace = true

@@ -120,7 +120,7 @@
         "@swarmie/config": "workspace:*",
         "@swarmie/plugin-app-state-browser": "workspace:*",
         "@swarmie/plugin-application-shell-browser": "workspace:*",
-        "@swarmie/plugin-connections-browser": "workspace:*",
+        "@swarmie/plugin-client-node-browser": "workspace:*",
         "@swarmie/plugin-context-browser": "workspace:*",
         "@swarmie/plugin-conversations-browser": "workspace:*",
         "@swarmie/plugin-git-browser": "workspace:*",
@@ -278,8 +278,8 @@
         "react": "19.3.0",
       },
     },
-    "plugins/connections/browser": {
-      "name": "@swarmie/plugin-connections-browser",
+    "plugins/client-node/browser": {
+      "name": "@swarmie/plugin-client-node-browser",
       "version": "1.0.0",
       "dependencies": {
         "@swarmie/client-ui": "workspace:*",
@@ -296,7 +296,7 @@
       "version": "1.0.0",
       "dependencies": {
         "@swarmie/client-ui": "workspace:*",
-        "@swarmie/plugin-connections-browser": "workspace:*",
+        "@swarmie/plugin-client-node-browser": "workspace:*",
         "@swarmie/plugin-conversations-browser": "workspace:*",
         "@swarmie/ui-web": "workspace:*",
         "@syntropika/tembra-sdk": "0.2.0",
@@ -326,7 +326,7 @@
       "version": "1.0.0",
       "dependencies": {
         "@swarmie/client-ui": "workspace:*",
-        "@swarmie/plugin-connections-browser": "workspace:*",
+        "@swarmie/plugin-client-node-browser": "workspace:*",
         "@swarmie/ui-web": "workspace:*",
         "@syntropika/tembra-sdk": "0.2.0",
         "lucide-react": "1.61.0",
@@ -340,7 +340,7 @@
       "version": "1.0.0",
       "dependencies": {
         "@swarmie/client-ui": "workspace:*",
-        "@swarmie/plugin-connections-browser": "workspace:*",
+        "@swarmie/plugin-client-node-browser": "workspace:*",
         "@syntropika/tembra-sdk": "0.2.0",
       },
     },
@@ -1281,7 +1281,7 @@
 
     "@swarmie/plugin-application-shell-browser": ["@swarmie/plugin-application-shell-browser@workspace:plugins/application-shell/browser"],
 
-    "@swarmie/plugin-connections-browser": ["@swarmie/plugin-connections-browser@workspace:plugins/connections/browser"],
+    "@swarmie/plugin-client-node-browser": ["@swarmie/plugin-client-node-browser@workspace:plugins/client-node/browser"],
 
     "@swarmie/plugin-context-browser": ["@swarmie/plugin-context-browser@workspace:plugins/context/browser"],
 

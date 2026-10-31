@@ -23,7 +23,6 @@ swarmie-mcp.workspace = true
 swarmie-tools.workspace = true
 swarmie-agent-loop = { path = "../../../plugins/agent-loop" }
 swarmie-providers = { workspace = true, features = ["mock"] }
-swarmie-model-provider-ai.workspace = true
 swarmie-node.workspace = true
 tembra.workspace = true
 tempfile.workspace = true

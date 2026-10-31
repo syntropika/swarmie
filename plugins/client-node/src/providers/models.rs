@@ -21,7 +21,7 @@ use super::qualifications::DeclaredCapabilities;
 use super::{catalog::ProviderSpec, failure};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use swarmie_model_catalog::{Evidence, Layer, LimitClaim, Limits, Precision};
+use swarmie_ai::catalog::{Evidence, Layer, LimitClaim, Limits, Precision};
 use swarmie_providers::settings::ModelInfo;
 
 pub(super) struct Discovery {
@@ -204,7 +204,7 @@ pub(super) async fn list(
         endpoint: endpoint.into(),
         ..Default::default()
     };
-    let now = swarmie_provider_auth::now_ms();
+    let now = swarmie_providers::auth::now_ms();
     for entry in entries {
         let field = if spec.id == "ollama" { "name" } else { "id" };
         let Some(id) = entry.get(field).and_then(Value::as_str) else {
@@ -251,7 +251,7 @@ pub(super) async fn list(
 }
 
 pub(super) async fn oauth_models(
-    credential: &swarmie_provider_auth::Credential,
+    credential: &swarmie_providers::auth::Credential,
     endpoint: &str,
 ) -> tembra::Result<Discovery> {
     let client = client()?;
@@ -278,7 +278,7 @@ pub(super) async fn oauth_models(
         endpoint: endpoint.into(),
         ..Default::default()
     };
-    let now = swarmie_provider_auth::now_ms();
+    let now = swarmie_providers::auth::now_ms();
     for entry in entries {
         if entry.get("visibility").and_then(Value::as_str) != Some("list") {
             continue;
@@ -348,7 +348,7 @@ pub(super) async fn oauth_models(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use swarmie_provider_auth::{Credential, Provider};
+    use swarmie_providers::auth::{Credential, Provider};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[test]

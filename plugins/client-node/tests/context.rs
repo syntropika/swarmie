@@ -138,7 +138,7 @@ impl Fixture {
         let mut orbs = swarmie_client_node::orbs(
             &host,
             NodeConfiguration {
-                project_context: None,
+                environment: None,
                 state: path.into(),
                 node: NodeId::new("context-fixture").unwrap(),
                 oauth_host: uuid::Uuid::new_v4(),

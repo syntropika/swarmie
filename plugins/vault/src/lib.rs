@@ -43,3 +43,8 @@ mod tools_schema;
 
 #[cfg(feature = "tools")]
 pub use tools_schema::definitions as tool_definitions;
+
+#[cfg(feature = "provider-credentials")]
+mod provider_credentials;
+#[cfg(feature = "provider-credentials")]
+pub use provider_credentials::VaultCredentials;

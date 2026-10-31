@@ -15,7 +15,7 @@ capabilities through the runtime Plugin Manager. Supply these configuration valu
 | `node` | Validated `NodeId` persisted by the embedding. |
 | `oauth_host` | Non-nil OAuth host UUID persisted by the embedding. Independent of the node name. |
 | `principal` | User identity authenticated by the embedding's transport. |
-| `project_context` | Optional host configuration for native skills and project instruction sources. |
+| `environment` | Optional host configuration for native skills and project instruction sources. |
 | `directory_root` | Optional permitted directory root. `None` omits the directory service. |
 
 The embedding must hold an exclusive writer lock for the profile. It owns the host,
@@ -35,10 +35,10 @@ The runtime supplies node identity through its separate managed plugin.
 It also installs directory browsing when `directory_root` is present.
 
 Provider settings use the common provider catalog. Configuration reads the provider or local server model catalog.
-Execution uses `swarmie-model-provider-ai` with one operational model catalog cache.
+Execution uses `swarmie_providers::ai` with one operational model catalog cache.
 Context preparation reads metadata without credential access. Content admission
 precedes credential custody and physical model dispatch. ChatGPT browser
-sign-in uses `swarmie-provider-auth`. Credentials remain in the OS credential store.
+sign-in uses `swarmie_providers::auth`. Credentials remain in the OS credential store.
 The profile stores public account metadata in `providers.json`.
 
 MCP definitions are stored in `mcp.json`. Conversation metadata is stored in
@@ -74,5 +74,5 @@ control, a public listener or transport authentication. The embedding supplies i
 own authenticated channel. Provider credentials and ordinary node capability access
 are separate from private secret-entry authority.
 
-See [Skills and project instructions](../plugins/project-context.md) for source capture,
+See [Skills and project instructions](../plugins/context-sources.md) for source capture,
 explicit skill selection and native session reads.

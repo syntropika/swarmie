@@ -1,5 +1,5 @@
 import { useSource } from "@swarmie/client-ui";
-import type { Node } from "@swarmie/plugin-connections-browser";
+import type { Node } from "@swarmie/plugin-client-node-browser";
 import { ActionMenuDialog, Popover } from "@swarmie/ui-web";
 import { Monitor, Settings } from "lucide-react";
 import type { ReactNode } from "react";

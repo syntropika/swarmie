@@ -1,7 +1,7 @@
 use super::{messages, positive, request};
+use crate::catalog::Snapshot;
 use crate::{Error, Failure};
 use serde_json::Value;
-use swarmie_model_catalog::Snapshot;
 
 pub(super) fn anthropic(payload: &Value) -> Result<u64, Error> {
     messages(&payload["messages"], &["user", "assistant"])?;

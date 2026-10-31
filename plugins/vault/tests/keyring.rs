@@ -1,6 +1,6 @@
 #![cfg(all(feature = "native-keyring", feature = "cloud-client"))]
 
-use swarmie_cloud_account::{KeyringSessions, SessionStorage, StoredSession};
+use swarmie_cloud::account::{KeyringSessions, SessionStorage, StoredSession};
 use swarmie_vault::{keyring::*, *};
 use uuid::Uuid;
 

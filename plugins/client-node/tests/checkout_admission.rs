@@ -151,8 +151,9 @@ async fn concurrent_first(mode: &str, churn: bool, sources: bool) {
         )
         .unwrap();
         Some(
-            swarmie_project_context::ProjectContext::new(
-                swarmie_project_context::Scope::new(first_root.path(), first_root.path()).unwrap(),
+            swarmie_context::environment::Environment::new(
+                swarmie_context::environment::Scope::new(first_root.path(), first_root.path())
+                    .unwrap(),
                 Default::default(),
             )
             .unwrap()
@@ -275,7 +276,7 @@ async fn concurrent_first(mode: &str, churn: bool, sources: bool) {
     install_fixture(
         &host,
         NodeConfiguration {
-            project_context: sources.then(Default::default),
+            environment: sources.then(Default::default),
             state: PathBuf::from(profile.path()),
             node: NodeId::new("fixture-node").unwrap(),
             oauth_host: uuid::Uuid::new_v4(),

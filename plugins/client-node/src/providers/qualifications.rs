@@ -3,8 +3,8 @@
 //! swarmie-ai request/stream/tool conversion under an exact model and reasoning configuration.
 
 use serde::{Deserialize, Serialize};
-use swarmie_model_catalog::{Capability, Evidence, Layer, UnknownReason};
-use swarmie_model_provider_ai::Provider;
+use swarmie_ai::catalog::{Capability, Evidence, Layer, UnknownReason};
+use swarmie_providers::ai::Provider;
 
 pub(super) const PROFILE: &str = "swarmie.text-tools.v1";
 pub(super) const REVIEWED_AT_MS: u64 = 1_793_389_892_000;
@@ -46,7 +46,7 @@ fn unknown() -> Capability<()> {
 
 fn declared(value: Option<bool>, facts: &DeclaredCapabilities, compatible: bool) -> Capability<()> {
     let mut proof = facts.evidence.clone();
-    proof.source = format!("swarmie-model-provider-ai;{}", proof.source);
+    proof.source = format!("swarmie-providers;{}", proof.source);
     proof.revision = format!("swarmie-ai:v1:{PROFILE}:{}", proof.revision);
     proof.layer = Layer::Adapter;
     match value {

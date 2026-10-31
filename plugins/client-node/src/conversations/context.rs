@@ -74,7 +74,7 @@ fn source_view(
 }
 
 pub(super) fn configuration(
-    model: &swarmie_model_provider_ai::AiModel,
+    model: &swarmie_providers::ai::AiModel,
     instructions: &str,
     tools: &[ToolSpec],
 ) -> tembra::Result<Configuration> {

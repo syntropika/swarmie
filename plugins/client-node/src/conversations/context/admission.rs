@@ -124,7 +124,7 @@ impl Session {
                     &metadata.account,
                     &metadata.model,
                     &metadata.effort,
-                    swarmie_model_provider_ai::ModelProtection::Unprotected,
+                    swarmie_providers::ai::ModelProtection::Unprotected,
                 )
                 .await?;
             let configuration = configuration(&model, &instructions, &tools)?;
@@ -341,7 +341,7 @@ impl Session {
                 &metadata.account,
                 &metadata.model,
                 &metadata.effort,
-                swarmie_model_provider_ai::ModelProtection::Unprotected,
+                swarmie_providers::ai::ModelProtection::Unprotected,
             )
             .await?;
         let configuration = configuration(&model, &instructions, &tools)?;

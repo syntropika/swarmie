@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
+use crate::catalog::ModelIdentity;
 use reqwest::{Url, header::HeaderMap};
 use serde_json::{Value, json};
-use swarmie_model_catalog::ModelIdentity;
 
 use crate::codecs::{
     completion::{CompletionRequest, CompletionResponse, OnUnsupported},

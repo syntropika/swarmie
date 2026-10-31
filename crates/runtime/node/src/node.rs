@@ -190,7 +190,7 @@ impl Node {
             None => (None, None),
         };
         let configuration = swarmie_client_node::NodeConfiguration {
-            project_context: Some(swarmie_client_node::ProjectContextConfiguration::default()),
+            environment: Some(swarmie_client_node::EnvironmentConfiguration::default()),
             state,
             node: NodeId::new(id.clone()).map_err(|_| "native identity is invalid")?,
             oauth_host,

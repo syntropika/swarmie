@@ -35,7 +35,7 @@
       "path": "plugins/settings/browser/tsconfig.json"
     },
     {
-      "path": "plugins/connections/browser/tsconfig.json"
+      "path": "plugins/client-node/browser/tsconfig.json"
     },
     {
       "path": "plugins/conversations/browser/tsconfig.json"

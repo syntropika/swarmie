@@ -4090,12 +4090,12 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "swarmie-model-catalog",
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "ureq",
  "url",
  "uuid",
  "web-time",
@@ -4131,10 +4131,6 @@ dependencies = [
  "swarmie-durable-tasks",
  "swarmie-git",
  "swarmie-mcp",
- "swarmie-model-catalog",
- "swarmie-model-provider-ai",
- "swarmie-project-context",
- "swarmie-provider-auth",
  "swarmie-providers",
  "swarmie-runtime",
  "swarmie-storage",
@@ -4147,17 +4143,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "swarmie-cloud-account"
+name = "swarmie-cloud"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "ed25519-dalek",
  "futures",
+ "hkdf",
+ "hmac",
  "keyring",
  "rand 0.8.5",
  "reqwest",
  "serde",
+ "serde_jcs",
  "serde_json",
  "sha2 0.10.9",
+ "swarmie-permissions",
  "thiserror 2.0.21",
  "tokio",
  "tokio-rustls",
@@ -4183,12 +4184,16 @@ dependencies = [
  "futures",
  "serde",
  "serde_json",
+ "serde_yaml_ng",
+ "sha2 0.10.9",
+ "swarmie-ai",
  "swarmie-commands",
  "swarmie-conversations",
  "swarmie-durable-tasks",
- "swarmie-model-catalog",
  "swarmie-providers",
  "tembra",
+ "tempfile",
+ "thiserror 2.0.21",
  "uuid",
 ]
 
@@ -4217,8 +4222,8 @@ dependencies = [
  "swarmie-client-node",
  "swarmie-conversations",
  "swarmie-durable-tasks",
- "swarmie-model-submission-protection",
  "swarmie-node",
+ "swarmie-providers",
  "swarmie-runtime",
  "swarmie-storage",
  "tembra",
@@ -4233,29 +4238,6 @@ name = "swarmie-desktop-updates"
 version = "0.1.0"
 dependencies = [
  "velopack",
-]
-
-[[package]]
-name = "swarmie-device-linking"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "ed25519-dalek",
- "futures",
- "hkdf",
- "hmac",
- "keyring",
- "rand 0.8.5",
- "serde",
- "serde_jcs",
- "serde_json",
- "sha2 0.10.9",
- "swarmie-cloud-account",
- "swarmie-permissions",
- "thiserror 2.0.21",
- "tokio",
- "uuid",
- "zeroize",
 ]
 
 [[package]]
@@ -4295,7 +4277,6 @@ dependencies = [
  "swarmie-agent-loop",
  "swarmie-durable-tasks",
  "swarmie-mcp",
- "swarmie-model-provider-ai",
  "swarmie-node",
  "swarmie-providers",
  "swarmie-storage",
@@ -4375,62 +4356,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "swarmie-model-catalog"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
- "ureq",
- "url",
-]
-
-[[package]]
-name = "swarmie-model-provider-ai"
-version = "0.1.0"
-dependencies = [
- "futures",
- "reqwest",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "swarmie-agent-loop",
- "swarmie-ai",
- "swarmie-context",
- "swarmie-conversations",
- "swarmie-durable-tasks",
- "swarmie-model-catalog",
- "swarmie-model-submission-protection",
- "swarmie-permissions",
- "swarmie-provider-auth",
- "swarmie-providers",
- "swarmie-storage",
- "swarmie-vault",
- "tembra",
- "tempfile",
- "tokio",
- "uuid",
- "zeroize",
-]
-
-[[package]]
-name = "swarmie-model-submission-protection"
-version = "0.1.0"
-dependencies = [
- "hmac",
- "rand 0.8.5",
- "secrets_scanner",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "swarmie-permissions",
- "thiserror 2.0.21",
- "uuid",
- "zeroize",
-]
-
-[[package]]
 name = "swarmie-node"
 version = "0.1.0"
 dependencies = [
@@ -4439,14 +4364,13 @@ dependencies = [
  "serde_json",
  "swarmie-agent-loop",
  "swarmie-client-node",
- "swarmie-cloud-account",
+ "swarmie-cloud",
  "swarmie-conversations",
  "swarmie-durable-tasks",
  "swarmie-git",
- "swarmie-model-provider-ai",
- "swarmie-model-submission-protection",
  "swarmie-permissions",
  "swarmie-plugin-manager",
+ "swarmie-providers",
  "swarmie-runtime",
  "swarmie-storage",
  "swarmie-tools",
@@ -4504,46 +4428,32 @@ dependencies = [
 ]
 
 [[package]]
-name = "swarmie-project-context"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "serde_yaml_ng",
- "sha2 0.10.9",
- "swarmie-providers",
- "tempfile",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "swarmie-provider-auth"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "jsonwebtoken",
- "oauth2",
- "reqwest",
- "rsa",
- "serde",
- "serde_json",
- "swarmie-ai",
- "thiserror 2.0.21",
- "tokio",
- "uuid",
- "zeroize",
-]
-
-[[package]]
 name = "swarmie-providers"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "futures",
+ "hmac",
+ "jsonwebtoken",
+ "oauth2",
+ "rand 0.8.5",
+ "reqwest",
+ "rsa",
+ "secrets_scanner",
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "swarmie-model-catalog",
+ "swarmie-agent-loop",
+ "swarmie-ai",
+ "swarmie-context",
+ "swarmie-conversations",
+ "swarmie-durable-tasks",
+ "swarmie-permissions",
+ "swarmie-storage",
  "tembra",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
  "uuid",
  "zeroize",
 ]
@@ -4642,8 +4552,9 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "subtle",
- "swarmie-cloud-account",
+ "swarmie-cloud",
  "swarmie-permissions",
+ "swarmie-providers",
  "swarmie-tools",
  "tembra",
  "tempfile",

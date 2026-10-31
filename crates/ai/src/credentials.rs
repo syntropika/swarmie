@@ -1,6 +1,6 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
-use swarmie_model_catalog::{ModelIdentity, Snapshot};
+use crate::catalog::{ModelIdentity, Snapshot};
 use zeroize::Zeroizing;
 
 use crate::{AuthProfile, Error, Failure, Model, Protocol, Timeouts};

@@ -43,7 +43,7 @@ struct Session {
     tools: Rc<CatalogService>,
     catalog: Catalog,
     git: Option<swarmie_git::GitService>,
-    project_configuration: Option<swarmie_project_context::Configuration>,
+    environment_configuration: Option<swarmie_context::environment::Configuration>,
     agent_git_authority: Option<std::sync::Arc<dyn swarmie_git::Authority>>,
     index: Rc<index::Index>,
     state: State<Snapshot>,
@@ -603,7 +603,7 @@ impl Session {
                 account,
                 &input.draft.model,
                 &input.draft.effort,
-                swarmie_model_provider_ai::ModelProtection::Unprotected,
+                swarmie_providers::ai::ModelProtection::Unprotected,
             )
             .await?;
         context.check()?;
@@ -743,7 +743,7 @@ pub(crate) struct ExecutionPolicy {
     pub service: Option<swarmie_git::GitService>,
     pub authority: Option<std::sync::Arc<dyn swarmie_git::Authority>>,
     pub owner: Option<Rc<dyn crate::ExecutionOwner>>,
-    pub project_context: Option<swarmie_project_context::Configuration>,
+    pub environment: Option<swarmie_context::environment::Configuration>,
 }
 
 pub(crate) fn orbs(
@@ -759,7 +759,7 @@ pub(crate) fn orbs(
         service: git,
         authority: agent_git_authority,
         owner: execution,
-        project_context,
+        environment,
     } = policy;
     let owner = swarmie_storage::sqlite::SqliteOwner::new(path.join("conversations.sqlite"));
     let options = swarmie_durable_tasks::Options::new(
@@ -924,7 +924,7 @@ pub(crate) fn orbs(
             let task_factory = owner.task_factory();
             let (id, node, principal) = (id.clone(), node.clone(), principal.clone());
             let (host, providers, catalog) = (host.clone(), providers.clone(), catalog.clone());
-            let project_context = project_context.clone();
+            let environment = environment.clone();
             let (git, agent_git_authority, index) =
                 (git.clone(), agent_git_authority.clone(), index.clone());
             declaration.resource_async(
@@ -952,7 +952,7 @@ pub(crate) fn orbs(
                             tools,
                             catalog,
                             git,
-                            project_configuration: project_context,
+                            environment_configuration: environment,
                             agent_git_authority,
                             index,
                             state,
@@ -969,7 +969,7 @@ pub(crate) fn orbs(
         })
         .lifetime(tembra::core::Lifetime::Referenced, 30_000)
         .method("project_skills", |session, context, (binding,): (types::ExecutionContext,)| async move {
-            session.value()?.project_inventory(&context, &binding).await
+            session.value()?.environment_inventory(&context, &binding).await
         })
         .method("validate", |session, context, (spec, call): (swarmie_tools::ToolSpec, swarmie_tools::ToolCall)| async move {
             session.value()?.validate_skill(&context, &spec, &call)

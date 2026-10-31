@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 
 import type { UiStore } from "@swarmie/client-ui";
-import { ConnectionPhase, NodeConnection } from "@swarmie/plugin-connections-browser";
-import type { ConnectionsState } from "@swarmie/plugin-connections-browser";
+import { ConnectionPhase, NodeConnection } from "@swarmie/plugin-client-node-browser";
+import type { ConnectionsState } from "@swarmie/plugin-client-node-browser";
 import { orb } from "@syntropika/tembra-sdk";
 import { createHost } from "@syntropika/tembra-sdk/node";
 

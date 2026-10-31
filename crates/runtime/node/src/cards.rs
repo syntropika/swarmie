@@ -7,9 +7,9 @@ use std::{
     collections::BTreeMap,
     rc::{Rc, Weak},
 };
-use swarmie_model_provider_ai::ModelDecisions;
-use swarmie_model_submission_protection::{DecisionIntent, Inspection};
 use swarmie_permissions::{ExecutionBinding, HumanDecision, OwnerBinding};
+use swarmie_providers::ai::ModelDecisions;
+use swarmie_providers::protection::{DecisionIntent, Inspection};
 use swarmie_vault::{
     executors::{CaptureSource, UseDecisions},
     tools::{InputIntent, InputReceipt, PrivateInputs},

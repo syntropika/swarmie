@@ -1,7 +1,7 @@
 # AI protocol library
 
 `swarmie-ai` is an independent Rust library in `crates/ai`. It prepares and sends
-protocol requests. The native runtime uses it through `swarmie-model-provider-ai`,
+protocol requests. The native runtime uses it through `swarmie_providers::ai`,
 which implements the neutral provider contract and applies model submission protection.
 
 All protocols use the same immutable preparation, admission and HTTP execution.
@@ -51,7 +51,7 @@ check can retain local host state. The host must keep the execution alive throug
 settlement. `Execution::stop_handle` signals local cancellation without granting
 permission to repeat the request.
 
-The optional `ai` feature of `swarmie-provider-auth` exposes
+The `swarmie_providers::auth` module exposes
 `ChatgptCredentialSource`. It reuses the native dynamic-registration login,
 loopback callback and token renewal. Initial registration uses
 `dynamic_agent_client`; subsequent authorization and renewal use the issued
@@ -71,7 +71,7 @@ provider encoding/decoding, stream events and document folds. These interfaces
 perform no dispatch and grant no account access. They retain native items and
 signatures alongside their typed projections. Missing usage counters remain
 unknown; caller-supplied price arithmetic is not a provider billing receipt.
-Captured encoder facts do not replace the independent Catalog or its one
+Captured encoder facts do not replace the AI Catalog or its one
 operational cache.
 
 `Model::prepare` accepts `CompletionRequest` through the same prepared-request

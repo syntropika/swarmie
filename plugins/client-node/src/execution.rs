@@ -1,6 +1,6 @@
 //! Native execution ownership supplied by the embedding, independent of Desktop or vault custody.
 use std::{any::Any, rc::Rc};
-use swarmie_model_provider_ai::ModelProtection;
+use swarmie_providers::ai::ModelProtection;
 use swarmie_tools::ToolDefinition;
 use tembra::Context;
 use uuid::Uuid;

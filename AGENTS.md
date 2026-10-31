@@ -41,8 +41,9 @@ Conversations adapters. Normal execution does not require a scheduler or history
 Tools owns tool metadata and provider routing; Tembra owns the actual services and
 references. Catalog membership never grants provider authority. Confirm routed provider
 identity with pending tool arguments, and reconcile before permitting a retry.
-Shared model values and provider interfaces belong in `plugins/providers`; concrete model
-adapters belong in their own provider crate. Keep test mocks behind explicit features.
+Model contracts, authentication, submission protection and native AI integration belong in
+`plugins/providers`. Keep their responsibilities in internal modules. Keep test mocks behind
+explicit features.
 
 Storage is a backend-neutral resource. The storage package enables its `sqlite` feature by default;
 disable default features to supply another backend. Keep the neutral contracts independent
@@ -123,8 +124,8 @@ Do not recreate a generic Contract generator or packaging layer without a concre
 Use the root pinned toolchain, rustfmt.toml and justfile. Keep manifests with their owners;
 do not duplicate formatting, toolchain or changelog configuration. General Rust libraries belong in `crates/`, with short directory names. The embeddable
 runtime lives in `crates/runtime/`, storage in `crates/storage/`, and neutral storage
-contracts in `crates/storage/core/`. The independent model catalog lives in
-`crates/model-catalog/`. Capability libraries stay in `plugins/`, and synthetic
+contracts in `crates/storage/core/`. The model catalog, source generation and operational
+cache belong inside `crates/ai/`. Capability libraries stay in `plugins/`, and synthetic
 fixtures stay in `tests/fixtures/`.
 Do not add top-level example applications or an editor-specific `.vscode/` directory.
 

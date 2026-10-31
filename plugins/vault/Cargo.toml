@@ -9,16 +9,15 @@ description = "Node-owned encrypted secrets, private authority and blind capture
 [features]
 default = []
 tools = ["dep:swarmie-tools", "swarmie-permissions/tembra", "executors"]
-native-keyring = ["dep:keyring", "swarmie-cloud-account?/native-keyring"]
+native-keyring = ["dep:keyring", "swarmie-cloud?/native-keyring"]
 executors = ["dep:tokio", "dep:reqwest", "dep:nix"]
-cloud-client = ["dep:swarmie-cloud-account", "swarmie-permissions/tls"]
+cloud-client = ["dep:swarmie-cloud", "swarmie-permissions/tls"]
+provider-credentials = ["dep:swarmie-providers", "executors"]
 
 [dependencies]
 swarmie-tools = { workspace = true, optional = true }
-swarmie-cloud-account = { path = "../cloud-account", optional = true }
 tokio = { version = "1", features = ["rt", "time", "process", "io-util", "macros", "sync"], optional = true }
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream"], optional = true }
-
 tembra.workspace = true
 futures.workspace = true
 serde.workspace = true
@@ -37,6 +36,8 @@ subtle = "2"
 zeroize = { version = "1", features = ["derive"] }
 serde_jcs = "=0.1.0"
 keyring = { version = "=3.6.3", optional = true, default-features = false, features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+swarmie-cloud = { workspace = true, optional = true }
+swarmie-providers = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.30", features = ["signal", "process"], optional = true }

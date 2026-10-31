@@ -15,9 +15,10 @@ capabilities, supplies I/O and owns the executor.
 | Context projections and application commands | [Context and commands](plugins/context.md) |
 | Independent protocol preparation and transport | [AI protocol library](ai.md) |
 | Provider requests and streaming | [Providers](plugins/providers.md) |
+| Cloud account sessions and device linking | [Swarmie Cloud client](plugins/cloud.md) |
 | Account selection and credential workflows | [Provider accounts](plugins/provider-accounts.md) |
 | Model metadata and preparation | [Model catalog](plugins/model-catalog.md) |
-| Skills and scoped project instructions | [Project context](plugins/project-context.md) |
+| Skills and scoped project instructions | [Context sources](plugins/context-sources.md) |
 | Tool discovery and provider routing | [Tools](plugins/tools.md) |
 | Local and HTTP MCP tool connections | [MCP](plugins/mcp.md) |
 | Node identity and remote destinations | [Node connections](client-runtime/node-connections.md) |

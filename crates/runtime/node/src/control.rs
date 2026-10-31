@@ -21,12 +21,12 @@ use std::{
     path::PathBuf,
     rc::Rc,
 };
-use swarmie_cloud_account::{
+use swarmie_cloud::account::{
     AccountSession, AccountTransport, Endpoints, KeyringSessions, LoginFlow,
 };
-use swarmie_model_submission_protection::{Detector, ModelGuard};
 use swarmie_permissions::transport::ManagementStream;
 use swarmie_permissions::*;
+use swarmie_providers::protection::{Detector, ModelGuard};
 use swarmie_storage::sqlite::SqliteVaultStorage;
 use swarmie_vault::{
     cloud_http::*,

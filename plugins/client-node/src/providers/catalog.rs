@@ -1,4 +1,4 @@
-use swarmie_model_provider_ai::Provider;
+use swarmie_providers::ai::Provider;
 use swarmie_providers::settings::Choice;
 
 pub(super) struct ProviderSpec {

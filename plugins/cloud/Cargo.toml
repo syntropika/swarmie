@@ -1,0 +1,37 @@
+[package]
+name = "swarmie-cloud"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Native Swarmie Cloud accounts and authenticated device linking"
+
+[features]
+default = []
+native-keyring = ["dep:keyring"]
+
+[dependencies]
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "time"] }
+rand = "=0.8.5"
+sha2 = "0.10"
+base64 = "0.22"
+zeroize = { version = "1", features = ["derive"] }
+keyring = { version = "=3.6.3", optional = true, default-features = false, features = ["apple-native", "crypto-rust", "sync-secret-service", "windows-native"] }
+serde_jcs = "=0.1.0"
+ed25519-dalek = { version = "=2.2.0", features = ["rand_core"] }
+hmac = "=0.12.1"
+hkdf = "=0.12.4"
+swarmie-permissions = { path = "../permissions", features = ["tls"] }
+
+[dev-dependencies]
+tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt"] }
+
+[lints]
+workspace = true

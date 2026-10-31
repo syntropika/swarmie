@@ -1,7 +1,8 @@
 # Model catalog
 
-`swarmie-model-catalog` prepares model metadata for Rust consumers. Its runtime has no
-inference client, credentials, network client or Tembra dependency.
+`swarmie_ai::catalog` prepares model metadata for Rust consumers. This module
+does not perform inference, obtain credentials or access the network. It shares
+the AI library package and build-time model generation.
 
 ## Identity and preparation
 
@@ -70,9 +71,9 @@ External capability flags do not qualify adapter operations.
 
 ## Descriptive model facts
 
-`swarmie_ai::catalog` re-exports this crate. Both paths expose the same types and
-the same bounded operational `Catalog` cache. Lightweight metadata consumers can
-continue depending directly on `swarmie-model-catalog`.
+`swarmie_ai::catalog` owns the shared model facts and operational `Catalog` cache.
+Consumers depend on `swarmie-ai` and use this module directly. There is no separate
+catalog package or second cache.
 
 `ModelsDev::model` returns an exact provider/model description. `models` iterates
 in stable provider/model order. `ModelSpec` retains names, lifecycle details,
@@ -134,14 +135,14 @@ prices. A download or
 validation failure fails compilation rather than silently using an old catalog.
 The snapshot records exact keys and descriptive model facts, its source, source and content
 digests, capture time and a seven-day freshness interval. The upstream MIT notice
-is retained in `crates/model-catalog/data/LICENSE.models-dev`.
+is retained in `crates/ai/data/LICENSE.models-dev`.
 
 Cargo reuses successful build outputs during incremental builds.
-`just model-catalog-build`, `just desktop-build` and `just desktop-package` set a
+`just ai-catalog-build`, `just desktop-build` and `just desktop-package` set a
 build refresh marker so their builds fetch metadata again. A fresh Cargo build
 also downloads the catalog automatically. The marker affects build caching only.
 
-Run `just model-catalog-check` for resolver, source-integrity and build-validation
+Run `just ai-check` for resolver, source-integrity and build-validation
 checks. Root foundation checks include this recipe. Compilation does not require
 this guide or other documentation files.
 
