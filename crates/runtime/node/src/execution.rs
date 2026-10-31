@@ -1,11 +1,24 @@
 //! One native owner for the client engine, private cards and vault tool dispatch.
-use super::*;
+use std::{cell::RefCell, rc::Rc};
+use swarmie_providers::native::NativeModelProtection;
+use swarmie_vault_native::{NativeAgent, NativeVault};
+use tembra::{Context, Orb};
+use uuid::Uuid;
+
+fn unavailable() -> tembra::Error {
+    tembra::Error::new(
+        tembra::Code::Forbidden,
+        "node.execution",
+        "execution authority is unavailable",
+    )
+}
 use std::{collections::BTreeMap, rc::Weak};
 use swarmie_conversation_runtime::{ConversationExecution, ExecutionOwner, ExecutionScope};
 
 pub(crate) struct ClientExecution {
-    node: NativeNode,
+    node: NativeVault,
     principal: String,
+    protection: Rc<NativeModelProtection>,
     agents: RefCell<BTreeMap<Uuid, Weak<NativeAgent>>>,
     // Conversation approvals belong to the application session. Tembra still
     // owns service objects, observers and every physical task invocation.
@@ -15,13 +28,15 @@ pub(crate) struct ClientExecution {
 
 impl ClientExecution {
     pub fn new(
-        node: NativeNode,
+        node: NativeVault,
         principal: String,
+        protection: Rc<NativeModelProtection>,
         plugins: swarmie_plugin_manager::PluginIndex,
     ) -> Rc<Self> {
         Rc::new(Self {
             node,
             principal,
+            protection,
             agents: RefCell::new(BTreeMap::new()),
             logical: RefCell::new(BTreeMap::new()),
             plugins,
@@ -34,7 +49,7 @@ impl ClientExecution {
             if !owner.plugins.required_active() {
                 return Err(unavailable());
             }
-            let binding = owner.node.executions.resolve(context)?;
+            let binding = owner.node.execution_contexts().resolve(context)?;
             owner
                 .agents
                 .borrow()
@@ -128,7 +143,9 @@ impl ConversationExecution for ClientConversation {
         let physical = agent.enter(context)?;
         Ok(ExecutionScope::new(
             physical.context().clone(),
-            agent.protection(),
+            self.owner
+                .protection
+                .protection(self.owner.node.execution_contexts()),
             (agent, physical),
         ))
     }
@@ -142,8 +159,22 @@ mod tests {
     #[test]
     fn presentation_owner_drop_preserves_logical_conversation_authority_until_application_close() {
         let directory = tempfile::tempdir().unwrap();
-        let node = NativeNode::open(directory.path().into()).unwrap();
-        let owner = ClientExecution::new(node.clone(), "fixture".into(), Default::default());
+        let node = NativeVault::open(directory.path().into()).unwrap();
+        let protection = NativeModelProtection::open(
+            directory.path().join("model-protection.json"),
+            node.authority(),
+            node.installation(),
+            "private-fixture".into(),
+            true,
+            true,
+        )
+        .unwrap();
+        let owner = ClientExecution::new(
+            node.clone(),
+            "fixture".into(),
+            protection,
+            Default::default(),
+        );
         let conversation = Uuid::new_v4();
         let mut pool = futures::executor::LocalPool::new();
         let host = tembra::Host::new(pool.spawner());
@@ -155,7 +186,7 @@ mod tests {
                     let scope = observer.enter(&context)?;
                     let identity = first_owner
                         .node
-                        .executions
+                        .execution_contexts()
                         .resolve(scope.context())?
                         .identity()
                         .clone();
@@ -174,7 +205,7 @@ mod tests {
                     let scope = observer.enter(&context)?;
                     Ok(second_owner
                         .node
-                        .executions
+                        .execution_contexts()
                         .resolve(scope.context())?
                         .identity()
                         .clone())

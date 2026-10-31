@@ -387,13 +387,29 @@ async fn serve(
         input: receiver,
         output,
     } = transport;
-    let native = match crate::NativeNode::open(vault_root) {
+    let native = match swarmie_vault_native::NativeVault::open(vault_root) {
         Ok(native) => native,
         Err(error) => {
             let _ = ready.send(Err(error.to_string()));
             return;
         }
     };
+    let protection = match swarmie_providers::native::NativeModelProtection::open(
+        configuration.state.join("model-protection.json"),
+        native.authority(),
+        native.installation(),
+        swarmie_vault_native::PRINCIPAL.into(),
+        native.initial_model_protection(),
+        native.private_decisions_available(),
+    ) {
+        Ok(protection) => protection,
+        Err(error) => {
+            native.close();
+            let _ = ready.send(Err(error.to_string()));
+            return;
+        }
+    };
+    let model_protection = protection.clone();
     let storage = swarmie_storage::sqlite::factory(configuration.state.join("runtime.sqlite"));
     let node_id = configuration.node.clone();
     let native_plugin_id =
@@ -405,12 +421,17 @@ async fn serve(
         native_plugin_id.clone(),
         std::num::NonZeroU32::new(1).expect("nonzero native plugin version"),
         move |context| {
-            let execution = crate::control::client::ClientExecution::new(
+            let execution = crate::execution::ClientExecution::new(
                 owner.clone(),
                 PRINCIPAL.into(),
+                model_protection.clone(),
                 context.index,
             );
-            let mut definitions = vec![owner.private_ui(), execution.tools()];
+            let mut definitions = vec![
+                owner.private_ui(),
+                model_protection.clone().orb(),
+                execution.tools(),
+            ];
             definitions.extend(crate::composition::orbs(
                 &context.host,
                 configuration.clone(),
@@ -430,6 +451,7 @@ async fn serve(
     let runtime = match runtime {
         Ok(runtime) => runtime,
         Err(error) => {
+            protection.close();
             native.close();
             let _ = ready.send(Err(error.to_string()));
             return;
@@ -438,12 +460,14 @@ async fn serve(
     let host = runtime.host();
     if let Err(error) = swarmie_conversation_runtime::start(host).await {
         let _ = runtime.close().await;
+        protection.close();
         native.close();
         let _ = ready.send(Err(error.to_string()));
         return;
     }
     if ready.send(Ok(())).is_err() {
         let _ = runtime.close().await;
+        protection.close();
         native.close();
         return;
     }
@@ -522,6 +546,7 @@ async fn serve(
     }
     channels.clear();
     let _ = runtime.close().await;
+    protection.close();
     native.close();
 }
 
@@ -608,8 +633,10 @@ impl Channel {
             );
         let outgoing = output.clone();
         let mut options = if private {
-            rpc::Options::new(crate::control::PRINCIPAL.into(), |service, key| {
-                service == crate::control::SERVICE && key.is_none_or(|key| key == ["main"])
+            rpc::Options::new(swarmie_vault_native::PRINCIPAL.into(), |service, key| {
+                (service == swarmie_vault_native::SERVICE
+                    || service == swarmie_providers::native::MODEL_PROTECTION_SERVICE)
+                    && key.is_none_or(|key| key == ["main"])
             })
         } else {
             rpc::Options::new(PRINCIPAL.into(), permits_service)
@@ -666,6 +693,8 @@ fn permits_service(service: &str, key: Option<&[String]>) -> bool {
                 | "swarmie.context"
                 | "swarmie.commands"
                 | "swarmie.mcp.settings"
+                | "swarmie.projects"
+                | "swarmie.activity"
                 | "swarmie.tools"
                 | "swarmie.directories"
                 | "swarmie.git"
@@ -685,6 +714,19 @@ fn permits_service(service: &str, key: Option<&[String]>) -> bool {
 mod tests {
     use super::*;
     use serde_json::{Value, json};
+
+    #[test]
+    fn collection_services_use_only_the_authenticated_main_instance() {
+        for service in ["swarmie.projects", "swarmie.activity"] {
+            assert!(permits_service(service, None));
+            assert!(permits_service(service, Some(&["main".into()])));
+            assert!(!permits_service(service, Some(&["other".into()])));
+            assert!(!permits_service(
+                service,
+                Some(&["main".into(), "other".into()])
+            ));
+        }
+    }
 
     #[test]
     fn authorization_allows_new_and_returning_sessions_only() {
@@ -1018,7 +1060,7 @@ mod tests {
                 queue.push(b"{}".to_vec()).unwrap();
             }
         }
-        private.send(generation, &serde_json::to_vec(&json!({"id":1,"op":"get","payload":{"service":crate::control::SERVICE,"key":["main"]}})).unwrap()).unwrap();
+        private.send(generation, &serde_json::to_vec(&json!({"id":1,"op":"get","payload":{"service":swarmie_vault_native::SERVICE,"key":["main"]}})).unwrap()).unwrap();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         while node.output.lock().unwrap().contains_key(&generation) {
             assert!(

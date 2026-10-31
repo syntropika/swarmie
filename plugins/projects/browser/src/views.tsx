@@ -2,8 +2,10 @@ import { useSource } from "@swarmie/client-ui";
 import type { SectionProps } from "@swarmie/plugin-browser/shell";
 import { Breadcrumbs, Button, Description, Label, ListBox, VirtualList } from "@swarmie/ui-web";
 import { ArrowLeft, Folder, MessageCircle, Pencil, Plus } from "lucide-react";
+import { useMemo, useState } from "react";
 
 import { useProjects } from "./context";
+import { savedBrowserProjects } from "./persistence";
 
 export { ProjectsContext } from "./context";
 export type { ProjectsPresentation } from "./context";
@@ -39,7 +41,8 @@ export function ProjectsHeader({ params }: SectionProps) {
 }
 
 export function ProjectsPage({ params }: SectionProps) {
-  const { api, conversations, open, openConversation, createConversation } = useProjects();
+  const { api, conversations, open, openConversation, createConversation, browserProfileKey } =
+    useProjects();
   const state = useSource(api.state);
   const chats = useSource(conversations);
   const project = state.records.find((entry) => entry.id === params.projectId);
@@ -122,6 +125,9 @@ export function ProjectsPage({ params }: SectionProps) {
           )}
         </div>
       </div>
+      {project === undefined && browserProfileKey !== undefined ? (
+        <BrowserProjectImport profileKey={browserProfileKey} />
+      ) : null}
       {state.error === null ? null : (
         <p
           role="alert"
@@ -206,3 +212,53 @@ export function ProjectsPage({ params }: SectionProps) {
 
 export { ProjectsSidebar } from "./sidebar";
 export { ProjectDialog } from "./editor";
+
+function BrowserProjectImport({ profileKey }: { profileKey: string }) {
+  const { api } = useProjects();
+  const state = useSource(api.state);
+  const source = useMemo(() => {
+    try {
+      return { data: savedBrowserProjects(profileKey), error: null };
+    } catch (error: unknown) {
+      return { data: null, error: error instanceof Error ? error.message : String(error) };
+    }
+  }, [profileKey]);
+  const [busy, setBusy] = useState(false);
+  async function importProjects() {
+    if (source.data === null) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.importData(source.data);
+    } catch (error: unknown) {
+      api.fail(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+  function requestImport() {
+    importProjects().catch(api.fail);
+  }
+  if (source.error !== null) {
+    return (
+      <p role="alert" className="px-4 text-sm text-danger">
+        {source.error}
+      </p>
+    );
+  }
+  if (source.data === null || source.data.records.length === 0 || state.records.length !== 0) {
+    return null;
+  }
+  return (
+    <div className="mx-auto w-full max-w-4xl px-4 pb-4">
+      <p className="mb-2 text-sm text-muted">
+        Projects saved in this browser can be imported into the connected runtime. The browser copy
+        will be kept.
+      </p>
+      <Button variant="secondary" isDisabled={!state.available || busy} onPress={requestImport}>
+        Import browser projects
+      </Button>
+    </div>
+  );
+}

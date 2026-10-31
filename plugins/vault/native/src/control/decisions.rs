@@ -10,10 +10,10 @@ impl Control {
             return Err(unavailable());
         }
         let human = self.shell.borrow().clone();
-        let (owner, model) = self.cards.binding(id).map_err(failure)?;
+        let owner = self.cards.binding(id).map_err(failure)?;
         self.authority.check_binding(&owner).map_err(failure)?;
         if owner.identity().installation != self.configuration.borrow().installation
-            || (!model && owner.identity().account != human.identity().account)
+            || owner.identity().account != human.identity().account
         {
             return Err(unavailable());
         }
@@ -36,16 +36,6 @@ impl Control {
                     .decide_for(&card.owner, &("vault-use/v1", &intent, conversation))
                     .map_err(failure)?;
                 let _ = send.send(Ok((decision, conversation)));
-            }
-            crate::cards::Pending::Model(intent, send) => {
-                if choice != "allow-once" {
-                    return Err(unavailable());
-                }
-                let decision = self
-                    .authority
-                    .decide_for(&card.owner, &("model-send/v1", &intent))
-                    .map_err(failure)?;
-                let _ = send.send(Ok(decision));
             }
             crate::cards::Pending::Capture(handle, source, send) => {
                 if choice != "allow-once" {

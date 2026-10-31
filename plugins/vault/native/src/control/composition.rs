@@ -12,23 +12,52 @@ use swarmie_vault::{
 /// Reusable desktop/native owner. Opening it reads safe configuration and protected session custody;
 /// the private UI Orb performs sign-in, enrollment and unlock. No hosted source is required.
 #[derive(Clone)]
-pub struct NativeNode {
+pub struct NativeVault {
     pub(super) control: Rc<Control>,
     pub(super) executions: ExecutionContexts,
 }
-impl NativeNode {
+impl NativeVault {
     pub fn open(root: PathBuf) -> tembra::Result<Self> {
-        Self::with_private_entries(root, PrivateEntries::default())
+        Self::with_private_entries(root, PrivateEntries::default(), true)
     }
-    /// Supply opaque contributions from the embedding's existing active plugin index.
-    pub fn with_private_entries(root: PathBuf, entries: PrivateEntries) -> tembra::Result<Self> {
-        let control = Control::open(root, entries)?;
+    /// Supply active native contributions and explicitly select private interaction support.
+    /// With interactions disabled, operations needing human input fail without preventing mounting.
+    pub fn with_private_entries(
+        root: PathBuf,
+        entries: PrivateEntries,
+        private_decisions: bool,
+    ) -> tembra::Result<Self> {
+        let control = Control::open(root, entries, private_decisions)?;
         let executions = ExecutionContexts::new(control.authority.clone());
         Ok(Self {
             control,
             executions,
         })
     }
+    /// Trusted composition access; never expose this issuer over RPC.
+    pub fn authority(&self) -> Authority {
+        self.control.authority.clone()
+    }
+
+    /// Existing opaque execution mapping shared with capability adapters.
+    pub fn execution_contexts(&self) -> ExecutionContexts {
+        self.executions.clone()
+    }
+
+    pub fn installation(&self) -> Uuid {
+        self.control.configuration.borrow().installation
+    }
+
+    /// Previously accepted preference, used only when initializing provider-owned storage.
+    pub fn initial_model_protection(&self) -> bool {
+        self.control.configuration.borrow().detector_enabled
+    }
+
+    /// The embedding may omit the private UI without preventing capability composition.
+    pub fn private_decisions_available(&self) -> bool {
+        self.control.private_decisions_available()
+    }
+
     /// Serve only on the origin-authenticated private shell channel, never the agent RPC catalog.
     pub fn private_ui(&self) -> Orb {
         orb(self.control.clone())
@@ -111,7 +140,7 @@ impl NativeNode {
 
 /// Retained actual logical owner, not reconstructible from serialized execution IDs.
 pub struct NativeAgent {
-    node: NativeNode,
+    node: NativeVault,
     active: Option<Rc<Active>>,
     binding: ExecutionBinding,
     tools: Option<Rc<VaultTools>>,
@@ -124,7 +153,7 @@ impl Drop for NativeAgent {
 }
 
 impl NativeAgent {
-    pub(super) fn on_owner_close(&self, closed: Box<dyn Fn()>) {
+    pub fn on_owner_close(&self, closed: Box<dyn Fn()>) {
         let human = self.active.as_ref().map_or_else(
             || self.node.control.shell.borrow().clone(),
             |active| active.human.clone(),
@@ -159,7 +188,7 @@ impl NativeAgent {
     pub fn tools(&self) -> Option<Rc<VaultTools>> {
         self.tools.clone()
     }
-    pub(super) fn current(&self) -> bool {
+    pub fn current(&self) -> bool {
         if !self.binding.is_live() {
             return false;
         }
@@ -172,17 +201,11 @@ impl NativeAgent {
             _ => false,
         }
     }
-    pub(super) fn protection(&self) -> ModelProtection {
-        ModelProtection::Guarded {
-            guard: self.node.control.guard.clone(),
-            executions: self.node.executions.clone(),
-            decisions: self.port.clone(),
-        }
-    }
-    /// The node's shared final guard is mandatory for every configured connection in this Orb.
+    /// Apply the supplied provider protection policy to every configured connection in this Orb.
     pub fn models(
         &self,
         configuration: Models,
+        protection: ModelProtection,
         references: BTreeMap<String, SecretReference>,
         metadata: impl Fn(
             &swarmie_providers::ai::Connection,
@@ -219,7 +242,7 @@ impl NativeAgent {
                 }
                 Rc::new(NoCredentials)
             };
-        swarmie_providers::ai::orb(configuration, credentials, self.protection(), metadata)
+        swarmie_providers::ai::orb(configuration, credentials, protection, metadata)
     }
 }
 

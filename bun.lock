@@ -118,13 +118,13 @@
       "dependencies": {
         "@swarmie/client-ui": "workspace:*",
         "@swarmie/config": "workspace:*",
+        "@swarmie/plugin-activity-browser": "workspace:*",
         "@swarmie/plugin-app-state-browser": "workspace:*",
         "@swarmie/plugin-browser": "workspace:*",
         "@swarmie/plugin-context-browser": "workspace:*",
         "@swarmie/plugin-conversations-browser": "workspace:*",
         "@swarmie/plugin-git-browser": "workspace:*",
         "@swarmie/plugin-mcp-browser": "workspace:*",
-        "@swarmie/plugin-notifications-browser": "workspace:*",
         "@swarmie/plugin-projects-browser": "workspace:*",
         "@swarmie/plugin-providers-browser": "workspace:*",
         "@swarmie/plugin-read-aloud-browser": "workspace:*",
@@ -247,6 +247,20 @@
         "react-dom": "^19.2.0",
       },
     },
+    "plugins/activity/browser": {
+      "name": "@swarmie/plugin-activity-browser",
+      "version": "1.0.0",
+      "dependencies": {
+        "@swarmie/client-ui": "workspace:*",
+        "@swarmie/plugin-browser": "workspace:*",
+        "@swarmie/ui-web": "workspace:*",
+        "@syntropika/tembra-sdk": "0.2.0",
+        "lucide-react": "1.61.0",
+      },
+      "peerDependencies": {
+        "react": "19.3.0",
+      },
+    },
     "plugins/app-state/browser": {
       "name": "@swarmie/plugin-app-state-browser",
       "version": "1.0.0",
@@ -325,19 +339,6 @@
         "@swarmie/client-ui": "workspace:*",
         "@swarmie/plugin-browser": "workspace:*",
         "@syntropika/tembra-sdk": "0.2.0",
-      },
-    },
-    "plugins/notifications/browser": {
-      "name": "@swarmie/plugin-notifications-browser",
-      "version": "1.0.0",
-      "dependencies": {
-        "@swarmie/client-ui": "workspace:*",
-        "@swarmie/ui-web": "workspace:*",
-        "@syntropika/tembra-sdk": "0.2.0",
-        "lucide-react": "1.61.0",
-      },
-      "peerDependencies": {
-        "react": "19.3.0",
       },
     },
     "plugins/projects/browser": {
@@ -1221,6 +1222,8 @@
 
     "@swarmie/config": ["@swarmie/config@workspace:packages/config"],
 
+    "@swarmie/plugin-activity-browser": ["@swarmie/plugin-activity-browser@workspace:plugins/activity/browser"],
+
     "@swarmie/plugin-app-state-browser": ["@swarmie/plugin-app-state-browser@workspace:plugins/app-state/browser"],
 
     "@swarmie/plugin-browser": ["@swarmie/plugin-browser@workspace:plugins/browser"],
@@ -1232,8 +1235,6 @@
     "@swarmie/plugin-git-browser": ["@swarmie/plugin-git-browser@workspace:plugins/git/browser"],
 
     "@swarmie/plugin-mcp-browser": ["@swarmie/plugin-mcp-browser@workspace:plugins/mcp/browser"],
-
-    "@swarmie/plugin-notifications-browser": ["@swarmie/plugin-notifications-browser@workspace:plugins/notifications/browser"],
 
     "@swarmie/plugin-projects-browser": ["@swarmie/plugin-projects-browser@workspace:plugins/projects/browser"],
 

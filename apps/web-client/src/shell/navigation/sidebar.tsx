@@ -1,19 +1,17 @@
 import { useSource } from "@swarmie/client-ui";
 import { ChromeButton } from "@swarmie/ui-web";
-import { Bell, Plus } from "lucide-react";
+import { Activity, Plus } from "lucide-react";
 
 import { useClient } from "../../client/context";
 import { IconButton, iconStyle } from "../../controls";
+import { ActivityNavigation } from "./activity";
 import { ConversationsNavigation } from "./conversations";
-import { NotificationsNavigation } from "./notifications";
 import type { NavigationPreferences } from "./state";
 
 export function ConversationSidebar({ preferences }: { preferences: NavigationPreferences }) {
   const { createConversation, plugins, shellState } = useClient();
   const enabled = useSource(plugins);
-  const notificationsEnabled = enabled.some(
-    (plugin) => plugin.id === "notifications" && plugin.enabled,
-  );
+  const activityEnabled = enabled.some((plugin) => plugin.id === "activity" && plugin.enabled);
   return (
     <>
       <div className="flex min-h-(--spacing-navigation-header) shrink-0 items-center gap-0.5 border-b border-navigation-divider bg-navigation-surface px-1.5">
@@ -30,21 +28,21 @@ export function ConversationSidebar({ preferences }: { preferences: NavigationPr
           <Plus className={iconStyle} />
           <span className="truncate text-navigation-heading">New conversation</span>
         </ChromeButton>
-        {notificationsEnabled ? (
+        {activityEnabled ? (
           <IconButton
-            icon={Bell}
-            label="Toggle notifications"
-            active={preferences.mode === "notifications"}
-            aria-pressed={preferences.mode === "notifications"}
+            icon={Activity}
+            label="Toggle activity"
+            active={preferences.mode === "activity"}
+            aria-pressed={preferences.mode === "activity"}
             onPress={() => {
-              preferences.setMode(preferences.mode === "chats" ? "notifications" : "chats");
+              preferences.setMode(preferences.mode === "chats" ? "activity" : "chats");
             }}
           />
         ) : null}
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-2">
-        {preferences.mode === "notifications" && notificationsEnabled ? (
-          <NotificationsNavigation
+        {preferences.mode === "activity" && activityEnabled ? (
+          <ActivityNavigation
             onClose={() => {
               preferences.setMode("chats");
             }}

@@ -1,3 +1,4 @@
+import { readPagedSnapshot } from "@swarmie/plugin-browser/connections";
 import { readVaultState, unavailableVault } from "@swarmie/plugin-vault-browser";
 import type { VaultBackend, VaultState } from "@swarmie/plugin-vault-browser";
 import type { DynamicReference } from "@syntropika/tembra-sdk";
@@ -31,29 +32,37 @@ export async function nativeVault(): Promise<VaultBackend | undefined> {
     // The same read-only reconnect loop also owns an interrupted first attachment.
   }
   const listeners = new Set<() => void>();
-  let projection: VaultState = connection
-    ? readVaultState(connection.reference.state.value)
-    : unavailableVault;
+  let projection: VaultState = connection ? project(connection) : unavailableVault;
   const copy = () => {
     if (closed || connection === undefined) {
       return;
     }
-    projection = readVaultState(connection.reference.state.value);
+    projection = project(connection);
     for (const listener of listeners) {
       listener();
     }
   };
-  let detach = connection?.reference.state.subscribe(copy);
-  async function call(method: string, ...args: unknown[]): Promise<unknown> {
+  let detach = connection ? subscribe(connection, copy) : undefined;
+  async function invokeReference(
+    reference: DynamicReference | undefined,
+    method: string,
+    ...args: unknown[]
+  ): Promise<unknown> {
     // Failed effects are never replayed on reattachment. Read refresh alone reconnects the channel.
     if (closed || connection === undefined || !connection.live()) {
       throw new Error("The private channel is reconnecting.");
     }
-    const fn: unknown = Reflect.get(connection.reference, method);
+    if (!reference) {
+      throw new Error("The private capability is unavailable.");
+    }
+    const fn: unknown = Reflect.get(reference, method);
     if (typeof fn !== "function") {
       throw new TypeError("The private capability is unavailable.");
     }
     return await Reflect.apply(fn, undefined, args);
+  }
+  async function call(method: string, ...args: unknown[]): Promise<unknown> {
+    return await invokeReference(connection?.reference, method, ...args);
   }
   let refresh: ReturnType<typeof setTimeout> | undefined;
   async function update() {
@@ -67,10 +76,21 @@ export async function nativeVault(): Promise<VaultBackend | undefined> {
           return;
         }
         connection = replacement;
-        detach = connection.reference.state.subscribe(copy);
+        detach = subscribe(connection, copy);
         copy();
       }
       await call("read");
+      const observed = connection;
+      if (observed?.protection) {
+        const value = await readPagedSnapshot(
+          observed.protection,
+          () => !closed && connection === observed && observed.live(),
+          0,
+          "read",
+        );
+        observed.protectionProjection = value;
+        copy();
+      }
     } catch {
       /* Retain the last safe projection; no operation is retried. */
     }
@@ -137,10 +157,12 @@ export async function nativeVault(): Promise<VaultBackend | undefined> {
       await call("submit_entry", card, value);
     },
     async decide(card, choice) {
-      await call("decide", card, choice);
+      await (projection.cards.some((item) => item.id === card && item.kind === "model")
+        ? invokeReference(connection?.protection, "decide", card, choice)
+        : call("decide", card, choice));
     },
     async configureDetector(enabled) {
-      await call("detector", enabled);
+      await invokeReference(connection?.protection, "configure", enabled);
     },
     close() {
       closed = true;
@@ -153,7 +175,50 @@ export async function nativeVault(): Promise<VaultBackend | undefined> {
 }
 
 type NativeInvoke = (command: string, payload?: unknown) => Promise<unknown>;
-type NativeConnection = { reference: DynamicReference; live: () => boolean; close: () => void };
+type NativeConnection = {
+  reference: DynamicReference;
+  protection?: DynamicReference;
+  protectionProjection?: unknown;
+  live: () => boolean;
+  close: () => void;
+};
+
+function protectionView(connection: NativeConnection): VaultState {
+  const value: unknown = connection.protectionProjection;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return unavailableVault;
+  }
+  return readVaultState({ ...unavailableVault, ...value });
+}
+
+/** Read-only presentation combines independent capability projections; commands keep their owner. */
+function project(connection: NativeConnection): VaultState {
+  const raw: unknown = connection.reference.state.value;
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new TypeError("The private Vault projection is unavailable.");
+  }
+  const protection = protectionView(connection);
+  const vault = readVaultState({
+    ...raw,
+    detectorEnabled: protection.detectorEnabled,
+    detectorAvailable: protection.detectorAvailable,
+  });
+  const counts = { ...vault.cardCounts };
+  for (const card of protection.cards) {
+    const conversation = card.conversation ?? "";
+    counts[conversation] = (counts[conversation] ?? 0) + 1;
+  }
+  return { ...vault, cards: [...vault.cards, ...protection.cards], cardCounts: counts };
+}
+
+function subscribe(connection: NativeConnection, changed: () => void): () => void {
+  const vault = connection.reference.state.subscribe(changed);
+  const protection = connection.protection?.state.subscribe(changed);
+  return () => {
+    vault();
+    protection?.();
+  };
+}
 
 /** One byte attachment; Tembra supplies RPC, pending-call failure and reference ownership. */
 async function connect(native: NativeInvoke): Promise<NativeConnection> {
@@ -224,11 +289,21 @@ async function connect(native: NativeInvoke): Promise<NativeConnection> {
     const reference = await remote.get("swarmie.vault.control", "main", {
       signal: AbortSignal.timeout(10_000),
     });
+    let protection: DynamicReference | undefined;
+    try {
+      protection = await remote.get("swarmie.providers.protection", "main", {
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      // The optional provider presentation never grants an exception when absent.
+    }
     return {
       reference,
+      ...(protection ? { protection } : {}),
       live: () => live,
       close() {
         reference.release();
+        protection?.release();
         remote.close();
       },
     };

@@ -13,6 +13,7 @@ members = [
     "crates/ai",
     "xtask",
     "plugins/vault",
+    "plugins/vault/native",
     "plugins/permissions",
     "plugins/plugin-manager",
     "plugins/tools",
@@ -23,6 +24,8 @@ members = [
     "plugins/conversations",
     "plugins/context",
     "plugins/commands",
+    "plugins/projects",
+    "plugins/activity",
     "tests/fixtures/foundation-counter",
     "tests/fixtures/durable-documents",
     "tests/fixtures/atomic-journal",
@@ -51,6 +54,7 @@ thiserror = "2"
 rusqlite = { version = "0.37", features = ["bundled"] }
 tempfile = "3"
 swarmie-vault = { path = "plugins/vault" }
+swarmie-vault-native = { path = "plugins/vault/native" }
 swarmie-tools = { path = "plugins/tools" }
 swarmie-mcp = { path = "plugins/mcp" }
 swarmie-git = { path = "plugins/git" }
@@ -61,6 +65,8 @@ swarmie-storage-core = { path = "crates/storage/core" }
 swarmie-conversations = { path = "plugins/conversations" }
 swarmie-context = { path = "plugins/context" }
 swarmie-commands = { path = "plugins/commands" }
+swarmie-projects = { path = "plugins/projects" }
+swarmie-activity = { path = "plugins/activity" }
 swarmie-durable-tasks = { path = "plugins/durable-tasks" }
 swarmie-plugin-manager = { path = "plugins/plugin-manager" }
 swarmie-agent-loop = { path = "plugins/agent-loop" }

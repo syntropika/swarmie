@@ -1,11 +1,15 @@
 import { afterEach, expect, test } from "bun:test";
 
-import { emptyProjects, projectsOrb } from "@swarmie/plugin-projects-browser";
-import type { ProjectsData, ProjectsPersistence } from "@swarmie/plugin-projects-browser";
-import { decodeProjects } from "@swarmie/plugin-projects-browser/persistence";
+import { projectsOrb } from "@swarmie/plugin-projects-browser";
+import { decodeProjects, savedBrowserProjects } from "@swarmie/plugin-projects-browser/persistence";
+import { ProjectsContext, ProjectsPage } from "@swarmie/plugin-projects-browser/views";
 import { createHost } from "@syntropika/tembra-sdk/node";
 import { sleep } from "bun";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
+import { saveProjectChanges } from "../../../plugins/projects/browser/src/save";
+import { fixtureProjects } from "../../../tests/fixtures/client-ui/projects";
 import { initializeClient } from "../src/client/initialize";
 import { fixtureNode, fixtureConnector } from "./connection-fixture";
 
@@ -15,12 +19,17 @@ afterEach(async () => {
   close = undefined;
 });
 
-async function start(persistence?: ProjectsPersistence) {
+async function start(backend = fixtureProjects()) {
   const host = createHost();
   const client = await initializeClient(host, {
     dev: true,
-    ...(persistence ? { projectsPersistence: persistence } : {}),
+    projects: backend,
   });
+  client.projectsState.update((current) => ({
+    ...current,
+    ...backend.snapshot(),
+    available: true,
+  }));
   ({ close } = client);
   return client;
 }
@@ -62,14 +71,8 @@ test("Projects owns stable associations without changing conversation data or it
 });
 
 test("personal folder links remain per node and project data reopens through its owner persistence", async () => {
-  let saved = emptyProjects();
-  const persistence = {
-    load: () => saved,
-    save: (data: ProjectsData) => {
-      saved = data;
-    },
-  };
-  const client = await start(persistence);
+  const backend = fixtureProjects();
+  const client = await start(backend);
   const project = await client.projects.create({ name: "Website" });
   const chatId = client.activeConversation().id;
   await client.projects.assignConversation({ conversationId: chatId, projectId: project.id });
@@ -81,18 +84,20 @@ test("personal folder links remain per node and project data reopens through its
     nodeId: "node-b",
     paths: ["/other/checkout"],
   });
-  expect(saved.personalFolders).toHaveLength(2);
-  expect(saved.personalFolders[0]?.paths).toEqual(["/source/website"]);
+  expect(backend.snapshot().personalFolders).toHaveLength(2);
+  expect(backend.snapshot().personalFolders[0]?.paths).toEqual(["/source/website"]);
   await close?.();
   close = undefined;
-  const restored = await start(persistence);
+  const restored = await start(backend);
   expect(restored.projectsState.getSnapshot().records[0]?.id).toBe(project.id);
   expect(restored.projects.projectOf(chatId)).toBe(project.id);
   await restored.projects.setPersonalFolders(project.id, { nodeId: "node-a", paths: [] });
   expect(restored.projectsState.getSnapshot().personalFolders).toEqual([
     { projectId: project.id, nodeId: "node-b", paths: ["/other/checkout"] },
   ]);
-  expect(decodeProjects(saved)).toEqual(saved);
+  expect(decodeProjects(backend.snapshot()).personalFolders).toEqual(
+    backend.snapshot().personalFolders,
+  );
 });
 
 test("disabling Projects withdraws its section, header, sidebar and composer contributions but retains data", async () => {
@@ -147,6 +152,7 @@ test("new conversation is visual until admission, and Projects keeps its selecti
     dev: true,
     nodes: [fixtureNode],
     connector: fixtureConnector,
+    projects: fixtureProjects(),
     execution: () => ({
       submit: async (input) => {
         creates.push(input.createConversation);
@@ -220,4 +226,133 @@ test("node folder paths keep significant trailing spaces when saved", async () =
   expect(client.projectsState.getSnapshot().personalFolders[0]?.paths).toEqual([
     "/source/with trailing space ",
   ]);
+});
+
+test("saved Browser projects have an explicit import action and the source is retained", async () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const stored = JSON.stringify({
+    records: [{ id: "legacy", name: "Existing", description: "", archived: false }],
+    links: {},
+    personalFolders: [],
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: { getItem: () => stored },
+  });
+  try {
+    const client = await start();
+    const render = () =>
+      renderToStaticMarkup(
+        createElement(
+          ProjectsContext,
+          { value: { ...client.projectsPresentation, browserProfileKey: "saved" } },
+          createElement(ProjectsPage, { params: {} }),
+        ),
+      );
+    expect(render()).toContain("Import browser projects");
+    const saved = savedBrowserProjects("saved");
+    if (saved === null) {
+      throw new Error("Fixture export is missing.");
+    }
+    await client.projects.importData(saved);
+    expect(client.projectsState.getSnapshot().records[0]?.id).toBe("legacy");
+    expect(savedBrowserProjects("saved")).toEqual(saved);
+    expect(render()).not.toContain("Import browser projects");
+  } finally {
+    if (original) {
+      Object.defineProperty(globalThis, "localStorage", original);
+    } else {
+      Reflect.deleteProperty(globalThis, "localStorage");
+    }
+  }
+});
+
+test("a confirmed project command remains successful when its subsequent projection read fails", async () => {
+  const backend = fixtureProjects();
+  backend.read = async () => await Promise.reject(new Error("Synthetic projection failure"));
+  const client = await start(backend);
+  const project = await client.projects.create({ name: "Confirmed" });
+  expect(backend.snapshot().records[0]?.id).toBe(project.id);
+  expect(client.projectsState.getSnapshot().error).toBe("Synthetic projection failure");
+});
+
+test("a retired editor save cannot write folders, close a new dialog or navigate in the replacement scope", async () => {
+  const backend = fixtureProjects();
+  const original = backend.change;
+  const gate = Promise.withResolvers<undefined>();
+  const writes: { scope: string | null; kind: string }[] = [];
+  const client = await start(backend);
+  backend.change = async (command) => {
+    writes.push({ scope: client.projectsState.getSnapshot().nodeId, kind: command.kind });
+    const receipt = await original(command);
+    if (command.kind === "create") {
+      await gate.promise;
+    }
+    return receipt;
+  };
+  await client.projectsState.commit((current) => ({ ...current, nodeId: "a" }));
+  const navigated: string[] = [];
+  const saving = saveProjectChanges(
+    client.projects,
+    {
+      id: null,
+      name: "First",
+      description: "",
+      folders: [{ projectId: "", nodeId: "a", paths: ["/checkout"] }],
+    },
+    (id) => {
+      navigated.push(id);
+    },
+  );
+  await sleep(5);
+  const created = backend.snapshot().records;
+  client.projectsState.update((current) => ({
+    ...current,
+    generation: current.generation + 1,
+    nodeId: "b",
+    records: created,
+    dialog: { projectId: null },
+  }));
+  await sleep(5);
+  gate.resolve(undefined);
+  await saving;
+  expect(writes).toEqual([{ scope: "a", kind: "create" }]);
+  expect(navigated).toEqual([]);
+  expect(client.projectsState.getSnapshot().dialog).toEqual({ projectId: null });
+});
+
+test("old draft admission preserves a newer project selection in the same or replacement scope", async () => {
+  const backend = fixtureProjects();
+  const client = await start(backend);
+  const first = await client.projects.create({ name: "First" });
+  const second = await client.projects.create({ name: "Second" });
+  const original = backend.change;
+  let gate = Promise.withResolvers<undefined>();
+  backend.change = async (command) => {
+    const receipt = await original(command);
+    if (command.kind === "assign") {
+      await gate.promise;
+    }
+    return receipt;
+  };
+  await client.projects.stageConversation("chat", first.id);
+  const firstAdmission = client.projects.admitDraft("chat");
+  await sleep(5);
+  await client.projects.stageConversation("chat", second.id);
+  gate.resolve(undefined);
+  await firstAdmission;
+  expect(client.projectsState.getSnapshot().draftLinks.chat).toBe(second.id);
+  gate = Promise.withResolvers<undefined>();
+  const secondAdmission = client.projects.admitDraft("chat");
+  await sleep(5);
+  client.projectsState.update((current) => ({
+    ...current,
+    generation: current.generation + 1,
+    nodeId: "replacement",
+    draftLinks: { chat: first.id },
+  }));
+  await sleep(5);
+  gate.resolve(undefined);
+  await secondAdmission;
+  expect(client.projectsState.getSnapshot().draftLinks.chat).toBe(first.id);
 });

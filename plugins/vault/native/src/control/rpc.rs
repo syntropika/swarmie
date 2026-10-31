@@ -242,24 +242,6 @@ pub(crate) fn orb(control: Rc<Control>) -> Orb {
                     publish(&env, &context)
                 },
             )
-            .method("detector", |env, context, (enabled,): (bool,)| async move {
-                authorize(&context)?;
-                let shell = env.0.shell.borrow().clone();
-                let decision = shell
-                    .decide(&(
-                        "model-protection-policy/v1",
-                        env.0.guard.generation(),
-                        enabled,
-                    ))
-                    .map_err(failure)?;
-                env.0
-                    .guard
-                    .configure(&shell, decision, enabled)
-                    .map_err(failure)?;
-                env.0.configuration.borrow_mut().detector_enabled = enabled;
-                env.0.persist()?;
-                publish(&env, &context)
-            })
             .method("found", |env, context, (request,): (Found,)| async move {
                 authorize(&context)?;
                 let account = env.0.account()?;

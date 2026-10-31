@@ -1,13 +1,13 @@
 import { useSource } from "@swarmie/client-ui";
 import { ActionRow, Description, Switch } from "@swarmie/ui-web";
-import { Bell, ChevronRight, Code2, Folder, Globe, Mic, Puzzle } from "lucide-react";
+import { Activity, ChevronRight, Code2, Folder, Globe, Mic, Puzzle } from "lucide-react";
 
 import { useClient } from "../client/context";
 import { IconButton } from "../controls";
 
 const icons = {
   projects: Folder,
-  notifications: Bell,
+  activity: Activity,
   "read-aloud": Mic,
   views: Globe,
   "app-state": Code2,

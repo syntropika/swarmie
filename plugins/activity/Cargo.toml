@@ -1,0 +1,20 @@
+[package]
+name = "swarmie-activity"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+tembra.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+swarmie-storage-core.workspace = true
+
+[dev-dependencies]
+tembra = { workspace = true, features = ["rpc"] }
+
+[lints]
+workspace = true

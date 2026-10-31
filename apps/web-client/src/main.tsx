@@ -1,5 +1,4 @@
 import { browserToolDetailsPersistence } from "@swarmie/plugin-browser/settings";
-import { browserProjectsPersistence } from "@swarmie/plugin-projects-browser/persistence";
 import { ApplicationSkeleton } from "@swarmie/ui-web";
 import { getThemePreferenceSnapshot, subscribeThemePreference } from "@swarmie/ui-web/theme";
 import { createHost } from "@syntropika/tembra-sdk/browser";
@@ -46,7 +45,7 @@ async function start() {
     ...(desktop === null ? {} : { connector: desktop.connector }),
     dev: import.meta.env.DEV,
     nodeServices: true,
-    projectsPersistence: browserProjectsPersistence("local"),
+    browserProjectsProfileKey: "local",
     toolDetailsPersistence: browserToolDetailsPersistence(),
   });
   client.settings.update((current) => ({ ...current, theme: getThemePreferenceSnapshot() }));

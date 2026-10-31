@@ -6,6 +6,9 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+swarmie-vault-native.workspace = true
+swarmie-activity.workspace = true
+swarmie-projects.workspace = true
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -19,10 +22,8 @@ tokio = { version = "1", features = ["rt", "time", "net", "sync", "macros"] }
 uuid.workspace = true
 zeroize = "1"
 swarmie-vault = { workspace = true, features = ["cloud-client", "executors", "native-keyring", "provider-credentials", "tools"] }
-swarmie-permissions = { path = "../../../plugins/permissions", features = ["tembra", "tls"] }
 swarmie-storage = { workspace = true, features = ["sqlite"] }
 swarmie-providers = { workspace = true, features = ["native"] }
-swarmie-cloud = { workspace = true, features = ["native-keyring"] }
 
 swarmie-mcp.workspace = true
 swarmie-context.workspace = true

@@ -1,5 +1,6 @@
-import type { Snapshot, StateReference } from "@swarmie/client-ui";
+import type { StateReference } from "@swarmie/client-ui";
 import { bindState } from "@swarmie/client-ui";
+import { createActivityApi, activityOrb } from "@swarmie/plugin-activity-browser";
 import { appStateOrb } from "@swarmie/plugin-app-state-browser";
 import type { Connector, Node } from "@swarmie/plugin-browser/connections";
 import {
@@ -34,10 +35,12 @@ import {
   gitIntegrationOrb,
 } from "@swarmie/plugin-git-browser";
 import { mcpOrb, createMcpApi } from "@swarmie/plugin-mcp-browser";
-import type { Notification } from "@swarmie/plugin-notifications-browser";
-import { notificationsOrb } from "@swarmie/plugin-notifications-browser";
-import type { ProjectsPersistence } from "@swarmie/plugin-projects-browser";
-import { createProjectsApi, projectsOrb } from "@swarmie/plugin-projects-browser";
+import type { ProjectsBackend } from "@swarmie/plugin-projects-browser";
+import {
+  createNativeProjects,
+  createProjectsApi,
+  projectsOrb,
+} from "@swarmie/plugin-projects-browser";
 import { projectsIntegrationOrb } from "@swarmie/plugin-projects-browser/integration";
 import type { ProjectsPresentation } from "@swarmie/plugin-projects-browser/views";
 import type { ProvidersBackend } from "@swarmie/plugin-providers-browser";
@@ -55,7 +58,6 @@ import { createNodeExecution } from "./node-execution";
 import { observeOnboarding } from "./onboarding";
 import { createPluginControls } from "./plugins";
 import { layoutSnapshot, selectSnapshot } from "./projections";
-import { loadProjects, persistProjects } from "./projects";
 import { createProvidersPresentation } from "./provider-node";
 import { createSubmissions } from "./submissions";
 import type { ExecutionFactory } from "./submissions";
@@ -67,7 +69,8 @@ export type ClientOptions = {
   nodes?: Node[];
   execution?: ExecutionFactory;
   providers?: ProvidersBackend;
-  projectsPersistence?: ProjectsPersistence;
+  projects?: ProjectsBackend;
+  browserProjectsProfileKey?: string;
   toolDetailsPersistence?: ToolDetailsPersistence;
   vault?: VaultBackend;
 };
@@ -94,11 +97,10 @@ export async function initializeClient(host: Host, options: ClientOptions) {
       commit: reference.update,
     };
   }
-  const savedProjects = loadProjects(options.projectsPersistence);
   const shellDefinition = applicationShellOrb(
     globalThis.matchMedia?.("(min-width: 768px)").matches ?? true,
   );
-  const projectsDefinition = projectsOrb(savedProjects.data);
+  const projectsDefinition = projectsOrb();
   await host.install([
     shellDefinition,
     conversationsOrb,
@@ -110,7 +112,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     settingsOrb,
     mcpOrb,
     gitBrowserOrb,
-    notificationsOrb,
+    activityOrb,
     vaultUiOrb,
     onboardingOrb,
     ...(options.dev ? [appStateOrb] : []),
@@ -186,22 +188,10 @@ export async function initializeClient(host: Host, options: ClientOptions) {
   const { roster } = records;
   const { navigate, travel } = createNavigation(shellState);
   const viewCommands = createViewsApi(views, nextId);
-  const projects = createProjectsApi(projectsState, projectsState.commit, nextId);
-  // A failed load must not overwrite saved data with an empty projection.
-  if (savedProjects.error !== null) {
-    projects.fail(new Error(savedProjects.error));
-  } else if (options.projectsPersistence) {
-    detachSources.push(persistProjects(projectsState, options.projectsPersistence, projects.fail));
-  }
-  const notificationReference = await host.get(
-    notificationsOrb.services["swarmie.notifications.ui"],
-    "main",
+  const activityState = await stateOf(
+    host.get(activityOrb.services["swarmie.activity.ui"], "main"),
   );
-  held.push(notificationReference);
-  const notifications: Snapshot<readonly Notification[]> = {
-    getSnapshot: () => notificationReference.state.value,
-    subscribe: (changed) => notificationReference.state.subscribe(changed),
-  };
+  const activity = selectSnapshot(activityState, (value) => value.items);
   const shell = layoutSnapshot(shellState, views);
   const conversationError = selectSnapshot(conversationState, (value) => value.error);
   const navigationHistory = selectSnapshot(shellState, (value) => value.history);
@@ -240,6 +230,19 @@ export async function initializeClient(host: Host, options: ClientOptions) {
       }));
     }
   });
+  const nativeProjects = createNativeProjects(
+    projectsState,
+    connectionState,
+    nodeConnections,
+    options.projects,
+  );
+  const projects = createProjectsApi(projectsState, nativeProjects.backend, () =>
+    crypto.randomUUID(),
+  );
+  const activityApi = createActivityApi(activityState, connectionState, nodeConnections);
+  detachSources.push(() => {
+    nativeProjects.close();
+  }, activityApi.close);
   const gitPresentation = createGitPresentation(gitState, connectionState, nodeConnections);
   const gitIntegrationDefinition = gitIntegrationOrb(gitPresentation);
   await host.install(gitIntegrationDefinition);
@@ -373,6 +376,9 @@ export async function initializeClient(host: Host, options: ClientOptions) {
   }
   const projectsPresentation: ProjectsPresentation = {
     api: projects,
+    ...(options.browserProjectsProfileKey === undefined
+      ? {}
+      : { browserProfileKey: options.browserProjectsProfileKey }),
     directories: createDirectoryBrowser(nodeConnections),
     conversations: roster,
     nodes: selectSnapshot(connectionState, (value) => value.nodes),
@@ -557,7 +563,8 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     shellState,
     views,
     connection,
-    notifications,
+    activity,
+    activityApi,
     plugins: controls.plugins,
     shell,
     navigationHistory,

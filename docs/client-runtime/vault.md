@@ -20,10 +20,10 @@ owners. Optional features add native keyring custody, HTTPS Cloud access, HTTP/B
 reference-only Tools declarations. Tembra owns service resolution, references, State and lifetime;
 these modules do not introduce another service container or transport engine.
 
-`swarmie-node::NativeNode` composes protected native custody and the private UI Orb.
+`swarmie-vault-native::NativeVault` composes protected native custody and the optional private UI Orb.
 The embedding creates a main or child `NativeAgent`, retains it for its logical lifetime, and uses
 `enter` for each actual physical context. It can install the agent's model Orb and Vault Tools into
-its existing host. Every connection in that model Orb shares the node's final submission guard.
+its existing host. The embedding supplies the provider-owned `ModelProtection` extension to the model Orb; Vault does not own model-submission policy.
 `tools::definitions` supplies the five reference-only tool definitions for the existing Tools
 catalog. After sign-in, unlock or vault selection, `NativeAgent::refresh` consumes the old logical
 owner and returns a new generation with the current vault attachment. The embedding must replace

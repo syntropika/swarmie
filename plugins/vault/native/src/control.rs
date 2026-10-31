@@ -1,5 +1,4 @@
 mod catalog;
-pub(crate) mod client;
 mod composition;
 mod decisions;
 mod rpc;
@@ -10,7 +9,7 @@ mod maintenance;
 mod projection;
 mod reconciliation;
 mod recovery;
-pub use composition::{NativeAgent, NativeExecution, NativeNode};
+pub use composition::{NativeAgent, NativeExecution, NativeVault};
 
 use crate::configuration::{self, Configuration, Root};
 use serde::Deserialize;
@@ -26,7 +25,6 @@ use swarmie_cloud::account::{
 };
 use swarmie_permissions::transport::ManagementStream;
 use swarmie_permissions::*;
-use swarmie_providers::protection::{Detector, ModelGuard};
 use swarmie_storage::sqlite::SqliteVaultStorage;
 use swarmie_vault::{
     cloud_http::*,
@@ -94,15 +92,17 @@ pub struct Control {
     nodes: RefCell<std::collections::BTreeMap<(VaultIdentity, Uuid), VaultNode>>,
     attachments: RefCell<std::collections::BTreeMap<VaultIdentity, std::rc::Weak<Active>>>,
     _owner: OwnerLock,
-    detector_available: bool,
     active: RefCell<Option<Rc<Active>>>,
     shell: RefCell<HumanSession>,
-    pub guard: ModelGuard,
     grant: PluginGrant,
     tool_grant: PluginGrant,
 }
 impl Control {
-    pub fn open(root: PathBuf, entries: PrivateEntries) -> tembra::Result<Rc<Self>> {
+    pub fn open(
+        root: PathBuf,
+        entries: PrivateEntries,
+        private_decisions: bool,
+    ) -> tembra::Result<Rc<Self>> {
         let configuration = configuration::load(&root).map_err(failure)?;
         let owner = std::fs::OpenOptions::new()
             .create(true)
@@ -121,20 +121,6 @@ impl Control {
             installation: configuration.installation,
             generation: Uuid::new_v4(),
         });
-        let detector = Detector::bundled();
-        let detector_available = detector.is_some();
-        let guard = ModelGuard::new(
-            "core.model-protection".into(),
-            PluginGrant::bundled(CorePlugin::ModelProtection, "core.model-protection".into()),
-            detector,
-        );
-        if !configuration.detector_enabled {
-            let decision = shell
-                .decide(&("model-protection-policy/v1", guard.generation(), false))
-                .map_err(failure)?;
-            // Restoring an already accepted native preference is not a new user approval.
-            guard.configure(&shell, decision, false).map_err(failure)?;
-        }
         let account = match (configuration.endpoints.clone(), configuration.account) {
             (Some(endpoints), Some(account)) => AccountTransport::new(endpoints, None)
                 .ok()
@@ -156,7 +142,8 @@ impl Control {
             jobs: RefCell::new(vec![]),
             root,
             entries,
-            private_decisions_enabled: std::env::var_os("NATIVE_SDK_SESSION_RECORD").is_none()
+            private_decisions_enabled: private_decisions
+                && std::env::var_os("NATIVE_SDK_SESSION_RECORD").is_none()
                 && std::env::var_os("NATIVE_SDK_SESSION_REPLAY").is_none(),
             configuration: RefCell::new(configuration),
             authority,
@@ -176,10 +163,8 @@ impl Control {
             nodes: RefCell::new(std::collections::BTreeMap::new()),
             attachments: RefCell::new(std::collections::BTreeMap::new()),
             _owner: owner,
-            detector_available,
             active: RefCell::new(None),
             shell: RefCell::new(shell),
-            guard,
             grant: PluginGrant::bundled(CorePlugin::Vault, "core.vault".into()),
             tool_grant: PluginGrant::bundled(
                 CorePlugin::Vault,
@@ -211,21 +196,6 @@ impl Control {
         self.authority
             .check_binding(execution.shell())
             .map_err(swarmie_vault::Error::from)?;
-        Ok(execution.shell().clone())
-    }
-    pub(crate) fn model_owner_for(
-        &self,
-        execution: &ExecutionBinding,
-    ) -> swarmie_vault::Result<OwnerBinding> {
-        if !execution.is_live() {
-            return Err(swarmie_vault::Error::Revoked);
-        }
-        self.authority
-            .check_binding(execution.shell())
-            .map_err(swarmie_vault::Error::from)?;
-        if execution.shell().identity().installation != self.configuration.borrow().installation {
-            return Err(swarmie_vault::Error::Forbidden);
-        }
         Ok(execution.shell().clone())
     }
     pub(crate) fn conversation_allowed(&self, intent: &UseIntent) -> bool {
@@ -492,12 +462,12 @@ mod tests {
     #[test]
     fn dropping_the_last_private_owner_releases_an_inherited_file_lock() {
         let root = tempfile::tempdir().unwrap();
-        let control = Control::open(root.path().into(), PrivateEntries::default()).unwrap();
+        let control = Control::open(root.path().into(), PrivateEntries::default(), true).unwrap();
         // A fork retains this same open-file description until exec closes it.
         let inherited = control._owner.0.try_clone().unwrap();
-        assert!(Control::open(root.path().into(), PrivateEntries::default()).is_err());
+        assert!(Control::open(root.path().into(), PrivateEntries::default(), true).is_err());
         drop(control);
-        let reopened = Control::open(root.path().into(), PrivateEntries::default());
+        let reopened = Control::open(root.path().into(), PrivateEntries::default(), true);
         assert!(
             reopened.is_ok(),
             "the settled owner must release its lock before a child's exec: {:?}",

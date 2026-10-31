@@ -15,6 +15,7 @@ import { useState } from "react";
 
 import { useProjects } from "./context";
 import { FolderPicker } from "./folder-picker";
+import { saveProjectChanges } from "./save";
 
 export function ProjectDialog() {
   const { api, nodes, open } = useProjects();
@@ -69,24 +70,18 @@ function ProjectEditor({
     ]);
   }
   async function save() {
+    const currentScope = api.scope();
     setSaving(true);
     try {
-      const project =
-        projectId === null ? await api.create({ name, description }) : { id: projectId };
-      if (projectId !== null) {
-        await api.update(projectId, { name, description });
-      }
-      await Promise.all(
-        bindings.map(async (entry) => {
-          await api.setPersonalFolders(project.id, entry);
-        }),
+      await saveProjectChanges(
+        api,
+        { id: projectId, name, description, folders: bindings },
+        onCreated,
       );
-      api.closeDialog();
-      if (projectId === null) {
-        onCreated(project.id);
-      }
     } catch (error: unknown) {
-      api.fail(error);
+      if (currentScope()) {
+        api.fail(error);
+      }
     } finally {
       setSaving(false);
     }

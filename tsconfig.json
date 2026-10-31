@@ -26,7 +26,7 @@
       "path": "plugins/app-state/browser/tsconfig.json"
     },
     {
-      "path": "plugins/notifications/browser/tsconfig.json"
+      "path": "plugins/activity/browser/tsconfig.json"
     },
     {
       "path": "plugins/providers/browser/tsconfig.json"

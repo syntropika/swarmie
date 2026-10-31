@@ -1,9 +1,9 @@
 import type { Shell } from "../../client/projections";
 
 export type NavigationPreferences = {
-  mode: "chats" | "notifications";
+  mode: "chats" | "activity";
   folded: readonly string[];
-  setMode: (mode: "chats" | "notifications") => void;
+  setMode: (mode: "chats" | "activity") => void;
   toggleGroup: (id: string) => void;
 };
 

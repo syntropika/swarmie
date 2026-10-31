@@ -8,8 +8,6 @@ use std::{
     rc::{Rc, Weak},
 };
 use swarmie_permissions::{ExecutionBinding, HumanDecision, OwnerBinding};
-use swarmie_providers::ai::ModelDecisions;
-use swarmie_providers::protection::{DecisionIntent, Inspection};
 use swarmie_vault::{
     executors::{CaptureSource, UseDecisions},
     tools::{InputIntent, InputReceipt, PrivateInputs},
@@ -19,10 +17,6 @@ use uuid::Uuid;
 
 pub enum Pending {
     Use(UseIntent, oneshot::Sender<Result<(HumanDecision, bool)>>),
-    Model(
-        DecisionIntent,
-        oneshot::Sender<tembra::Result<HumanDecision>>,
-    ),
     Input(
         InputIntent,
         ExecutionBinding,
@@ -38,7 +32,6 @@ impl Pending {
     fn is_live(&self) -> bool {
         match self {
             Self::Use(_, send) => !send.is_canceled(),
-            Self::Model(_, send) => !send.is_canceled(),
             Self::Input(_, binding, send) => binding.is_live() && !send.is_canceled(),
             Self::Capture(handle, _, send) => handle.execution().is_live() && !send.is_canceled(),
         }
@@ -63,16 +56,11 @@ impl Cards {
         ordered.sort_by_key(|card| card.order);
         ordered.into_iter().map(|card| card.view.clone()).collect()
     }
-    pub fn binding(&self, id: Uuid) -> Result<(OwnerBinding, bool)> {
+    pub fn binding(&self, id: Uuid) -> Result<OwnerBinding> {
         self.0
             .borrow()
             .get(&id)
-            .map(|card| {
-                (
-                    card.owner.clone(),
-                    matches!(&card.pending, Pending::Model(..)),
-                )
-            })
+            .map(|card| card.owner.clone())
             .ok_or(Error::NotFound)
     }
     pub fn take_owner(&self, id: Uuid, owner: &OwnerBinding) -> Result<Card> {
@@ -153,24 +141,6 @@ impl UseDecisions for CardPort {
             let (send,receive)=oneshot::channel();
             control.cards.push(execution.clone(),json!({"kind":"use","conversation":intent.execution.conversation,"title":intent.metadata.name,"purpose":intent.metadata.purpose,"metadata":intent.metadata,"reference":intent.reference.to_string(),"provider":intent.provider,"project":intent.execution.project,"agent":intent.execution.agent,"mainAgent":intent.execution.main_agent,"destination":intent.destination,"conversationAllowed":control.conversation_allowed(intent)}),Pending::Use(intent.clone(),send))?;
             receive.await.map_err(|_|Error::Revoked)?
-        }.boxed_local()
-    }
-}
-impl ModelDecisions for CardPort {
-    fn request<'a>(
-        &'a self,
-        execution: &'a swarmie_permissions::ExecutionBinding,
-        intent: &'a DecisionIntent,
-    ) -> LocalBoxFuture<'a, tembra::Result<HumanDecision>> {
-        async move {
-            let control=self.control().map_err(crate::control::failure)?;control.model_owner_for(execution).map_err(crate::control::failure)?;
-            let (inspection,rules)=match &intent.inspection {
-                Inspection::Detected {findings} => ("detected",findings.iter().map(|f|f.rule.clone()).collect::<Vec<_>>()),
-                Inspection::Incomplete => ("incomplete",vec![]),_ => ("unavailable",vec![]),
-            };
-            let (send,receive)=oneshot::channel();
-            control.cards.push(execution.clone(),json!({"kind":"model","conversation":intent.execution.conversation,"title":"Sending was stopped","purpose":"Review this exact model attempt before sending.","destination":intent.destination,"inspection":inspection,"rules":rules}),Pending::Model(intent.clone(),send)).map_err(crate::control::failure)?;
-            receive.await.map_err(crate::control::failure)?
         }.boxed_local()
     }
 }

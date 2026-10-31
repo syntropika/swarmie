@@ -82,13 +82,7 @@ export function createPluginControls(
     ],
     ["views", "Views", "Tabs and tools beside the conversation.", true, []],
     ["providers", "Providers", "Provider accounts and available models.", true, []],
-    [
-      "notifications",
-      "Notifications",
-      "The latest update from each conversation or plugin.",
-      false,
-      [],
-    ],
+    ["activity", "Activity", "The latest update from each conversation or plugin.", false, []],
     ["read-aloud", "Read aloud", "Browser speech and dictation.", false, ["Conversations"]],
     ...(dev
       ? [

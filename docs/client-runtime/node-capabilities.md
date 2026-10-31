@@ -35,7 +35,11 @@ move frames; service declarations retain operation behavior and physical lifetim
 | Owner | Implementation |
 | --- | --- |
 | `swarmie_providers::native` | Provider settings, authorization, credential references and owned file I/O. |
+| `swarmie_providers::native::NativeModelProtection` | Final content guard, model exceptions and optional private approval presentation. |
+| `swarmie-vault-native` | Protected Vault custody, secret interactions and optional private approval presentation. |
 | `swarmie_mcp::settings` | Server definitions, administration and the host-selected file adapter. |
+| `swarmie-projects` | Project records, membership and per-node folder links. |
+| `swarmie-activity` | The persistent principal-scoped inbox. |
 | `swarmie-conversations` | Canonical conversation history. |
 | `swarmie-conversation-runtime` | Managed sessions that integrate existing history, Agent Loop, Context and Tools. |
 | `swarmie_context::environment` | Scoped instruction and skill acquisition. |
@@ -50,7 +54,7 @@ on its execution consumer.
 ## Installed capabilities
 
 The composition declares provider settings, provider authorization, Tools, MCP
-settings, conversation catalog, conversation session, Context and Commands services.
+settings, Projects, Activity, conversation catalog, conversation session, Context and Commands services.
 The runtime supplies node identity through its separate managed plugin.
 It also installs directory browsing when `directory_root` is present.
 
@@ -60,6 +64,10 @@ Context preparation reads metadata without credential access. Content admission
 precedes credential custody and physical model dispatch. ChatGPT browser
 sign-in uses `swarmie_providers::auth`. Credentials remain in the OS credential store.
 The profile stores public account metadata in `providers.json`.
+
+Projects and Activity use `collections.sqlite` in the selected runtime profile.
+Their records persist independently of open client windows. See
+[Projects and activity](../plugins/projects-activity.md) for commands and scope.
 
 MCP definitions are stored in `mcp.json`. Conversation metadata is stored in
 `conversations.json`. Canonical history is stored in `conversations.sqlite` through
@@ -82,6 +90,10 @@ for lifecycle, local authentication and current transport limits.
 Other embeddings can use this composition with their own identity, principal, profile
 and transport. No Desktop type or FFI call is required. The minimal
 `swarmie-runtime` crate remains independent of this application composition.
+
+Private approval operations belong to their capability engines. The host selects and connects
+their declarations; it does not maintain a mixed queue of secret and model operations.
+See [Permissions](../plugins/permissions.md) for required dependencies and optional extensions.
 
 ## Limits
 

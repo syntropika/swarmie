@@ -44,6 +44,52 @@ impl SqliteOwner {
         self.0.health.clone()
     }
 
+    /// Opens a projects lease on the shared owner.
+    pub fn projects(
+        &self,
+    ) -> Result<crate::sqlite::SqliteProjectsStorage, swarmie_projects::StorageError> {
+        Ok(crate::sqlite::SqliteProjectsStorage {
+            lease: self.lease().map_err(|error| match error {
+                OpenError::Unavailable(error) => swarmie_projects::StorageError::Unavailable(error),
+                OpenError::Schema(error) => swarmie_projects::StorageError::Invalid(error),
+                OpenError::Owner(error) => swarmie_projects::StorageError::Owner(error),
+            })?,
+        })
+    }
+
+    /// Opens the capability during Tembra resource activation.
+    pub fn projects_factory(&self) -> swarmie_projects::StorageFactory {
+        let owner = self.clone();
+        Rc::new(move || {
+            let owner = owner.clone();
+            async move { Ok(Rc::new(owner.projects()?) as Rc<dyn swarmie_projects::Storage>) }
+                .boxed_local()
+        })
+    }
+
+    /// Opens an activity lease on the shared owner.
+    pub fn activity(
+        &self,
+    ) -> Result<crate::sqlite::SqliteActivityStorage, swarmie_activity::StorageError> {
+        Ok(crate::sqlite::SqliteActivityStorage {
+            lease: self.lease().map_err(|error| match error {
+                OpenError::Unavailable(error) => swarmie_activity::StorageError::Unavailable(error),
+                OpenError::Schema(error) => swarmie_activity::StorageError::Invalid(error),
+                OpenError::Owner(error) => swarmie_activity::StorageError::Owner(error),
+            })?,
+        })
+    }
+
+    /// Opens the capability during Tembra resource activation.
+    pub fn activity_factory(&self) -> swarmie_activity::StorageFactory {
+        let owner = self.clone();
+        Rc::new(move || {
+            let owner = owner.clone();
+            async move { Ok(Rc::new(owner.activity()?) as Rc<dyn swarmie_activity::Storage>) }
+                .boxed_local()
+        })
+    }
+
     /// Opens a plugin inventory lease on the shared connection.
     pub fn inventory(
         &self,
@@ -206,6 +252,8 @@ fn open(path: &Path) -> Result<Connection, OpenError> {
         ));
     }
     connection.execute_batch("BEGIN IMMEDIATE;
+        CREATE TABLE IF NOT EXISTS swarmie_projects(principal TEXT PRIMARY KEY NOT NULL,revision INTEGER NOT NULL CHECK(revision>0),data TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS swarmie_activity(principal TEXT PRIMARY KEY NOT NULL,revision INTEGER NOT NULL CHECK(revision>0),data TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS swarmie_plugins_meta(singleton INTEGER PRIMARY KEY CHECK(singleton=1),schema_version INTEGER NOT NULL,revision INTEGER NOT NULL CHECK(revision>=0));
         INSERT OR IGNORE INTO swarmie_plugins_meta VALUES(1,1,0);
         CREATE TABLE IF NOT EXISTS swarmie_plugins(id TEXT PRIMARY KEY NOT NULL,version INTEGER NOT NULL CHECK(version>0 AND version<=4294967295),enabled INTEGER NOT NULL CHECK(enabled IN (0,1)));

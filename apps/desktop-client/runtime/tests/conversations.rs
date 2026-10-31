@@ -1964,16 +1964,37 @@ impl PrivateAttachment {
         self.request(
             1,
             "get",
-            json!({"service":"swarmie.vault.control","key":["main"]}),
+            json!({"service":"swarmie.providers.protection","key":["main"]}),
         )["ok"]
             .clone()
     }
     fn call(&self, reference: &Value, method: &str, arguments: Value) -> Value {
-        self.request(
+        let result = self.request(
             2,
             "call",
             json!({"reference":reference,"method":method,"arguments":arguments}),
-        )
+        );
+        if method != "read" || result.get("error").is_some() {
+            return result;
+        }
+        let mut page = result["ok"].clone();
+        let revision = page["revision"].clone();
+        let mut data = String::new();
+        loop {
+            assert_eq!(page["revision"], revision);
+            data.push_str(page["data"].as_str().expect("projection page"));
+            if page["next"].is_null() {
+                break;
+            }
+            let response = self.request(
+                2,
+                "call",
+                json!({"reference":reference,"method":"page","arguments":[page["next"]]}),
+            );
+            assert!(response.get("error").is_none(), "{response}");
+            page = response["ok"].clone();
+        }
+        json!({"id":2,"ok":serde_json::from_str::<Value>(&data).unwrap()})
     }
 }
 impl Drop for PrivateAttachment {
@@ -2006,7 +2027,7 @@ fn actual_client_guard_blocks_before_http_and_private_once_override_does_not_cov
     let token = format!("ghp_{}", "aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1fG3hJ5");
     assert!(
         private
-            .call(&private_object["reference"], "page", json!(["cards", 0]))
+            .call(&private_object["reference"], "read", json!([]))
             .get("error")
             .is_none()
     );
@@ -2104,7 +2125,7 @@ fn recovered_guarded_turn(stop: bool) {
         )
         .as_bytes(),
     );
-    let result = private.call(&private_object["reference"], "page", json!(["cards", 0]));
+    let result = private.call(&private_object["reference"], "read", json!([]));
     assert!(result.get("error").is_none(), "{result}");
     let deadline = Instant::now() + WAIT;
     let card = loop {

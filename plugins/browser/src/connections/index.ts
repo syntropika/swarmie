@@ -36,3 +36,5 @@ export const connectionsOrb = orb({
     },
   },
 });
+export { observeNodeService } from "./observation";
+export { readPagedSnapshot } from "./paging";

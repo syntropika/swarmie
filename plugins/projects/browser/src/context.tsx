@@ -7,6 +7,7 @@ import type { ProjectsApi } from "./index";
 
 export type ProjectsPresentation = {
   api: ProjectsApi;
+  browserProfileKey?: string;
   directories: DirectoryBrowser;
   conversations: Snapshot<readonly ConversationSummary[]>;
   nodes: Snapshot<readonly { id: string; label: string }[]>;

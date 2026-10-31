@@ -1,0 +1,27 @@
+[package]
+name = "swarmie-vault-native"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Native Vault composition and private interaction engine"
+
+[dependencies]
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+tembra.workspace = true
+zeroize = "1"
+tokio = { version = "1", features = ["rt", "time", "net", "sync", "macros"] }
+swarmie-vault = { workspace = true, features = ["cloud-client", "executors", "native-keyring", "provider-credentials", "tools"] }
+swarmie-permissions = { path = "../../permissions", features = ["tembra", "tls"] }
+swarmie-storage = { workspace = true, features = ["sqlite"] }
+swarmie-providers.workspace = true
+swarmie-cloud = { workspace = true, features = ["native-keyring"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

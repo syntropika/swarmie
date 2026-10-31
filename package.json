@@ -42,7 +42,7 @@
     "plugins:build": "bun scripts/tembra/build.ts",
     "dev:client": "bun run --filter @swarmie/client dev",
     "build:client": "bun run --filter @swarmie/client build",
-    "test:client": "bun test ./apps/web-client/test ./plugins/context/browser/test ./plugins/conversations/browser/test ./plugins/notifications/browser/test ./plugins/read-aloud/browser/test ./plugins/git/browser/test ./plugins/browser/test",
+    "test:client": "bun test ./apps/web-client/test ./plugins/context/browser/test ./plugins/conversations/browser/test ./plugins/activity/browser/test ./plugins/read-aloud/browser/test ./plugins/git/browser/test ./plugins/browser/test",
     "check:desktop": "native check apps/desktop-client && native validate apps/desktop-client/app.json",
     "test:desktop": "bun scripts/distribution/desktop.ts test",
     "dev:desktop": "bun run ui:elements:prepare && bun run build:desktop:updater && bun scripts/distribution/desktop.ts dev",

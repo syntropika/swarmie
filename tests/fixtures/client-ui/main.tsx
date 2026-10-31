@@ -1,4 +1,5 @@
 import { createHost } from "@syntropika/tembra-sdk/browser";
+import { fixtureProjects } from "./projects";
 import { createRoot } from "react-dom/client";
 import { ClientContext } from "../../../apps/web-client/src/client/context";
 import { App } from "../../../apps/web-client/src/shell/layout";
@@ -7,7 +8,7 @@ import "../../../apps/web-client/src/styles.css";
 
 // Explicit authoring fixture: no credentials, model request, server or durable task is simulated as production.
 const host = await createHost();
-const client = await initializeClient(host, { dev: true });
+const client = await initializeClient(host, { dev: true, projects: fixtureProjects() });
 client.providers.state.update(() => ({ ready: true, error: null, choices: [
   { id: "openai", label: "ChatGPT", publisher: "OpenAI", methods: [{ id: "API key", label: "API key", kind: "api-key" }] },
   { id: "claude", label: "Claude", publisher: "Anthropic", methods: [{ id: "API key", label: "API key", kind: "api-key" }] },

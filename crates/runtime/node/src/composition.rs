@@ -90,6 +90,33 @@ pub fn orbs(
     let tools_principal = principal.clone();
     let settings_principal = principal.clone();
     let mut definitions = providers.clone().orbs();
+    let collections = swarmie_storage::sqlite::SqliteOwner::new(state.join("collections.sqlite"));
+    let projects_principal = principal.clone();
+    let activity_principal = principal.clone();
+    definitions.extend([
+        swarmie_projects::orb(collections.projects_factory(), move |caller| {
+            if caller == projects_principal {
+                Ok(())
+            } else {
+                Err(tembra::Error::new(
+                    tembra::Code::Forbidden,
+                    "node.principal",
+                    "unbound user",
+                ))
+            }
+        }),
+        swarmie_activity::orb(collections.activity_factory(), move |caller| {
+            if caller == activity_principal {
+                Ok(())
+            } else {
+                Err(tembra::Error::new(
+                    tembra::Code::Forbidden,
+                    "node.principal",
+                    "unbound user",
+                ))
+            }
+        }),
+    ]);
     definitions.extend([
         swarmie_tools::orb_with_catalog(host.clone(), move |caller| {
             if caller == tools_principal {

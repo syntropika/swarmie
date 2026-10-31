@@ -57,6 +57,45 @@ test("initial private attachment retries and reattachment never repeats a save w
       },
     }),
   );
+  await host.install(
+    orb({
+      name: "swarmie.providers.protection",
+      apiVersion: 1,
+      services: {
+        "swarmie.providers.protection": {
+          create: (self) =>
+            self.state({ cards: [], detectorEnabled: true, detectorAvailable: false }),
+          methods: {
+            read(
+              state: State<{
+                cards: never[];
+                detectorEnabled: boolean;
+                detectorAvailable: boolean;
+              }>,
+              context: Context,
+            ) {
+              state.update(context, () => ({
+                cards: [],
+                detectorEnabled: true,
+                detectorAvailable: projection.detectorAvailable,
+              }));
+              const revision = String(projection.detectorAvailable);
+              return {
+                revision,
+                data: JSON.stringify({
+                  revision,
+                  cards: [],
+                  detectorEnabled: true,
+                  detectorAvailable: projection.detectorAvailable,
+                }),
+                next: null,
+              };
+            },
+          },
+        },
+      },
+    }),
+  );
   const original = Object.getOwnPropertyDescriptor(globalThis, "window");
   Object.defineProperty(globalThis, "window", {
     configurable: true,

@@ -4052,6 +4052,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
+name = "swarmie-activity"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "serde",
+ "serde_json",
+ "swarmie-storage-core",
+ "tembra",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "swarmie-agent-loop"
 version = "0.1.0"
 dependencies = [
@@ -4355,8 +4367,8 @@ dependencies = [
  "futures",
  "serde",
  "serde_json",
+ "swarmie-activity",
  "swarmie-agent-loop",
- "swarmie-cloud",
  "swarmie-commands",
  "swarmie-context",
  "swarmie-conversation-runtime",
@@ -4364,13 +4376,14 @@ dependencies = [
  "swarmie-durable-tasks",
  "swarmie-git",
  "swarmie-mcp",
- "swarmie-permissions",
  "swarmie-plugin-manager",
+ "swarmie-projects",
  "swarmie-providers",
  "swarmie-runtime",
  "swarmie-storage",
  "swarmie-tools",
  "swarmie-vault",
+ "swarmie-vault-native",
  "tembra",
  "tempfile",
  "tokio",
@@ -4413,6 +4426,18 @@ dependencies = [
 
 [[package]]
 name = "swarmie-plugin-manager"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "serde",
+ "serde_json",
+ "swarmie-storage-core",
+ "tembra",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "swarmie-projects"
 version = "0.1.0"
 dependencies = [
  "futures",
@@ -4487,9 +4512,11 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "swarmie-activity",
  "swarmie-conversations",
  "swarmie-durable-tasks",
  "swarmie-plugin-manager",
+ "swarmie-projects",
  "swarmie-storage-core",
  "swarmie-vault",
  "tembra",
@@ -4558,6 +4585,25 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tokio-rustls",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
+name = "swarmie-vault-native"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "serde",
+ "serde_json",
+ "swarmie-cloud",
+ "swarmie-permissions",
+ "swarmie-providers",
+ "swarmie-storage",
+ "swarmie-vault",
+ "tembra",
+ "tempfile",
+ "tokio",
  "uuid",
  "zeroize",
 ]

@@ -9,6 +9,8 @@ description = "Shared storage API with an optional default SQLite backend"
 [features]
 default = ["sqlite"]
 sqlite = [
+    "dep:swarmie-projects",
+    "dep:swarmie-activity",
     "dep:swarmie-conversations",
     "dep:swarmie-vault",
     "dep:swarmie-plugin-manager",
@@ -21,6 +23,8 @@ sqlite = [
 ]
 
 [dependencies]
+swarmie-activity = { workspace = true, optional = true }
+swarmie-projects = { workspace = true, optional = true }
 swarmie-storage-core.workspace = true
 swarmie-vault = { workspace = true, optional = true }
 swarmie-conversations = { workspace = true, optional = true }

@@ -1,5 +1,4 @@
-import type { PersonalFolders, Project, ProjectsData, ProjectsPersistence } from "./index";
-import { emptyProjects } from "./index";
+import type { PersonalFolders, Project, ProjectsData } from "./model";
 
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -47,20 +46,22 @@ export function decodeProjects(value: unknown): ProjectsData {
   };
 }
 
-/** The embedding supplies the current local profile/account key; it is not a workspace key. */
-export function browserProjectsPersistence(profileKey: string): ProjectsPersistence {
+/** Reads an older Browser export without writing or deleting the source. Import is explicit. */
+export function savedBrowserProjects(profileKey: string): ProjectsData | null {
   const key = `swarmie.projects.v1.${encodeURIComponent(profileKey)}`;
-  return {
-    load() {
-      const stored = localStorage.getItem(key);
-      if (stored === null) {
-        return emptyProjects();
-      }
-      const value: unknown = JSON.parse(stored);
-      return decodeProjects(value);
-    },
-    save(data) {
-      localStorage.setItem(key, JSON.stringify(data));
-    },
-  };
+  const stored = localStorage.getItem(key);
+  return stored === null ? null : decodeProjects(JSON.parse(stored));
+}
+
+export function decodeProjectSnapshot(value: unknown): ProjectsData & { revision: number } {
+  const data = decodeProjects(value);
+  if (
+    !object(value) ||
+    typeof value.revision !== "number" ||
+    !Number.isSafeInteger(value.revision) ||
+    value.revision < 0
+  ) {
+    throw new Error("The node returned an invalid project revision.");
+  }
+  return { ...data, revision: value.revision };
 }

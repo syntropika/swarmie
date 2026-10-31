@@ -57,7 +57,7 @@ export function StateView() {
   const projects = useSource(client.projectsState);
   const settings = useSource(client.settings);
   const onboarding = useSource(client.onboarding);
-  const notifications = useSource(client.notifications);
+  const activity = useSource(client.activity);
   const actions = useSource(client.conversationsUi.composer.actions);
   const slash = useSource(client.conversationsUi.composer.slashCommands);
   const messageActions = useSource(client.conversationsUi.messages.actions);
@@ -77,7 +77,7 @@ export function StateView() {
         error: providers.error,
       },
       onboarding,
-      notifications,
+      activity,
       "read-aloud": {
         language: settings.language,
         composerActions: actions.map((action) => action.id),

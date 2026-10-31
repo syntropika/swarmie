@@ -81,7 +81,7 @@ impl Control {
             "entries":[],"pendingFoundings":self.configuration.borrow().roots.iter().filter_map(|root|root.pending.as_ref().map(|receipt|json!({"vault":root.identity.vault,"operation":receipt.operation}))).collect::<Vec<_>>(),"cards":[],"synchronization":"offline","archived":false,"exposed":false,
             "cloud":self.configuration.borrow().endpoints,"current":current,
             "canFound":self.account.borrow().as_ref().is_some_and(AccountSession::is_live) && catalog.is_some() && self.configuration.borrow().roots.iter().all(|root|root.pending.is_none()),
-            "detectorEnabled":self.configuration.borrow().detector_enabled,"detectorAvailable":self.detector_available,"captures":[],"mutations":[],"rejected":[],"authority":null,"error":null});
+            "captures":[],"mutations":[],"rejected":[],"authority":null,"error":null});
         view["needsSignIn"] = json!(self.needs_sign_in.get());
         view["signingIn"] = json!(self.logging_in.get());
         view["lifecycle"] = self.lifecycle_view()?;

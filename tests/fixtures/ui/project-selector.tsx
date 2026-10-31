@@ -1,3 +1,4 @@
+import { fixtureProjects } from "../client-ui/projects";
 import { Button } from "@swarmie/ui-web";
 import { ComposerPanel } from "@swarmie/ui-web/elements/conversation";
 import { setThemePreference } from "@swarmie/ui-web/theme";
@@ -13,26 +14,18 @@ import { ProjectSelector } from "../../../plugins/projects/browser/src/selector"
 
 import "../../../apps/web-client/src/styles.css";
 
-const client = await initializeClient(await createHost({ name: "project-selector-fixture" }), {
-  dev: true,
-  projectsPersistence: {
-    load: () => ({
-      records: [
-        { id: "website", name: "Website", description: "", archived: false },
-        {
-          id: "project:long",
-          name: "A project with a long name that must stay inside the menu",
-          description: "",
-          archived: false,
-        },
-        { id: "archived", name: "Archived project", description: "", archived: true },
-      ],
-      links: { "fixture-existing": "archived" },
-      personalFolders: [],
-    }),
-    save: () => undefined,
-  },
+const projectsBackend = fixtureProjects({
+  records: [
+    { id: "website", name: "Website", description: "", archived: false },
+    { id: "project:long", name: "A project with a long name that must stay inside the menu", description: "", archived: false },
+    { id: "archived", name: "Archived project", description: "", archived: true },
+  ],
+  links: {"fixture-existing": "archived"}, personalFolders: [],
 });
+const client = await initializeClient(await createHost({name: "project-selector-fixture"}), {
+  dev: true, projects: projectsBackend,
+});
+client.projectsState.update((current) => ({...current,...projectsBackend.snapshot(),available: true}));
 
 function Fixture() {
   const state = useSource(client.projectsState);

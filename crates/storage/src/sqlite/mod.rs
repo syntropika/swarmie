@@ -17,3 +17,9 @@ pub use storage::{SqliteStorage, factory};
 pub use tasks::SqliteTaskStorage;
 pub use vault::SqliteVaultStorage;
 pub use write::SqliteWrite;
+
+mod projects;
+pub use projects::SqliteProjectsStorage;
+
+mod activity;
+pub use activity::SqliteActivityStorage;

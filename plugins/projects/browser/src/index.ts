@@ -2,20 +2,26 @@ import type { Snapshot, UiStore } from "@swarmie/client-ui";
 import { updatePresentation } from "@swarmie/client-ui";
 import { orb } from "@syntropika/tembra-sdk";
 
-export type Project = { id: string; name: string; description: string; archived: boolean };
-export type PersonalFolders = { projectId: string; nodeId: string; paths: string[] };
-export type ProjectsData = {
-  records: Project[];
-  links: Record<string, string>;
-  personalFolders: PersonalFolders[];
-};
-export type ProjectsState = ProjectsData & {
-  dialog: { projectId: string | null } | null;
-  draftLinks: Record<string, string>;
-  error: string | null;
-};
-export type ProjectsPersistence = { load: () => ProjectsData; save: (data: ProjectsData) => void };
-export const emptyProjects = (): ProjectsData => ({ records: [], links: {}, personalFolders: [] });
+import { emptyProjects } from "./model";
+import type {
+  Project,
+  ProjectsBackend,
+  ProjectsCommand,
+  ProjectsData,
+  ProjectsState,
+} from "./model";
+
+export { emptyProjects } from "./model";
+
+export type {
+  Project,
+  PersonalFolders,
+  ProjectsBackend,
+  ProjectsCommand,
+  ProjectsData,
+  ProjectsState,
+} from "./model";
+
 export function projectsOrb(initial: ProjectsData = emptyProjects()) {
   return orb({
     name: "swarmie.projects.ui",
@@ -23,7 +29,17 @@ export function projectsOrb(initial: ProjectsData = emptyProjects()) {
     services: {
       "swarmie.projects.ui": {
         create: (self) =>
-          self.state<ProjectsState>({ ...initial, draftLinks: {}, dialog: null, error: null }),
+          self.state<ProjectsState>({
+            ...initial,
+            revision: 0,
+            generation: 0,
+            available: false,
+            nodeId: null,
+            principal: null,
+            draftLinks: {},
+            dialog: null,
+            error: null,
+          }),
         methods: { update: updatePresentation<ProjectsState> },
       },
     },
@@ -33,10 +49,38 @@ export type ProjectsApi = ReturnType<typeof createProjectsApi>;
 
 /** Owns project commands and links; Conversations contains neither project data nor mutations. */
 export function createProjectsApi(
-  state: UiStore<Readonly<ProjectsState>>,
-  commit: (change: (current: Readonly<ProjectsState>) => ProjectsState) => Promise<unknown>,
+  state: UiStore<Readonly<ProjectsState>> & {
+    commit: (change: (current: Readonly<ProjectsState>) => ProjectsState) => Promise<unknown>;
+  },
+  backend: ProjectsBackend,
   nextId: () => string,
 ) {
+  async function change(command: ProjectsCommand) {
+    const { generation } = state.getSnapshot();
+    const receipt = await backend.change(command);
+    if (state.getSnapshot().generation !== generation) {
+      return receipt;
+    }
+    try {
+      const data = await backend.read(receipt.revision);
+      if (data.revision < receipt.revision) {
+        throw new Error("The project read predates the confirmed change.");
+      }
+      if (state.getSnapshot().generation === generation) {
+        state.update((current) =>
+          data.revision < current.revision ? current : { ...current, ...data },
+        );
+      }
+    } catch (error: unknown) {
+      if (state.getSnapshot().generation === generation) {
+        state.update((current) => ({
+          ...current,
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      }
+    }
+    return receipt;
+  }
   let previousLinks = state.getSnapshot().links;
   let previousRecords = state.getSnapshot().records;
   let members: readonly string[] = [];
@@ -72,7 +116,12 @@ export function createProjectsApi(
   function present(projectId: string) {
     return state.getSnapshot().records.some((entry) => entry.id === projectId && !entry.archived);
   }
+  function scope() {
+    const { generation } = state.getSnapshot();
+    return () => state.getSnapshot().generation === generation;
+  }
   return {
+    scope,
     state,
     membership,
     projectOf,
@@ -87,7 +136,7 @@ export function createProjectsApi(
         description: input.description?.trim() ?? "",
         archived: false,
       };
-      await commit((current) => ({ ...current, records: [...current.records, project] }));
+      await change({ kind: "create", id: project.id, name, description: project.description });
       return project;
     },
     async update(projectId: string, changes: { name: string; description: string }) {
@@ -98,20 +147,18 @@ export function createProjectsApi(
       if (!name) {
         throw new Error("Enter a project name.");
       }
-      await commit((current) => ({
-        ...current,
-        records: current.records.map((project) =>
-          project.id === projectId
-            ? { ...project, name, description: changes.description.trim() }
-            : project,
-        ),
-      }));
+      await change({
+        kind: "update",
+        id: projectId,
+        name,
+        description: changes.description.trim(),
+      });
     },
     async stageConversation(conversationId: string, projectId: string | null) {
       if (projectId !== null && !present(projectId)) {
         throw new Error("The project is unavailable.");
       }
-      return await commit((current) => ({
+      await state.commit((current) => ({
         ...current,
         draftLinks:
           projectId === null
@@ -122,34 +169,37 @@ export function createProjectsApi(
       }));
     },
     async admitDraft(conversationId: string) {
+      const currentScope = scope();
       const projectId = state.getSnapshot().draftLinks[conversationId];
       if (projectId === undefined) {
         return;
       }
-      await commit((current) => ({
+      await change({ kind: "assign", conversation: conversationId, project: projectId });
+      if (!currentScope()) {
+        return;
+      }
+      state.update((current) => ({
         ...current,
-        links: { ...current.links, [conversationId]: projectId },
-        draftLinks: Object.fromEntries(
-          Object.entries(current.draftLinks).filter(([id]) => id !== conversationId),
-        ),
+        draftLinks:
+          current.draftLinks[conversationId] === projectId
+            ? Object.fromEntries(
+                Object.entries(current.draftLinks).filter(([id]) => id !== conversationId),
+              )
+            : current.draftLinks,
       }));
     },
     async assignConversation(input: { conversationId: string; projectId: string }) {
       if (!present(input.projectId)) {
         throw new Error("The project is unavailable.");
       }
-      await commit((current) => ({
-        ...current,
-        links: { ...current.links, [input.conversationId]: input.projectId },
-      }));
+      await change({
+        kind: "assign",
+        conversation: input.conversationId,
+        project: input.projectId,
+      });
     },
     async unassignConversation(conversationId: string) {
-      await commit((current) => ({
-        ...current,
-        links: Object.fromEntries(
-          Object.entries(current.links).filter(([id]) => id !== conversationId),
-        ),
-      }));
+      await change({ kind: "unassign", conversation: conversationId });
     },
     listConversations(projectId: string, options: { cursor?: string; limit: number }) {
       const ids = Object.entries(state.getSnapshot().links)
@@ -164,16 +214,13 @@ export function createProjectsApi(
       if (!present(projectId)) {
         throw new Error("The project is unavailable.");
       }
-      const paths = [...new Set(input.paths.filter((path) => path !== ""))];
-      await commit((current) => ({
-        ...current,
-        personalFolders: [
-          ...current.personalFolders.filter(
-            (entry) => entry.projectId !== projectId || entry.nodeId !== input.nodeId,
-          ),
-          ...(paths.length ? [{ projectId, nodeId: input.nodeId, paths }] : []),
-        ],
-      }));
+      await change({ kind: "folders", project: projectId, node: input.nodeId, paths: input.paths });
+    },
+    async archive(projectId: string, archived: boolean) {
+      await change({ kind: "archive", id: projectId, archived });
+    },
+    async importData(data: ProjectsData) {
+      await change({ kind: "import", data: { ...data, revision: 0 } });
     },
     showCreate: () => {
       state.update((current) => ({ ...current, dialog: { projectId: null }, error: null }));
@@ -195,3 +242,5 @@ export function createProjectsApi(
 export type ProjectsSource = Snapshot<Readonly<ProjectsState>>;
 
 export type { DirectoryBrowser, DirectoryPage, DirectoryReader } from "./directories";
+
+export { createNativeProjects } from "./native";

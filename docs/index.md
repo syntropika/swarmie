@@ -8,9 +8,11 @@ capabilities, supplies I/O and owns the executor.
 | Rust verification and source boundaries | [Rust source checks](rust-source-checks.md) |
 | Host startup and shutdown | [Runtime](runtime.md) |
 | Desired plugins and observed mounts | [PluginManager](plugins/plugin-manager.md) |
+| Authority and optional approval extensions | [Permissions](plugins/permissions.md) |
 | Write ownership and atomic preparation | [Storage](storage.md) |
 | Recoverable work and leases | [Durable Tasks](plugins/durable-tasks.md) |
 | Model and tool execution | [Agent Loop](plugins/agent-loop.md) |
+| Project grouping and the persistent inbox | [Projects and activity](plugins/projects-activity.md) |
 | Persistent history and branches | [Conversations](plugins/conversations.md) |
 | Context projections and application commands | [Context and commands](plugins/context.md) |
 | Independent protocol preparation and transport | [AI protocol library](ai.md) |
@@ -22,7 +24,7 @@ capabilities, supplies I/O and owns the executor.
 | Tool discovery and provider routing | [Tools](plugins/tools.md) |
 | Local and HTTP MCP tool connections | [MCP](plugins/mcp.md) |
 | Node identity and remote destinations | [Node connections](client-runtime/node-connections.md) |
-| Reusable client node services | [Client node services](client-runtime/node-capabilities.md) |
+| Native capability composition | [Node capability composition](client-runtime/node-capabilities.md) |
 | Shared protected hosting and independent executable | [Node hosting](client-runtime/node-hosting.md) |
 | Browser composition and views | [Client UI](client-runtime/client-ui.md) |
 

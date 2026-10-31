@@ -174,6 +174,20 @@ async fn a_non_desktop_host_composes_services_with_its_own_identity_and_principa
                     .collect::<Vec<_>>(),
                 vec!["ChatGPT", "Claude", "Kimi", "Local"]
             );
+            for service in ["swarmie.projects", "swarmie.activity"] {
+                let reference = host.get(service, vec!["main".into()], "embedded-user").unwrap();
+                let value: serde_json::Value = host.root("embedded-user", move |context| {
+                    async move {
+                        let value = if service == "swarmie.projects" {
+                            serde_json::to_value(reference.call::<_, swarmie_projects::Page>(&context, "list", ()).await?).unwrap()
+                        } else {
+                            serde_json::to_value(reference.call::<_, swarmie_activity::Page>(&context, "list", ()).await?).unwrap()
+                        };
+                        Ok(value)
+                    }.boxed_local()
+                }).await.unwrap();
+                assert_eq!(value["revision"], 0);
+            }
             let denied = host
                 .get(
                     "swarmie.providers.settings",
