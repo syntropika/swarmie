@@ -1,5 +1,5 @@
 import { useSource } from "@swarmie/client-ui";
-import type { SectionProps } from "@swarmie/plugin-application-shell-browser";
+import type { SectionProps } from "@swarmie/plugin-browser/shell";
 import { Breadcrumbs, Button, Description, Label, ListBox, VirtualList } from "@swarmie/ui-web";
 import { ArrowLeft, Folder, MessageCircle, Pencil, Plus } from "lucide-react";
 

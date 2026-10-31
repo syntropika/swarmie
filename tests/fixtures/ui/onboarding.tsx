@@ -4,7 +4,7 @@ import { useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import type { UiStore } from "../../../packages/client-ui/src/index";
-import { OnboardingGuide } from "../../../plugins/onboarding/browser/src/views";
+import { OnboardingGuide } from "../../../plugins/browser/src/onboarding/views";
 import { createProvidersApi, providerCatalog } from "../../../plugins/providers/browser/src/index";
 import type { ProvidersState } from "../../../plugins/providers/browser/src/index";
 import { ProvidersPanel } from "../../../plugins/providers/browser/src/views";

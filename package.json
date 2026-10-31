@@ -8,7 +8,8 @@
     "packages/ui/native",
     "apps/web",
     "apps/web-client",
-    "plugins/*/browser"
+    "plugins/*/browser",
+    "plugins/browser"
   ],
   "type": "module",
   "scripts": {
@@ -17,7 +18,7 @@
     "typecheck": "bun run --filter @swarmie/ui-web typecheck && bun run --filter @swarmie/ui-native typecheck && bun run --filter swarmie-mobile typecheck && bun run --filter @swarmie/web typecheck && tsc --noEmit -p tests/fixtures/tembra-sdk/tsconfig.json && tsc --noEmit -p scripts/tembra/tsconfig.json && tsc --noEmit -p scripts/distribution/tsconfig.json && tsc --noEmit -p scripts/performance/tsconfig.json && bun run --filter @swarmie/plugin-context-browser typecheck && bun run --filter @swarmie/client typecheck",
     "lint": "bun run typegen && bun run lint:code",
     "lint:code": "oxlint --disable-nested-config --deny-warnings --report-unused-disable-directives",
-    "lint:design": "oxlint --disable-nested-config --deny-warnings packages/ui/web/src packages/ui/native/src apps/web/src apps/web-client/src plugins/*/browser/src",
+    "lint:design": "oxlint --disable-nested-config --deny-warnings packages/ui/web/src packages/ui/native/src apps/web/src apps/web-client/src plugins/*/browser/src plugins/browser/src",
     "lint:fix": "oxlint --disable-nested-config --fix --deny-warnings",
     "lint:doctor": "ultracite doctor",
     "format": "node node_modules/oxfmt/bin/oxfmt .",
@@ -41,7 +42,7 @@
     "plugins:build": "bun scripts/tembra/build.ts",
     "dev:client": "bun run --filter @swarmie/client dev",
     "build:client": "bun run --filter @swarmie/client build",
-    "test:client": "bun test ./apps/web-client/test ./plugins/context/browser/test ./plugins/conversations/browser/test ./plugins/client-node/browser/test ./plugins/notifications/browser/test ./plugins/read-aloud/browser/test ./plugins/git/browser/test ./plugins/views/browser/test",
+    "test:client": "bun test ./apps/web-client/test ./plugins/context/browser/test ./plugins/conversations/browser/test ./plugins/client-node/browser/test ./plugins/notifications/browser/test ./plugins/read-aloud/browser/test ./plugins/git/browser/test ./plugins/browser/test",
     "check:desktop": "native check apps/desktop-client && native validate apps/desktop-client/app.json",
     "test:desktop": "bun scripts/distribution/desktop.ts test",
     "dev:desktop": "bun run ui:elements:prepare && bun run build:desktop:updater && bun scripts/distribution/desktop.ts dev",

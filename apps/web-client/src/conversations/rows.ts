@@ -1,5 +1,5 @@
+import type { ToolDetails } from "@swarmie/plugin-browser/settings";
 import type { Message } from "@swarmie/plugin-conversations-browser";
-import type { ToolDetails } from "@swarmie/plugin-settings-browser";
 
 export type TranscriptRow =
   | { kind: "message"; key: string; message: Message }

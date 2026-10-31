@@ -1,5 +1,5 @@
 import { useSource } from "@swarmie/client-ui";
-import { isToolDetails } from "@swarmie/plugin-settings-browser";
+import { isToolDetails } from "@swarmie/plugin-browser/settings";
 import { Tabs } from "@swarmie/ui-web";
 
 import { useClient } from "../client/context";

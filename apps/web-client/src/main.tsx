@@ -1,5 +1,5 @@
+import { browserToolDetailsPersistence } from "@swarmie/plugin-browser/settings";
 import { browserProjectsPersistence } from "@swarmie/plugin-projects-browser/persistence";
-import { browserToolDetailsPersistence } from "@swarmie/plugin-settings-browser";
 import { ApplicationSkeleton } from "@swarmie/ui-web";
 import { getThemePreferenceSnapshot, subscribeThemePreference } from "@swarmie/ui-web/theme";
 import { createHost } from "@syntropika/tembra-sdk/browser";

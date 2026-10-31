@@ -1,6 +1,6 @@
 import { useSource } from "../../../packages/client-ui/src/index";
 import { NodeProtocol } from "../../../plugins/client-node/browser/src/index";
-import { browserToolDetailsPersistence } from "../../../plugins/settings/browser/src/index";
+import { browserToolDetailsPersistence } from "../../../plugins/browser/src/settings/index";
 import { Button } from "@swarmie/ui-web";
 import { setThemePreference } from "@swarmie/ui-web/theme";
 import { createHost } from "@syntropika/tembra-sdk/browser";

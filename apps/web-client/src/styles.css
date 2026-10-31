@@ -1,6 +1,7 @@
 @import "@swarmie/ui-web/styles.css";
 @source "./";
 @source "../../../plugins/*/browser/src/**/*.{ts,tsx}";
+@source "../../../plugins/browser/src/**/*.{ts,tsx}";
 
 @theme static {
   --spacing-reading-column: 45rem;

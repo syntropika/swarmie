@@ -1,7 +1,7 @@
 import { useSource } from "@swarmie/client-ui";
+import type { CapabilityTab } from "@swarmie/plugin-browser/views";
 import { ConnectionPhase } from "@swarmie/plugin-client-node-browser";
 import { GitSettings, GitView } from "@swarmie/plugin-git-browser";
-import type { CapabilityTab } from "@swarmie/plugin-views-browser";
 import { Button } from "@swarmie/ui-web";
 import { useRef, useState } from "react";
 

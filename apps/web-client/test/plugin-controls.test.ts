@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 
 import { bindState } from "@swarmie/client-ui";
-import { settingsOrb } from "@swarmie/plugin-settings-browser";
+import { settingsOrb } from "@swarmie/plugin-browser/settings";
 import { orb } from "@syntropika/tembra-sdk";
 import { createHost } from "@syntropika/tembra-sdk/node";
 

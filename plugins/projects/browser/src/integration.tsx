@@ -1,4 +1,4 @@
-import type { applicationShellOrb, ShellUiApi } from "@swarmie/plugin-application-shell-browser";
+import type { applicationShellOrb, ShellUiApi } from "@swarmie/plugin-browser/shell";
 import { conversationsOrb } from "@swarmie/plugin-conversations-browser";
 import type { ConversationsUiApi } from "@swarmie/plugin-conversations-browser";
 import { orb } from "@syntropika/tembra-sdk";

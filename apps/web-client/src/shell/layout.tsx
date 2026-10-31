@@ -1,5 +1,5 @@
 import { useSource } from "@swarmie/client-ui";
-import { OnboardingGuide } from "@swarmie/plugin-onboarding-browser/views";
+import { OnboardingGuide } from "@swarmie/plugin-browser/onboarding/views";
 import { ProjectsContext } from "@swarmie/plugin-projects-browser/views";
 import { ProvidersPanel } from "@swarmie/plugin-providers-browser/views";
 import { ChromeButton } from "@swarmie/ui-web";

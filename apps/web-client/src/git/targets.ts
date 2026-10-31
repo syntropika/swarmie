@@ -1,4 +1,4 @@
-import type { CapabilityTab } from "@swarmie/plugin-views-browser";
+import type { CapabilityTab } from "@swarmie/plugin-browser/views";
 
 export type GitTarget = {
   nodeId: string;

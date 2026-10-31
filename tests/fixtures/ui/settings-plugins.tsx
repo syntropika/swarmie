@@ -3,7 +3,7 @@ import { Button } from "@swarmie/ui-web";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 
-import { OnboardingGuide } from "../../../plugins/onboarding/browser/src/views";
+import { OnboardingGuide } from "../../../plugins/browser/src/onboarding/views";
 import { createProvidersApi, providerCatalog } from "../../../plugins/providers/browser/src/index";
 import type { ProvidersState } from "../../../plugins/providers/browser/src/index";
 import { OAuthCallback } from "../../../plugins/providers/browser/src/oauth-callback";

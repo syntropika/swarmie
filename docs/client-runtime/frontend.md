@@ -15,6 +15,7 @@ qualification fixtures use the same published Tembra SDK version.
 | `apps/web-client` | Compose the node client and coordinate its screens. |
 | `apps/mobile-client` | Present the mobile client and its platform integrations. |
 | `apps/desktop-client` | Host the shared web client in a native desktop window. |
+| `plugins/browser` | Own the base Shell, Views, Settings and Onboarding modules. |
 | `plugins/*/browser` | Provide frontend capabilities and local extension contracts. |
 | `packages/client-ui` | Adapt Tembra values for subscribed UI rendering. |
 | `packages/config` | Share compiler settings, fonts, theme behavior, and semantic tokens. |
@@ -42,7 +43,7 @@ engine, container, object protocol, or cleanup runtime. Keep executable callback
 serialized State and RPC values.
 
 Keep record commands in Conversations, navigation history in Application Shell, and tab
-commands in Views. The application coordinates them. Combined presentation snapshots
+commands in Views. Shell and Views are modules of the Browser plugin. The application coordinates them. Combined presentation snapshots
 are read-only; write through the owner State or its commands.
 
 Keep screen entry components focused on composition. Group cohesive controls and their

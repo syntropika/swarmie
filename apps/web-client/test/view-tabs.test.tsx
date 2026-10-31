@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import type { Tab } from "@swarmie/plugin-views-browser";
+import type { Tab } from "@swarmie/plugin-browser/views";
 import { Tabs } from "@swarmie/ui-web";
 import { renderToStaticMarkup } from "react-dom/server";
 

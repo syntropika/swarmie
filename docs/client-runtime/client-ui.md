@@ -23,6 +23,11 @@ Screens are grouped under `shell`, `conversations`, `settings`, and `views`.
 Composer action lifetime stays beside the Composer. Shared app controls remain at the
 application root.
 
+The base Browser package is `@swarmie/plugin-browser` in `plugins/browser`.
+Its `/shell`, `/views`, `/settings` and `/onboarding` exports retain separate State,
+commands and Tembra services. The `/onboarding/views` export contains the guide.
+Feature plugins contribute sections and configuration through these contracts.
+
 Conversations owns stable record projections and metadata updates. Application Shell owns
 navigation history transitions. Views owns tab commands and restoration rules. These
 modules update their existing Tembra State; they do not create another store.
@@ -211,7 +216,7 @@ include the provider-required signed identity-token hint; that front-channel ins
 is sensitive and must not be logged or included in diagnostic captures.
 
 The native composition offers ChatGPT browser OAuth, API-key providers and a local model
-server. OAuth reuses the independent provider-auth protocol library: PKCE, state, nonce,
+server. OAuth reuses the Providers authentication module: PKCE, state, nonce,
 issued registration and signed identity verification remain native. Public instructions
 travel through a managed `swarmie.providers.authorization` session. On another device,
 the user can paste the complete loopback callback URL into the existing callback form.

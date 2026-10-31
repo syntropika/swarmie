@@ -1,6 +1,6 @@
 import type { UiStore } from "@swarmie/client-ui";
 import { selectStore } from "@swarmie/client-ui";
-import type { SettingsState } from "@swarmie/plugin-settings-browser";
+import type { SettingsState } from "@swarmie/plugin-browser/settings";
 import type { ReferenceBase } from "@syntropika/tembra-sdk";
 
 type OptionalPlugin = "projects" | "read-aloud" | "app-state" | "git";

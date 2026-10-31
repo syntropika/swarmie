@@ -10,6 +10,7 @@ const frontendSources = [
   "apps/web/src/**/*.{ts,tsx}",
   "apps/web-client/src/**/*.{ts,tsx}",
   "plugins/*/browser/src/**/*.{ts,tsx}",
+  "plugins/browser/src/**/*.{ts,tsx}",
   "packages/client-ui/src/**/*.{ts,tsx}",
 ];
 

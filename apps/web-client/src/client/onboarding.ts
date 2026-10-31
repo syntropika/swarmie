@@ -1,5 +1,5 @@
 import type { Snapshot, UiStore } from "@swarmie/client-ui";
-import type { OnboardingState } from "@swarmie/plugin-onboarding-browser";
+import type { OnboardingState } from "@swarmie/plugin-browser/onboarding";
 import type { ProvidersState } from "@swarmie/plugin-providers-browser";
 
 /** Only a loaded node catalog can establish whether first-use configuration is needed. */

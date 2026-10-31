@@ -1,4 +1,4 @@
-import type { Tab } from "@swarmie/plugin-views-browser";
+import type { Tab } from "@swarmie/plugin-browser/views";
 import { ChromeButton, Tabs } from "@swarmie/ui-web";
 import { Globe, MessageCircle, X } from "lucide-react";
 import { createElement, useEffect, useRef } from "react";

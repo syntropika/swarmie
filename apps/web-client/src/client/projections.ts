@@ -1,6 +1,6 @@
 import type { Snapshot } from "@swarmie/client-ui";
-import type { ShellState } from "@swarmie/plugin-application-shell-browser";
-import type { ViewsState } from "@swarmie/plugin-views-browser";
+import type { ShellState } from "@swarmie/plugin-browser/shell";
+import type { ViewsState } from "@swarmie/plugin-browser/views";
 
 export type Shell = ShellState & ViewsState;
 

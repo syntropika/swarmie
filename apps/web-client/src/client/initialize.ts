@@ -1,12 +1,17 @@
 import type { Snapshot, StateReference } from "@swarmie/client-ui";
 import { bindState } from "@swarmie/client-ui";
 import { appStateOrb } from "@swarmie/plugin-app-state-browser";
-import type { ShellUiApi } from "@swarmie/plugin-application-shell-browser";
+import { onboardingOrb } from "@swarmie/plugin-browser/onboarding";
+import { loadToolDetails, settingsOrb } from "@swarmie/plugin-browser/settings";
+import type { ToolDetailsPersistence } from "@swarmie/plugin-browser/settings";
+import type { ShellUiApi } from "@swarmie/plugin-browser/shell";
 import {
   applicationCommandsOrb,
   applicationShellOrb,
   createNavigation,
-} from "@swarmie/plugin-application-shell-browser";
+} from "@swarmie/plugin-browser/shell";
+import type { BuiltinTab, CapabilityView } from "@swarmie/plugin-browser/views";
+import { createViewsApi, viewsOrb } from "@swarmie/plugin-browser/views";
 import type { Connector, Node } from "@swarmie/plugin-client-node-browser";
 import {
   Connections,
@@ -31,7 +36,6 @@ import {
 import { mcpOrb, createMcpApi } from "@swarmie/plugin-mcp-browser";
 import type { Notification } from "@swarmie/plugin-notifications-browser";
 import { notificationsOrb } from "@swarmie/plugin-notifications-browser";
-import { onboardingOrb } from "@swarmie/plugin-onboarding-browser";
 import type { ProjectsPersistence } from "@swarmie/plugin-projects-browser";
 import { createProjectsApi, projectsOrb } from "@swarmie/plugin-projects-browser";
 import { projectsIntegrationOrb } from "@swarmie/plugin-projects-browser/integration";
@@ -39,12 +43,8 @@ import type { ProjectsPresentation } from "@swarmie/plugin-projects-browser/view
 import type { ProvidersBackend } from "@swarmie/plugin-providers-browser";
 import { providersOrb } from "@swarmie/plugin-providers-browser";
 import { readAloudOrb } from "@swarmie/plugin-read-aloud-browser";
-import { loadToolDetails, settingsOrb } from "@swarmie/plugin-settings-browser";
-import type { ToolDetailsPersistence } from "@swarmie/plugin-settings-browser";
 import { createVaultUi, vaultUiOrb } from "@swarmie/plugin-vault-browser";
 import type { VaultBackend } from "@swarmie/plugin-vault-browser";
-import type { BuiltinTab, CapabilityView } from "@swarmie/plugin-views-browser";
-import { createViewsApi, viewsOrb } from "@swarmie/plugin-views-browser";
 import type { ReferenceBase } from "@syntropika/tembra-sdk";
 import type { Host } from "@syntropika/tembra-sdk/runtime";
 

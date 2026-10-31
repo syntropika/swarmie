@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { bindState } from "@swarmie/client-ui";
 import { createHost } from "@syntropika/tembra-sdk/node";
 
-import { createViewsApi, viewsOrb } from "../src";
+import { createViewsApi, viewsOrb } from "../src/views";
 
 test("capability tabs capture targets and separate nodes and checkouts", async () => {
   const host = createHost();

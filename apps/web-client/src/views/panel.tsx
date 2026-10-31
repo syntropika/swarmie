@@ -1,5 +1,5 @@
 import { useSource } from "@swarmie/client-ui";
-import type { Tab } from "@swarmie/plugin-views-browser";
+import type { Tab } from "@swarmie/plugin-browser/views";
 import { Button, Tabs } from "@swarmie/ui-web";
 
 import { useClient } from "../client/context";

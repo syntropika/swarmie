@@ -119,20 +119,17 @@
         "@swarmie/client-ui": "workspace:*",
         "@swarmie/config": "workspace:*",
         "@swarmie/plugin-app-state-browser": "workspace:*",
-        "@swarmie/plugin-application-shell-browser": "workspace:*",
+        "@swarmie/plugin-browser": "workspace:*",
         "@swarmie/plugin-client-node-browser": "workspace:*",
         "@swarmie/plugin-context-browser": "workspace:*",
         "@swarmie/plugin-conversations-browser": "workspace:*",
         "@swarmie/plugin-git-browser": "workspace:*",
         "@swarmie/plugin-mcp-browser": "workspace:*",
         "@swarmie/plugin-notifications-browser": "workspace:*",
-        "@swarmie/plugin-onboarding-browser": "workspace:*",
         "@swarmie/plugin-projects-browser": "workspace:*",
         "@swarmie/plugin-providers-browser": "workspace:*",
         "@swarmie/plugin-read-aloud-browser": "workspace:*",
-        "@swarmie/plugin-settings-browser": "workspace:*",
         "@swarmie/plugin-vault-browser": "workspace:*",
-        "@swarmie/plugin-views-browser": "workspace:*",
         "@swarmie/ui-web": "workspace:*",
         "@syntropika/tembra-sdk": "0.2.0",
         "lucide-react": "1.61.0",
@@ -264,8 +261,8 @@
         "react": "19.3.0",
       },
     },
-    "plugins/application-shell/browser": {
-      "name": "@swarmie/plugin-application-shell-browser",
+    "plugins/browser": {
+      "name": "@swarmie/plugin-browser",
       "version": "1.0.0",
       "dependencies": {
         "@swarmie/client-ui": "workspace:*",
@@ -357,25 +354,12 @@
         "react": "19.3.0",
       },
     },
-    "plugins/onboarding/browser": {
-      "name": "@swarmie/plugin-onboarding-browser",
-      "version": "1.0.0",
-      "dependencies": {
-        "@swarmie/client-ui": "workspace:*",
-        "@swarmie/ui-web": "workspace:*",
-        "@syntropika/tembra-sdk": "0.2.0",
-        "lucide-react": "1.61.0",
-      },
-      "peerDependencies": {
-        "react": "19.3.0",
-      },
-    },
     "plugins/projects/browser": {
       "name": "@swarmie/plugin-projects-browser",
       "version": "1.0.0",
       "dependencies": {
         "@swarmie/client-ui": "workspace:*",
-        "@swarmie/plugin-application-shell-browser": "workspace:*",
+        "@swarmie/plugin-browser": "workspace:*",
         "@swarmie/plugin-conversations-browser": "workspace:*",
         "@swarmie/ui-web": "workspace:*",
         "@syntropika/tembra-sdk": "0.2.0",
@@ -416,19 +400,6 @@
         "react": "19.3.0",
       },
     },
-    "plugins/settings/browser": {
-      "name": "@swarmie/plugin-settings-browser",
-      "version": "1.0.0",
-      "dependencies": {
-        "@swarmie/client-ui": "workspace:*",
-        "@swarmie/ui-web": "workspace:*",
-        "@syntropika/tembra-sdk": "0.2.0",
-        "lucide-react": "1.61.0",
-      },
-      "peerDependencies": {
-        "react": "19.3.0",
-      },
-    },
     "plugins/vault/browser": {
       "name": "@swarmie/plugin-vault-browser",
       "version": "1.0.0",
@@ -439,19 +410,6 @@
       },
       "devDependencies": {
         "typescript": "7.0.2",
-      },
-    },
-    "plugins/views/browser": {
-      "name": "@swarmie/plugin-views-browser",
-      "version": "1.0.0",
-      "dependencies": {
-        "@swarmie/client-ui": "workspace:*",
-        "@swarmie/ui-web": "workspace:*",
-        "@syntropika/tembra-sdk": "0.2.0",
-        "lucide-react": "1.61.0",
-      },
-      "peerDependencies": {
-        "react": "19.3.0",
       },
     },
   },
@@ -1279,7 +1237,7 @@
 
     "@swarmie/plugin-app-state-browser": ["@swarmie/plugin-app-state-browser@workspace:plugins/app-state/browser"],
 
-    "@swarmie/plugin-application-shell-browser": ["@swarmie/plugin-application-shell-browser@workspace:plugins/application-shell/browser"],
+    "@swarmie/plugin-browser": ["@swarmie/plugin-browser@workspace:plugins/browser"],
 
     "@swarmie/plugin-client-node-browser": ["@swarmie/plugin-client-node-browser@workspace:plugins/client-node/browser"],
 
@@ -1293,19 +1251,13 @@
 
     "@swarmie/plugin-notifications-browser": ["@swarmie/plugin-notifications-browser@workspace:plugins/notifications/browser"],
 
-    "@swarmie/plugin-onboarding-browser": ["@swarmie/plugin-onboarding-browser@workspace:plugins/onboarding/browser"],
-
     "@swarmie/plugin-projects-browser": ["@swarmie/plugin-projects-browser@workspace:plugins/projects/browser"],
 
     "@swarmie/plugin-providers-browser": ["@swarmie/plugin-providers-browser@workspace:plugins/providers/browser"],
 
     "@swarmie/plugin-read-aloud-browser": ["@swarmie/plugin-read-aloud-browser@workspace:plugins/read-aloud/browser"],
 
-    "@swarmie/plugin-settings-browser": ["@swarmie/plugin-settings-browser@workspace:plugins/settings/browser"],
-
     "@swarmie/plugin-vault-browser": ["@swarmie/plugin-vault-browser@workspace:plugins/vault/browser"],
-
-    "@swarmie/plugin-views-browser": ["@swarmie/plugin-views-browser@workspace:plugins/views/browser"],
 
     "@swarmie/ui-native": ["@swarmie/ui-native@workspace:packages/ui/native"],
 

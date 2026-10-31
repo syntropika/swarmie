@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@swarmie/client-ui": "workspace:*",
-    "@swarmie/plugin-application-shell-browser": "workspace:*",
+    "@swarmie/plugin-browser": "workspace:*",
     "@swarmie/plugin-conversations-browser": "workspace:*",
     "@swarmie/ui-web": "workspace:*",
     "@syntropika/tembra-sdk": "0.2.0",

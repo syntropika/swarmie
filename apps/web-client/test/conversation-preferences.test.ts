@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { loadToolDetails } from "@swarmie/plugin-settings-browser";
-import type { ToolDetails } from "@swarmie/plugin-settings-browser";
+import { loadToolDetails } from "@swarmie/plugin-browser/settings";
+import type { ToolDetails } from "@swarmie/plugin-browser/settings";
 import { createHost } from "@syntropika/tembra-sdk/node";
 
 import { initializeClient } from "../src/client/initialize";

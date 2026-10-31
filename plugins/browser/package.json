@@ -1,16 +1,21 @@
 {
-  "name": "@swarmie/plugin-views-browser",
+  "name": "@swarmie/plugin-browser",
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    "./shell": "./src/shell/index.ts",
+    "./views": "./src/views/index.ts",
+    "./settings": "./src/settings/index.ts",
+    "./onboarding": "./src/onboarding/index.ts",
+    "./onboarding/views": "./src/onboarding/views.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@swarmie/client-ui": "workspace:*",
+    "@swarmie/plugin-conversations-browser": "workspace:*",
     "@swarmie/ui-web": "workspace:*",
     "@syntropika/tembra-sdk": "0.2.0",
     "lucide-react": "1.61.0"
