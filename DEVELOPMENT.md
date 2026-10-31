@@ -23,7 +23,7 @@ just rust-source-check
 just foundation-check
 just storage-check
 just agent-loop-check
-just model-provider-check
+just providers-check
 just tools-check
 ```
 

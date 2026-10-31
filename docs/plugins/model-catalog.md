@@ -135,7 +135,7 @@ prices. A download or
 validation failure fails compilation rather than silently using an old catalog.
 The snapshot records exact keys and descriptive model facts, its source, source and content
 digests, capture time and a seven-day freshness interval. The upstream MIT notice
-is retained in `crates/ai/data/LICENSE.models-dev`.
+is retained in `crates/ai/catalog/data/LICENSE.models-dev`.
 
 Cargo reuses successful build outputs during incremental builds.
 `just ai-catalog-build`, `just desktop-build` and `just desktop-package` set a

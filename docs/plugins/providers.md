@@ -141,7 +141,7 @@ The record has no Debug implementation.
 Supply the existing persisted registration UUID. The constructor performs no I/O.
 Inject this driver and the native stores into `swarmie_providers::accounts::Accounts`.
 Accounts controls principal checks, defaults, association, custody and publication.
-The driver performs discovery and the existing provider-auth protocols. It has no
+The driver performs discovery and the provider authentication protocols in `auth`. It has no
 account store, credential store or renewal cache.
 
 API keys remain separate from encoded authorization credentials. Local accounts
@@ -164,7 +164,7 @@ These methods do not activate a recovery workflow or change the live account
 store and driver interfaces.
 
 The authorization flow delegates callback validation, polling, cancellation and
-physical close to provider-auth. Its public instructions retain the existing browser
+physical close to the `auth` module. Its public instructions retain the existing browser
 contract. Native fixture options are trusted configuration, not RPC inputs. A local
 catalog override preserves its actual source endpoint and cannot establish production
 metadata. Sign-in and model discovery do not qualify ChatGPT-plan inference.

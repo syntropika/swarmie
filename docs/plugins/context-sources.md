@@ -14,7 +14,7 @@ home directory or read environment variables.
 
 `Environment::inspect` discovers packages with a `SKILL.md` file. It reads configured
 skill roots and `.agents/skills` in each directory from the project root to the working
-directory. Discovery stops at each package. A `Environment` retains its first
+directory. Discovery stops at each package. An `Environment` retains its first
 successful inventory. Construct another owner to refresh discovery.
 
 The inventory includes origins, aliases, metadata and diagnostics. Distinct origins

@@ -18,6 +18,17 @@ use std::{
 };
 use uuid::Uuid;
 
+// Each case starts fresh processes that compile the offline inspection corpus.
+// Isolate unrelated cold starts so readiness deadlines measure the tested host,
+// while each case retains its own multi-process ownership/concurrency scenario.
+fn isolate_startup() -> std::sync::MutexGuard<'static, ()> {
+    static STARTUP: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    // A failed case must not prevent independent cases from running.
+    STARTUP
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 struct Owner(Child);
 
 impl Owner {
@@ -198,6 +209,7 @@ fn identity(stream: &mut TcpStream) -> Value {
 
 #[test]
 fn independent_owner_survives_client_detach_and_reuses_identity_after_shutdown() {
+    let _fixture = isolate_startup();
     let profile = tempfile::tempdir().unwrap();
     let mut owner = Owner::start(profile.path());
     let endpoint = owner.endpoint(profile.path());
@@ -230,6 +242,7 @@ fn independent_owner_survives_client_detach_and_reuses_identity_after_shutdown()
 
 #[test]
 fn unauthenticated_and_private_requests_cannot_borrow_operator_authority() {
+    let _fixture = isolate_startup();
     let profile = tempfile::tempdir().unwrap();
     let mut owner = Owner::start(profile.path());
     let endpoint = owner.endpoint(profile.path());
@@ -251,6 +264,7 @@ fn unauthenticated_and_private_requests_cannot_borrow_operator_authority() {
 
 #[test]
 fn another_host_is_refused_without_replacing_the_live_profile_owner() {
+    let _fixture = isolate_startup();
     let profile = tempfile::tempdir().unwrap();
     let mut first = Owner::start(profile.path());
     let endpoint = first.endpoint(profile.path());
@@ -283,6 +297,7 @@ fn another_host_is_refused_without_replacing_the_live_profile_owner() {
 
 #[test]
 fn oversized_input_closes_only_its_attachment() {
+    let _fixture = isolate_startup();
     let profile = tempfile::tempdir().unwrap();
     let mut owner = Owner::start(profile.path());
     let endpoint = owner.endpoint(profile.path());
@@ -300,6 +315,7 @@ fn oversized_input_closes_only_its_attachment() {
 
 #[test]
 fn an_unrecognized_endpoint_file_is_preserved() {
+    let _fixture = isolate_startup();
     let profile = tempfile::tempdir().unwrap();
     let path = profile.path().join("node-endpoint.json");
     fs::write(&path, b"user-owned content").unwrap();
@@ -323,6 +339,7 @@ fn an_unrecognized_endpoint_file_is_preserved() {
 
 #[test]
 fn crash_releases_exclusive_ownership_and_rotates_the_stale_endpoint() {
+    let _fixture = isolate_startup();
     let profile = tempfile::tempdir().unwrap();
     let mut owner = Owner::start(profile.path());
     let previous = owner.endpoint(profile.path());
@@ -380,6 +397,10 @@ fn admitted_client_process() {
 
 #[test]
 fn admitted_work_survives_real_client_process_exit_without_replaying_on_restart() {
+    let _fixture = isolate_startup();
+    let profile = tempfile::tempdir().unwrap();
+    let mut owner = Owner::start(profile.path());
+    let endpoint = owner.endpoint(profile.path());
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
@@ -458,9 +479,6 @@ fn admitted_work_survives_real_client_process_exit_without_replaying_on_restart(
             write!(stream,"HTTP/1.1 200 OK\r\ncontent-type: application/x-ndjson\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",body.len()).unwrap();
         }
     });
-    let profile = tempfile::tempdir().unwrap();
-    let mut owner = Owner::start(profile.path());
-    let endpoint = owner.endpoint(profile.path());
     let mut client = connect(&endpoint);
     let settings = get(&mut client, "swarmie.providers.settings", "main");
     let account = call(
