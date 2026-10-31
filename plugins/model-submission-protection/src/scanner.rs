@@ -43,6 +43,7 @@ pub enum Coverage {
     Unsupported,
 }
 
+#[derive(Clone)]
 pub struct Detector {
     scanner: Arc<Scanner>,
 }

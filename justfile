@@ -194,7 +194,10 @@ node-build:
 node-dependencies:
     cargo +{{rust_version}} tree --locked -p swarmie-node-host --edges normal
 
-desktop-check:
+desktop-bridge-check:
+    zig test apps/desktop-client/src/bridge-frame.zig
+
+desktop-check: desktop-bridge-check
     cargo +{{rust_version}} fmt --all --check
     cargo +{{rust_version}} clippy --locked -p swarmie-desktop-updates -p swarmie-desktop-runtime -p swarmie-git --all-features --all-targets -- -D warnings
     cargo +{{rust_version}} test --locked -p swarmie-desktop-updates -p swarmie-desktop-runtime -p swarmie-git --all-features

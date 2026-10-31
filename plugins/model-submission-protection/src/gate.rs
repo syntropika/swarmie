@@ -131,27 +131,65 @@ impl ModelGuard {
         body: Vec<u8>,
         coverage: Coverage,
     ) -> Result<PreparedSubmission, Error> {
+        if !execution.is_live() {
+            return Err(Error::Invalid);
+        }
+        let inspected = self.scan(body, coverage)?.run();
+        self.prepare_inspected(execution, attempt, provider, destination, inspected)
+    }
+
+    /// Capture an owned CPU job. A host can run it on a blocking worker without
+    /// moving native policy, execution authority or private admission keys.
+    pub fn scan(&self, body: Vec<u8>, coverage: Coverage) -> Result<InspectionJob, Error> {
         let body = Zeroizing::new(body);
-        if body.len() > MAX_CONTENT_BYTES || !execution.is_live() {
+        if body.len() > MAX_CONTENT_BYTES {
             return Err(Error::Invalid);
         }
         let policy = self.policy.borrow();
-        let inspection = if !policy.enabled {
-            Inspection::Unprotected
+        let (detector, fallback) = if !policy.enabled {
+            (None, Inspection::Unprotected)
         } else if policy
             .grant
             .check(&policy.provider, Permission::InspectModelContent)
             .is_err()
         {
-            Inspection::Unavailable
-        } else if let Some(detector) = &policy.detector {
-            detector.inspect(&body, coverage)
+            (None, Inspection::Unavailable)
         } else {
-            Inspection::Unavailable
+            (policy.detector.clone(), Inspection::Unavailable)
         };
         let mut mac = Hmac::<Sha256>::new_from_slice(self.key.as_ref().as_ref())
             .map_err(|_| Error::Invalid)?;
         mac.update(&body);
+        Ok(InspectionJob {
+            body,
+            detector,
+            fallback,
+            coverage,
+            policy: policy.generation,
+            permission: policy.grant.generation(),
+            seal: mac.finalize().into_bytes().to_vec(),
+        })
+    }
+
+    /// Accept only this guard's exact inspected bytes and current policy. A
+    /// serialized inspection or an arbitrary Clean value cannot admit content.
+    pub fn prepare_inspected(
+        &self,
+        execution: ExecutionBinding,
+        attempt: ModelAttempt,
+        provider: String,
+        destination: String,
+        inspected: InspectedContent,
+    ) -> Result<PreparedSubmission, Error> {
+        if !execution.is_live() {
+            return Err(Error::Revoked);
+        }
+        self.check_version(inspected.policy, inspected.permission)?;
+        let mut mac = Hmac::<Sha256>::new_from_slice(self.key.as_ref().as_ref())
+            .map_err(|_| Error::Invalid)?;
+        mac.update(&inspected.body);
+        mac.verify_slice(&inspected.seal)
+            .map_err(|_| Error::Revoked)?;
         let intent = DecisionIntent {
             decision: Uuid::new_v4(),
             execution: execution.identity().clone(),
@@ -160,19 +198,55 @@ impl ModelGuard {
             attempt: attempt.attempt,
             provider,
             destination,
-            policy: policy.generation,
-            permission: policy.grant.generation(),
-            seal: mac.finalize().into_bytes().to_vec(),
-            inspection,
+            policy: inspected.policy,
+            permission: inspected.permission,
+            seal: inspected.seal,
+            inspection: inspected.inspection,
         };
         Ok(PreparedSubmission {
             guard: self.clone(),
             execution,
             intent,
-            body,
+            body: inspected.body,
             overridden: false,
         })
     }
+}
+
+/// An owned, non-cloneable scan. Dropping its observation does not cancel an
+/// already running worker; that worker retains and erases the private bytes.
+pub struct InspectionJob {
+    body: Zeroizing<Vec<u8>>,
+    detector: Option<Detector>,
+    fallback: Inspection,
+    coverage: Coverage,
+    policy: Uuid,
+    permission: Uuid,
+    seal: Vec<u8>,
+}
+
+impl InspectionJob {
+    pub fn run(self) -> InspectedContent {
+        let inspection = self.detector.as_ref().map_or(self.fallback, |detector| {
+            detector.inspect(&self.body, self.coverage)
+        });
+        InspectedContent {
+            body: self.body,
+            inspection,
+            policy: self.policy,
+            permission: self.permission,
+            seal: self.seal,
+        }
+    }
+}
+
+/// Opaque evidence from an actual scan. Only the original guard can consume it.
+pub struct InspectedContent {
+    body: Zeroizing<Vec<u8>>,
+    inspection: Inspection,
+    policy: Uuid,
+    permission: Uuid,
+    seal: Vec<u8>,
 }
 
 /// Memory-only and non-cloneable. Dropping cancels; restart must reconstruct and rescan.

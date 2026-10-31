@@ -198,7 +198,7 @@ output ceiling can include lower policy restrictions. It does not prove a
 provider maximum. A native maximum above that ceiling is refused; the consumer
 must not reduce the claimed maximum to fit the policy. Fixed request comparisons
 include the reservation basis. Recovery compares the complete safe description.
-The current AI adapter adapter emits sent caps. The capability field does not qualify
+The current AI adapter emits sent caps. The capability field does not qualify
 an uncapped profile by itself.
 
 The AI adapter finalizes all provider additions before measuring, protection admission and
@@ -207,6 +207,11 @@ request. The output reserve is also the actual maximum-output option sent to the
 provider. Required tools and streaming capabilities must be qualified; Unknown
 metadata fails locally. The ordinary RPC `ModelService` does not transport this
 native handle and explicitly lacks the optional capability.
+
+Final-content inspection runs on the host's blocking executor. The worker owns
+the private bytes until it settles. The adapter then checks the original content
+seal and current policy before it permits dispatch. Stop can retire observation;
+it does not cancel a running scan or release that worker's private bytes early.
 
 The current AI adapter token measurement is **estimated**: final UTF-8 JSON bytes divided
 by four, rounded up. Attribution partitions those bytes into instructions,

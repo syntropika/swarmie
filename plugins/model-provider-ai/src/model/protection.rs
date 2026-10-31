@@ -124,14 +124,22 @@ impl ModelProtection {
         };
         let binding = executions.resolve(context)?.scoped();
         admitted.execution = Some(binding.clone());
+        let scan = guard
+            .scan(prepared.content().to_vec(), Coverage::TextJson)
+            .map_err(protection_error)?;
+        // The worker owns the private bytes until inspection settles, including
+        // after Stop retires the observer. Keep lease renewal on the local executor.
+        let inspected = tokio::task::spawn_blocking(move || scan.run())
+            .await
+            .map_err(|_| protection_error(swarmie_model_submission_protection::Error::Revoked))?;
+        context.check()?;
         let mut submission = guard
-            .prepare(
+            .prepare_inspected(
                 binding.clone(),
                 phase,
                 provider.into(),
                 destination.clone(),
-                prepared.content().to_vec(),
-                Coverage::TextJson,
+                inspected,
             )
             .map_err(protection_error)?;
         if !matches!(

@@ -262,10 +262,12 @@ fn wait_until(message: &str, mut ready: impl FnMut() -> bool) {
 }
 
 fn interrupted_native_tool(kind: &str) {
-    let provider = Provider::new();
     let state = tempfile::tempdir().unwrap();
     let gate = state.path().join("effect.json");
     let node = Node::open(state.path().into()).unwrap();
+    // Native activation compiles the shared offline rules. This setup must finish
+    // before the provider fixture starts its request deadline.
+    let provider = Provider::new();
     let mut owner = Rpc::new(&node);
     let mut observer = Rpc::new(&node);
     let account = configure(&mut observer, &provider.endpoint, &gate);

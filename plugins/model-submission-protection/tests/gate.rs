@@ -174,3 +174,51 @@ fn duplicate_decoded_json_keys_are_incomplete_even_if_the_last_value_is_safe() {
         Inspection::Incomplete
     );
 }
+
+#[test]
+fn owned_worker_results_require_the_original_guard_and_current_policy() {
+    let authority = Authority::new();
+    let (shell, execution) = owner(&authority);
+    let original = guard(Detector::bundled());
+    let foreign = guard(Detector::bundled());
+    let scan = || original.scan(b"{}".to_vec(), Coverage::TextJson).unwrap();
+    let first = scan();
+    let inspected = std::thread::spawn(move || first.run()).join().unwrap();
+    assert!(matches!(
+        foreign.prepare_inspected(
+            execution.clone(),
+            ModelAttempt::new(Uuid::new_v4()),
+            "model".into(),
+            "https://model.example".into(),
+            inspected,
+        ),
+        Err(Error::Revoked)
+    ));
+    let valid = original
+        .prepare_inspected(
+            execution.clone(),
+            ModelAttempt::new(Uuid::new_v4()),
+            "model".into(),
+            "https://model.example".into(),
+            scan().run(),
+        )
+        .unwrap();
+    assert_eq!(valid.intent().inspection, Inspection::Clean);
+    assert_eq!(valid.dispatch(|_, body| body.to_vec()), Ok(b"{}".to_vec()));
+    let pending = scan();
+    let decision = shell
+        .decide(&("model-protection-policy/v1", original.generation(), false))
+        .unwrap();
+    original.configure(&shell, decision, false).unwrap();
+    let stale = std::thread::spawn(move || pending.run()).join().unwrap();
+    assert!(matches!(
+        original.prepare_inspected(
+            execution,
+            ModelAttempt::new(Uuid::new_v4()),
+            "model".into(),
+            "https://model.example".into(),
+            stale,
+        ),
+        Err(Error::Revoked)
+    ));
+}

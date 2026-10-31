@@ -1629,7 +1629,12 @@ fn restart_admitted_turn(steer: bool) {
     let deadline = Instant::now() + WAIT;
     loop {
         let object = session(&node, channel, "restart-admission");
-        if object["state"]["phase"] == if steer { "stopped" } else { "completed" } {
+        if object["state"]["phase"] == if steer { "stopped" } else { "completed" }
+            && matches!(
+                saved_turn(directory.path(), "restart-admission").status,
+                swarmie_durable_tasks::TaskStatus::Completed(_)
+            )
+        {
             break;
         }
         assert!(
@@ -1711,10 +1716,11 @@ fn client_answer_sample(prior: usize) -> u64 {
     let elapsed = started.elapsed().as_nanos() as u64;
     assert_eq!(result["ok"]["status"], "settled", "{result}");
     let task = saved_turn(directory.path(), "performance");
-    assert!(matches!(
-        task.status,
-        swarmie_durable_tasks::TaskStatus::Completed(_)
-    ));
+    assert!(
+        matches!(task.status, swarmie_durable_tasks::TaskStatus::Completed(_)),
+        "{:?}",
+        task.status
+    );
     assert!(task.assignment.is_none());
     assert_eq!(task.checkpoint.unwrap()["phase"]["kind"], "finished");
     let requests = server.join().unwrap();

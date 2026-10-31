@@ -1,5 +1,6 @@
 const std = @import("std");
 const native = @import("native_sdk");
+const FrameString = @import("bridge-frame.zig").FrameString;
 const Handle = opaque {};
 extern fn swarmie_native_start(?*const anyopaque) ?*Handle;
 extern fn swarmie_native_connect(*Handle) bool;
@@ -60,10 +61,11 @@ pub const Vault = struct {
     fn send(context: *anyopaque, invocation: native.bridge.Invocation, _: []u8) ![]const u8 {
         const self = try owner(context, invocation);
         const handle = self.handle orelse return error.PrivateChannelUnavailable;
-        const parsed = try std.json.parseFromSlice(struct { frame: []const u8 }, std.heap.page_allocator, invocation.request.payload, .{ .allocate = .alloc_always });
+        const parsed = try std.json.parseFromSlice(struct { frame: FrameString }, std.heap.page_allocator, invocation.request.payload, .{ .allocate = .alloc_always });
         defer parsed.deinit();
-        defer std.crypto.secureZero(u8, @constCast(parsed.value.frame));
-        if (!swarmie_native_send(handle, parsed.value.frame.ptr, parsed.value.frame.len)) return error.PrivateChannelRefused;
+        const frame = parsed.value.frame.bytes;
+        defer std.crypto.secureZero(u8, @constCast(frame));
+        if (!swarmie_native_send(handle, frame.ptr, frame.len)) return error.PrivateChannelRefused;
         return "null";
     }
     fn receive(context: *anyopaque, invocation: native.bridge.Invocation, output: []u8) ![]const u8 {

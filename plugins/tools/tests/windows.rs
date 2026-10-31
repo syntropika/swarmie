@@ -313,6 +313,9 @@ fn replacement_preserves_an_explicit_protected_windows_dacl() {
     let quoted = format!("'{}'", path.to_string_lossy().replace('\'', "''"));
     let powershell = |script: String| {
         let output = Command::new("powershell.exe")
+            // Windows PowerShell must construct its own module path instead of
+            // inheriting the incompatible PowerShell Core path from the CI shell.
+            .env_remove("PSModulePath")
             .args([
                 "-NoLogo",
                 "-NoProfile",
