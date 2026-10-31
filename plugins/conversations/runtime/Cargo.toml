@@ -12,7 +12,7 @@ serde.workspace = true
 serde_json.workspace = true
 swarmie-tools.workspace = true
 swarmie-git = { path = "../../git", features = ["tools"] }
-swarmie-providers.workspace = true
+swarmie-providers = { workspace = true, features = ["native"] }
 swarmie-context = { workspace = true, features = ["durable-tasks"] }
 swarmie-commands.workspace = true
 swarmie-ai.workspace = true

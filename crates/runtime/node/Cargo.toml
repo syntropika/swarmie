@@ -21,7 +21,7 @@ zeroize = "1"
 swarmie-vault = { workspace = true, features = ["cloud-client", "executors", "native-keyring", "provider-credentials", "tools"] }
 swarmie-permissions = { path = "../../../plugins/permissions", features = ["tembra", "tls"] }
 swarmie-storage = { workspace = true, features = ["sqlite"] }
-swarmie-providers.workspace = true
+swarmie-providers = { workspace = true, features = ["native"] }
 swarmie-cloud = { workspace = true, features = ["native-keyring"] }
 
 swarmie-mcp.workspace = true

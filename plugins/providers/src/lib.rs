@@ -45,4 +45,5 @@ pub mod auth;
 pub mod protection;
 
 /// Native settings and host-supplied persistence adapters.
+#[cfg(feature = "native")]
 pub mod native;

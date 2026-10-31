@@ -17,7 +17,8 @@ The package contains these modules:
 Vault supplies its credential adapter as `swarmie_vault::VaultCredentials` with
 the `provider-credentials` feature. Providers does not depend on Vault.
 
-`native::NativeProviders` binds the trusted host's profile file, node, principal
+The `native` feature enables OS custody and host-file adapters. Ordinary provider
+and Tools consumers do not enable it. `native::NativeProviders` binds the trusted host's profile file, node, principal
 and OAuth host identity. Its `orbs()` method declares provider settings and
 authorization on the same Tembra host. Model construction retains the configured
 account, current metadata and the supplied final-content protection owner.

@@ -9,6 +9,7 @@ description = "Model contracts, provider authentication, submission protection a
 [features]
 default = []
 mock = []
+native = ["dep:keyring", "dep:tempfile"]
 
 [dependencies]
 tembra.workspace = true
@@ -30,8 +31,8 @@ secrets_scanner = { version = "=0.2.3", default-features = false }
 hmac = "0.12"
 rand = "0.8"
 
-tempfile.workspace = true
-keyring = { version = "=3.6.3", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+tempfile = { workspace = true, optional = true }
+keyring = { version = "=3.6.3", optional = true, default-features = false, features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 
 [lints]
 workspace = true
