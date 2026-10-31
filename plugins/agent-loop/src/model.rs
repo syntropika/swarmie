@@ -56,6 +56,8 @@ pub enum Phase {
     ModelPending {
         operation: OperationId,
         request: ModelRequest,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        preparation: Option<Box<swarmie_providers::PreparedDescription>>,
     },
     PrepareTools {
         calls: Vec<ToolCall>,
@@ -120,6 +122,7 @@ impl State {
     #[cfg(feature = "durable-tasks")]
     pub(crate) fn matches_request(&self, request: &Request) -> bool {
         self.initial_messages == request.context.messages.len()
+            && self.request.context.sources == request.context.sources
             && self.request.context.instructions == request.context.instructions
             && self.request.context.messages.get(..self.initial_messages)
                 == Some(request.context.messages.as_slice())
@@ -128,6 +131,7 @@ impl State {
     }
 
     pub(crate) fn validate(&self) -> tembra::Result<()> {
+        self.request.context.validate_sources()?;
         if self.initial_messages > self.request.context.messages.len()
             || self.turn > self.request.max_turns.get()
         {
@@ -193,6 +197,17 @@ impl State {
         {
             provider.validate()?;
         }
+        if let Phase::ModelPending {
+            operation,
+            preparation: Some(preparation),
+            ..
+        } = &self.phase
+        {
+            preparation.validate()?;
+            if preparation.operation != *operation {
+                return Err(invalid("prepared model operation changed identity"));
+            }
+        }
         match &self.phase {
             Phase::ToolPending {
                 call, calls, next, ..
@@ -203,6 +218,9 @@ impl State {
                 return Err(invalid("prepared tool changed its call identity"));
             }
             Phase::ModelPending { request, .. } => {
+                if request.context.sources != self.request.context.sources {
+                    return Err(invalid("pending model request changed captured sources"));
+                }
                 if self.turn == 0
                     || !request
                         .tools

@@ -59,6 +59,7 @@ pub(crate) struct PluginManager {
     snapshot: RefCell<PluginSnapshot>,
     busy: Cell<bool>,
     closed: Cell<bool>,
+    health_subscription: RefCell<Option<swarmie_storage_core::Subscription>>,
 }
 
 impl PluginManager {
@@ -68,8 +69,14 @@ impl PluginManager {
         storage: Rc<dyn PluginStorage>,
         signal: ResourceSignal,
     ) -> tembra::Result<Self> {
-        let inventory = storage.inventory().await.map_err(storage_error)?;
+        let owner = storage.owner();
+        owner.check().map_err(|error| storage_error(error.into()))?;
+        let index = catalog.index();
+        let health_subscription = owner.changes().subscribe(move || index.invalidate());
+        let mut inventory = storage.inventory().await.map_err(storage_error)?;
         validate_inventory(&inventory)?;
+        crate::required::initialize(&catalog, &storage, &mut inventory, &signal).await?;
+        owner.check().map_err(|error| storage_error(error.into()))?;
         signal.check()?;
         let manager = Self {
             host,
@@ -83,8 +90,14 @@ impl PluginManager {
             mounted: RefCell::new(BTreeMap::new()),
             busy: Cell::new(false),
             closed: Cell::new(false),
+            health_subscription: RefCell::new(Some(health_subscription)),
         };
         manager.reconcile();
+        if !manager.catalog.index().required_active() {
+            return Err(crate::required::unavailable(
+                "required plugins could not be mounted",
+            ));
+        }
         Ok(manager)
     }
 
@@ -98,13 +111,20 @@ impl PluginManager {
     ) -> tembra::Result<PluginSnapshot> {
         let _guard = self.acquire()?;
         let mut next = self.inventory.borrow().clone();
+        next.plugins.retain(|record| record.id != plugin.id);
+        next.plugins.push(plugin.clone());
+        next.plugins.sort_by(|left, right| left.id.cmp(&right.id));
+        crate::required::validate(&self.catalog, &next)?;
         match self
             .storage
-            .commit(next.revision, vec![PluginChange::Put(plugin.clone())])
+            .commit(next.revision, vec![PluginChange::Put(plugin)])
             .await
-            .map_err(storage_error)?
-        {
+            .map_err(|error| {
+                self.catalog.index().invalidate();
+                storage_error(error)
+            })? {
             CommitOutcome::Rejected { current_revision } => {
+                self.catalog.index().invalidate();
                 return Err(Error::new(
                     Code::Conflict,
                     Reason::Conflict.as_str(),
@@ -115,6 +135,7 @@ impl PluginManager {
             }
             CommitOutcome::Unknown { message } => {
                 self.storage.owner().require_recovery();
+                self.catalog.index().invalidate();
                 return Err(Error::new(
                     Code::Unavailable,
                     Reason::RecoveryRequired.as_str(),
@@ -123,9 +144,6 @@ impl PluginManager {
             }
             CommitOutcome::Applied { revision } => next.revision = revision,
         }
-        next.plugins.retain(|record| record.id != plugin.id);
-        next.plugins.push(plugin);
-        next.plugins.sort_by(|left, right| left.id.cmp(&right.id));
         *self.inventory.borrow_mut() = next;
         self.reconcile();
         Ok(self.snapshot())
@@ -133,8 +151,15 @@ impl PluginManager {
 
     pub(crate) async fn refresh(&self) -> tembra::Result<PluginSnapshot> {
         let _guard = self.acquire()?;
+        if !self.catalog.2.is_empty() {
+            self.catalog.index().invalidate();
+        }
         let inventory = self.storage.inventory().await.map_err(storage_error)?;
         validate_inventory(&inventory)?;
+        if let Err(error) = crate::required::validate(&self.catalog, &inventory) {
+            self.catalog.index().invalidate();
+            return Err(error);
+        }
         *self.inventory.borrow_mut() = inventory;
         self.reconcile();
         Ok(self.snapshot())
@@ -142,6 +167,8 @@ impl PluginManager {
 
     pub(crate) fn close(&self) {
         self.closed.set(true);
+        self.health_subscription.borrow_mut().take();
+        self.catalog.index().invalidate();
     }
 
     fn acquire(&self) -> tembra::Result<MutationGuard<'_>> {
@@ -153,6 +180,7 @@ impl PluginManager {
             ));
         }
         if self.storage.owner().check().is_err() {
+            self.catalog.index().invalidate();
             return Err(Error::new(
                 Code::Unavailable,
                 Reason::RecoveryRequired.as_str(),
@@ -290,6 +318,9 @@ impl PluginManager {
             if before == active {
                 break;
             }
+        }
+        if self.storage.owner().check().is_err() {
+            active.clear();
         }
         self.catalog.1.publish(
             self.mounted

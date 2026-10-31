@@ -12,13 +12,20 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use swarmie_client_node::{NodeConfiguration, install};
+use swarmie_client_node::NodeConfiguration;
 use swarmie_git::{
     Authority, Cancellation, CommandOutput, CommandSpec, Git, GitService, NativeProcess,
     ProcessExecutor, Request, Response,
 };
 use swarmie_runtime::NodeId;
 use tembra::Host;
+
+fn install_fixture(host: &Host, configuration: NodeConfiguration) -> tembra::Result<()> {
+    let identity = swarmie_runtime::node_orb(configuration.node.clone());
+    let mut definitions = swarmie_client_node::orbs(host, configuration, None)?;
+    definitions.push(identity);
+    host.install(definitions)
+}
 
 #[derive(Clone, Copy)]
 struct Executor;
@@ -123,12 +130,40 @@ async fn response(output: &Rc<std::cell::RefCell<Vec<Value>>>, id: u64) -> Value
     }
 }
 
-async fn concurrent_first(mode: &str, churn: bool) {
+async fn concurrent_first(mode: &str, churn: bool, sources: bool) {
     let profile = tempfile::tempdir().unwrap();
     let first_root = tempfile::tempdir().unwrap();
     let second_root = tempfile::tempdir().unwrap();
     initialize(first_root.path());
     initialize(second_root.path());
+    let selected = if sources {
+        let skill = first_root.path().join(".agents/skills/fixture");
+        std::fs::create_dir_all(skill.join("references")).unwrap();
+        std::fs::write(
+            first_root.path().join("AGENTS.md"),
+            "Use the project instruction marker.",
+        )
+        .unwrap();
+        std::fs::write(skill.join("SKILL.md"), "---\nname: fixture\ndescription: Read the fixture resource\n---\nRead references/check.md for the resource marker.").unwrap();
+        std::fs::write(
+            skill.join("references/check.md"),
+            "native skill resource marker",
+        )
+        .unwrap();
+        Some(
+            swarmie_project_context::ProjectContext::new(
+                swarmie_project_context::Scope::new(first_root.path(), first_root.path()).unwrap(),
+                Default::default(),
+            )
+            .unwrap()
+            .inspect()
+            .unwrap()
+            .select("fixture")
+            .unwrap(),
+        )
+    } else {
+        None
+    };
     let gate = Arc::new(Gate::default());
     let git = GitService::new(
         Git::new(
@@ -150,54 +185,97 @@ async fn concurrent_first(mode: &str, churn: bool) {
     listener.set_nonblocking(true).unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
     let server = std::thread::spawn(move || {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        let mut stream = loop {
-            match listener.accept() {
-                Ok((stream, _)) => break stream,
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    assert!(Instant::now() < deadline, "fixture model was not called");
-                    std::thread::sleep(Duration::from_millis(1));
+        for turn in 0..if sources { 5 } else { 1 } {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(Instant::now() < deadline, "fixture model was not called");
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                    Err(error) => panic!("{error}"),
                 }
-                Err(error) => panic!("{error}"),
+            };
+            stream.set_nonblocking(false).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut bytes = Vec::new();
+            loop {
+                let mut buffer = [0; 4096];
+                let count = stream.read(&mut buffer).unwrap();
+                assert!(count > 0);
+                bytes.extend_from_slice(&buffer[..count]);
+                if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+                    let header = String::from_utf8_lossy(&bytes[..end]);
+                    let length: usize = header
+                        .lines()
+                        .filter_map(|line| line.split_once(':'))
+                        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                        .unwrap()
+                        .1
+                        .trim()
+                        .parse()
+                        .unwrap();
+                    if bytes.len() >= end + 4 + length {
+                        break;
+                    }
+                }
             }
-        };
-        stream.set_nonblocking(false).unwrap();
-        stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .unwrap();
-        let mut bytes = Vec::new();
-        loop {
-            let mut buffer = [0; 4096];
-            let count = stream.read(&mut buffer).unwrap();
-            assert!(count > 0);
-            bytes.extend_from_slice(&buffer[..count]);
-            if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
-                let header = String::from_utf8_lossy(&bytes[..end]);
-                let length: usize = header
-                    .lines()
-                    .filter_map(|line| line.split_once(':'))
-                    .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+            let mut streaming = true;
+            if sources {
+                let end = bytes
+                    .windows(4)
+                    .position(|part| part == b"\r\n\r\n")
                     .unwrap()
-                    .1
-                    .trim()
-                    .parse()
-                    .unwrap();
-                if bytes.len() >= end + 4 + length {
-                    break;
+                    + 4;
+                let request: Value = serde_json::from_slice(&bytes[end..]).unwrap();
+                streaming = request["stream"] == true;
+                let encoded = request.to_string();
+                if turn == 3 {
+                    assert!(!streaming, "summary must use complete responses");
+                    assert!(
+                        !encoded.contains("project instruction marker"),
+                        "current instructions entered the historical summary: {request}"
+                    );
+                } else {
+                    assert!(encoded.contains("project instruction marker"), "{request}");
+                    assert!(encoded.contains("skill_read"), "{request}");
+                    assert!(encoded.contains("Read references/check.md"), "{request}");
+                    if turn == 1 {
+                        assert!(
+                            encoded.contains("native skill resource marker"),
+                            "{request}"
+                        );
+                    }
                 }
             }
+            let message = if sources && turn == 0 {
+                let selected = selected.as_ref().unwrap();
+                json!({"role":"assistant","content":"","tool_calls":[{"id":"skill-read-call","function":{"name":"skill_read","arguments":{"id":selected.id,"revision":selected.revision,"path":"references/check.md"}}}]})
+            } else {
+                json!({"role":"assistant","content":"First checkout retained"})
+            };
+            let body = format!(
+                "{}\n",
+                json!({"model":"fixture-model","message":message,"done":true,"done_reason":"stop","prompt_eval_count":3,"eval_count":4})
+            );
+            let content_type = if streaming {
+                "application/x-ndjson"
+            } else {
+                "application/json"
+            };
+            write!(stream,"HTTP/1.1 200 OK\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",body.len()).unwrap();
         }
-        let body = format!(
-            "{}\n",
-            json!({"message":{"role":"assistant","content":"First checkout retained"},"done":true,"done_reason":"stop","prompt_eval_count":3,"eval_count":4})
-        );
-        write!(stream,"HTTP/1.1 200 OK\r\ncontent-type: application/x-ndjson\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",body.len()).unwrap();
     });
-    std::fs::write(profile.path().join("providers.json"), serde_json::to_vec(&json!([{"account":{"id":"fixture-account","providerId":"ollama","providerLabel":"Local","label":"Fixture","models":[{"id":"fixture-model","label":"Fixture","efforts":[]}],"available":true},"provider":"ollama","endpoint":endpoint,"oauth":false,"oauth_identity":null}])).unwrap()).unwrap();
+    let metadata_claim = |tokens| json!({"tokens":tokens,"precision":"reported","evidence":{"source":"fixture-configuration","revision":"1","layer":"configuration","observed_at_ms":0,"expires_at_ms":null}});
+    std::fs::write(profile.path().join("providers.json"), serde_json::to_vec(&json!([{"account":{"id":"fixture-account","providerId":"ollama","providerLabel":"Local","label":"Fixture","models":[{"id":"fixture-model","label":"Fixture","efforts":[]}],"available":true},"provider":"ollama","endpoint":endpoint,"oauth":false,"oauth_identity":null,"discovered_limits":{"endpoint":endpoint,"models":{"fixture-model":{"context":[metadata_claim(128000)],"input":[],"output":[metadata_claim(8192)]}},"capabilities":{"fixture-model":{"tools":true,"streaming":true,"profile":"swarmie.text-tools.v1","evidence":{"source":"fixture-configuration","revision":"1","layer":"configuration","observed_at_ms":0,"expires_at_ms":null}}}}}])).unwrap()).unwrap();
     let host = Host::new(Executor);
-    install(
+    install_fixture(
         &host,
         NodeConfiguration {
+            project_context: sources.then(Default::default),
             state: PathBuf::from(profile.path()),
             node: NodeId::new("fixture-node").unwrap(),
             oauth_host: uuid::Uuid::new_v4(),
@@ -234,12 +312,30 @@ async fn concurrent_first(mode: &str, churn: bool) {
     let remote = response(&output, 1).await;
     let reference = remote["ok"]["reference"].clone();
     assert!(reference.is_number(), "{remote}");
+    if sources {
+        send(
+            20,
+            "call",
+            json!({"reference":reference,"method":"project_skills","arguments":[first_binding]}),
+        );
+        let catalog = response(&output, 20).await;
+        assert_eq!(catalog["ok"]["skills"][0]["name"], "fixture", "{catalog}");
+        send(
+            21,
+            "call",
+            json!({"reference":reference,"method":"execute","arguments":[uuid::Uuid::new_v4(),{"id":"outside","name":"skill_read","arguments":{"id":"invented","revision":"invented","path":"SKILL.md"}}]}),
+        );
+        let denied = response(&output, 21).await;
+        assert!(denied.to_string().contains("blocked"), "{denied}");
+    }
     gate.armed.store(true, Ordering::SeqCst);
-    send(
-        2,
-        "call",
-        json!({"reference":reference,"method":"run","arguments":[submission(&first_binding,"queue","first")]}),
-    );
+    send(2, "call", {
+        let mut input = submission(&first_binding, "queue", "first");
+        if sources {
+            input["draft"]["text"] = json!("/skill:fixture Inspect the captured checkout");
+        }
+        json!({"reference":reference,"method":"run","arguments":[input]})
+    });
     let deadline = Instant::now() + Duration::from_secs(5);
     while !gate.entered.load(Ordering::SeqCst) {
         assert!(
@@ -287,6 +383,52 @@ async fn concurrent_first(mode: &str, churn: bool) {
             "identity admission and active retention must not observe content"
         );
     }
+    if sources {
+        for (id, receipt) in [(30, "second-source-turn"), (40, "after-source-compaction")] {
+            if id == 40 {
+                send(
+                    32,
+                    "call",
+                    json!({"reference":reference,"method":"context_inspect","arguments":[]}),
+                );
+                let inspection = response(&output, 32).await;
+                assert_eq!(inspection["ok"]["can_compact"], true, "{inspection}");
+                send(
+                    33,
+                    "call",
+                    json!({"reference":reference,"method":"context_compact","arguments":[{"operation":uuid::Uuid::new_v4(),"fence":inspection["ok"]["fence"]}]}),
+                );
+                let receipt = response(&output, 33).await;
+                assert_eq!(receipt["ok"]["admission"]["kind"], "admitted", "{receipt}");
+                let deadline = Instant::now() + Duration::from_secs(5);
+                loop {
+                    send(
+                        34,
+                        "call",
+                        json!({"reference":reference,"method":"context_inspect","arguments":[]}),
+                    );
+                    let inspected = response(&output, 34).await;
+                    if inspected["ok"]["checkpoint"]["compaction"]["phase"]["kind"] == "activated" {
+                        break;
+                    }
+                    assert!(
+                        Instant::now() < deadline,
+                        "source compaction did not activate: {inspected}"
+                    );
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            }
+            let mut input = submission(&first_binding, "queue", receipt);
+            input["draft"]["text"] = json!("/skill:fixture Continue with the captured sources");
+            send(
+                id,
+                "call",
+                json!({"reference":reference,"method":"run","arguments":[input]}),
+            );
+            let settled = response(&output, id).await;
+            assert_eq!(settled["ok"]["status"], "settled", "{settled}");
+        }
+    }
     server.join().unwrap();
     connection.close();
     host.close().await.unwrap();
@@ -298,7 +440,7 @@ async fn simultaneous_first_submissions_cannot_replace_a_checkout_or_steer_its_p
     tokio::task::LocalSet::new()
         .run_until(async {
             for mode in ["queue", "steer"] {
-                concurrent_first(mode, false).await;
+                concurrent_first(mode, false, false).await;
             }
         })
         .await;
@@ -307,6 +449,13 @@ async fn simultaneous_first_submissions_cannot_replace_a_checkout_or_steer_its_p
 #[tokio::test]
 async fn content_churn_cannot_refuse_identity_only_conversation_admission() {
     tokio::task::LocalSet::new()
-        .run_until(concurrent_first("queue", true))
+        .run_until(concurrent_first("queue", true, false))
+        .await;
+}
+
+#[tokio::test]
+async fn native_project_sources_and_skill_resources_use_the_owning_tembra_session() {
+    tokio::task::LocalSet::new()
+        .run_until(concurrent_first("queue", false, true))
         .await;
 }

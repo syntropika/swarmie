@@ -1,4 +1,4 @@
-use crate::DesktopNode;
+use crate::Node;
 use serde::Deserialize;
 use std::{
     ffi::{CStr, c_char},
@@ -20,13 +20,22 @@ enum Input {
 /// # Safety
 /// State must be a valid NUL-terminated UTF-8 path for this call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn swarmie_desktop_runtime_start(state: *const c_char) -> *mut DesktopNode {
+pub unsafe extern "C" fn swarmie_desktop_runtime_start(state: *const c_char) -> *mut Node {
     let opened = std::panic::catch_unwind(|| {
         if state.is_null() {
             return None;
         }
         let state = unsafe { CStr::from_ptr(state) }.to_str().ok()?;
-        DesktopNode::open(PathBuf::from(state)).ok()
+        Node::with_configuration(swarmie_node::HostConfiguration {
+            profile: PathBuf::from(state),
+            protected_profile: directories::ProjectDirs::from("app", "Swarmie", "Swarmie")?
+                .data_local_dir()
+                .join("node"),
+            directory_root: std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .map(PathBuf::from),
+        })
+        .ok()
     });
     opened
         .ok()
@@ -42,7 +51,7 @@ pub unsafe extern "C" fn swarmie_desktop_runtime_start(state: *const c_char) -> 
 /// writable for capacity bytes. Buffers must not overlap the handle.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn swarmie_desktop_runtime_exchange(
-    handle: *const DesktopNode,
+    handle: *const Node,
     input: *const u8,
     length: usize,
     output: *mut u8,
@@ -101,7 +110,7 @@ pub unsafe extern "C" fn swarmie_desktop_runtime_exchange(
 /// Handle must be live. Path must be a valid NUL-terminated UTF-8 string for this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn swarmie_desktop_runtime_grant_directory(
-    handle: *const DesktopNode,
+    handle: *const Node,
     path: *const c_char,
 ) -> bool {
     let Some(node) = (unsafe { handle.as_ref() }) else {
@@ -120,7 +129,7 @@ pub unsafe extern "C" fn swarmie_desktop_runtime_grant_directory(
 /// # Safety
 /// Handle must be null or one live owned handle. Release it once.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn swarmie_desktop_runtime_close(handle: *mut DesktopNode) {
+pub unsafe extern "C" fn swarmie_desktop_runtime_close(handle: *mut Node) {
     if !handle.is_null() {
         drop(unsafe { Box::from_raw(handle) });
     }
@@ -143,7 +152,7 @@ mod tests {
     #[test]
     fn a_small_poll_buffer_does_not_consume_pending_frames() {
         let directory = tempfile::tempdir().unwrap();
-        let node = DesktopNode::open(directory.path().into()).unwrap();
+        let node = Node::open(directory.path().into()).unwrap();
         let generation = node.open_channel().unwrap();
         node.frame(
             generation,

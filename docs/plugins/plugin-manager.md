@@ -39,6 +39,14 @@ sets plugin startup dependencies. `CorePlugin::contributes` adds typed metadata.
 The factory receives the existing Tembra host and the shared contribution index.
 It declares orbs; managed resources perform I/O during activation.
 
+`Catalog::require` selects mandatory plugins and their dependency closure. It
+rejects missing compiled definitions. Configure this policy before obtaining the
+index or opening a runtime. A catalog and its index belong to one host composition.
+The manager atomically seeds these records only when the authoritative inventory
+has revision zero and no records. Existing invalid, missing, disabled or incompatible
+required records fail startup without repair. An uncertain seed freezes the storage
+owner. Required mount failure aborts startup; the runtime closes the partial host.
+
 Install the manager orb with this catalog and a `StorageFactory`. Acquiring its
 fixed host instance activates inventory storage and then startup. Inventory read
 failure fails startup. It must not be treated as an empty inventory.
@@ -72,9 +80,13 @@ key is `main`. Each method checks the calling context and principal.
 | `Refresh` | Reloads authoritative inventory, then reconciles installation. |
 
 Inventory commits use the last observed revision. A conflict requires a refresh
-before retry. An unknown commit outcome freezes the storage owner and requires
+before retry and invalidates cached eligibility until confirmed reconciliation.
+An unknown commit outcome freezes the storage owner and requires
 recovery. Concurrent manager mutations are refused while a mutation is settling.
 Mount failure never overwrites the desired inventory record.
+Configuration cannot disable or change the version of a required plugin or its
+required dependencies. Refresh refuses invalid required state and invalidates
+cached eligibility. It does not repair the external inventory.
 
 ## Contribution index
 
@@ -85,6 +97,14 @@ Mount failure never overwrites the desired inventory record.
   version-mismatched plugins, and dependents that require them, are excluded.
 - `changes` returns local membership invalidations. Consumers read the index again
   after a notification.
+- `required_active` returns cached required-plugin eligibility without inventory
+  I/O. Native physical execution and tool admission check this value. It does not
+  prove that an individual service object has activated successfully.
+
+The manager subscribes to its storage owner's health changes. Recovery-required
+or closed state invalidates eligibility synchronously, including changes caused
+by another capability sharing that owner. The manager detaches the subscription
+before storage cleanup. A failed owner check cannot leave new work eligible.
 
 The index contains metadata, not service references or authority. Consumers must
 still acquire and validate providers through Tembra. Installation and index

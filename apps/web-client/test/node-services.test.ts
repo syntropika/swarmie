@@ -44,6 +44,7 @@ const choices = [
 type Input = Parameters<ConversationExecutionApi["submit"]>[0];
 type Projection = {
   conversationId: string;
+  ownerConversationId?: string | undefined;
   messages: Message[];
   phase: "idle" | "working" | "completed" | "failed" | "unknown";
   label: string;
@@ -58,6 +59,7 @@ async function setup(
   configure: () => Promise<ProviderAccount> = async () => account,
   retryCatalog = false,
   options: {
+    ownerConversationId?: string;
     refuse?: string;
     lifecycleWarning?: string;
     failBeforeAdmission?: boolean;
@@ -203,6 +205,7 @@ async function setup(
           create: (self) =>
             self.state<Projection>({
               conversationId: self.key[0] ?? "",
+              ownerConversationId: options.ownerConversationId,
               messages: [],
               phase: "idle",
               label: "",
@@ -716,7 +719,7 @@ test("a typed refusal from an old session cannot unlock uncertain admission", as
   expect(chat.draft.getSnapshot().text).toBe("Keep this draft");
 });
 
-test("native message limits count UTF-8 bytes and refuse unsupported attachments before dispatch", async () => {
+test("native message admission refuses unsupported attachments before dispatch", async () => {
   const { client, submissions } = await setup();
   const chat = await readyDraft(client);
   chat.draft.update((value) => ({ ...value, attachments: ["notes.txt"] }));
@@ -724,17 +727,48 @@ test("native message limits count UTF-8 bytes and refuse unsupported attachments
   expect(client.canSend(chat)).toBe(false);
   expect(client.submissionIssue(chat)).toContain("Attachments are not supported");
   client.send(chat);
-  chat.draft.update((value) => ({ ...value, attachments: [], text: "é".repeat(8193) }));
-  await Bun.sleep(5);
-  expect(client.canSend(chat)).toBe(false);
-  expect(client.submissionIssue(chat)).toContain("16384 bytes");
-  client.send(chat);
   await Bun.sleep(5);
   expect(submissions).toHaveLength(0);
-  chat.draft.update((value) => ({ ...value, text: "é".repeat(8192) }));
-  await Bun.sleep(5);
-  expect(client.canSend(chat)).toBe(true);
+  expect(chat.draft.getSnapshot().attachments).toEqual(["notes.txt"]);
 });
+
+test.each(["a", "🙂", "\0"])(
+  "native message admission counts scalars independently of UTF-8 and JSON expansion (%#)",
+  async (character) => {
+    const { client, submissions } = await setup();
+    const chat = await readyDraft(client);
+    const accepted = character.repeat(1_048_576);
+    chat.draft.update((value) => ({ ...value, text: accepted }));
+    await Bun.sleep(5);
+    expect(client.submissionIssue(chat)).toBeNull();
+    expect(client.canSend(chat)).toBe(true);
+    const refused = `${accepted}a`;
+    chat.draft.update((value) => ({ ...value, text: refused }));
+    await Bun.sleep(5);
+    expect(client.canSend(chat)).toBe(false);
+    expect(client.submissionIssue(chat)).toContain("1048576 Unicode characters");
+    client.send(chat);
+    await Bun.sleep(5);
+    expect(chat.draft.getSnapshot().text).toBe(refused);
+    expect(submissions).toHaveLength(0);
+  },
+);
+
+test.each(["unpaired \uD800", "unpaired \uDFFF"])(
+  "native message admission refuses an unpaired surrogate without replacing the draft (%#)",
+  async (text) => {
+    const { client, submissions } = await setup();
+    const chat = await readyDraft(client);
+    chat.draft.update((value) => ({ ...value, text }));
+    await Bun.sleep(5);
+    expect(client.canSend(chat)).toBe(false);
+    expect(client.submissionIssue(chat)).toContain("invalid Unicode text");
+    client.send(chat);
+    await Bun.sleep(5);
+    expect(chat.draft.getSnapshot().text).toBe(text);
+    expect(submissions).toHaveLength(0);
+  },
+);
 
 test("a known failed run remains failed and allows a new user submission", async () => {
   const { client, finish } = await setup(undefined, false, { finishPhase: "failed" });
@@ -770,12 +804,14 @@ test("uncertain tools require explicit acknowledgement and are never replayed by
 });
 
 test("bounded node projections retain explicit omission and truncation metadata", async () => {
-  const { client, finish } = await setup(undefined, false, { truncate: true });
+  const ownerConversationId = "b682b418-4862-5ef7-a5a1-3c0388092824";
+  const { client, finish } = await setup(undefined, false, { truncate: true, ownerConversationId });
   const chat = await readyDraft(client);
   finish.resolve(undefined);
   client.send(chat);
   await Bun.sleep(20);
   expect(chat.execution.getSnapshot().omittedMessages).toBe(1000);
+  expect(chat.execution.getSnapshot().ownerConversationId).toBe(ownerConversationId);
   expect(chat.messages.getSnapshot().at(-1)).toMatchObject({ text: "Done", truncated: true });
 });
 

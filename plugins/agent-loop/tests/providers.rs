@@ -13,7 +13,9 @@ use tembra::{Code, Host, Orb, Service};
 
 fn response(text: &str, tools: bool) -> ModelResponse {
     ModelResponse {
+        protection: swarmie_providers::SubmissionProtection::Unprotected,
         message: AssistantMessage {
+            provider: None,
             content: text.into(),
             tool_calls: if tools {
                 vec![ToolCall {

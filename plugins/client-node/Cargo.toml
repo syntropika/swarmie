@@ -7,6 +7,7 @@ license.workspace = true
 description = "Reusable node service composition for Swarmie clients"
 
 [dependencies]
+base64 = "0.22"
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -14,9 +15,14 @@ swarmie-mcp.workspace = true
 swarmie-tools.workspace = true
 swarmie-git = { path = "../git", features = ["tools"] }
 swarmie-providers.workspace = true
+swarmie-context = { workspace=true, features=["durable-tasks"] }
+swarmie-commands.workspace = true
+swarmie-project-context.workspace = true
+swarmie-model-catalog.workspace = true
+swarmie-ai.workspace = true
 swarmie-provider-auth.workspace = true
-swarmie-model-provider-genai.workspace = true
-swarmie-agent-loop = { workspace = true, features = ["conversations", "durable-tasks"] }
+swarmie-model-provider-ai.workspace = true
+swarmie-agent-loop = { workspace = true, features = ["conversations", "durable-tasks", "context-projection"] }
 swarmie-durable-tasks.workspace = true
 swarmie-conversations.workspace = true
 swarmie-storage.workspace = true
@@ -33,7 +39,6 @@ tempfile.workspace = true
 [dev-dependencies]
 tembra = { workspace = true, features = ["rpc"] }
 tokio = { version = "1", features = ["macros"] }
-base64 = "0.22"
 jsonwebtoken = { version = "=10.4.0", default-features = false, features = ["rust_crypto"] }
 rsa = { version = "=0.9.10", features = ["pem", "sha2"] }
 

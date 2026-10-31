@@ -9,20 +9,23 @@ license.workspace = true
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
-futures.workspace = true
+swarmie-node.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-swarmie-client-node.workspace = true
-swarmie-git = { path = "../../../plugins/git", features = ["tembra"] }
-swarmie-runtime = { workspace = true, features = ["rpc"] }
-tembra.workspace = true
-tokio = { version = "1", features = ["rt", "time", "net", "sync"] }
-uuid.workspace = true
+directories = "6"
+zeroize = "1"
 
 [dev-dependencies]
+futures.workspace = true
+tembra.workspace = true
+uuid.workspace = true
+tokio = { version = "1", features = ["rt", "time", "net", "sync", "macros"] }
+swarmie-client-node.workspace = true
+swarmie-runtime.workspace = true
 swarmie-durable-tasks.workspace = true
 swarmie-conversations.workspace = true
 swarmie-storage.workspace = true
+swarmie-model-submission-protection = { path = "../../../plugins/model-submission-protection" }
 swarmie-agent-loop = { workspace = true, features = ["conversations"] }
 tempfile.workspace = true
 

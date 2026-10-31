@@ -1,9 +1,12 @@
+import { useSource } from "@swarmie/client-ui";
 import type { Conversation } from "@swarmie/plugin-conversations-browser";
 import { ComposerTextArea } from "@swarmie/ui-web";
 import { useLayoutEffect, useRef } from "react";
 
 import { useClient } from "../../client/context";
 import { useSelection } from "../../client/use-selection";
+import { executeSlashCommand } from "./actions";
+import type { ComposerActions } from "./actions";
 import { draftText, isSlashCommand, patchDraft } from "./state";
 import type { DeliveryMode } from "./state";
 
@@ -14,8 +17,17 @@ function fitInput(element: HTMLTextAreaElement | null) {
   }
 }
 
-export function ComposerInput({ chat, mode }: { chat: Conversation; mode: DeliveryMode }) {
-  const { canSend, send } = useClient();
+export function ComposerInput({
+  chat,
+  mode,
+  actions,
+}: {
+  chat: Conversation;
+  mode: DeliveryMode;
+  actions: ComposerActions;
+}) {
+  const { canSend, send, conversationsUi } = useClient();
+  const commands = useSource(conversationsUi.composer.slashCommands);
   const text = useSelection(chat.draft, draftText);
   const slash = isSlashCommand(text);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -53,13 +65,18 @@ export function ComposerInput({ chat, mode }: { chat: Conversation; mode: Delive
           patchDraft(chat, { text: event.target.value });
         }}
         onKeyDown={(event) => {
-          if (
-            event.key === "Enter" &&
-            !event.shiftKey &&
-            !event.nativeEvent.isComposing &&
-            !slash &&
-            canSend(chat)
-          ) {
+          if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+            return;
+          }
+          if (slash) {
+            event.preventDefault();
+            const command = commands.find((entry) => text === `/${entry.command}`);
+            if (command !== undefined && command.enabled?.(actions.actionContext()) !== false) {
+              executeSlashCommand(chat, text, command, actions.executeConfirmed).catch(
+                () => undefined,
+              );
+            }
+          } else if (canSend(chat)) {
             event.preventDefault();
             send(chat, mode);
           }

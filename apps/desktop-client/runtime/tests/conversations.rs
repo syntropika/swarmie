@@ -8,11 +8,11 @@ use std::{
     time::{Duration, Instant},
 };
 use swarmie_conversations::ConversationStorage;
-use swarmie_desktop_runtime::DesktopNode;
+use swarmie_desktop_runtime::Node;
 
 const WAIT: Duration = Duration::from_secs(10);
 
-fn send(node: &DesktopNode, channel: u64, id: u64, op: &str, payload: Value) {
+fn send(node: &Node, channel: u64, id: u64, op: &str, payload: Value) {
     node.frame(
         channel,
         serde_json::to_vec(&json!({"id":id,"op":op,"payload":payload})).unwrap(),
@@ -20,7 +20,7 @@ fn send(node: &DesktopNode, channel: u64, id: u64, op: &str, payload: Value) {
     .unwrap();
 }
 
-fn response(node: &DesktopNode, channel: u64, id: u64) -> Value {
+fn response(node: &Node, channel: u64, id: u64) -> Value {
     let deadline = Instant::now() + WAIT;
     loop {
         for frame in node.poll(channel).unwrap() {
@@ -38,7 +38,7 @@ fn response(node: &DesktopNode, channel: u64, id: u64) -> Value {
     }
 }
 
-fn get(node: &DesktopNode, channel: u64, service: &str, key: &str) -> Value {
+fn get(node: &Node, channel: u64, service: &str, key: &str) -> Value {
     send(
         node,
         channel,
@@ -51,7 +51,7 @@ fn get(node: &DesktopNode, channel: u64, service: &str, key: &str) -> Value {
     value["ok"].clone()
 }
 
-fn peek(node: &DesktopNode, channel: u64, id: &str) -> Value {
+fn peek(node: &Node, channel: u64, id: &str) -> Value {
     let object = get(node, channel, "swarmie.conversation.session", id);
     send(
         node,
@@ -65,14 +65,7 @@ fn peek(node: &DesktopNode, channel: u64, id: &str) -> Value {
     object
 }
 
-fn start(
-    node: &DesktopNode,
-    channel: u64,
-    id: u64,
-    reference: &Value,
-    method: &str,
-    arguments: Value,
-) {
+fn start(node: &Node, channel: u64, id: u64, reference: &Value, method: &str, arguments: Value) {
     send(
         node,
         channel,
@@ -82,25 +75,19 @@ fn start(
     );
 }
 
-fn call(
-    node: &DesktopNode,
-    channel: u64,
-    reference: &Value,
-    method: &str,
-    arguments: Value,
-) -> Value {
+fn call(node: &Node, channel: u64, reference: &Value, method: &str, arguments: Value) -> Value {
     start(node, channel, 2, reference, method, arguments);
     response(node, channel, 2)
 }
 
-fn session(node: &DesktopNode, channel: u64, id: &str) -> Value {
+fn session(node: &Node, channel: u64, id: &str) -> Value {
     let object = get(node, channel, "swarmie.conversation.session", id);
     let refreshed = call(node, channel, &object["reference"], "snapshot", json!([]));
     assert!(refreshed.get("error").is_none(), "{refreshed}");
     get(node, channel, "swarmie.conversation.session", id)
 }
 
-fn submission(node: &DesktopNode, account: &Value, id: &str, receipt: &str) -> Value {
+fn submission(node: &Node, account: &Value, id: &str, receipt: &str) -> Value {
     json!({"conversationId":id,"submissionId":receipt,"createConversation":true,"draft":{"text":"Hello","attachments":[],"account":account["id"],"model":"fixture-model","effort":"","node":node.descriptor()["id"]},"mode":"queue"})
 }
 
@@ -159,6 +146,21 @@ fn read_request(stream: &mut TcpStream) -> String {
 }
 
 fn provider(replies: Vec<Reply>) -> (String, thread::JoinHandle<Vec<String>>) {
+    let (endpoint, server, _) = observed_provider(replies);
+    (endpoint, server)
+}
+
+fn observed_provider(
+    replies: Vec<Reply>,
+) -> (
+    String,
+    thread::JoinHandle<Vec<String>>,
+    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+) {
+    // Compile the bundled public rules before starting this fixture's network deadline.
+    assert!(swarmie_model_submission_protection::Detector::bundled().is_some());
+    let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed = count.clone();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
@@ -166,7 +168,9 @@ fn provider(replies: Vec<Reply>) -> (String, thread::JoinHandle<Vec<String>>) {
         let mut requests = Vec::new();
         let catalog = Reply {
             status: 200,
-            first: r#"{"models":[{"name":"fixture-model"}]}"#.into(),
+            first:
+                r#"{"models":[{"name":"fixture-model","limit":{"context":128000,"output":8192},"swarmie_capabilities":{"profile":"swarmie.text-tools.v1","tools":true,"streaming":true}}]}"#
+                    .into(),
             tail: String::new(),
             gate: None,
         };
@@ -183,6 +187,7 @@ fn provider(replies: Vec<Reply>) -> (String, thread::JoinHandle<Vec<String>>) {
                 }
             };
             requests.push(read_request(&mut stream));
+            observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let mime = if index == 0 || reply.status != 200 {
                 "application/json"
             } else {
@@ -199,10 +204,10 @@ fn provider(replies: Vec<Reply>) -> (String, thread::JoinHandle<Vec<String>>) {
         }
         requests
     });
-    (endpoint, server)
+    (endpoint, server, count)
 }
 
-fn configure(node: &DesktopNode, channel: u64, endpoint: &str) -> Value {
+fn configure(node: &Node, channel: u64, endpoint: &str) -> Value {
     let object = get(node, channel, "swarmie.providers.settings", "main");
     let result = call(
         node,
@@ -248,7 +253,7 @@ fn escaped_large_answers_have_bounded_readable_projections_and_complete_canonica
     let text = "\"\\\n".repeat(30 * 1024);
     let (endpoint, server) = provider(vec![answer(&text), answer("Next answer")]);
     let directory = tempfile::tempdir().unwrap();
-    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let node = Node::open(directory.path().into()).unwrap();
     let channel = node.open_shared_channel().unwrap();
     let account = configure(&node, channel, &endpoint);
     let object = session(&node, channel, "large");
@@ -274,7 +279,7 @@ fn escaped_large_answers_have_bounded_readable_projections_and_complete_canonica
     }
     let descriptor = node.descriptor();
     drop(node);
-    let reopened = DesktopNode::open(directory.path().into()).unwrap();
+    let reopened = Node::open(directory.path().into()).unwrap();
     let reconnected = reopened.open_shared_channel().unwrap();
     let restored = session(&reopened, reconnected, "large");
     assert_eq!(restored["state"]["phase"], "completed");
@@ -303,7 +308,7 @@ fn escaped_large_answers_have_bounded_readable_projections_and_complete_canonica
 fn explicit_pre_admission_refusals_do_not_admit_or_lock_the_next_submission() {
     let (endpoint, server) = provider(vec![answer("Accepted")]);
     let directory = tempfile::tempdir().unwrap();
-    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let node = Node::open(directory.path().into()).unwrap();
     let channel = node.open_shared_channel().unwrap();
     let account = configure(&node, channel, &endpoint);
     let object = session(&node, channel, "refused");
@@ -350,7 +355,7 @@ fn rejected_provider_response_settles_failed_and_allows_a_new_explicit_message()
     };
     let (endpoint, server) = provider(vec![rejected, answer("Recovered")]);
     let directory = tempfile::tempdir().unwrap();
-    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let node = Node::open(directory.path().into()).unwrap();
     let channel = node.open_shared_channel().unwrap();
     let account = configure(&node, channel, &endpoint);
     let object = session(&node, channel, "failure");
@@ -402,7 +407,7 @@ fn interrupted_stream(kind: &str) {
     held.gate = Some((started, wait));
     let (endpoint, server) = provider(vec![held, answer("New explicit message")]);
     let directory = tempfile::tempdir().unwrap();
-    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let node = Node::open(directory.path().into()).unwrap();
     let first = node.open_shared_channel().unwrap();
     let observer = node.open_shared_channel().unwrap();
     let account = configure(&node, first, &endpoint);
@@ -550,7 +555,7 @@ fn conversation_catalog_pages_stay_bounded_and_refuse_a_stale_revision_cursor() 
         serde_json::to_vec(&records).unwrap(),
     )
     .unwrap();
-    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let node = Node::open(directory.path().into()).unwrap();
     let channel = node.open_shared_channel().unwrap();
     let catalog = get(&node, channel, "swarmie.conversation.catalog", "main");
     let mut cursor = Value::Null;
@@ -693,6 +698,7 @@ fn pending_tool_messages() -> Vec<swarmie_agent_loop::Message> {
             content: "Run the synthetic tool".into(),
         },
         Message::Assistant(AssistantMessage {
+            provider: None,
             content: String::new(),
             tool_calls: vec![ToolCall {
                 id: ToolCallId::new("pending-call").unwrap(),
@@ -709,7 +715,7 @@ fn persisted_unknown_tool_outcome_requires_explicit_acknowledgement_without_disp
 
     let (endpoint, server) = provider(vec![answer("Fresh response after acknowledgement")]);
     let directory = tempfile::tempdir().unwrap();
-    let initial = DesktopNode::open(directory.path().into()).unwrap();
+    let initial = Node::open(directory.path().into()).unwrap();
     let channel = initial.open_shared_channel().unwrap();
     let account = configure(&initial, channel, &endpoint);
     let descriptor = initial.descriptor();
@@ -724,7 +730,7 @@ fn persisted_unknown_tool_outcome_requires_explicit_acknowledgement_without_disp
     );
     let before = canonical_messages(directory.path(), &descriptor, "interrupted-tool");
     assert_eq!(before.len(), 2);
-    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let node = Node::open(directory.path().into()).unwrap();
     let channel = node.open_shared_channel().unwrap();
     let object = session(&node, channel, "interrupted-tool");
     assert_eq!(object["state"]["phase"], "unknown");
@@ -817,7 +823,7 @@ fn large_canonical_tool_result_has_a_bounded_readable_projection_without_rewriti
     use swarmie_agent_loop::{Message, ToolCallId, ToolResult};
 
     let directory = tempfile::tempdir().unwrap();
-    let initial = DesktopNode::open(directory.path().into()).unwrap();
+    let initial = Node::open(directory.path().into()).unwrap();
     let descriptor = initial.descriptor();
     drop(initial);
     let text = "\"\\\n暖".repeat(30 * 1024);
@@ -836,7 +842,7 @@ fn large_canonical_tool_result_has_a_bounded_readable_projection_without_rewriti
     );
     let before = canonical_messages(directory.path(), &descriptor, "large-tool");
     assert!(serde_json::to_vec(&before).unwrap().len() > 48 * 1024);
-    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let node = Node::open(directory.path().into()).unwrap();
     let channel = node.open_shared_channel().unwrap();
     let object = session(&node, channel, "large-tool");
     assert_eq!(object["state"]["phase"], "completed");
@@ -861,7 +867,7 @@ fn large_canonical_tool_result_has_a_bounded_readable_projection_without_rewriti
 fn confirmed_duplicate_stays_admitted_when_its_provider_account_becomes_unavailable() {
     let (endpoint, server) = provider(vec![answer("Committed answer")]);
     let directory = tempfile::tempdir().unwrap();
-    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let node = Node::open(directory.path().into()).unwrap();
     let channel = node.open_shared_channel().unwrap();
     let account = configure(&node, channel, &endpoint);
     let object = session(&node, channel, "duplicate-without-provider");
@@ -925,7 +931,7 @@ fn repeating_a_live_steer_submission_observes_admission_without_cancelling_or_re
     held.gate = Some((started, wait));
     let (endpoint, server) = provider(vec![held]);
     let directory = tempfile::tempdir().unwrap();
-    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let node = Node::open(directory.path().into()).unwrap();
     let first = node.open_shared_channel().unwrap();
     let observer = node.open_shared_channel().unwrap();
     let account = configure(&node, first, &endpoint);
@@ -1007,7 +1013,7 @@ fn repeating_a_live_steer_submission_observes_admission_without_cancelling_or_re
 }
 
 #[cfg(unix)]
-fn captured_checkout(node: &DesktopNode, channel: u64, root: &Path) -> (Value, Value) {
+fn captured_checkout(node: &Node, channel: u64, root: &Path) -> (Value, Value) {
     assert!(
         std::process::Command::new("git")
             .args(["init", "--quiet"])
@@ -1055,7 +1061,7 @@ fn captured_checkout(node: &DesktopNode, channel: u64, root: &Path) -> (Value, V
 fn checkout_admission_is_bound_persisted_and_restored_with_actual_git_tool_routing() {
     let directory = tempfile::tempdir().unwrap();
     let repository = tempfile::tempdir().unwrap();
-    let initial = DesktopNode::open(directory.path().into()).unwrap();
+    let initial = Node::open(directory.path().into()).unwrap();
     let channel = initial.open_shared_channel().unwrap();
     let (binding, target) = captured_checkout(&initial, channel, repository.path());
     let tool_reply = Reply {
@@ -1066,7 +1072,7 @@ fn checkout_admission_is_bound_persisted_and_restored_with_actual_git_tool_routi
         ),
         tail: format!(
             "{}\n",
-            json!({"message":{"role":"assistant","content":""},"done":true,"done_reason":"tool_calls","prompt_eval_count":3,"eval_count":5})
+            json!({"model":"fixture-model","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","prompt_eval_count":3,"eval_count":5})
         ),
         gate: None,
     };
@@ -1091,6 +1097,10 @@ fn checkout_admission_is_bound_persisted_and_restored_with_actual_git_tool_routi
         "one catalog request and two inference turns"
     );
     assert!(requests[1].contains("git_inspect"));
+    assert!(
+        requests[1].contains("vault_request_input"),
+        "Git and vault providers must coexist in the actual client's tool catalog"
+    );
     let request: Value =
         serde_json::from_str(requests[2].split_once("\r\n\r\n").unwrap().1).unwrap();
     assert!(
@@ -1124,7 +1134,7 @@ fn checkout_admission_is_bound_persisted_and_restored_with_actual_git_tool_routi
     );
     assert_eq!(listed["ok"]["entries"][0]["executionContext"], binding);
     drop(initial);
-    let restored = DesktopNode::open(directory.path().into()).unwrap();
+    let restored = Node::open(directory.path().into()).unwrap();
     let channel = restored.open_shared_channel().unwrap();
     let object = session(&restored, channel, "checkout-bound");
     assert_eq!(object["state"]["executionContext"], binding);
@@ -1203,7 +1213,7 @@ fn checkout_admission_is_bound_persisted_and_restored_with_actual_git_tool_routi
 fn checkout_admission_rejects_wrong_node_principal_identity_and_disagreement_before_history() {
     let directory = tempfile::tempdir().unwrap();
     let repository = tempfile::tempdir().unwrap();
-    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let node = Node::open(directory.path().into()).unwrap();
     let channel = node.open_shared_channel().unwrap();
     let (binding, _) = captured_checkout(&node, channel, repository.path());
     let account = json!({"id":"not-resolved-before-checkout-validation"});
@@ -1241,7 +1251,7 @@ fn agent_git_mutation_uses_explicit_native_authority_and_cannot_cross_captured_c
     let other = tempfile::tempdir().unwrap();
     std::fs::write(repository.path().join("owned.txt"), "captured checkout\n").unwrap();
     std::fs::write(other.path().join("owned.txt"), "another checkout\n").unwrap();
-    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let node = Node::open(directory.path().into()).unwrap();
     let channel = node.open_shared_channel().unwrap();
     let (binding, target) = captured_checkout(&node, channel, repository.path());
     let (_, other_target) = captured_checkout(&node, channel, other.path());
@@ -1253,7 +1263,7 @@ fn agent_git_mutation_uses_explicit_native_authority_and_cannot_cross_captured_c
         ),
         tail: format!(
             "{}\n",
-            json!({"message":{"role":"assistant","content":""},"done":true,"done_reason":"tool_calls","prompt_eval_count":3,"eval_count":5})
+            json!({"model":"fixture-model","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","prompt_eval_count":3,"eval_count":5})
         ),
         gate: None,
     };
@@ -1313,7 +1323,7 @@ fn conversation_archive_and_pin_defer_capture_until_physical_agent_settlement() 
         "retained local content\n",
     )
     .unwrap();
-    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let node = Node::open(directory.path().into()).unwrap();
     let first = node.open_shared_channel().unwrap();
     let observer = node.open_shared_channel().unwrap();
     let (binding, _) = captured_checkout(&node, first, repository.path());
@@ -1407,7 +1417,7 @@ fn archiving_an_idle_chat_waits_for_a_different_chat_using_the_same_checkout() {
     let (endpoint, server) = provider(vec![answer("Idle chat finished"), held]);
     let directory = tempfile::tempdir().unwrap();
     let repository = tempfile::tempdir().unwrap();
-    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let node = Node::open(directory.path().into()).unwrap();
     let first = node.open_shared_channel().unwrap();
     let observer = node.open_shared_channel().unwrap();
     let (binding, _) = captured_checkout(&node, first, repository.path());
@@ -1513,13 +1523,17 @@ fn admitted_turn_bootstrap_child() {
         .unwrap();
     tokio::task::LocalSet::new().block_on(&runtime, async {
         let host = tembra::Host::new(Executor);
-        swarmie_client_node::install(&host, swarmie_client_node::NodeConfiguration {
+        host.install(swarmie_client_node::orbs(&host, swarmie_client_node::NodeConfiguration { project_context: None,
             state: profile.clone(), node: swarmie_runtime::NodeId::new(descriptor["id"].as_str().unwrap()).unwrap(),
             oauth_host: uuid::Uuid::new_v4(), principal: descriptor["principal"].as_str().unwrap().into(),
             directory_root: None, git: None, agent_git_authority: None,
-        }).unwrap();
+        }, None).unwrap()).unwrap();
         let principal = descriptor["principal"].as_str().unwrap().to_string();
         let input = json!({"conversationId":"restart-admission","submissionId":"restart-receipt","createConversation":true,"draft":{"text":"Hello","attachments":[],"account":account["id"],"model":"fixture-model","effort":"","node":descriptor["id"]},"mode":"queue"});
+        let mut input = input;
+        if let Ok(text) = std::env::var("SWARMIE_ADMISSION_CHILD_TEXT") {
+            input["draft"]["text"] = json!(text);
+        }
         let output = std::rc::Rc::new(std::cell::RefCell::new(Vec::<Value>::new()));
         let delivered = output.clone();
         let connection = tembra::rpc::serve(host, tembra::rpc::Options::new(principal, |_, _| true), move |frame| {
@@ -1601,37 +1615,16 @@ fn restart_admitted_turn(steer: bool) {
         vec![answer("Recovered admitted turn")]
     });
     let directory = tempfile::tempdir().unwrap();
-    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let node = Node::open(directory.path().into()).unwrap();
     let channel = node.open_shared_channel().unwrap();
     let account = configure(&node, channel, &endpoint);
     let descriptor = node.descriptor();
     drop(node);
-    let child = std::process::Command::new(std::env::current_exe().unwrap())
-        .args([
-            "--ignored",
-            "--exact",
-            "admitted_turn_bootstrap_child",
-            "--nocapture",
-        ])
-        .env("SWARMIE_ADMISSION_CHILD_PROFILE", directory.path())
-        .env("SWARMIE_ADMISSION_CHILD_NODE", descriptor.to_string())
-        .env("SWARMIE_ADMISSION_CHILD_ACCOUNT", account.to_string())
-        .env(
-            "SWARMIE_ADMISSION_CHILD_STEER",
-            if steer { "1" } else { "0" },
-        )
-        .output()
-        .unwrap();
-    assert!(
-        child.status.success(),
-        "{} {}",
-        String::from_utf8_lossy(&child.stdout),
-        String::from_utf8_lossy(&child.stderr)
-    );
+    admit_in_child(directory.path(), &descriptor, &account, steer, "Hello");
     let before = saved_turn(directory.path(), "restart-admission");
     assert!(before.assignment.is_none());
     assert!(before.checkpoint.is_none());
-    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let node = Node::open(directory.path().into()).unwrap();
     let channel = node.open_shared_channel().unwrap();
     let deadline = Instant::now() + WAIT;
     loop {
@@ -1664,10 +1657,36 @@ fn restart_admitted_turn(steer: bool) {
     );
 }
 
+fn admit_in_child(profile: &Path, descriptor: &Value, account: &Value, steer: bool, text: &str) {
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--ignored",
+            "--exact",
+            "admitted_turn_bootstrap_child",
+            "--nocapture",
+        ])
+        .env("SWARMIE_ADMISSION_CHILD_PROFILE", profile)
+        .env("SWARMIE_ADMISSION_CHILD_NODE", descriptor.to_string())
+        .env("SWARMIE_ADMISSION_CHILD_ACCOUNT", account.to_string())
+        .env("SWARMIE_ADMISSION_CHILD_TEXT", text)
+        .env(
+            "SWARMIE_ADMISSION_CHILD_STEER",
+            if steer { "1" } else { "0" },
+        )
+        .output()
+        .unwrap();
+    assert!(
+        child.status.success(),
+        "{} {}",
+        String::from_utf8_lossy(&child.stdout),
+        String::from_utf8_lossy(&child.stderr)
+    );
+}
+
 fn client_answer_sample(prior: usize) -> u64 {
     let (endpoint, server) = provider(vec![answer("Done")]);
     let directory = tempfile::tempdir().unwrap();
-    let node = DesktopNode::open(directory.path().into()).unwrap();
+    let node = Node::open(directory.path().into()).unwrap();
     let channel = node.open_shared_channel().unwrap();
     let account = configure(&node, channel, &endpoint);
     if prior != 0 {
@@ -1760,7 +1779,7 @@ fn a_presentation_write_failure_does_not_hold_a_confirmed_model_answer() {
         gate: Some((entered, released)),
     }]);
     let profile = tempfile::tempdir().unwrap();
-    let node = DesktopNode::open(profile.path().into()).unwrap();
+    let node = Node::open(profile.path().into()).unwrap();
     let channel = node.open_shared_channel().unwrap();
     let account = configure(&node, channel, &endpoint);
     let object = session(&node, channel, "presentation-failure");
@@ -1814,7 +1833,7 @@ fn lease_loss_overrides_cached_final_phases_and_stop_unblocks_the_next_turn() {
         answer("Explicit next turn"),
     ]);
     let profile = tempfile::tempdir().unwrap();
-    let node = DesktopNode::open(profile.path().into()).unwrap();
+    let node = Node::open(profile.path().into()).unwrap();
     let channel = node.open_shared_channel().unwrap();
     let account = configure(&node, channel, &endpoint);
     let object = session(&node, channel, "lease-loss");
@@ -1899,5 +1918,355 @@ fn lease_loss_overrides_cached_final_phases_and_stop_unblocks_the_next_turn() {
         server.join().unwrap().len(),
         3,
         "the interrupted turn must not dispatch another model request"
+    );
+}
+
+struct PrivateAttachment(*mut std::ffi::c_void);
+impl PrivateAttachment {
+    fn new(node: &Node) -> Self {
+        let pointer = unsafe { swarmie_desktop_runtime::swarmie_native_start(node) };
+        assert!(!pointer.is_null());
+        Self(pointer)
+    }
+    fn request(&self, id: u64, op: &str, payload: Value) -> Value {
+        let bytes = serde_json::to_vec(&json!({"id":id,"op":op,"payload":payload})).unwrap();
+        assert!(unsafe {
+            swarmie_desktop_runtime::swarmie_native_send(self.0, bytes.as_ptr(), bytes.len())
+        });
+        let mut output = zeroize::Zeroizing::new(vec![0; 400_000]);
+        let deadline = Instant::now() + WAIT;
+        loop {
+            let size = unsafe {
+                swarmie_desktop_runtime::swarmie_native_receive(
+                    self.0,
+                    output.as_mut_ptr(),
+                    output.len(),
+                )
+            };
+            assert!(size >= 0);
+            if size > 0 {
+                let response: Value = serde_json::from_slice(&output[..size as usize]).unwrap();
+                if response["id"] == id {
+                    return response;
+                }
+            }
+            assert!(Instant::now() < deadline, "private request timed out");
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
+    fn get(&self) -> Value {
+        self.request(
+            1,
+            "get",
+            json!({"service":"swarmie.vault.control","key":["main"]}),
+        )["ok"]
+            .clone()
+    }
+    fn call(&self, reference: &Value, method: &str, arguments: Value) -> Value {
+        self.request(
+            2,
+            "call",
+            json!({"reference":reference,"method":method,"arguments":arguments}),
+        )
+    }
+}
+impl Drop for PrivateAttachment {
+    fn drop(&mut self) {
+        unsafe {
+            swarmie_desktop_runtime::swarmie_native_close(self.0);
+        }
+    }
+}
+
+#[test]
+fn actual_client_guard_blocks_before_http_and_private_once_override_does_not_cover_the_next_attempt()
+ {
+    use std::sync::atomic::Ordering;
+    let (endpoint, server, requests) = observed_provider(vec![answer("Explicitly allowed")]);
+    let directory = tempfile::tempdir().unwrap();
+    let node = Node::open(directory.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let private = PrivateAttachment::new(&node);
+    let private_object = private.get();
+    let account = configure(&node, channel, &endpoint);
+    let id = uuid::Uuid::new_v4().to_string();
+    let object = session(&node, channel, &id);
+    let owner_conversation = object["state"]["ownerConversationId"].as_str().unwrap();
+    let alias = session(&node, channel, owner_conversation);
+    assert_ne!(
+        alias["state"]["ownerConversationId"], object["state"]["ownerConversationId"],
+        "a session key equal to another native identity must not alias its cards or approvals"
+    );
+    let token = format!("ghp_{}", "aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1fG3hJ5");
+    assert!(
+        private
+            .call(&private_object["reference"], "page", json!(["cards", 0]))
+            .get("error")
+            .is_none()
+    );
+    for (index, choice) in ["allow-once", "cancel"].iter().enumerate() {
+        let mut input = submission(&node, &account, &id, &format!("guard-{index}"));
+        input["draft"]["text"] = json!(format!("Inspect this synthetic token: {token}"));
+        start(
+            &node,
+            channel,
+            100 + index as u64,
+            &object["reference"],
+            "run",
+            json!([input]),
+        );
+        let deadline = Instant::now() + WAIT;
+        let card = loop {
+            let snapshot = private.call(&private_object["reference"], "read", json!([]));
+            assert!(snapshot.get("error").is_none(), "{snapshot}");
+            if let Some(card) = snapshot["ok"]["cards"]
+                .as_array()
+                .and_then(|cards| cards.first())
+            {
+                break card.clone();
+            }
+            assert!(
+                Instant::now() < deadline,
+                "actual client did not publish its guard decision: {snapshot}"
+            );
+            thread::sleep(Duration::from_millis(2));
+        };
+        assert_eq!(card["kind"], "model");
+        assert_eq!(card["conversation"], owner_conversation);
+        assert!(!serde_json::to_string(&card).unwrap().contains(&token));
+        assert_eq!(requests.load(Ordering::SeqCst), 1 + index);
+        let result = private.call(
+            &private_object["reference"],
+            "decide",
+            json!([card["id"], choice]),
+        );
+        assert!(result.get("error").is_none(), "{result}");
+        let result = response(&node, channel, 100 + index as u64);
+        assert_eq!(result["ok"]["status"], "settled", "{result}");
+        assert_eq!(
+            session(&node, channel, &id)["state"]["phase"],
+            if index == 0 { "completed" } else { "failed" }
+        );
+    }
+    let emitted = server.join().unwrap();
+    assert_eq!(emitted.len(), 2);
+    assert!(
+        emitted[1].contains(&token),
+        "the exact human-approved original request is sent"
+    );
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn recovered_turn_remains_guarded_after_its_public_observer_closes() {
+    recovered_guarded_turn(false);
+}
+
+#[test]
+fn stopping_a_recovered_guarded_turn_retires_its_private_decision_without_http_dispatch() {
+    recovered_guarded_turn(true);
+}
+
+fn recovered_guarded_turn(stop: bool) {
+    use std::sync::atomic::Ordering;
+    let (endpoint, server, requests) = observed_provider(if stop {
+        vec![]
+    } else {
+        vec![answer("Recovered with explicit permission")]
+    });
+    let directory = tempfile::tempdir().unwrap();
+    let node = Node::open(directory.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let account = configure(&node, channel, &endpoint);
+    let descriptor = node.descriptor();
+    drop(node);
+    let token = format!("ghp_{}", "aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1fG3hJ5");
+    admit_in_child(directory.path(), &descriptor, &account, false, &token);
+    let admitted = saved_turn(directory.path(), "restart-admission");
+    assert!(admitted.assignment.is_none());
+    let node = Node::open(directory.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let object = session(&node, channel, "restart-admission");
+    let private = PrivateAttachment::new(&node);
+    let private_object = private.get();
+    let conversation = uuid::Uuid::new_v5(
+        &uuid::Uuid::NAMESPACE_URL,
+        format!(
+            "{}/{}/restart-admission",
+            descriptor["id"].as_str().unwrap(),
+            descriptor["principal"].as_str().unwrap()
+        )
+        .as_bytes(),
+    );
+    let result = private.call(&private_object["reference"], "page", json!(["cards", 0]));
+    assert!(result.get("error").is_none(), "{result}");
+    let deadline = Instant::now() + WAIT;
+    let card = loop {
+        let snapshot = private.call(&private_object["reference"], "read", json!([]));
+        assert!(snapshot.get("error").is_none(), "{snapshot}");
+        if let Some(card) = snapshot["ok"]["cards"]
+            .as_array()
+            .and_then(|cards| cards.first())
+        {
+            break card.clone();
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the recovered attempt bypassed its guard: {snapshot}"
+        );
+        thread::sleep(Duration::from_millis(2));
+    };
+    assert_eq!(card["conversation"], conversation.to_string());
+    assert_eq!(
+        requests.load(Ordering::SeqCst),
+        1,
+        "only model discovery may have reached HTTP"
+    );
+    assert!(!card.to_string().contains(&token));
+    let observer = if stop {
+        let result = call(&node, channel, &object["reference"], "stop", json!([]));
+        assert!(result.get("error").is_none(), "{result}");
+        let late = private.call(
+            &private_object["reference"],
+            "decide",
+            json!([card["id"], "allow-once"]),
+        );
+        assert!(
+            late.get("error").is_some(),
+            "a physically stopped attempt cannot accept a late approval: {late}"
+        );
+        channel
+    } else {
+        node.close_channel(channel);
+        let result = private.call(
+            &private_object["reference"],
+            "decide",
+            json!([card["id"], "allow-once"]),
+        );
+        assert!(
+            result.get("error").is_none(),
+            "closing an observer must retain the task's native owner: {result}"
+        );
+        node.open_shared_channel().unwrap()
+    };
+    loop {
+        let current = session(&node, observer, "restart-admission");
+        if current["state"]["phase"] == if stop { "stopped" } else { "completed" } {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the recovered attempt did not settle: {current}"
+        );
+        thread::sleep(Duration::from_millis(2));
+    }
+    let settled = saved_turn(directory.path(), "restart-admission");
+    assert_eq!(settled.spec.id, admitted.spec.id);
+    let expected = if stop { 1 } else { 2 };
+    let sent = server.join().unwrap();
+    assert_eq!(sent.len(), expected);
+    assert_eq!(requests.load(Ordering::SeqCst), expected);
+    if !stop {
+        assert!(sent[1].contains(&token));
+    }
+}
+
+#[test]
+fn a_signed_out_vault_tool_is_blocked_before_dispatch_and_the_turn_can_finish() {
+    let tool = Reply {
+        status: 200,
+        first: format!(
+            "{}\n",
+            json!({"model":"fixture-model","message":{"role":"assistant","content":"","tool_calls":[{"id":"vault-unavailable-call","function":{"name":"vault_list","arguments":{}}}]},"done":false})
+        ),
+        tail: format!(
+            "{}\n",
+            json!({"model":"fixture-model","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","prompt_eval_count":3,"eval_count":5})
+        ),
+        gate: None,
+    };
+    let (endpoint, server) = provider(vec![tool, answer("Sign in to use the vault")]);
+    let directory = tempfile::tempdir().unwrap();
+    let node = Node::open(directory.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let account = configure(&node, channel, &endpoint);
+    let object = session(&node, channel, "vault-unavailable");
+    let input = submission(&node, &account, "vault-unavailable", "first");
+    let result = call(&node, channel, &object["reference"], "run", json!([input]));
+    assert_eq!(result["ok"]["status"], "settled", "{result}");
+    let current = session(&node, channel, "vault-unavailable");
+    assert_eq!(current["state"]["phase"], "completed");
+    assert_eq!(current["state"]["canAcknowledge"], false);
+    let messages = canonical_messages(directory.path(), &node.descriptor(), "vault-unavailable");
+    assert!(messages.into_iter().any(|record| matches!(
+        serde_json::from_value::<swarmie_agent_loop::conversation::Record>(record).unwrap(),
+        swarmie_agent_loop::conversation::Record::Message(swarmie_agent_loop::Message::Tool {
+            result: swarmie_agent_loop::ToolResult::Blocked(_),
+            ..
+        })
+    )));
+    assert_eq!(server.join().unwrap().len(), 3);
+}
+
+#[test]
+fn two_conversations_publish_private_decisions_together_without_selecting_one_over_the_other() {
+    let (endpoint, server) = provider(vec![]);
+    let directory = tempfile::tempdir().unwrap();
+    let node = Node::open(directory.path().into()).unwrap();
+    let channel = node.open_shared_channel().unwrap();
+    let account = configure(&node, channel, &endpoint);
+    let private = PrivateAttachment::new(&node);
+    let control = private.get();
+    let mut owners = Vec::new();
+    for (index, id) in ["first-private-chat", "second-private-chat"]
+        .into_iter()
+        .enumerate()
+    {
+        let observer = node.open_shared_channel().unwrap();
+        let object = session(&node, observer, id);
+        owners.push(object["state"]["ownerConversationId"].clone());
+        let mut input = submission(&node, &account, id, &format!("guarded-{index}"));
+        input["draft"]["text"] = json!(format!("ghp_{}", "aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1fG3hJ5"));
+        start(
+            &node,
+            observer,
+            100 + index as u64,
+            &object["reference"],
+            "run",
+            json!([input]),
+        );
+    }
+    let deadline = Instant::now() + WAIT;
+    let cards = loop {
+        let snapshot = private.call(&control["reference"], "read", json!([]));
+        assert!(snapshot.get("error").is_none(), "{snapshot}");
+        let cards = snapshot["ok"]["cards"].as_array().unwrap();
+        if cards.len() == 2 {
+            for owner in &owners {
+                assert_eq!(snapshot["ok"]["cardCounts"][owner.as_str().unwrap()], 1);
+            }
+            break cards.clone();
+        }
+        assert!(
+            Instant::now() < deadline,
+            "both conversations must remain visible: {snapshot}"
+        );
+        thread::sleep(Duration::from_millis(2));
+    };
+    for owner in owners {
+        assert!(cards.iter().any(|card| card["conversation"] == owner));
+    }
+    for card in cards {
+        let result = private.call(
+            &control["reference"],
+            "decide",
+            json!([card["id"], "cancel"]),
+        );
+        assert!(result.get("error").is_none(), "{result}");
+    }
+    assert_eq!(
+        server.join().unwrap().len(),
+        1,
+        "only model discovery may dispatch"
     );
 }

@@ -19,6 +19,7 @@ pub struct Agent {
     tools: Rc<dyn Tools>,
     hooks: Option<Rc<Lifecycle>>,
     progress: Option<swarmie_providers::Progress>,
+    preparation: Option<Rc<dyn swarmie_providers::PreparationPolicy>>,
 }
 
 /// Internal awaited confirmation seam, not a plugin hook or an external effect.
@@ -50,6 +51,7 @@ impl Agent {
             tools,
             hooks: None,
             progress: None,
+            preparation: None,
         }
     }
 
@@ -72,6 +74,16 @@ impl Agent {
     /// ```
     pub fn with_progress(mut self, progress: swarmie_providers::Progress) -> Self {
         self.progress = Some(progress);
+        self
+    }
+
+    /// Require qualified final preparation and pure admission before confirming
+    /// model intent. Independent loops can omit this optional capability.
+    pub fn with_preparation(
+        mut self,
+        policy: Rc<dyn swarmie_providers::PreparationPolicy>,
+    ) -> Self {
+        self.preparation = Some(policy);
         self
     }
 
@@ -169,6 +181,7 @@ impl Agent {
         confirmation: &dyn Confirmation,
     ) -> Result<Output, DriveError> {
         let mut recover = true;
+        let mut prepared_handle = None;
         loop {
             if !matches!(state.phase, Phase::Finished { .. }) {
                 context.check()?;
@@ -180,16 +193,62 @@ impl Agent {
                     let request = self.prepare(context, state, next.turn).await?;
                     next.available_tools =
                         request.tools.iter().map(|tool| tool.name.clone()).collect();
+                    let operation = OperationId::new();
+                    let prepared = if let Some(policy) = &self.preparation {
+                        let handle = self
+                            .model
+                            .prepare(context, operation, request.clone(), self.progress.clone())
+                            .await?;
+                        let fixed = if let Some(request) =
+                            policy.fixed_request(&request, handle.description())?
+                        {
+                            Some(
+                                self.model
+                                    .prepare(
+                                        context,
+                                        OperationId::new(),
+                                        request,
+                                        self.progress.clone(),
+                                    )
+                                    .await?,
+                            )
+                        } else {
+                            None
+                        };
+                        policy.check(
+                            context,
+                            handle.description(),
+                            fixed.as_ref().map(|value| value.description()),
+                        )?;
+                        Some(handle)
+                    } else {
+                        None
+                    };
                     next.phase = Phase::ModelPending {
-                        operation: OperationId::new(),
+                        operation,
                         request,
+                        preparation: prepared
+                            .as_ref()
+                            .map(|handle| Box::new(handle.description().clone())),
                     };
                     adopt(context, state, next, confirmation).await?;
+                    prepared_handle = prepared;
                     recover = false;
                 }
-                Phase::ModelPending { operation, request } => {
+                Phase::ModelPending {
+                    operation,
+                    request,
+                    preparation,
+                } => {
                     let response = self
-                        .run_model(context, operation, &request, recover)
+                        .run_model(
+                            context,
+                            operation,
+                            &request,
+                            preparation.as_deref(),
+                            prepared_handle.take(),
+                            recover,
+                        )
                         .await?;
                     context.check()?;
                     let mut ids = BTreeSet::new();

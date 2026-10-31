@@ -71,6 +71,7 @@ pub(super) struct ScopedTools {
     pub inner: Rc<CatalogService>,
     pub binding: Option<ExecutionContext>,
     pub authority: Option<std::sync::Arc<dyn swarmie_git::Authority>>,
+    pub project: Option<super::sources::SkillTools>,
 }
 
 impl ScopedTools {
@@ -158,6 +159,18 @@ impl Tools for ScopedTools {
                     provider: None,
                 });
             }
+            if call.name.as_str() == super::sources::TOOL {
+                let project = self
+                    .project
+                    .as_ref()
+                    .ok_or_else(|| failure("skill provider is unavailable"))?;
+                return Ok(ToolPreparation {
+                    decision: project
+                        .call(context, "validate", (spec.clone(), call.clone()))
+                        .await?,
+                    provider: Some(project.provider().clone()),
+                });
+            }
             self.inner.prepare(context, spec, call).await
         }
         .boxed_local()
@@ -175,6 +188,16 @@ impl Tools for ScopedTools {
                     provider: execution.provider.cloned(),
                 });
             }
+            if execution.call.name.as_str() == super::sources::TOOL {
+                let project = self
+                    .project
+                    .as_ref()
+                    .ok_or_else(|| failure("skill provider is unavailable"))?;
+                if execution.provider != Some(project.provider()) {
+                    return Err(failure("pending skill belongs to another provider"));
+                }
+                return self.prepare(context, spec, execution.call).await;
+            }
             self.inner.prepare_retry(context, spec, execution).await
         }
         .boxed_local()
@@ -188,6 +211,22 @@ impl Tools for ScopedTools {
             if let Err(error) = self.allows(execution.call) {
                 return Ok(ToolResult::Blocked(error.message));
             }
+            if execution.call.name.as_str() == super::sources::TOOL {
+                let project = self
+                    .project
+                    .as_ref()
+                    .ok_or_else(|| failure("skill provider is unavailable"))?;
+                if execution.provider != Some(project.provider()) {
+                    return Err(failure("pending skill belongs to another provider"));
+                }
+                return project
+                    .call(
+                        context,
+                        "execute",
+                        (execution.operation, execution.call.clone()),
+                    )
+                    .await;
+            }
             self.inner.execute(context, execution).await
         }
         .boxed_local()
@@ -199,6 +238,22 @@ impl Tools for ScopedTools {
     ) -> LocalBoxFuture<'a, tembra::Result<Recovery<ToolResult>>> {
         async move {
             self.allows(execution.call)?;
+            if execution.call.name.as_str() == super::sources::TOOL {
+                let project = self
+                    .project
+                    .as_ref()
+                    .ok_or_else(|| failure("skill provider is unavailable"))?;
+                if execution.provider != Some(project.provider()) {
+                    return Err(failure("pending skill belongs to another provider"));
+                }
+                return project
+                    .call(
+                        context,
+                        "recover",
+                        (execution.operation, execution.call.clone()),
+                    )
+                    .await;
+            }
             self.inner.recover(context, execution).await
         }
         .boxed_local()

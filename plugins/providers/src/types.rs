@@ -51,6 +51,10 @@ name!(ToolCallId);
 pub struct OperationId(Uuid);
 
 impl OperationId {
+    pub fn as_uuid(self) -> Uuid {
+        self.0
+    }
+
     pub fn new() -> Self {
         Self(Uuid::new_v4())
     }
@@ -67,6 +71,9 @@ impl std::fmt::Display for OperationId {
 #[serde(deny_unknown_fields)]
 pub struct AgentContext {
     pub instructions: String,
+    /// Captured model-only project input, separate from canonical history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sources: Option<crate::ContextSources>,
     pub messages: Vec<Message>,
 }
 
@@ -86,6 +93,9 @@ pub enum Message {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AssistantMessage {
+    /// Private canonical provider records, reported usage and continuation metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<Value>,
     pub content: String,
     pub tool_calls: Vec<ToolCall>,
 }
@@ -145,9 +155,21 @@ pub struct ModelRequest {
     pub tools: Vec<ToolSpec>,
 }
 
+/// Safe per-attempt protection label. An absent or disabled inspector is never reported as clean.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubmissionProtection {
+    Pending,
+    Unprotected,
+    Clean,
+    HumanOverride,
+    CannotInspectOverride,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelResponse {
+    pub protection: SubmissionProtection,
     pub message: AssistantMessage,
     pub usage: Usage,
 }

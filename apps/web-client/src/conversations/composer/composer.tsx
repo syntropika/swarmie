@@ -21,13 +21,17 @@ export function Composer({ chat, showStatus }: { chat: Conversation; showStatus:
   return (
     <div className="@container/composer shrink-0 px-4 pt-2 pb-2 md:px-6 md:pb-5">
       <div className="relative mx-auto w-full max-w-[720px]">
-        <ComposerSlashMenu chat={chat} executeAction={actions.executeAction} />
+        <ComposerSlashMenu
+          chat={chat}
+          executeConfirmed={actions.executeConfirmed}
+          actionContext={actions.actionContext}
+        />
         <ComposerFeedback chat={chat} showStatus={showStatus} />
         <ComposerPanel>
           <ComposerTopBar chat={chat} />
           <ComposerPanel.Body>
             <ComposerAttachments chat={chat} />
-            <ComposerInput chat={chat} mode={mode} />
+            <ComposerInput chat={chat} mode={mode} actions={actions} />
             <div className="flex flex-wrap items-center gap-1 px-1 pb-1">
               <ComposerAddMenu chat={chat} actions={actions} />
               <div className="hidden @min-[400px]/composer:contents">

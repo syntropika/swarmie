@@ -10,6 +10,7 @@ durable tasks, and stored conversation history. It does not require PluginManage
 | Caller-owned context | `Agent::execute` and `Agent::resume` | None |
 | Task checkpoints with inline context | `durable::execute` | `durable-tasks` |
 | Stored history | `conversation::History` | `conversations` |
+| Frozen context projection | `History::context_with_projection` | `context-projection` |
 | Atomic history and task checkpoints | `conversation::durable::execute` | Both |
 
 These are library choices. Swarmie agent executions use the durable conversation
@@ -34,6 +35,7 @@ async fn reply(
 ) -> ExecutionResult {
     let request = Request {
         context: AgentContext {
+            sources: None,
             instructions: "Answer briefly.".into(),
             messages: vec![Message::User { content: "Hello".into() }],
         },

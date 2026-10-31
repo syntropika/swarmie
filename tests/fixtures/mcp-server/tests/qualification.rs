@@ -122,14 +122,18 @@ async fn qualify_agent(configuration: Configuration) {
     original_call.arguments = json!({"amount":99});
     let script = Rc::new(MockModel::new([
         Step::Reply(ModelResponse {
+            protection: swarmie_providers::SubmissionProtection::Unprotected,
             message: AssistantMessage {
+                provider: None,
                 content: String::new(),
                 tool_calls: vec![original_call],
             },
             usage: Usage::default(),
         }),
         Step::Reply(ModelResponse {
+            protection: swarmie_providers::SubmissionProtection::Unprotected,
             message: AssistantMessage {
+                provider: None,
                 content: "Completed".into(),
                 tool_calls: vec![],
             },
@@ -180,6 +184,7 @@ async fn qualify_agent(configuration: Configuration) {
         agent::Method::Execute.as_str(),
         agent::Request {
             context: AgentContext {
+                sources: None,
                 instructions: "Use the selected MCP tool.".into(),
                 messages: vec![Message::User {
                     content: "Add seven.".into(),

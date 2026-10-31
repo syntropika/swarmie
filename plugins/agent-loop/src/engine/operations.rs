@@ -18,26 +18,68 @@ fn recovery_required(message: impl ToString) -> Error {
 
 impl Agent {
     /// Reconcile a pending request before a provider can receive it again.
-    pub(super) async fn run_model(
-        &self,
-        context: &Context,
+    pub(super) async fn run_model<'a>(
+        &'a self,
+        context: &'a Context,
         operation: OperationId,
         request: &ModelRequest,
+        preparation: Option<&swarmie_providers::PreparedDescription>,
+        handle: Option<swarmie_providers::PreparedModelRequest<'a>>,
         recover: bool,
     ) -> Result<ModelResponse, DriveError> {
         if recover {
-            match self
-                .model
-                .recover(context, operation, request)
-                .await
-                .map_err(DriveError::Provider)?
-            {
+            let outcome = match preparation {
+                Some(description) => self.model.recover_prepared(context, description).await,
+                None => self.model.recover(context, operation, request).await,
+            }
+            .map_err(DriveError::Provider)?;
+            match outcome {
                 Recovery::Completed(response) => return Ok(response),
                 Recovery::SafeToRetry => context.check()?,
                 Recovery::Unknown => {
                     return Err(recovery_required("model outcome is unknown").into());
                 }
             }
+        }
+        if let Some(expected) = preparation {
+            let retained = handle.is_some();
+            let handle = match handle {
+                Some(handle) => handle,
+                None => {
+                    self.model
+                        .prepare(context, operation, request.clone(), self.progress.clone())
+                        .await?
+                }
+            };
+            if handle.description() != expected {
+                return Err(
+                    recovery_required("prepared request or model configuration changed").into(),
+                );
+            }
+            if !retained && let Some(policy) = &self.preparation {
+                let fixed = if let Some(request) =
+                    policy.fixed_request(request, handle.description())?
+                {
+                    Some(
+                        self.model
+                            .prepare(context, OperationId::new(), request, self.progress.clone())
+                            .await?,
+                    )
+                } else {
+                    None
+                };
+                policy.check(
+                    context,
+                    handle.description(),
+                    fixed.as_ref().map(|value| value.description()),
+                )?;
+            }
+            return handle.execute().await.map_err(DriveError::Provider);
+        }
+        if self.preparation.is_some() {
+            return Err(
+                recovery_required("pending model intent has no qualified preparation").into(),
+            );
         }
         self.complete_model(context, operation, request)
             .await
@@ -166,6 +208,16 @@ impl Agent {
                 tools: input.request.tools.clone(),
                 max_turns: state.request.max_turns,
             })?;
+        }
+        if input.request.context.sources != state.request.context.sources {
+            return Err(invalid("context hook changed the captured project sources"));
+        }
+        input.request.context.validate_sources()?;
+        if let Some(sources) = &state.request.context.sources
+            && input.request.context.messages.get(sources.before())
+                != state.request.context.messages.get(sources.before())
+        {
+            return Err(invalid("context hook changed the captured source anchor"));
         }
         Ok(input.request)
     }

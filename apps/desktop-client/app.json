@@ -7,7 +7,7 @@
   "version": "0.1.0",
   "icons": ["assets/icon.png"],
   "platforms": ["macos", "linux", "windows"],
-  "permissions": [],
+  "permissions": ["network"],
   "capabilities": ["webview"],
   "frontend": {
     "dist": "dist",
@@ -36,11 +36,20 @@
   "security": {
     "navigation": {
       "allowed_origins": ["zero://app", "http://127.0.0.1:5175"],
-      "external_links": { "action": "deny" }
+      "external_links": {
+        "action": "open_system_browser",
+        "allowed_urls": ["*"]
+      }
     }
   },
   "web_engine": "system",
   "windows": [
-    { "label": "main", "title": "Swarmie", "width": 1280, "height": 800, "restore_state": true }
+    {
+      "label": "main",
+      "title": "Swarmie",
+      "width": 1280,
+      "height": 800,
+      "restore_state": true
+    }
   ]
 }

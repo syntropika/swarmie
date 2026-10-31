@@ -10,6 +10,7 @@ description = "Independent agent loop with optional durable execution"
 default = []
 durable-tasks = ["dep:swarmie-durable-tasks"]
 conversations = ["dep:swarmie-conversations"]
+context-projection = ["conversations", "dep:swarmie-context"]
 
 [dependencies]
 tembra = { workspace = true, features = ["hooks"] }
@@ -20,6 +21,7 @@ swarmie-providers.workspace = true
 swarmie-tools.workspace = true
 swarmie-durable-tasks = { workspace = true, optional = true }
 swarmie-conversations = { workspace = true, optional = true }
+swarmie-context = { workspace = true, optional = true }
 
 [dev-dependencies]
 swarmie-providers = { workspace = true, features = ["mock"] }

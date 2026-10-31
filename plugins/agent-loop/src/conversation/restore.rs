@@ -12,7 +12,17 @@ struct Loaded {
     initial: usize,
     assistant: Option<EntryId>,
     prepared: Option<crate::ModelRequest>,
+    preparation: Option<Box<swarmie_providers::PreparedDescription>>,
     prepared_tool: Option<(crate::ToolCall, Option<crate::ToolProvider>)>,
+}
+
+struct Selection {
+    at: Head,
+    initial: Head,
+    prepared: Option<(crate::OperationId, EntryId)>,
+    prepared_tool: Option<(crate::OperationId, Option<EntryId>)>,
+    #[cfg(feature = "context-projection")]
+    projection: Option<swarmie_context::Projection>,
 }
 
 impl History {
@@ -24,21 +34,64 @@ impl History {
         at: Head,
         instructions: String,
     ) -> tembra::Result<AgentContext> {
-        let loaded = self.load(context, at, at, None, None).await?;
+        let loaded = self
+            .load(
+                context,
+                Selection {
+                    at,
+                    initial: at,
+                    prepared: None,
+                    prepared_tool: None,
+                    #[cfg(feature = "context-projection")]
+                    projection: None,
+                },
+            )
+            .await?;
         Ok(AgentContext {
+            sources: None,
             instructions,
             messages: loaded.messages,
         })
     }
 
-    async fn load(
+    /// Prepare only the selected textual checkpoint and the complete selected
+    /// suffix. The result artifact can be newer than `at`; the input head is fixed.
+    #[cfg(feature = "context-projection")]
+    pub async fn context_with_projection(
         &self,
         context: &Context,
         at: Head,
-        initial: Head,
-        prepared: Option<(crate::OperationId, EntryId)>,
-        prepared_tool: Option<(crate::OperationId, Option<EntryId>)>,
-    ) -> tembra::Result<Loaded> {
+        instructions: String,
+        projection: swarmie_context::Projection,
+    ) -> tembra::Result<AgentContext> {
+        let loaded = self
+            .load(
+                context,
+                Selection {
+                    at,
+                    initial: at,
+                    prepared: None,
+                    prepared_tool: None,
+                    projection: Some(projection),
+                },
+            )
+            .await?;
+        Ok(AgentContext {
+            sources: None,
+            instructions,
+            messages: loaded.messages,
+        })
+    }
+
+    async fn load(&self, context: &Context, selection: Selection) -> tembra::Result<Loaded> {
+        let Selection {
+            at,
+            initial,
+            prepared,
+            prepared_tool,
+            #[cfg(feature = "context-projection")]
+            projection,
+        } = selection;
         context.check()?;
         if at.conversation != initial.conversation {
             return Err(invalid("checkpoint changed conversation"));
@@ -57,14 +110,30 @@ impl History {
             }
         }
         let mut read = Read::new(at);
+        #[cfg(feature = "context-projection")]
+        let source = if let Some(selected) = &projection {
+            let source = self.projection_source(context, selected, initial).await?;
+            read.after = Some(selected.plan.through.entry);
+            Some(source)
+        } else {
+            None
+        };
         let mut loaded = Loaded {
             messages: vec![],
             initial: 0,
             assistant: None,
             prepared: None,
+            preparation: None,
             prepared_tool: None,
         };
         let mut found_initial = initial.entry.is_none();
+        #[cfg(feature = "context-projection")]
+        if projection
+            .as_ref()
+            .is_some_and(|selected| Some(selected.plan.through.entry) == initial.entry)
+        {
+            found_initial = true;
+        }
         loop {
             let page: swarmie_conversations::Page = self
                 .reference()?
@@ -79,9 +148,14 @@ impl History {
                         }
                         loaded.messages.push(message);
                     }
-                    Record::PreparedRequest { operation, request } => {
+                    Record::PreparedRequest {
+                        operation,
+                        request,
+                        description,
+                    } => {
                         if prepared == Some((operation, entry.id)) {
-                            loaded.prepared = Some(request)
+                            loaded.prepared = Some(request);
+                            loaded.preparation = description;
                         }
                     }
                     Record::PreparedTool {
@@ -100,6 +174,8 @@ impl History {
                             loaded.prepared_tool = Some((call, provider))
                         }
                     }
+                    #[cfg(feature = "context-projection")]
+                    Record::ContextResult { .. } => {}
                 }
                 if Some(entry.id) == initial.entry {
                     loaded.initial = loaded.messages.len();
@@ -126,6 +202,13 @@ impl History {
                 "prepared tool is missing or belongs to another operation",
             ));
         }
+        #[cfg(feature = "context-projection")]
+        if let Some(source) = source {
+            // This message is model-only source. It is not a canonical assistant
+            // response and must not enter writer output or count as a real User.
+            loaded.messages.insert(0, source);
+            loaded.initial += 1;
+        }
         Ok(loaded)
     }
 
@@ -149,16 +232,21 @@ impl History {
         let loaded = self
             .load(
                 context,
-                checkpoint.head,
-                checkpoint.input.at,
-                selected,
-                selected_tool,
+                Selection {
+                    at: checkpoint.head,
+                    initial: checkpoint.input.at,
+                    prepared: selected,
+                    prepared_tool: selected_tool,
+                    #[cfg(feature = "context-projection")]
+                    projection: checkpoint.projection().cloned(),
+                },
             )
             .await?;
         let phase = match &checkpoint.phase {
             Phase::PrepareTurn => crate::Phase::PrepareTurn,
             Phase::ModelPending { operation, .. } => crate::Phase::ModelPending {
                 operation: *operation,
+                preparation: loaded.preparation,
                 request: loaded
                     .prepared
                     .ok_or_else(|| invalid("missing model request"))?,
@@ -198,10 +286,23 @@ impl History {
             }
             Phase::Finished { reason } => crate::Phase::Finished { reason: *reason },
         };
+        let sources = checkpoint
+            .input
+            .sources
+            .clone()
+            .map(|sources| {
+                loaded
+                    .initial
+                    .checked_sub(1)
+                    .map(|before| sources.at(before))
+                    .ok_or_else(|| invalid("captured project context has no admitted input"))
+            })
+            .transpose()?;
         let count = loaded.messages.len();
         let state = State {
             request: crate::Request {
                 context: AgentContext {
+                    sources,
                     instructions: checkpoint.input.instructions.clone(),
                     messages: loaded.messages,
                 },

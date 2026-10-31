@@ -1,15 +1,17 @@
 //! Native provider settings: public account metadata on disk, credentials in the OS keyring.
 mod catalog;
+mod metadata;
 mod models;
 pub(crate) mod oauth;
+mod qualifications;
 mod secrets;
 
 use futures::future::LocalBoxFuture;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{io::Write, path::PathBuf, sync::Arc};
-use swarmie_model_provider_genai::{
-    Connection, ConnectionId, Credentials, GenaiModel, ModelId, Provider,
+use std::{io::Write, path::PathBuf, rc::Rc, sync::Arc};
+use swarmie_model_provider_ai::{
+    AiModel, Connection, ConnectionId, Credentials, ModelId, Provider,
 };
 use swarmie_providers::settings::{
     Account, ConfigureProvider, ModelDefaults, ProviderCatalog, ProviderSettings, SetModelDefaults,
@@ -24,6 +26,8 @@ struct SavedAccount {
     endpoint: String,
     oauth: bool,
     oauth_identity: Option<String>,
+    #[serde(default)]
+    discovered_limits: Option<metadata::DiscoveredLimits>,
 }
 
 pub(crate) struct NativeProviders {
@@ -35,6 +39,7 @@ pub(crate) struct NativeProviders {
         tokio::sync::Mutex<std::collections::BTreeMap<String, swarmie_provider_auth::Credential>>,
     mutation: tokio::sync::Mutex<()>,
     secrets: Arc<dyn secrets::SecretStore>,
+    metadata: metadata::ModelMetadata,
     #[cfg(test)]
     oauth_options: Option<(swarmie_provider_auth::ChatgptBrowserOptions, String)>,
 }
@@ -66,6 +71,7 @@ impl NativeProviders {
             renewal: tokio::sync::Mutex::new(Default::default()),
             mutation: tokio::sync::Mutex::new(()),
             secrets,
+            metadata: metadata::ModelMetadata::default(),
             #[cfg(test)]
             oauth_options: None,
         }
@@ -121,13 +127,14 @@ impl NativeProviders {
         .map_err(|_| failure("provider settings could not be saved"))?
     }
 
-    pub(crate) async fn model(
+    pub(crate) async fn model_with_protection(
         &self,
         principal: &str,
         account_id: &str,
         model_id: &str,
         effort: &str,
-    ) -> tembra::Result<GenaiModel> {
+        protection: swarmie_model_provider_ai::ModelProtection,
+    ) -> tembra::Result<AiModel> {
         self.authorize(principal)?;
         let saved = self
             .read()
@@ -165,74 +172,53 @@ impl NativeProviders {
             saved.provider,
             [ModelId::new(model_id)?],
         );
-        connection.endpoint = Some(saved.endpoint);
+        connection.endpoint = Some(saved.endpoint.clone());
         if saved.account.provider_id != "ollama" {
             connection.credential_key = Some(account_id.into());
         }
-        let mut renewal = self.renewal.lock().await;
-        let credentials = if saved.account.provider_id == "ollama" {
-            None
-        } else if saved.oauth {
-            let mut credential = if let Some(pending) = renewal.get(account_id) {
-                pending.clone()
-            } else {
-                let stored = secrets::get(self.secrets.clone(), account_id.into()).await?;
-                swarmie_provider_auth::decode(&stored)
-                    .map_err(|_| failure("the account credential is invalid"))?
-                    .ok_or_else(|| failure("the account credential is invalid"))?
-            };
-            if renewal.contains_key(account_id) {
-                let encoded = swarmie_provider_auth::encode(&credential)
-                    .map_err(|_| failure("the renewed credential is invalid"))?;
-                secrets::set(self.secrets.clone(), account_id.into(), encoded).await?;
-                renewal.remove(account_id);
-            }
-            if credential.expires_at_ms <= swarmie_provider_auth::now_ms().saturating_add(60_000) {
-                credential = self.refresh_credential(&credential).await.map_err(|_| {
-                    failure("the account authorization could not be renewed; sign in again")
-                })?;
-                renewal.insert(account_id.into(), credential.clone());
-                let encoded = swarmie_provider_auth::encode(&credential)
-                    .map_err(|_| failure("the renewed credential is invalid"))?;
-                secrets::set(self.secrets.clone(), account_id.into(), encoded).await?;
-                renewal.remove(account_id);
-            }
-            Some(AccessToken(credential.access_token))
-        } else {
-            Some(AccessToken(
-                secrets::get(self.secrets.clone(), account_id.into()).await?,
-            ))
-        };
-        let empty = AccessToken(Zeroizing::new(String::new()));
-        let model = GenaiModel::new(
+        let snapshot = self.metadata.prepare(
+            &saved,
+            &connection,
+            &ModelId::new(model_id)?,
+            effort,
+            swarmie_provider_auth::now_ms(),
+        )?;
+        if saved.oauth {
+            return Err(failure("the ChatGPT inference profile is not qualified"));
+        }
+        let model = AiModel::new(
             connection,
             ModelId::new(model_id)?,
-            credentials.as_ref().unwrap_or(&empty),
+            Rc::new(LazyCredential {
+                store: self.secrets.clone(),
+                account: account_id.into(),
+            }),
+            protection,
         )?;
-        if effort.is_empty() {
-            Ok(model)
+        let model = if effort.is_empty() {
+            model
         } else {
-            model.with_reasoning(&effort.to_ascii_lowercase())
-        }
+            model.with_reasoning(&effort.to_ascii_lowercase())?
+        };
+        model.with_metadata(snapshot)
     }
 
-    async fn refresh_credential(
+    #[cfg(test)]
+    async fn model(
         &self,
-        credential: &swarmie_provider_auth::Credential,
-    ) -> swarmie_provider_auth::Result<swarmie_provider_auth::Credential> {
-        #[cfg(test)]
-        if let Some((options, _)) = &self.oauth_options {
-            return swarmie_provider_auth::ProviderClient::with_endpoints(
-                swarmie_provider_auth::Endpoints {
-                    chatgpt_token: options.browser.token_url.clone(),
-                    chatgpt_jwks: options.jwks_url.clone(),
-                    ..Default::default()
-                },
-            )?
-            .refresh(credential)
-            .await;
-        }
-        swarmie_provider_auth::refreshed(credential).await
+        principal: &str,
+        account: &str,
+        model: &str,
+        effort: &str,
+    ) -> tembra::Result<AiModel> {
+        self.model_with_protection(
+            principal,
+            account,
+            model,
+            effort,
+            swarmie_model_provider_ai::ModelProtection::Unprotected,
+        )
+        .await
     }
 
     fn oauth_identity(identity: &swarmie_provider_auth::VerifiedIdentity) -> String {
@@ -318,7 +304,8 @@ impl NativeProviders {
             .oauth_options
             .as_ref()
             .map_or(endpoint, |(_, endpoint)| endpoint);
-        let models = models::oauth_models(credential, endpoint).await?;
+        let mut models = models::oauth_models(credential, endpoint).await?;
+        models.limits.endpoint = credential.endpoint.clone();
         context.check()?;
         if cancelled.get() {
             return Err(failure("provider authorization was cancelled"));
@@ -351,7 +338,7 @@ impl NativeProviders {
             }),
             authorization_method: Some("oauth-browser".into()),
             label,
-            models,
+            models: models.models,
             available: true,
             models_truncated: false,
         };
@@ -379,6 +366,7 @@ impl NativeProviders {
             endpoint: credential.endpoint.clone(),
             oauth: true,
             oauth_identity: Some(identity),
+            discovered_limits: Some(models.limits),
         });
         if let Err(error) = self.save(&accounts).await {
             if let Some(previous) = previous {
@@ -394,10 +382,26 @@ impl NativeProviders {
     }
 }
 
-struct AccessToken(Zeroizing<String>);
-impl Credentials for AccessToken {
-    fn resolve(&self, _key: &str) -> Option<String> {
-        Some(self.0.to_string())
+struct LazyCredential {
+    store: Arc<dyn secrets::SecretStore>,
+    account: String,
+}
+impl Credentials for LazyCredential {
+    fn acquire<'a>(
+        &'a self,
+        context: &'a tembra::Context,
+        _admitted: &'a swarmie_model_provider_ai::AdmittedAttempt,
+        key: &'a str,
+    ) -> LocalBoxFuture<'a, tembra::Result<swarmie_model_provider_ai::ModelCredential>> {
+        Box::pin(async move {
+            context.check()?;
+            if key != self.account {
+                return Err(failure("the credential belongs to another account"));
+            }
+            let secret = secrets::get(self.store.clone(), self.account.clone()).await?;
+            context.check()?;
+            swarmie_model_provider_ai::ModelCredential::new(secret.to_string(), "[secret]".into())
+        })
     }
 }
 
@@ -544,7 +548,7 @@ impl ProviderSettings for NativeProviders {
                 provider_label: choice.label.clone(),
                 authorization_method: Some(if local { "local" } else { "api-key" }.into()),
                 label: format!("{} account", choice.label),
-                models,
+                models: models.models,
                 available: true,
                 models_truncated: false,
             };
@@ -559,6 +563,7 @@ impl ProviderSettings for NativeProviders {
                 endpoint: endpoint.into(),
                 oauth: false,
                 oauth_identity: None,
+                discovered_limits: Some(models.limits),
             });
             if let Err(error) = self.save(&accounts).await {
                 if !local {
@@ -609,7 +614,7 @@ mod tests {
     use super::*;
     use swarmie_providers::settings::ModelInfo;
 
-    fn account(id: &str, count: usize) -> SavedAccount {
+    pub(super) fn account(id: &str, count: usize) -> SavedAccount {
         SavedAccount {
             account: Account {
                 id: id.into(),
@@ -632,6 +637,7 @@ mod tests {
             endpoint: "http://localhost:11434".into(),
             oauth: false,
             oauth_identity: None,
+            discovered_limits: None,
         }
     }
 

@@ -436,3 +436,107 @@ async fn close_releases_the_fixed_callback_port_before_the_next_login() {
         drop(released);
     }
 }
+
+#[cfg(feature = "ai")]
+fn ai_identity() -> swarmie_ai::catalog::ModelIdentity {
+    swarmie_ai::catalog::ModelIdentity {
+        provider: "chatgpt".into(),
+        adapter: "swarmie-ai.responses.chatgpt.v1".into(),
+        endpoint: "https://api.openai.com/v1/responses".into(),
+        deployment: None,
+        model: "fixture-model".into(),
+        revision: Some("fixture-revision".into()),
+    }
+}
+
+#[cfg(feature = "ai")]
+#[tokio::test]
+async fn dynamic_login_and_rotation_feed_the_exact_ai_registration_without_more_network() {
+    use swarmie_ai::CredentialSource;
+
+    let fixture = Fixture::new().await;
+    let credential = connected(&fixture, Uuid::new_v4()).await;
+    let selected = credential.chatgpt.as_deref().unwrap().clone();
+    let identity = ai_identity();
+    let source =
+        crate::ChatgptCredentialSource::new(identity.clone(), &selected, credential.clone())
+            .unwrap();
+    let before = fixture.seen.lock().unwrap().len();
+    source.resolve(&identity).await.unwrap();
+    assert_eq!(fixture.seen.lock().unwrap().len(), before);
+    let mut other = identity.clone();
+    other.deployment = Some("another-deployment".into());
+    assert_eq!(
+        source.resolve(&other).await.err().unwrap().failure,
+        swarmie_ai::Failure::Credential
+    );
+    let mut other = identity.clone();
+    other.model = "another-model".into();
+    assert!(source.resolve(&other).await.is_err());
+    other = identity.clone();
+    other.revision = None;
+    assert!(source.resolve(&other).await.is_err());
+
+    let mut reply = token(None);
+    reply["access_token"] = json!("rotated-for-ai");
+    *fixture.token.lock().unwrap() = reply;
+    let renewed = fixture.client().refresh(&credential).await.unwrap();
+    let renewed =
+        crate::ChatgptCredentialSource::new(identity.clone(), &selected, renewed).unwrap();
+    renewed.resolve(&identity).await.unwrap();
+    let requests = fixture.seen.lock().unwrap();
+    let refreshes = requests
+        .iter()
+        .filter(|request| request.contains("grant_type=refresh_token"))
+        .collect::<Vec<_>>();
+    assert_eq!(refreshes.len(), 1);
+    assert!(refreshes[0].contains("client_id=oaiapp_fixture"));
+    assert!(!refreshes[0].contains("dynamic_agent_client"));
+}
+
+#[cfg(feature = "ai")]
+#[tokio::test]
+async fn ai_capture_refuses_other_registrations_expiry_gateway_and_api_key_profiles() {
+    let fixture = Fixture::new().await;
+    let credential = connected(&fixture, Uuid::new_v4()).await;
+    let selected = credential.chatgpt.as_deref().unwrap().clone();
+    for field in [
+        "client",
+        "host",
+        "subject",
+        "dynamic",
+        "permission",
+        "expired",
+        "endpoint",
+    ] {
+        let mut other = credential.clone();
+        let registration = other.chatgpt.as_deref_mut().unwrap();
+        match field {
+            "client" => registration.client_id = "oaiapp_other".into(),
+            "host" => registration.host_id = format!("urn:uuid:{}", Uuid::new_v4()),
+            "subject" => registration.identity.subject = "other-subject".into(),
+            "dynamic" => registration.client_id = DYNAMIC_CLIENT.into(),
+            "permission" => registration.scopes.clear(),
+            "expired" => other.expires_at_ms = now_ms() - 1,
+            "endpoint" => other.endpoint = "https://chatgpt.com/backend-api/codex/".into(),
+            _ => unreachable!(),
+        }
+        assert!(
+            crate::ChatgptCredentialSource::new(ai_identity(), &selected, other).is_err(),
+            "{field}"
+        );
+    }
+    for field in ["adapter", "provider", "endpoint"] {
+        let mut identity = ai_identity();
+        match field {
+            "adapter" => identity.adapter = swarmie_ai::Protocol::Responses.adapter().into(),
+            "provider" => identity.provider = "openai".into(),
+            "endpoint" => identity.endpoint = "https://example.test/responses".into(),
+            _ => unreachable!(),
+        }
+        assert!(
+            crate::ChatgptCredentialSource::new(identity, &selected, credential.clone()).is_err(),
+            "{field}"
+        );
+    }
+}

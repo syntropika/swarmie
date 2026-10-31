@@ -63,7 +63,7 @@ export function createSubmissions(
   capability: {
     available: (nodeId: string) => boolean;
     subscribe: (changed: () => void) => () => void;
-    limits: { maxTextBytes: number; attachments: boolean };
+    limits: { maxTextScalars: number; attachments: boolean };
   } | null = null,
   beforeSubmit?: SubmissionAdmission,
 ) {
@@ -82,9 +82,18 @@ export function createSubmissions(
     if (!limits.attachments && draft.attachments.length > 0) {
       return "Attachments are not supported by this node. Remove them before sending.";
     }
-    return new TextEncoder().encode(draft.text).length > limits.maxTextBytes
-      ? `This node accepts messages up to ${limits.maxTextBytes} bytes. Shorten the message before sending.`
-      : null;
+    let count = 0;
+    for (const character of draft.text) {
+      const scalar = character.codePointAt(0);
+      if (scalar !== undefined && scalar >= 0xd8_00 && scalar <= 0xdf_ff) {
+        return "This message contains invalid Unicode text. Correct it before sending.";
+      }
+      count += 1;
+      if (count > limits.maxTextScalars) {
+        return `This node accepts messages up to ${limits.maxTextScalars} Unicode characters. Shorten the message before sending.`;
+      }
+    }
+    return null;
   }
 
   function setConversationNode(chat: Conversation, nodeId: string) {

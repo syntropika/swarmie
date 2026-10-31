@@ -3,6 +3,7 @@ import { Button, Label, ListBox, Select } from "@swarmie/ui-web";
 import { ArrowLeft, Puzzle } from "lucide-react";
 
 import { useClient } from "../client/context";
+import { ModelProtectionSettings, VaultSettings } from "../vault/settings";
 import { ConnectionSettings } from "./connections";
 import { GeneralSettings } from "./general";
 import { ProviderSettings } from "./providers";
@@ -10,6 +11,12 @@ import { ProviderSettings } from "./providers";
 function PluginConfiguration({ id }: { id: string }) {
   const { settings } = useClient();
   const preferences = useSource(settings);
+  if (id === "vault") {
+    return <VaultSettings />;
+  }
+  if (id === "model-protection") {
+    return <ModelProtectionSettings />;
+  }
   if (id === "connections") {
     return <ConnectionSettings />;
   }
@@ -97,6 +104,17 @@ export function PluginDetail({
       <h1 className="mt-7 text-2xl font-medium">{plugin.name}</h1>
       <p className="mt-2 text-sm leading-6 text-muted">{plugin.description}</p>
       <PluginConfiguration id={plugin.id} />
+      <h2 className="mt-10 mb-3 text-sm">Permissions</h2>
+      <p className="text-xs leading-5 text-muted">
+        {plugin.core
+          ? "Bundled core plugin. Permissions are available for inspection and do not require acceptance."
+          : "Review access before enabling this plugin. Additional permissions require a new acceptance."}
+      </p>
+      <ul className="mt-3 list-inside list-disc space-y-2 text-xs">
+        {plugin.permissions.map((permission) => (
+          <li key={permission}>{permission}</li>
+        ))}
+      </ul>
       {plugin.uses.length > 0 ? (
         <>
           <h2 className="mt-10 mb-3 text-sm">Uses</h2>

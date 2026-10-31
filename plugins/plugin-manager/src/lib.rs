@@ -8,6 +8,7 @@ mod index;
 mod manager;
 mod model;
 mod orb;
+mod required;
 mod storage;
 
 pub use catalog::{Catalog, CatalogError, CorePlugin};

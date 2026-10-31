@@ -79,12 +79,7 @@ fn seed(
 
 fn request(at: Head) -> history::Request {
     let base = support::request();
-    history::Request {
-        at,
-        instructions: base.context.instructions,
-        tools: base.tools,
-        max_turns: base.max_turns,
-    }
+    history::Request::new(at, base.context.instructions, base.tools, base.max_turns)
 }
 
 fn execute(
@@ -102,7 +97,9 @@ fn execute(
 
 fn answer() -> ModelResponse {
     ModelResponse {
+        protection: swarmie_providers::SubmissionProtection::Unprotected,
         message: AssistantMessage {
+            provider: None,
             content: "Done".into(),
             tool_calls: vec![],
         },
@@ -251,6 +248,7 @@ fn recovery_uses_the_exact_prepared_projection_without_rewriting_canonical_messa
         serde_json::from_value(json!("11111111-1111-4111-8111-111111111111")).unwrap();
     let prepared = ModelRequest {
         context: AgentContext {
+            sources: None,
             instructions: "prepared instructions".into(),
             messages: vec![Message::User {
                 content: "request-only projection".into(),
@@ -259,6 +257,7 @@ fn recovery_uses_the_exact_prepared_projection_without_rewriting_canonical_messa
         tools: request(at).tools,
     };
     let entry = EntryDraft::encode(Record::PreparedRequest {
+        description: None,
         operation,
         request: prepared.clone(),
     })
@@ -940,6 +939,7 @@ fn settlement_blocks_prepared_calls_without_recovery_and_honors_cancellation() {
         arguments: json!({"amount":1}),
     };
     let assistant = EntryDraft::encode(Record::Message(Message::Assistant(AssistantMessage {
+        provider: None,
         content: String::new(),
         tool_calls: vec![call],
     })))
@@ -1105,5 +1105,101 @@ fn settlement_applies_the_declared_result_transform_before_history_confirmation(
     assert_eq!(scenario.effects.borrow().len(), 1);
     assert_eq!(scenario.reconciled_tools.borrow().len(), 1);
     assert_eq!(context.messages.len(), 3);
+    pool.run_until(host.close()).unwrap();
+}
+
+#[test]
+fn captured_sources_survive_lost_model_reply_and_do_not_enter_canonical_history() {
+    use swarmie_providers::{ContextSources, SourceKind, SourcePart, SourceScope};
+    let dir = tempfile::tempdir().unwrap();
+    let owner = SqliteOwner::new(dir.path().join("history.sqlite"));
+    let mut pool = LocalPool::new();
+    let (host, reference, history) = open(&pool, &owner);
+    let at = seed(
+        &mut pool,
+        &host,
+        &reference,
+        vec![
+            Message::User {
+                content: "Earlier input".into(),
+            },
+            Message::Assistant(answer().message),
+            Message::User {
+                content: "Admitted input".into(),
+            },
+        ],
+    );
+    let sources = ContextSources::new(
+        SourceScope {
+            node: "node".into(),
+            principal: "alice".into(),
+            directory: "project".into(),
+        },
+        vec![
+            SourcePart::new(
+                SourceKind::ProjectInstructions,
+                "instructions".into(),
+                "revision".into(),
+                "AGENTS.md".into(),
+                "captured source marker".into(),
+            )
+            .unwrap(),
+        ],
+    )
+    .unwrap();
+    let model = Rc::new(MockModel::new([Step::LoseReply(answer())]));
+    let failed = execute(
+        &mut pool,
+        &host,
+        history.clone(),
+        Agent::new(model.clone(), Rc::new(support::Scenario::default())),
+        request(at).with_sources(sources.clone()).unwrap(),
+    )
+    .unwrap_err();
+    let checkpoint = *failed.checkpoint.unwrap();
+    let call = model.calls().pop().unwrap();
+    assert_eq!(call.request.context.sources.as_ref().unwrap().before(), 2);
+    let view = call.request.context.model_messages().unwrap();
+    assert!(
+        matches!(&view[2],Message::User{content} if content.contains("captured source marker"))
+    );
+    assert!(matches!(&view[3],Message::User{content} if content=="Admitted input"));
+    let mut forged = serde_json::to_value(&checkpoint).unwrap();
+    forged["input"]["sources"] = serde_json::Value::Null;
+    let invalid: history::Checkpoint = serde_json::from_value(forged).unwrap();
+    let isolated = Rc::new(MockModel::new([]));
+    let agent = Agent::new(isolated.clone(), Rc::new(support::Scenario::default()));
+    let h = history.clone();
+    assert!(
+        pool.run_until(host.root("alice", move |ctx| {
+            async move { Ok(h.resume(&ctx, &agent, invalid).await) }.boxed_local()
+        }))
+        .unwrap()
+        .is_err()
+    );
+    assert!(isolated.recoveries().is_empty());
+    let agent = Agent::new(model.clone(), Rc::new(support::Scenario::default()));
+    let h = history.clone();
+    let resumed = pool
+        .run_until(host.root("alice", move |ctx| {
+            async move { Ok(h.resume(&ctx, &agent, checkpoint).await) }.boxed_local()
+        }))
+        .unwrap()
+        .unwrap();
+    assert_eq!(model.calls().len(), 1);
+    assert_eq!(model.recoveries(), vec![call.operation]);
+    let head = resumed.checkpoint.head();
+    let canonical = pool
+        .run_until(host.root("alice", move |ctx| {
+            async move { history.context(&ctx, head, String::new()).await }.boxed_local()
+        }))
+        .unwrap();
+    assert!(canonical.sources.is_none());
+    assert_eq!(canonical.messages.len(), 4);
+    assert!(
+        !serde_json::to_string(&canonical)
+            .unwrap()
+            .contains("captured source marker")
+    );
     pool.run_until(host.close()).unwrap();
 }

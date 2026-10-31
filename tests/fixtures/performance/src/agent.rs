@@ -65,7 +65,9 @@ impl Tools for Counter {
 
 fn response(tool: bool) -> ModelResponse {
     ModelResponse {
+        protection: swarmie_providers::SubmissionProtection::Unprotected,
         message: AssistantMessage {
+            provider: None,
             content: if tool { String::new() } else { "Done".into() },
             tool_calls: if tool {
                 vec![ToolCall {
@@ -87,6 +89,7 @@ fn response(tool: bool) -> ModelResponse {
 fn request(prior: usize, tool: bool) -> Request {
     Request {
         context: AgentContext {
+            sources: None,
             instructions: "Return a deterministic answer.".into(),
             messages: (0..prior)
                 .map(|_| Message::User {
@@ -320,12 +323,12 @@ fn turn(mode: &str, prior: usize, tool: bool, root: &Path) -> u64 {
                 (created.head, entries),
             );
             (
-                serde_json::to_value(history::Request {
-                    at: appended.head,
-                    instructions: request.context.instructions,
-                    tools: request.tools,
-                    max_turns: request.max_turns,
-                })
+                serde_json::to_value(history::Request::new(
+                    appended.head,
+                    request.context.instructions,
+                    request.tools,
+                    request.max_turns,
+                ))
                 .unwrap(),
                 Some(id),
             )

@@ -19,6 +19,7 @@ sudo apt-get install -y libdbus-1-dev pkg-config
 
 ```sh
 just rust-check
+just rust-source-check
 just foundation-check
 just storage-check
 just agent-loop-check
@@ -26,10 +27,17 @@ just model-provider-check
 just tools-check
 ```
 
-The foundation recipe also qualifies the optional Agent Loop adapters and genai
+The foundation recipe also qualifies the optional Agent Loop adapters and AI
 provider feature combinations, plus Storage with and without its default SQLite backend. Individual cases can run through `just rust-test`.
 Use `just rust-lock-workspace` when changing workspace membership while retaining
 unrelated dependency versions.
+
+Source policy checks run in the unpublished `xtask` package through the root Just
+recipes. `just rust-source-check` checks workspace lint inheritance and the synchronous
+provider-codec boundary. `just rust-check` includes these checks before Clippy and tests.
+Use `just rust-xtask --help` to list the individual source checks. Run their behavior
+tests with `just rust-test -p xtask`. The checks require no provider credentials or
+external service. See [Rust source checks](docs/rust-source-checks.md) for their scope.
 
 ## TypeScript SDK and clients
 
@@ -55,9 +63,10 @@ and catalogs. These checks do not qualify device-specific native runtime behavio
 
 ## Repository layout
 
-- `runtime/`: the embeddable runtime.
-- `storage/`: the shared storage API and feature-gated `src/sqlite/` implementation.
-- `storage/core/`: internal contracts used by independent capabilities.
+- `crates/runtime/`: the embeddable runtime.
+- `crates/storage/`: the shared storage API and feature-gated `src/sqlite/` implementation.
+- `crates/storage/core/`: internal contracts used by independent capabilities.
+- `crates/model-catalog/`: independent model metadata and preparation.
 - `plugins/providers/`: shared model/provider types and its browser presentation.
 - `plugins/`: independent capability libraries and their optional Tembra orb composition.
 - `tests/fixtures/`: synthetic behavior and SDK authoring fixtures.
@@ -81,7 +90,7 @@ Start with the [concept index](docs/index.md).
 - [Independent Agent Loop and lifecycle hooks](docs/plugins/agent-loop.md)
 - [Tool registration and provider routing](docs/plugins/tools.md)
 - [MCP connections and tool execution](docs/plugins/mcp.md)
-- [Providers and the genai adapter](docs/plugins/providers.md)
+- [Providers and the AI adapter](docs/plugins/providers.md)
 - [Desktop development and packaging](docs/client-runtime/desktop.md)
 
 Durable Tasks and Conversations remain optional Agent Loop dependencies. The

@@ -1,0 +1,42 @@
+[package]
+name = "swarmie-storage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Shared storage API with an optional default SQLite backend"
+
+[features]
+default = ["sqlite"]
+sqlite = [
+    "dep:swarmie-conversations",
+    "dep:swarmie-vault",
+    "dep:swarmie-plugin-manager",
+    "dep:swarmie-durable-tasks",
+    "dep:serde_json",
+    "dep:serde",
+    "dep:futures",
+    "dep:tembra",
+    "dep:rusqlite",
+]
+
+[dependencies]
+swarmie-storage-core.workspace = true
+swarmie-vault = { workspace = true, optional = true }
+swarmie-conversations = { workspace = true, optional = true }
+swarmie-plugin-manager = { workspace = true, optional = true }
+swarmie-durable-tasks = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
+tembra = { workspace = true, optional = true }
+rusqlite = { workspace = true, optional = true }
+
+[dev-dependencies]
+uuid.workspace = true
+tempfile.workspace = true
+futures.workspace = true
+futures-timer.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,36 @@
+[package]
+name = "swarmie-node"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+swarmie-client-node.workspace = true
+swarmie-git = { path = "../../../plugins/git", features = ["tembra"] }
+swarmie-tools.workspace = true
+swarmie-runtime = { workspace = true, features = ["rpc"] }
+swarmie-plugin-manager.workspace = true
+tembra = { workspace = true, features = ["rpc"] }
+tokio = { version = "1", features = ["rt", "time", "net", "sync", "macros"] }
+uuid.workspace = true
+
+zeroize = "1"
+swarmie-vault = { workspace = true, features = ["native-keyring", "cloud-client", "executors", "tools"] }
+swarmie-cloud-account = { path = "../../../plugins/cloud-account", features = ["native-keyring"] }
+swarmie-permissions = { path = "../../../plugins/permissions", features = ["tembra", "tls"] }
+swarmie-model-submission-protection = { path = "../../../plugins/model-submission-protection" }
+swarmie-model-provider-ai = { path = "../../../plugins/model-provider-ai", features = ["vault-credentials"] }
+swarmie-storage = { workspace = true, features = ["sqlite"] }
+
+[dev-dependencies]
+swarmie-durable-tasks.workspace = true
+swarmie-conversations.workspace = true
+swarmie-agent-loop = { workspace = true, features = ["conversations"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

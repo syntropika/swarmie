@@ -121,6 +121,7 @@
         "@swarmie/plugin-app-state-browser": "workspace:*",
         "@swarmie/plugin-application-shell-browser": "workspace:*",
         "@swarmie/plugin-connections-browser": "workspace:*",
+        "@swarmie/plugin-context-browser": "workspace:*",
         "@swarmie/plugin-conversations-browser": "workspace:*",
         "@swarmie/plugin-git-browser": "workspace:*",
         "@swarmie/plugin-mcp-browser": "workspace:*",
@@ -130,6 +131,7 @@
         "@swarmie/plugin-providers-browser": "workspace:*",
         "@swarmie/plugin-read-aloud-browser": "workspace:*",
         "@swarmie/plugin-settings-browser": "workspace:*",
+        "@swarmie/plugin-vault-browser": "workspace:*",
         "@swarmie/plugin-views-browser": "workspace:*",
         "@swarmie/ui-web": "workspace:*",
         "@syntropika/tembra-sdk": "0.2.0",
@@ -289,6 +291,23 @@
         "react": "19.3.0",
       },
     },
+    "plugins/context/browser": {
+      "name": "@swarmie/plugin-context-browser",
+      "version": "1.0.0",
+      "dependencies": {
+        "@swarmie/client-ui": "workspace:*",
+        "@swarmie/plugin-connections-browser": "workspace:*",
+        "@swarmie/plugin-conversations-browser": "workspace:*",
+        "@swarmie/ui-web": "workspace:*",
+        "@syntropika/tembra-sdk": "0.2.0",
+      },
+      "devDependencies": {
+        "@swarmie/config": "workspace:*",
+      },
+      "peerDependencies": {
+        "react": "19.3.0",
+      },
+    },
     "plugins/conversations/browser": {
       "name": "@swarmie/plugin-conversations-browser",
       "version": "1.0.0",
@@ -408,6 +427,18 @@
       },
       "peerDependencies": {
         "react": "19.3.0",
+      },
+    },
+    "plugins/vault/browser": {
+      "name": "@swarmie/plugin-vault-browser",
+      "version": "1.0.0",
+      "dependencies": {
+        "@swarmie/client-ui": "workspace:*",
+        "@swarmie/config": "workspace:*",
+        "@syntropika/tembra-sdk": "0.2.0",
+      },
+      "devDependencies": {
+        "typescript": "7.0.2",
       },
     },
     "plugins/views/browser": {
@@ -1252,6 +1283,8 @@
 
     "@swarmie/plugin-connections-browser": ["@swarmie/plugin-connections-browser@workspace:plugins/connections/browser"],
 
+    "@swarmie/plugin-context-browser": ["@swarmie/plugin-context-browser@workspace:plugins/context/browser"],
+
     "@swarmie/plugin-conversations-browser": ["@swarmie/plugin-conversations-browser@workspace:plugins/conversations/browser"],
 
     "@swarmie/plugin-git-browser": ["@swarmie/plugin-git-browser@workspace:plugins/git/browser"],
@@ -1269,6 +1302,8 @@
     "@swarmie/plugin-read-aloud-browser": ["@swarmie/plugin-read-aloud-browser@workspace:plugins/read-aloud/browser"],
 
     "@swarmie/plugin-settings-browser": ["@swarmie/plugin-settings-browser@workspace:plugins/settings/browser"],
+
+    "@swarmie/plugin-vault-browser": ["@swarmie/plugin-vault-browser@workspace:plugins/vault/browser"],
 
     "@swarmie/plugin-views-browser": ["@swarmie/plugin-views-browser@workspace:plugins/views/browser"],
 

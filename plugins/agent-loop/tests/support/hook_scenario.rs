@@ -25,7 +25,9 @@ pub fn contributor(target: &str) -> Orb {
 
 pub fn response(tools: bool) -> ModelResponse {
     ModelResponse {
+        protection: swarmie_providers::SubmissionProtection::Unprotected,
         message: AssistantMessage {
+            provider: None,
             content: if tools { "" } else { "Done" }.into(),
             tool_calls: if tools {
                 vec![ToolCall {

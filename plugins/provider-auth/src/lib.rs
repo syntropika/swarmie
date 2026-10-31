@@ -8,6 +8,12 @@ mod credential;
 mod protocol;
 mod standard;
 
+#[cfg(feature = "ai")]
+mod ai;
+
+#[cfg(feature = "ai")]
+pub use ai::ChatgptCredentialSource;
+
 pub use browser::{
     BrowserInstructions, BrowserLogin, BrowserOptions, ChatgptBrowserOptions, begin_browser,
     begin_browser_with_options, begin_chatgpt_browser, begin_chatgpt_browser_with_options,

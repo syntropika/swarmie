@@ -291,6 +291,7 @@ fn new_user_generation_can_add_an_invisible_notice_without_changing_messages() {
     );
     drop(files);
     let context = AgentContext {
+        sources: None,
         instructions: "Help the user".into(),
         messages: vec![swarmie_providers::Message::User {
             content: "Read again".into(),

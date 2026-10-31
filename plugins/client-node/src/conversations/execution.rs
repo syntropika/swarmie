@@ -35,6 +35,21 @@ impl Session {
                 "the task belongs to another conversation or checkout",
             ));
         }
+        if let Some(sources) = &input.request.sources {
+            sources.validate()?;
+            if self.project_configuration.is_none()
+                || sources.scope().node != self.node
+                || sources.scope().principal != self.principal
+                || input
+                    .binding
+                    .as_ref()
+                    .is_none_or(|binding| binding.path != sources.scope().directory)
+            {
+                return Err(super::failure(
+                    "captured sources do not match the admitted checkout",
+                ));
+            }
+        }
         if metadata.stop_requested {
             let checkpoint = execution
                 .checkpoint()
@@ -70,6 +85,7 @@ impl Session {
             context: context.clone(),
             binding: input.binding.clone(),
             execution: Some(execution.clone()),
+            sources: input.request.sources.clone(),
         });
         let _running = Running(&self.running, context.clone());
         let _ = self.refresh(&context).await;
@@ -77,6 +93,18 @@ impl Session {
             inner: self.tools.clone(),
             binding: input.binding.clone(),
             authority: self.agent_git_authority.clone(),
+            project: input
+                .request
+                .sources
+                .as_ref()
+                .map(|_| {
+                    super::sources::SkillTools::new(
+                        self.tasks.host.clone(),
+                        self.id.clone(),
+                        self.principal.clone(),
+                    )
+                })
+                .transpose()?,
         });
         let state = self.state.clone();
         let progress = Progress::new(move |context, preview| {
@@ -99,10 +127,18 @@ impl Session {
             });
         });
         let result = async {
+            // The task owns this physical scope, including after observer loss or
+            // recovery. Admission failures still use the normal settlement path.
+            let scope = self.enter_execution(&context)?;
+            let context = scope.as_ref().map_or(&context, |scope| scope.context());
+            let protection = scope.as_ref().map_or(
+                swarmie_model_provider_ai::ModelProtection::Unprotected,
+                |scope| scope.protection(),
+            );
             if let Some(binding) = &input.binding {
                 checkout::validate(
                     self.git.as_ref(),
-                    &context,
+                    context,
                     &self.node,
                     &self.principal,
                     binding,
@@ -111,17 +147,23 @@ impl Session {
             }
             let model = self
                 .providers
-                .model(&self.principal, &input.account, &input.model, &input.effort)
+                .model_with_protection(
+                    &self.principal,
+                    &input.account,
+                    &input.model,
+                    &input.effort,
+                    protection,
+                )
                 .await?;
-            let agent = Agent::new(Rc::new(model), scoped_tools.clone()).with_progress(progress);
-            swarmie_agent_loop::conversation::durable::execute_request(
-                &self.agent_history,
-                &context,
-                &agent,
-                &execution,
-                input.request,
-            )
-            .await
+            let stop = swarmie_ai::StopHandle::new();
+            let model = Rc::new(model.with_stop(stop.clone()));
+            let agent = Agent::new(model.clone(), scoped_tools.clone())
+                .with_progress(progress)
+                .with_preparation(Rc::new(
+                    self.context_policy(execution.clone(), input.request.at),
+                ));
+            self.drive_context(context, model, &agent, &execution, input, stop)
+                .await
         }
         .await;
         let (phase, checkpoint) = match result {
@@ -167,12 +209,24 @@ impl Session {
         checkout::sync_hold(&self.index, self.git.as_ref(), &self.principal, &self.id).await;
         // Observation cannot replace a confirmed execution outcome.
         let _ = self.refresh(&context).await;
+        let _ = self.context_inspect(&context).await;
         Ok(swarmie_durable_tasks::TaskOutcome::Completed(
             tasks::Outcome::Settled { phase }.value(),
         ))
     }
 
-    pub(super) async fn request_stop(&self) -> tembra::Result<()> {
+    pub(super) async fn request_stop(&self, context: &Context) -> tembra::Result<()> {
+        let compaction = self
+            .compaction_running
+            .borrow()
+            .as_ref()
+            .map(|(operation, _)| *operation);
+        if let Some(operation) = compaction {
+            self.index
+                .change(&self.id, |record| record.stop_requested = true)?;
+            self.context_stop(context, operation).await?;
+            return Ok(());
+        }
         if let Some(metadata) = self.index.get(&self.id)?
             && metadata.task.is_some()
         {

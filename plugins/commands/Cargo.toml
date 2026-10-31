@@ -1,0 +1,20 @@
+[package]
+name = "swarmie-commands"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Application command identities and dispatch through Tembra references"
+
+[dependencies]
+tembra.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+swarmie-providers.workspace = true
+
+[dev-dependencies]
+tembra = { workspace = true, features = ["rpc"] }
+
+[lints]
+workspace = true

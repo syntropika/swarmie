@@ -1,0 +1,21 @@
+[package]
+name = "swarmie-project-context"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Scoped native project instructions and revision-bound skill packages"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng = "0.10"
+sha2 = "0.10"
+thiserror.workspace = true
+swarmie-providers.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -57,7 +57,9 @@ pub(super) struct Message {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Snapshot {
+    pub context: swarmie_context::Snapshot,
     pub conversation_id: String,
+    pub owner_conversation_id: Option<uuid::Uuid>,
     pub messages: Vec<Message>,
     pub phase: Phase,
     pub label: String,
@@ -76,6 +78,8 @@ pub(super) struct Receipt {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct Metadata {
+    #[serde(default)]
+    pub context: Option<super::context::Ledger>,
     pub id: String,
     pub title: String,
     pub principal: String,

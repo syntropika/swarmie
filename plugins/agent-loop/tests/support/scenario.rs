@@ -62,7 +62,9 @@ impl Model for Scenario {
                     .collect()
             };
             let response = ModelResponse {
+                protection: swarmie_providers::SubmissionProtection::Unprotected,
                 message: AssistantMessage {
+                    provider: None,
                     content: if tool_calls.is_empty() {
                         "Done".into()
                     } else {

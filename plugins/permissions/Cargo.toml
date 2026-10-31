@@ -1,0 +1,32 @@
+[package]
+name = "swarmie-permissions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+default = []
+tembra = ["dep:tembra"]
+tls = ["dep:rustls", "dep:tokio-rustls", "dep:tokio", "dep:ed25519-dalek", "dep:rand", "dep:zeroize"]
+
+[dependencies]
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std"], optional = true }
+tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring"], optional = true }
+tokio = { version = "1", features = ["io-util", "time"], optional = true }
+ed25519-dalek = { version = "=2.2.0", features = ["pkcs8", "rand_core"], optional = true }
+rand = { version = "=0.8.5", optional = true }
+zeroize = { version = "1", optional = true }
+tembra = { workspace = true, optional = true }
+serde.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+serde_jcs = "=0.1.0"
+sha2 = "0.10"
+
+[dev-dependencies]
+futures.workspace = true
+tokio = { version = "1", features = ["macros", "rt", "io-util"] }
+
+[lints]
+workspace = true

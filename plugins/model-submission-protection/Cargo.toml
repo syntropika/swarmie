@@ -1,0 +1,21 @@
+[package]
+name = "swarmie-model-submission-protection"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+swarmie-permissions = { path = "../permissions" }
+secrets_scanner = { version = "=0.2.3", default-features = false }
+sha2 = "0.10"
+hmac = "0.12"
+rand = "0.8"
+zeroize = "1"
+
+[lints]
+workspace = true

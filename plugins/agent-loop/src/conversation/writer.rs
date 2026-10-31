@@ -67,7 +67,11 @@ impl Writer<'_> {
         checkpoint.available_tools = next.available_tools.clone();
         checkpoint.phase = match &next.phase {
             crate::Phase::PrepareTurn => Phase::PrepareTurn,
-            crate::Phase::ModelPending { operation, request } => {
+            crate::Phase::ModelPending {
+                operation,
+                request,
+                preparation,
+            } => {
                 let reused = match current.checkpoint.phase {
                     Phase::ModelPending {
                         operation: pending,
@@ -81,6 +85,7 @@ impl Writer<'_> {
                     let entry = EntryDraft::encode(Record::PreparedRequest {
                         operation: *operation,
                         request: request.clone(),
+                        description: preparation.clone(),
                     })?;
                     let id = entry.id;
                     entries.push(entry);

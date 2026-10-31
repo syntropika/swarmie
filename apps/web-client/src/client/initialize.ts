@@ -16,6 +16,7 @@ import {
   ConnectionFailureKind,
   unconfiguredNode,
 } from "@swarmie/plugin-connections-browser";
+import { contextUiOrb, createContextPresentation } from "@swarmie/plugin-context-browser";
 import type { Conversation, ConversationsUiApi } from "@swarmie/plugin-conversations-browser";
 import {
   conversationsOrb,
@@ -40,11 +41,14 @@ import { providersOrb } from "@swarmie/plugin-providers-browser";
 import { readAloudOrb } from "@swarmie/plugin-read-aloud-browser";
 import { loadToolDetails, settingsOrb } from "@swarmie/plugin-settings-browser";
 import type { ToolDetailsPersistence } from "@swarmie/plugin-settings-browser";
+import { createVaultUi, vaultUiOrb } from "@swarmie/plugin-vault-browser";
+import type { VaultBackend } from "@swarmie/plugin-vault-browser";
 import type { BuiltinTab, CapabilityView } from "@swarmie/plugin-views-browser";
 import { createViewsApi, viewsOrb } from "@swarmie/plugin-views-browser";
 import type { ReferenceBase } from "@syntropika/tembra-sdk";
 import type { Host } from "@syntropika/tembra-sdk/runtime";
 
+import { contextSelection } from "./context-selection";
 import { createDirectoryBrowser } from "./directories";
 import { admitGitContext } from "./git-admission";
 import { createNodeExecution } from "./node-execution";
@@ -65,6 +69,7 @@ export type ClientOptions = {
   providers?: ProvidersBackend;
   projectsPersistence?: ProjectsPersistence;
   toolDetailsPersistence?: ToolDetailsPersistence;
+  vault?: VaultBackend;
 };
 
 /** Mounts local capabilities without waiting for node networking. */
@@ -97,6 +102,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
   await host.install([
     shellDefinition,
     conversationsOrb,
+    contextUiOrb,
     projectsDefinition,
     connectionsOrb,
     viewsOrb,
@@ -105,6 +111,7 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     mcpOrb,
     gitBrowserOrb,
     notificationsOrb,
+    vaultUiOrb,
     onboardingOrb,
     ...(options.dev ? [appStateOrb] : []),
   ]);
@@ -159,6 +166,18 @@ export async function initializeClient(host: Host, options: ClientOptions) {
       }),
     );
   }
+  const vaultState = await stateOf(host.get(vaultUiOrb.services["swarmie.vault.ui"], "main"));
+  const contextState = await stateOf(host.get(contextUiOrb.services["swarmie.context.ui"], "main"));
+  const vault = createVaultUi(
+    vaultState,
+    (value) => {
+      vaultState.set(value);
+    },
+    options.vault,
+  );
+  detachSources.push(() => {
+    vault.close();
+  });
   const conversationsOwner = await conversationsReference;
   const shellOwner = await shellReference;
   const conversationsUi = conversationsOwner.opaque<ConversationsUiApi>("ui");
@@ -443,7 +462,17 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     nodeConnections.open(initialNode.id).catch(() => undefined);
   }
   createConversation(initialNode?.id);
+  const context = createContextPresentation(
+    contextState,
+    connectionState,
+    nodeConnections,
+    contextSelection(activeConversation, [shellState, roster]),
+    conversationsUi.composer,
+  );
   detachSources.push(
+    () => {
+      context.close();
+    },
     providers.state.subscribe(() => {
       const selection = providers.defaultSelection();
       if (
@@ -510,6 +539,8 @@ export async function initializeClient(host: Host, options: ClientOptions) {
     await host.close();
   }
   return {
+    vault,
+    context,
     conversationsUi,
     shellUi,
     projects,

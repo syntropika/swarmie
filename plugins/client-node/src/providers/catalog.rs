@@ -1,10 +1,11 @@
-use swarmie_model_provider_genai::Provider;
+use swarmie_model_provider_ai::Provider;
 use swarmie_providers::settings::Choice;
 
 pub(super) struct ProviderSpec {
     pub id: &'static str,
     pub provider: Provider,
     pub endpoint: &'static str,
+    pub catalog_provider: Option<&'static str>,
 }
 
 pub(super) fn specifications() -> [ProviderSpec; 4] {
@@ -13,21 +14,25 @@ pub(super) fn specifications() -> [ProviderSpec; 4] {
             id: "openai",
             provider: Provider::OpenAi,
             endpoint: "https://api.openai.com/v1",
+            catalog_provider: Some("openai"),
         },
         ProviderSpec {
             id: "anthropic",
             provider: Provider::Anthropic,
             endpoint: "https://api.anthropic.com/v1",
+            catalog_provider: Some("anthropic"),
         },
         ProviderSpec {
             id: "kimi",
-            provider: Provider::OpenAi,
+            provider: Provider::Kimi,
             endpoint: "https://api.moonshot.ai/v1",
+            catalog_provider: Some("moonshotai"),
         },
         ProviderSpec {
             id: "ollama",
             provider: Provider::Ollama,
             endpoint: "http://localhost:11434",
+            catalog_provider: None,
         },
     ]
 }
@@ -50,6 +55,6 @@ mod tests {
             assert!(!choice.methods.is_empty());
         }
         let kimi = specs.iter().find(|spec| spec.id == "kimi").unwrap();
-        assert_eq!(kimi.provider, Provider::OpenAi);
+        assert_eq!(kimi.provider, Provider::Kimi);
     }
 }

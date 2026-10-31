@@ -9,7 +9,6 @@ export default defineConfig({
     ...ultracite.ignorePatterns,
     "**/target/**",
     // Preserve the reproducible third-party dependency snapshot and its patch digest.
-    "vendor/genai-0.7.0/**",
     "packages/ui/web/vendor/**",
     ".agents/skills/heroui-native/**",
     ".agents/skills/heroui-react/**",

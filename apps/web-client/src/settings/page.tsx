@@ -2,6 +2,7 @@ import { useSource } from "@swarmie/client-ui";
 
 import { useClient } from "../client/context";
 import { GitSettingsPage } from "../git/workspace";
+import { VaultSettings } from "../vault/settings";
 import { ConnectionSettings } from "./connections";
 import { ConversationSettings } from "./conversation";
 import { GeneralSettings } from "./general";
@@ -14,6 +15,9 @@ function SettingsContent({ section }: { section: string }) {
   }
   if (section === "git") {
     return <GitSettingsPage />;
+  }
+  if (section === "vault") {
+    return <VaultSettings />;
   }
   if (section === "plugins") {
     return <PluginSettings />;

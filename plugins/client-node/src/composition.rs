@@ -1,11 +1,14 @@
 use crate::{definitions::Definitions, directories::NativeDirectories, providers::NativeProviders};
 use std::{path::PathBuf, rc::Rc, sync::Arc};
-use swarmie_runtime::{NodeId, node_orb};
+use swarmie_runtime::NodeId;
 use swarmie_tools::Catalog;
 use tembra::Host;
 
 /// Configuration supplied by the embedding, independent of a desktop installation.
+#[derive(Clone)]
 pub struct NodeConfiguration {
+    /// Optional native project content. The host chooses all additional roots.
+    pub project_context: Option<swarmie_project_context::Configuration>,
     /// Existing profile directory. The embedding must hold its exclusive writer lock.
     pub state: PathBuf,
     /// Stable identity persisted by the embedding.
@@ -22,18 +25,24 @@ pub struct NodeConfiguration {
     pub agent_git_authority: Option<Arc<dyn swarmie_git::Authority>>,
 }
 
-/// Install identity, provider administration, Tools, MCP and conversation services.
+/// Declare provider administration, Tools, MCP and conversation services.
 ///
 /// The caller owns the host and its shutdown. Calls require a Tokio local executor with
 /// I/O, time and blocking-task support. Credential custody uses the OS credential store;
 /// public account metadata and conversation history use the supplied profile directory.
-/// Task scheduling starts paused. Call [`crate::start`] after installation to enable
-/// admitted work and recovery through the host's complete composition.
+/// Conversation and task storage opens during managed resource activation.
+/// Task scheduling starts paused. Call [`crate::start`] after the runtime has
+/// installed the complete composition to enable admitted work and recovery.
+/// The embedding supplies node identity through the runtime's node plugin.
 ///
 /// # Errors
-/// Returns the capability installation or profile-storage error. On failure the caller
+/// Returns a configuration or storage-declaration error. On failure the caller
 /// must close the host before it releases the profile's exclusive writer lock.
-pub fn install(host: &Host, configuration: NodeConfiguration) -> tembra::Result<()> {
+pub fn orbs(
+    host: &Host,
+    configuration: NodeConfiguration,
+    execution: Option<Rc<dyn crate::ExecutionOwner>>,
+) -> tembra::Result<Vec<tembra::Orb>> {
     let NodeConfiguration {
         state,
         node,
@@ -42,6 +51,7 @@ pub fn install(host: &Host, configuration: NodeConfiguration) -> tembra::Result<
         directory_root,
         git,
         agent_git_authority,
+        project_context,
     } = configuration;
     if principal.is_empty() || principal == swarmie_durable_tasks::HOST_PRINCIPAL {
         return Err(tembra::Error::invalid(
@@ -55,14 +65,18 @@ pub fn install(host: &Host, configuration: NodeConfiguration) -> tembra::Result<
             "OAuth host identity is required",
         ));
     }
-    let catalog = Catalog::new(if git.is_some() {
+    let mut tools = if git.is_some() {
         swarmie_git::tool_definitions()?
             .into_iter()
             .filter(|tool| tool.spec.name.as_str() != "git_mutate" || agent_git_authority.is_some())
-            .collect()
+            .collect::<Vec<_>>()
     } else {
         vec![]
-    })?;
+    };
+    if let Some(owner) = &execution {
+        tools.extend(owner.tools()?);
+    }
+    let catalog = Catalog::new(tools)?;
     let conversation_catalog = catalog.clone();
     let settings_catalog = catalog.clone();
     let providers = Rc::new(NativeProviders::new(
@@ -74,7 +88,6 @@ pub fn install(host: &Host, configuration: NodeConfiguration) -> tembra::Result<
     let tools_principal = principal.clone();
     let settings_principal = principal.clone();
     let mut definitions = vec![
-        node_orb(node),
         swarmie_providers::settings::settings_orb(providers.clone()),
         crate::providers::oauth::orb(providers.clone()),
         swarmie_tools::orb_with_catalog(host.clone(), move |caller| {
@@ -117,11 +130,12 @@ pub fn install(host: &Host, configuration: NodeConfiguration) -> tembra::Result<
         principal,
         providers,
         conversation_catalog,
-        crate::conversations::GitExecution {
+        crate::conversations::ExecutionPolicy {
             service: git,
             authority: agent_git_authority,
+            owner: execution,
+            project_context,
         },
     )?);
-    host.install(definitions)?;
-    Ok(())
+    Ok(definitions)
 }

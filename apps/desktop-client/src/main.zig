@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const runner = @import("runner");
 const LocalRuntime = @import("local-runtime.zig").LocalRuntime;
+const Vault = @import("vault.zig").Vault;
 const Updates = @import("updates.zig").Updates;
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
@@ -14,6 +15,7 @@ const origins = [_][]const u8{ "zero://app", "http://127.0.0.1:5175" };
 const Desktop = struct {
     environment: *std.process.Environ.Map,
     updates: Updates = .{},
+    vault: Vault = .{},
     local_runtime: LocalRuntime = .{},
     frontend_config: native_sdk.frontend.Config = frontend,
     asset_root: [std.Io.Dir.max_path_bytes]u8 = undefined,
@@ -68,17 +70,27 @@ pub fn main(init: std.process.Init) !void {
     defer desktop.updates.deinit();
     desktop.local_runtime = try LocalRuntime.init(init.environ_map);
     defer desktop.local_runtime.deinit();
+    desktop.vault = Vault.init(init.environ_map.contains("NATIVE_SDK_SESSION_RECORD") or init.environ_map.contains("NATIVE_SDK_SESSION_REPLAY"), desktop.local_runtime.handle, desktop.local_runtime.origin);
+    defer desktop.vault.deinit();
+    const vault_dispatcher = desktop.vault.dispatcher();
     var runtime_origins: [1][]const u8 = undefined;
     const runtime_policies = desktop.local_runtime.policies(&runtime_origins);
     const runtime_handlers = desktop.local_runtime.handlers();
+    var combined_policies: [runtime_policies.len + Vault.command_count]native_sdk.BridgeCommandPolicy = undefined;
+    @memcpy(combined_policies[0..runtime_policies.len], &runtime_policies);
+    @memcpy(combined_policies[runtime_policies.len..], vault_dispatcher.policy.commands);
+    var combined_handlers: [runtime_handlers.len + Vault.command_count]native_sdk.BridgeHandler = undefined;
+    @memcpy(combined_handlers[0..runtime_handlers.len], &runtime_handlers);
+    @memcpy(combined_handlers[runtime_handlers.len..], vault_dispatcher.registry.handlers);
     try runner.runWithOptions(desktop.app(), .{
         .app_name = "swarmie",
+        .builtin_bridge = .{ .enabled = true, .permissions = &.{"network"}, .commands = &.{.{ .name = "native-sdk.os.openUrl", .permissions = &.{"network"}, .origins = &runtime_origins }} },
         .window_title = "Swarmie",
         .bundle_id = "app.swarmie.desktop",
         .icon_path = "assets/icon.png",
         .default_frame = native_sdk.geometry.RectF.init(0, 0, 1280, 800),
-        .security = .{ .navigation = .{ .allowed_origins = &origins } },
-        .bridge = .{ .policy = .{ .enabled = true, .commands = &runtime_policies }, .registry = .{ .handlers = &runtime_handlers } },
+        .security = .{ .permissions = &.{"network"}, .navigation = .{ .allowed_origins = &origins, .external_links = .{ .action = .open_system_browser, .allowed_urls = &.{"*"} } } },
+        .bridge = .{ .policy = .{ .enabled = true, .commands = &combined_policies }, .registry = .{ .handlers = &combined_handlers } },
     }, init);
 }
 

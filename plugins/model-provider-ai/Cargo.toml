@@ -1,0 +1,43 @@
+[package]
+name = "swarmie-model-provider-ai"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Native Tembra integration for swarmie-ai model providers"
+
+[features]
+default = []
+mock = ["swarmie-providers/mock"]
+vault-credentials = ["dep:swarmie-vault"]
+
+[dependencies]
+swarmie-vault = { path = "../vault", optional = true, features = ["executors"] }
+swarmie-model-submission-protection = { path = "../model-submission-protection" }
+swarmie-permissions = { path = "../permissions", features = ["tembra"] }
+zeroize = "1"
+uuid.workspace = true
+swarmie-providers.workspace = true
+swarmie-model-catalog.workspace = true
+swarmie-provider-auth.workspace = true
+sha2 = "0.10"
+tembra.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
+swarmie-ai.workspace = true
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream"] }
+tokio = { version = "1", features = ["rt", "time"] }
+
+[dev-dependencies]
+swarmie-context.workspace = true
+swarmie-agent-loop = { path = "../agent-loop", features = ["durable-tasks", "conversations"] }
+swarmie-providers = { workspace = true, features = ["mock"] }
+swarmie-durable-tasks.workspace = true
+swarmie-conversations.workspace = true
+swarmie-storage.workspace = true
+tempfile.workspace = true
+tokio = { version = "1", features = ["macros", "net", "io-util", "rt", "time"] }
+
+[lints]
+workspace = true

@@ -1,5 +1,9 @@
 use crate::{PluginContext, PluginId, PluginIndex};
-use std::{collections::BTreeMap, num::NonZeroU32, rc::Rc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    num::NonZeroU32,
+    rc::Rc,
+};
 use tembra::Orb;
 
 /// Optional composition metadata around an independently usable orb factory.
@@ -46,6 +50,8 @@ impl CorePlugin {
 pub enum CatalogError {
     #[error("duplicate compiled core plugin: {0}")]
     Duplicate(PluginId),
+    #[error("required compiled plugin is missing: {0}")]
+    RequiredMissing(PluginId),
 }
 
 /// Compiled factories available to this binary, not a second service registry.
@@ -53,6 +59,7 @@ pub enum CatalogError {
 pub struct Catalog(
     pub(crate) BTreeMap<PluginId, CorePlugin>,
     pub(crate) PluginIndex,
+    pub(crate) BTreeSet<PluginId>,
 );
 
 impl Catalog {
@@ -70,7 +77,30 @@ impl Catalog {
             }
             catalog.insert(plugin.id.clone(), plugin);
         }
-        Ok(Self(catalog, PluginIndex::default()))
+        Ok(Self(catalog, PluginIndex::default(), BTreeSet::new()))
+    }
+
+    /// Select mandatory plugins and their dependencies before opening a runtime.
+    /// The policy is host-owned and cannot be disabled through persisted inventory.
+    pub fn require(
+        mut self,
+        plugins: impl IntoIterator<Item = PluginId>,
+    ) -> Result<Self, CatalogError> {
+        let mut pending: Vec<_> = plugins.into_iter().collect();
+        let mut required = BTreeSet::new();
+        while let Some(id) = pending.pop() {
+            if !required.insert(id.clone()) {
+                continue;
+            }
+            let definition = self
+                .0
+                .get(&id)
+                .ok_or_else(|| CatalogError::RequiredMissing(id.clone()))?;
+            pending.extend(definition.dependencies.iter().cloned());
+        }
+        self.1 = PluginIndex::with_required(required.clone());
+        self.2 = required;
+        Ok(self)
     }
 }
 

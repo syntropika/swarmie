@@ -6,13 +6,13 @@ plugin catalog.
 
 ## Storage selection
 
-The runtime lives at root `runtime/`. Storage is an independent package at root
-`storage/`; it enables its `sqlite` feature by default and exposes the backend as
+The runtime lives in `crates/runtime/`. Storage is an independent package in
+`crates/storage/`; it enables its `sqlite` feature by default and exposes the backend as
 `swarmie_storage::sqlite`. The embedding supplies the file path and factory. Enabling
 the backend does not open a database or install more Orbs.
 
 Disable Storage's default features to use only its backend-neutral API. Capabilities
-share the small internal `storage/core/` package, so they can be used without the
+share the small internal `crates/storage/core/` package, so they can be used without the
 runtime or concrete backend. Run `just storage-check` to qualify that boundary.
 
 ## Open and use
@@ -58,8 +58,9 @@ start disposal; immediate reacquisition may fail while disposal is in progress.
 `Runtime::close` releases its manager reference and closes the host. Keep driving
 the executor until it returns. Dropping the close future does not prove shutdown.
 
-A failed manager acquisition or startup closes the partial host. A plugin mount
-failure is reported in its snapshot while independent plugins can still mount.
+A failed manager acquisition or startup closes the partial host. An optional plugin
+mount failure is reported in its snapshot. A required plugin mount failure aborts
+startup and closes the partial host.
 
 ## Product composition
 
@@ -81,8 +82,40 @@ an external effect.
 ## Optional node access
 
 The `rpc` feature re-exports `tembra::rpc` directly. The embedding owns transport,
-authentication and byte queues. `node_orb` supplies read-only node identity when
-explicitly composed. See [Node connections](client-runtime/node-connections.md).
+authentication and byte queues. `node_plugin` registers the read-only identity
+service with PluginManager. The embedding supplies the stable `NodeId`.
+
+```rust
+use swarmie_plugin_manager::{Catalog, PluginId};
+use swarmie_runtime::{NodeId, NODE_SERVICE, node_plugin};
+
+let catalog = Catalog::new([
+    node_plugin(NodeId::new("configured-node").unwrap()),
+]).unwrap().require([PluginId::new(NODE_SERVICE).unwrap()]).unwrap();
+```
+
+`Catalog::require` selects mandatory plugins and their dependencies. Configure
+this policy before opening the runtime or obtaining its contribution index.
+Only a confirmed revision-zero empty inventory is initialized automatically.
+An existing missing, disabled or incompatible required record fails startup
+without replacing that inventory. An uncertain initial write requires recovery.
+
+The native host uses `Runtime::open` for the same startup path. Its catalog contains
+the node identity plugin and a required native services plugin. The latter declares
+the private operator, tool, provider and conversation services on the runtime's
+single Host. It does not create another runtime or change provider protocols.
+Plugin inventory uses `runtime.sqlite` in the host-selected profile. The embedding
+retains its profile lock until runtime resources and physical work have closed.
+Standalone hosting uses the same native host library.
+
+Native factories declare storage without opening files. Scheduler, history and
+session resources acquire leases during managed activation. Conversation and task
+leases share one SQLite owner, so joint admission remains atomic. Session cleanup
+releases both leases after its physical invocations settle. Other active leases
+keep the shared connection open until the final managed consumer closes.
+
+`node_orb` remains available for independently composed Tembra hosts. See
+[Node connections](client-runtime/node-connections.md).
 
 Rust dependencies and their exact source are recorded in the root Cargo manifest
 and lockfile. Browser dependencies have their own root Bun resolution. Changing

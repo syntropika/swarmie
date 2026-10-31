@@ -11,19 +11,19 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use swarmie_desktop_runtime::DesktopNode;
+use swarmie_node::Node;
 
 const WAIT: Duration = Duration::from_secs(10);
 
 struct Rpc<'a> {
-    node: &'a DesktopNode,
+    node: &'a Node,
     channel: u64,
     next: u64,
     inbox: VecDeque<Value>,
 }
 
 impl<'a> Rpc<'a> {
-    fn new(node: &'a DesktopNode) -> Self {
+    fn new(node: &'a Node) -> Self {
         Self {
             node,
             channel: node.open_shared_channel().unwrap(),
@@ -178,7 +178,7 @@ impl Provider {
                 let (mime, body) = if catalog {
                     (
                         "application/json",
-                        json!({"models":[{"name":"fixture-model"}]}).to_string(),
+                        json!({"models":[{"name":"fixture-model","limit":{"context":128000,"output":8192},"swarmie_capabilities":{"profile":"swarmie.text-tools.v1","tools":true,"streaming":true}}]}).to_string(),
                     )
                 } else {
                     models += 1;
@@ -188,7 +188,7 @@ impl Provider {
                         json!({"role":"assistant","content":"Fresh response"})
                     };
                     let first = json!({"model":"fixture-model","message":message,"done":false});
-                    let last = json!({"model":"fixture-model","message":{"role":"assistant","content":""},"done":true,"done_reason":if models==1 {"tool_calls"} else {"stop"},"prompt_eval_count":3,"eval_count":5});
+                    let last = json!({"model":"fixture-model","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","prompt_eval_count":3,"eval_count":5});
                     ("application/x-ndjson", format!("{first}\n{last}\n"))
                 };
                 let _ = write!(
@@ -238,13 +238,7 @@ fn configure(rpc: &mut Rpc<'_>, endpoint: &str, gate: &Path) -> Value {
     configured["ok"].clone()
 }
 
-fn submission(
-    node: &DesktopNode,
-    account: &Value,
-    conversation: &str,
-    first: bool,
-    mode: &str,
-) -> Value {
+fn submission(node: &Node, account: &Value, conversation: &str, first: bool, mode: &str) -> Value {
     json!({"conversationId":conversation,"submissionId":if first {"original"} else {"fresh"},"createConversation":first,"draft":{"text":if first {"Use the counter"} else {"Fresh explicit message"},"attachments":[],"account":account["id"],"model":"fixture-model","effort":"","node":node.descriptor()["id"]},"mode":mode})
 }
 
@@ -271,7 +265,7 @@ fn interrupted_native_tool(kind: &str) {
     let provider = Provider::new();
     let state = tempfile::tempdir().unwrap();
     let gate = state.path().join("effect.json");
-    let node = DesktopNode::open(state.path().into()).unwrap();
+    let node = Node::open(state.path().into()).unwrap();
     let mut owner = Rpc::new(&node);
     let mut observer = Rpc::new(&node);
     let account = configure(&mut observer, &provider.endpoint, &gate);

@@ -16,9 +16,118 @@ pub(super) fn public_label(label: &str, fallback: &str) -> String {
     label[..end].to_owned()
 }
 
+use super::metadata::DiscoveredLimits;
+use super::qualifications::DeclaredCapabilities;
 use super::{catalog::ProviderSpec, failure};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
+use swarmie_model_catalog::{Evidence, Layer, LimitClaim, Limits, Precision};
 use swarmie_providers::settings::ModelInfo;
+
+pub(super) struct Discovery {
+    pub models: Vec<ModelInfo>,
+    pub limits: DiscoveredLimits,
+}
+
+fn declared_capabilities(
+    entry: &Value,
+    endpoint: &str,
+    model: &str,
+    now: u64,
+) -> tembra::Result<Option<DeclaredCapabilities>> {
+    let Some(value) = entry.get("swarmie_capabilities") else {
+        return Ok(None);
+    };
+    let fields = value
+        .as_object()
+        .ok_or_else(|| failure("the provider returned invalid model capabilities"))?;
+    let boolean = |name: &str| {
+        fields
+            .get(name)
+            .filter(|value| !value.is_null())
+            .map(|value| {
+                value
+                    .as_bool()
+                    .ok_or_else(|| failure("the provider returned invalid model capabilities"))
+            })
+            .transpose()
+    };
+    let tools = boolean("tools")?;
+    let streaming = boolean("streaming")?;
+    let profile = fields
+        .get("profile")
+        .filter(|value| !value.is_null())
+        .map(|value| {
+            value
+                .as_str()
+                .filter(|value| value.len() <= 256 && !value.chars().any(char::is_control))
+                .map(str::to_owned)
+                .ok_or_else(|| failure("the provider returned an invalid model profile"))
+        })
+        .transpose()?;
+    let encoded = serde_json::to_vec(&(tools, streaming, &profile))
+        .map_err(|_| failure("model capabilities could not be encoded"))?;
+    Ok(Some(DeclaredCapabilities {
+        tools,
+        streaming,
+        profile,
+        evidence: Evidence {
+            source: format!("{endpoint}#model={model}"),
+            revision: format!("{:x}", Sha256::digest(encoded)),
+            layer: Layer::Provider,
+            observed_at_ms: now,
+            expires_at_ms: None,
+        },
+    }))
+}
+
+fn declared_limits(
+    entry: &Value,
+    endpoint: &str,
+    model: &str,
+    now: u64,
+) -> tembra::Result<Option<Limits>> {
+    let Some(value) = entry.get("limit") else {
+        return Ok(None);
+    };
+    let fields = value
+        .as_object()
+        .ok_or_else(|| failure("the provider returned invalid model limits"))?;
+    let mut limits = Limits::default();
+    let revision = format!(
+        "{:x}",
+        Sha256::digest(
+            serde_json::to_vec(value)
+                .map_err(|_| failure("the model metadata could not be encoded"))?
+        )
+    );
+    let evidence = Evidence {
+        source: format!("{endpoint}#model={model}"),
+        revision,
+        layer: Layer::Provider,
+        observed_at_ms: now,
+        expires_at_ms: None,
+    };
+    for (name, claims) in [
+        ("context", &mut limits.context),
+        ("input", &mut limits.input),
+        ("output", &mut limits.output),
+    ] {
+        if let Some(value) = fields.get(name).filter(|value| !value.is_null()) {
+            let tokens = value
+                .as_u64()
+                .ok_or_else(|| failure("the provider returned invalid model limits"))?;
+            if let Some(tokens) = std::num::NonZeroU64::new(tokens) {
+                claims.push(LimitClaim {
+                    tokens,
+                    precision: Precision::Reported,
+                    evidence: evidence.clone(),
+                });
+            }
+        }
+    }
+    Ok(Some(limits))
+}
 
 fn client() -> tembra::Result<reqwest::Client> {
     reqwest::Client::builder()
@@ -52,7 +161,7 @@ pub(super) async fn list(
     spec: &ProviderSpec,
     endpoint: &str,
     credential: Option<&str>,
-) -> tembra::Result<Vec<ModelInfo>> {
+) -> tembra::Result<Discovery> {
     let client = client()?;
     let suffix = if spec.id == "ollama" {
         "api/tags"
@@ -91,14 +200,36 @@ pub(super) async fn list(
         .and_then(Value::as_array)
         .ok_or_else(|| failure("the provider returned an invalid model catalog"))?;
     let mut models = Vec::new();
+    let mut limits = DiscoveredLimits {
+        endpoint: endpoint.into(),
+        ..Default::default()
+    };
+    let now = swarmie_provider_auth::now_ms();
     for entry in entries {
         let field = if spec.id == "ollama" { "name" } else { "id" };
         let Some(id) = entry.get(field).and_then(Value::as_str) else {
             continue;
         };
-        let id = id.strip_prefix("models/").unwrap_or(id);
         if !valid_id(id) {
             continue;
+        }
+        if let Some(value) = declared_limits(entry, endpoint, id, now)? {
+            if limits.models.get(id).is_some_and(|prior| prior != &value) {
+                return Err(failure("the provider returned conflicting model limits"));
+            }
+            limits.models.insert(id.into(), value);
+        }
+        if let Some(value) = declared_capabilities(entry, endpoint, id, now)? {
+            if limits
+                .capabilities
+                .get(id)
+                .is_some_and(|prior| prior != &value)
+            {
+                return Err(failure(
+                    "the provider returned conflicting model capabilities",
+                ));
+            }
+            limits.capabilities.insert(id.into(), value);
         }
         let label = entry
             .get("display_name")
@@ -116,13 +247,13 @@ pub(super) async fn list(
     if models.is_empty() {
         return Err(failure("this provider has no available models"));
     }
-    Ok(models)
+    Ok(Discovery { models, limits })
 }
 
 pub(super) async fn oauth_models(
     credential: &swarmie_provider_auth::Credential,
     endpoint: &str,
-) -> tembra::Result<Vec<ModelInfo>> {
+) -> tembra::Result<Discovery> {
     let client = client()?;
     let response = client
         .get(format!("{}/models", endpoint.trim_end_matches('/')))
@@ -143,6 +274,11 @@ pub(super) async fn oauth_models(
         .and_then(Value::as_array)
         .ok_or_else(|| failure("the authorized model catalog is invalid"))?;
     let mut models = Vec::new();
+    let mut limits = DiscoveredLimits {
+        endpoint: endpoint.into(),
+        ..Default::default()
+    };
+    let now = swarmie_provider_auth::now_ms();
     for entry in entries {
         if entry.get("visibility").and_then(Value::as_str) != Some("list") {
             continue;
@@ -152,6 +288,24 @@ pub(super) async fn oauth_models(
         };
         if !valid_id(id) {
             continue;
+        }
+        if let Some(value) = declared_limits(entry, endpoint, id, now)? {
+            if limits.models.get(id).is_some_and(|prior| prior != &value) {
+                return Err(failure("the provider returned conflicting model limits"));
+            }
+            limits.models.insert(id.into(), value);
+        }
+        if let Some(value) = declared_capabilities(entry, endpoint, id, now)? {
+            if limits
+                .capabilities
+                .get(id)
+                .is_some_and(|prior| prior != &value)
+            {
+                return Err(failure(
+                    "the provider returned conflicting model capabilities",
+                ));
+            }
+            limits.capabilities.insert(id.into(), value);
         }
         let label = entry
             .get("display_name")
@@ -188,7 +342,7 @@ pub(super) async fn oauth_models(
     if models.is_empty() {
         return Err(failure("this authorized account has no available models"));
     }
-    Ok(models)
+    Ok(Discovery { models, limits })
 }
 
 #[cfg(test)]
@@ -196,6 +350,81 @@ mod tests {
     use super::*;
     use swarmie_provider_auth::{Credential, Provider};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn model_capabilities_require_an_explicit_namespace_and_typed_declaration() {
+        let endpoint = "https://provider.example/v1";
+        assert!(
+            declared_capabilities(
+                &serde_json::json!({"tool_call":true,"capabilities":{"tools":true}}),
+                endpoint,
+                "model",
+                10
+            )
+            .unwrap()
+            .is_none()
+        );
+        let row = serde_json::json!({"swarmie_capabilities":{"tools":true,"streaming":false,"profile":"swarmie.text-tools.v1"},"base_instructions":"private unrelated data"});
+        let declared = declared_capabilities(&row, endpoint, "model", 10)
+            .unwrap()
+            .unwrap();
+        assert_eq!(declared.tools, Some(true));
+        assert_eq!(declared.streaming, Some(false));
+        assert!(
+            !serde_json::to_string(&declared)
+                .unwrap()
+                .contains("private")
+        );
+        for value in [serde_json::json!(1), serde_json::json!("yes")] {
+            assert!(
+                declared_capabilities(
+                    &serde_json::json!({"swarmie_capabilities":{"tools":value}}),
+                    endpoint,
+                    "model",
+                    10
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn provider_limits_are_optional_explicit_and_do_not_include_other_model_payload() {
+        let endpoint = "https://provider.example/v1";
+        assert!(
+            declared_limits(
+                &serde_json::json!({"context_window":1000}),
+                endpoint,
+                "model",
+                10
+            )
+            .unwrap()
+            .is_none()
+        );
+        let record = declared_limits(&serde_json::json!({"limit":{"context":1000,"input":0,"output":100},"base_instructions":"sensitive unrelated payload"}), endpoint, "model", 10).unwrap().unwrap();
+        assert_eq!(record.context[0].tokens.get(), 1000);
+        assert!(record.input.is_empty());
+        assert!(
+            !serde_json::to_string(&record)
+                .unwrap()
+                .contains("sensitive")
+        );
+        for value in [
+            serde_json::json!(-1),
+            serde_json::json!(true),
+            serde_json::json!(1.5),
+        ] {
+            assert!(
+                declared_limits(
+                    &serde_json::json!({"limit":{"context":value}}),
+                    endpoint,
+                    "model",
+                    10
+                )
+                .is_err()
+            );
+        }
+    }
 
     #[tokio::test]
     async fn kimi_catalog_uses_bearer_auth_and_openai_compatible_model_discovery() {
@@ -223,7 +452,10 @@ mod tests {
             .into_iter()
             .find(|spec| spec.id == "kimi")
             .unwrap();
-        let models = list(&spec, &endpoint, Some("synthetic-key")).await.unwrap();
+        let models = list(&spec, &endpoint, Some("synthetic-key"))
+            .await
+            .unwrap()
+            .models;
         worker.await.unwrap();
         assert_eq!(models.len(), 1);
         assert_eq!(models[0].id, "kimi-fixture");
@@ -256,7 +488,7 @@ mod tests {
         };
         let models = oauth_models(&credential, &credential.endpoint).await;
         worker.await.unwrap();
-        let models = models.unwrap();
+        let models = models.unwrap().models;
         assert_eq!(models.len(), 1);
         assert_eq!(models[0].id, "fixture-model");
         assert_eq!(models[0].efforts, ["medium"]);
@@ -297,13 +529,13 @@ mod tests {
                     chatgpt: None,
                     endpoint: endpoint.clone(),
                 };
-                oauth_models(&credential, &endpoint).await.unwrap()
+                oauth_models(&credential, &endpoint).await.unwrap().models
             } else {
                 let spec = super::super::catalog::specifications()
                     .into_iter()
                     .find(|spec| spec.id == "ollama")
                     .unwrap();
-                list(&spec, &endpoint, None).await.unwrap()
+                list(&spec, &endpoint, None).await.unwrap().models
             };
             worker.await.unwrap();
             assert_eq!(

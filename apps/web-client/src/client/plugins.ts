@@ -11,6 +11,26 @@ function optional(id: string): id is OptionalPlugin {
 }
 
 /** These controls hold consumer References to known, compiled frontend plugins. */
+function corePermissions(id: string): string[] {
+  if (id === "vault") {
+    return [
+      "Discover eligible secret references",
+      "Receive credentials for approved execution",
+      "Store and manage encrypted secrets",
+    ];
+  }
+  if (id === "model-credentials") {
+    return [
+      "Request eligible model credentials",
+      "Receive credentials for one approved model attempt",
+    ];
+  }
+  if (id === "model-protection") {
+    return ["Inspect all final content sent to a model"];
+  }
+  return [];
+}
+
 export function createPluginControls(
   settings: UiStore<Readonly<SettingsState>>,
   dev: boolean,
@@ -29,6 +49,21 @@ export function createPluginControls(
   const base = [
     ["shell", "Application shell", "Navigation and application chrome.", true, []],
     ["connections", "Connections", "Access to execution nodes.", true, []],
+    ["vault", "Vault", "Private credentials managed by your node.", true, []],
+    [
+      "model-protection",
+      "Model protection",
+      "Detect possible credentials before sending content to a model.",
+      true,
+      [],
+    ],
+    [
+      "model-credentials",
+      "Model credentials",
+      "Resolve eligible credentials privately for model requests.",
+      true,
+      [],
+    ],
     ["settings", "Settings", "Preferences and plugin configuration.", true, []],
     ["conversations", "Conversations", "Messages, history and an extensible composer.", true, []],
     [
@@ -74,6 +109,8 @@ export function createPluginControls(
       description,
       required,
       uses: [...uses],
+      core: true,
+      permissions: corePermissions(id),
       enabled: true,
       errors: [],
       version: "1",

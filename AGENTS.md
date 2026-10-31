@@ -121,9 +121,11 @@ Do not recreate a generic Contract generator or packaging layer without a concre
 ## Rust and verification
 
 Use the root pinned toolchain, rustfmt.toml and justfile. Keep manifests with their owners;
-do not duplicate formatting, toolchain or changelog configuration. Infrastructure belongs in
-`runtime/`; storage lives in root `storage/`, with neutral contracts in `storage/core/`.
-Capability libraries belong in `plugins/`, and synthetic fixtures in `tests/fixtures/`.
+do not duplicate formatting, toolchain or changelog configuration. General Rust libraries belong in `crates/`, with short directory names. The embeddable
+runtime lives in `crates/runtime/`, storage in `crates/storage/`, and neutral storage
+contracts in `crates/storage/core/`. The independent model catalog lives in
+`crates/model-catalog/`. Capability libraries stay in `plugins/`, and synthetic
+fixtures stay in `tests/fixtures/`.
 Do not add top-level example applications or an editor-specific `.vscode/` directory.
 
 Keep lib.rs focused on public exports. Use typed domain/control values and accurate public
@@ -132,3 +134,59 @@ Separate adjacent declarations. Keep unit tests inline and integration tests in 
 `tests/` directory; do not create source directories solely to hold tests. Run root formatting,
 strict Clippy, relevant behavior tests and Rustdoc link checks. Report real exceptions rather
 than suppressing new warnings. Run platform-specific checks on a configured compatible host.
+
+### Investigation and changes
+
+Read the owning implementation and its manifest before changing a public interface.
+Check actual signatures and feature flags before writing examples. Search the owning
+module first and read complete relevant constructs. Reuse unchanged source already in
+context. Expand the search when a dependency or caller requires it. Keep commands on
+the intended worktree. An empty search outside the indexed workspace does not prove
+that an interface has no callers.
+
+Reuse existing domain types, errors and extension points. Do not add placeholder APIs,
+speculative abstractions or silent fallback. Refuse unsupported behavior before an
+external effect. Preserve confirmed results when observation or projection fails.
+
+### Rust errors and control flow
+
+Use typed errors for new fallible APIs. Do not use `String` as the public error type.
+Use `?` and meaningful error conversions. New production paths must handle absent or
+invalid data without `unwrap`, `expect`, `panic!` or `unreachable!`. Use checked indexing
+and conversions for external values. Express required invariants in validated types.
+Do not replace an error with a guessed default or a different account or provider.
+
+Release lock and RefCell guards before `.await`. Keep the root Clippy warning gate
+strict for all targets. Do not enable an entire restriction group or add a broad
+allowance to make a check pass. Explain a necessary exception on the smallest item.
+Do not add a crate-level `cfg(test)` allowance that exempts production declarations.
+Keep existing unit tests inline. Tests that return `Result` must propagate failures;
+use ordinary test functions when assertions describe the expected result.
+
+The root enables async lock restrictions and the existing placeholder/debug lints.
+The unpublished `xtask` also denies unwrap, expect, indexing and panic-related lints.
+Other crates do not yet enforce that whole set. Follow these production rules when
+changing them, without claiming that historical code has passed a full migration.
+
+### Provider codecs
+
+Provider codecs under `crates/ai/src/codecs/providers/` are synchronous data
+transformations. Keep transport, task spawning, filesystem access, credential lookup
+and renewal outside that boundary. Explicit credentials and physical execution retain
+their existing owners. Compile-time platform constants are allowed. Qualified dialects
+share their existing codecs and use extension hooks for actual profile differences.
+Preserve native fields and reject an option that the selected route cannot enforce.
+
+### Verification tools
+
+Use `just rust-test -p <package> <filter>` for focused iteration. Before completing a
+change, run the relevant package and feature checks, strict Clippy, root formatting and
+Rustdoc link checks. Check affected consumers when a shared contract changes. Distinguish
+local fixtures from real account, platform and composed-runtime qualification.
+
+Use `just rust-source-check` for workspace lint inheritance and provider boundary checks.
+These checks parse Rust source, including non-test platform branches and macro tokens.
+They permit explicit `#[cfg(test)]` items, including inline tests. They are syntactic
+guards; review indirect calls, aliases and dependencies separately. Do not treat them as
+an effect sandbox. Add source-policy tooling to the unpublished `xtask`, with behavior
+tests, and invoke it through the root `justfile`. Keep one toolchain and command owner.

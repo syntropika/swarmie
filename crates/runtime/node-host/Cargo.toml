@@ -1,0 +1,27 @@
+[package]
+name = "swarmie-node-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Independent local host for the reusable protected Swarmie node"
+
+[[bin]]
+name = "swarmie-node"
+path = "src/main.rs"
+doc = false
+
+[dependencies]
+swarmie-node.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+subtle = "2"
+tokio = { version = "1", features = ["rt", "net", "io-util", "time", "signal", "sync", "macros"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+libc = "0.2"
+
+[lints]
+workspace = true

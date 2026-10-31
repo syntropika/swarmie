@@ -484,7 +484,9 @@ fn dropping_the_logical_waiter_keeps_the_physical_tool_and_terminal_observation_
     let hooks = Hooks::default();
     let model = Rc::new(MockModel::new([
         Step::Reply(ModelResponse {
+            protection: swarmie_providers::SubmissionProtection::Unprotected,
             message: AssistantMessage {
+                provider: None,
                 content: String::new(),
                 tool_calls: vec![ToolCall {
                     id: ToolCallId::new("call-1").unwrap(),

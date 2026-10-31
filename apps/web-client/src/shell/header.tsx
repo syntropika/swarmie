@@ -252,6 +252,7 @@ function HeaderTitle() {
       {
         general: "General",
         git: "Git",
+        vault: "Vault",
         conversation: "Conversation",
         connections: "Connections",
         providers: "Providers",

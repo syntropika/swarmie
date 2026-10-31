@@ -5,9 +5,9 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-use swarmie_desktop_runtime::DesktopNode;
+use swarmie_desktop_runtime::Node;
 
-fn request(node: &DesktopNode, channel: u64, id: u64, op: &str, payload: Value) -> Value {
+fn request(node: &Node, channel: u64, id: u64, op: &str, payload: Value) -> Value {
     node.frame(
         channel,
         serde_json::to_vec(&json!({"id":id,"op":op,"payload":payload})).unwrap(),
@@ -26,7 +26,7 @@ fn request(node: &DesktopNode, channel: u64, id: u64, op: &str, payload: Value) 
     panic!("native RPC response timed out");
 }
 
-fn get(node: &DesktopNode, channel: u64, service: &str, key: &str) -> Value {
+fn get(node: &Node, channel: u64, service: &str, key: &str) -> Value {
     let value = request(
         node,
         channel,
@@ -38,13 +38,7 @@ fn get(node: &DesktopNode, channel: u64, service: &str, key: &str) -> Value {
     value["ok"].clone()
 }
 
-fn call(
-    node: &DesktopNode,
-    channel: u64,
-    reference: &Value,
-    method: &str,
-    arguments: Value,
-) -> Value {
+fn call(node: &Node, channel: u64, reference: &Value, method: &str, arguments: Value) -> Value {
     request(
         node,
         channel,
@@ -57,7 +51,7 @@ fn call(
 #[test]
 fn shared_channels_are_independent_bounded_and_exclusively_replaceable() {
     let state = tempfile::tempdir().unwrap();
-    let node = DesktopNode::open(state.path().into()).unwrap();
+    let node = Node::open(state.path().into()).unwrap();
     let first = node.open_shared_channel().unwrap();
     let second = node.open_shared_channel().unwrap();
     let one = get(&node, first, "swarmie.providers.settings", "main");
@@ -85,6 +79,8 @@ fn shared_channels_are_independent_bounded_and_exclusively_replaceable() {
 
 #[test]
 fn native_provider_configuration_executes_and_restores_history_without_replaying_a_submission() {
+    // Native startup compiles the bundled rules before this fixture starts accepting requests.
+    assert!(swarmie_model_submission_protection::Detector::bundled().is_some());
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
     listener.set_nonblocking(true).unwrap();
@@ -95,7 +91,7 @@ fn native_provider_configuration_executes_and_restores_history_without_replaying
         let replies = [
             (
                 "application/json",
-                r#"{"models":[{"name":"fixture-model"}]}"#,
+                r#"{"models":[{"name":"fixture-model","limit":{"context":128000,"output":8192},"swarmie_capabilities":{"profile":"swarmie.text-tools.v1","tools":true,"streaming":true}}]}"#,
             ),
             (
                 "application/x-ndjson",
@@ -152,7 +148,7 @@ fn native_provider_configuration_executes_and_restores_history_without_replaying
     let state = tempfile::tempdir().unwrap();
     let submission;
     {
-        let node = DesktopNode::open(state.path().into()).unwrap();
+        let node = Node::open(state.path().into()).unwrap();
         let channel = node.open_shared_channel().unwrap();
         let providers = get(&node, channel, "swarmie.providers.settings", "main");
         let configured = call(
@@ -204,7 +200,7 @@ fn native_provider_configuration_executes_and_restores_history_without_replaying
         *calls.lock().unwrap(),
         ["GET /api/tags HTTP/1.1", "POST /api/chat HTTP/1.1"]
     );
-    let node = DesktopNode::open(state.path().into()).unwrap();
+    let node = Node::open(state.path().into()).unwrap();
     let channel = node.open_shared_channel().unwrap();
     let session = get(
         &node,
@@ -246,7 +242,7 @@ fn native_provider_configuration_executes_and_restores_history_without_replaying
         .unwrap()
         .push(json!({"id":"unconfirmed","digest":"fixture-digest"}));
     std::fs::write(&index, serde_json::to_vec(&metadata).unwrap()).unwrap();
-    let node = DesktopNode::open(state.path().into()).unwrap();
+    let node = Node::open(state.path().into()).unwrap();
     let channel = node.open_shared_channel().unwrap();
     let session = get(
         &node,

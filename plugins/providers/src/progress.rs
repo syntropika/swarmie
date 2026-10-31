@@ -7,6 +7,7 @@ use tembra::{Context, Declaration};
 /// Tool arguments are deliberately absent: only the final response can authorize calls.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelProgress {
+    pub protection: crate::SubmissionProtection,
     pub operation: OperationId,
     pub content: String,
 }

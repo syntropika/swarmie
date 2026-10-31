@@ -1,8 +1,12 @@
 //! Client admission and projection over the existing Agent Loop and Conversations libraries.
 mod checkout;
+mod context;
+mod context_service;
 mod execution;
 mod index;
+mod input;
 mod projection;
+mod sources;
 pub(crate) mod tasks;
 mod types;
 
@@ -35,18 +39,39 @@ struct Session {
     agent_history: History,
     tasks: Rc<tasks::Tasks>,
     providers: Rc<NativeProviders>,
+    execution: Option<Rc<dyn crate::ConversationExecution>>,
     tools: Rc<CatalogService>,
     catalog: Catalog,
     git: Option<swarmie_git::GitService>,
+    project_configuration: Option<swarmie_project_context::Configuration>,
     agent_git_authority: Option<std::sync::Arc<dyn swarmie_git::Authority>>,
     index: Rc<index::Index>,
     state: State<Snapshot>,
     running: RefCell<Option<RunningContext>>,
     stop_epoch: std::cell::Cell<u64>,
     serial: tokio::sync::Mutex<()>,
+    compaction_running: RefCell<Option<(swarmie_providers::OperationId, swarmie_ai::StopHandle)>>,
 }
 
 impl Session {
+    async fn close(&self) -> tembra::Result<()> {
+        let history = self.history.close().await.map_err(Into::into);
+        let tasks = self
+            .tasks
+            .storage
+            .close()
+            .await
+            .map_err(|error| failure(&error.to_string()));
+        history.and(tasks)
+    }
+
+    fn enter_execution(&self, context: &Context) -> tembra::Result<Option<crate::ExecutionScope>> {
+        self.execution
+            .as_ref()
+            .map(|owner| owner.enter(context))
+            .transpose()
+    }
+
     async fn transcript(&self, context: &Context) -> tembra::Result<Transcript> {
         let metadata = self.index.get(&self.id)?;
         let receipts = metadata
@@ -230,6 +255,13 @@ impl Session {
             _ => "",
         };
         self.state.update(context, |current| {
+            let mut context_status = current.context.clone();
+            if let Some(inspection) = &mut context_status.inspection {
+                inspection.stale = transcript.head != Some(inspection.at);
+            }
+            if phase == Phase::Working {
+                context_status.can_compact = false;
+            }
             let mut messages = transcript.messages;
             if phase == Phase::Working
                 && let Some(preview) = current
@@ -240,6 +272,7 @@ impl Session {
                 messages.push(preview.clone());
             }
             Ok(projection::bound(Snapshot {
+                context: context_status,
                 messages,
                 admitted: transcript.admitted,
                 omitted_messages: transcript.omitted,
@@ -276,8 +309,26 @@ impl Session {
             inner: self.tools.clone(),
             binding: metadata.execution_context,
             authority: self.agent_git_authority.clone(),
+            project: metadata
+                .checkpoint
+                .as_ref()
+                .and_then(|checkpoint| checkpoint.sources())
+                .map(|_| {
+                    sources::SkillTools::new(
+                        self.tasks.host.clone(),
+                        self.id.clone(),
+                        self.principal.clone(),
+                    )
+                })
+                .transpose()?,
         };
         if let Some(checkpoint) = metadata.checkpoint {
+            let scope = match self.enter_execution(context) {
+                Ok(scope) => scope,
+                Err(_) if !acknowledge => return self.refresh(context).await,
+                Err(error) => return Err(error),
+            };
+            let context = scope.as_ref().map_or(context, |scope| scope.context());
             let settlement = self
                 .agent_history
                 .settle_tools(context, &tools, checkpoint, acknowledge, None)
@@ -434,8 +485,6 @@ impl Session {
         if context.principal()? != self.principal
             || input.conversation_id != self.id
             || input.draft.node != self.node
-            || input.draft.text.trim().is_empty()
-            || input.draft.text.len() > 16 * 1024
             || input.submission_id.is_empty()
             || input.submission_id.len() > 255
             || !input.draft.attachments.is_empty()
@@ -445,6 +494,7 @@ impl Session {
                 "the conversation submission is invalid or includes unsupported attachments",
             ));
         }
+        input::validate_text(&input.draft.text)?;
         if input.execution_context.is_some()
             && input.draft.execution_context.is_some()
             && input.execution_context != input.draft.execution_context
@@ -480,10 +530,13 @@ impl Session {
                     "the running conversation uses another checkout binding",
                 ));
             }
-            self.request_stop().await?;
+            if self.compaction_running.borrow().is_none() {
+                self.request_stop(&context).await?;
+            }
         }
         let _serial = self.serial.lock().await;
         context.check()?;
+        self.context_wait(&context).await?;
         self.wait_turn(&context).await?;
         // Another first submission may have bound this conversation while we waited.
         if let Some(existing) = self.index.get(&self.id)?
@@ -504,6 +557,7 @@ impl Session {
             context: context.clone(),
             binding: binding.clone(),
             execution: None,
+            sources: None,
         });
         let _running = Running(&self.running, context.clone());
         if self
@@ -533,27 +587,23 @@ impl Session {
             )
             .await?;
         }
-        let tools = self
-            .catalog
-            .snapshot()?
-            .specs()
-            .into_iter()
-            .filter(|spec| {
-                binding.is_some() || !matches!(spec.name.as_str(), "git_inspect" | "git_mutate")
-            })
-            .collect();
+        let sources = self
+            .capture_sources(&context, binding.as_ref(), &input.draft.text)
+            .await?;
+        let tools = self.context_tools(binding.as_ref(), sources.as_ref())?;
         let account = input
             .draft
             .account
             .as_deref()
             .ok_or_else(|| failure("select a provider account"))?;
-        let _model = self
+        let selected_model = self
             .providers
-            .model(
+            .model_with_protection(
                 &self.principal,
                 account,
                 &input.draft.model,
                 &input.draft.effort,
+                swarmie_model_provider_ai::ModelProtection::Unprotected,
             )
             .await?;
         context.check()?;
@@ -561,6 +611,7 @@ impl Session {
         let mut records = self.index.read()?;
         if !records.iter().any(|record| record.id == self.id) {
             records.push(Metadata {
+                context: Some(context::Ledger::new()?),
                 id: self.id.clone(),
                 title: input.draft.text.trim().chars().take(64).collect(),
                 principal: self.principal.clone(),
@@ -615,29 +666,41 @@ impl Session {
             .to_string()
             .parse::<EntryId>()
             .map_err(|_| failure("the submission identity is invalid"))?;
+        let instructions = context::instructions(binding.as_ref());
+        let mut request = sources::with_sources(
+            Request::new(
+                conversation.head,
+                instructions,
+                tools,
+                NonZeroU32::new(16).ok_or_else(|| failure("turn bound is invalid"))?,
+            ),
+            sources,
+        )?;
+        let configuration =
+            context::configuration(&selected_model, &request.instructions, &request.tools)?;
+        request.projection = self
+            .context_ledger()?
+            .checkpoint
+            .active_for(configuration)
+            .cloned();
         may_be_admitted.set(true);
-        self.tasks.admit(
-            &context,
-            &self.history,
-            task,
-            entry,
-            tasks::Input {
-                session: self.id.clone(),
-                account: account.into(),
-                model: input.draft.model,
-                effort: input.draft.effort,
-                binding: binding.clone(),
-                request: Request {
-                    at: conversation.head,
-                    instructions: binding.as_ref().map_or_else(String::new, |binding| format!(
-                        "Use the captured Git checkout at {} on node {}. Git tools must target its canonical root/Git-directory identity {}. Other provider tools retain their own resource scope.",
-                        binding.path, binding.node_id, binding.identity
-                    )),
-                    tools,
-                    max_turns: NonZeroU32::new(16).unwrap(),
+        self.tasks
+            .admit(
+                &context,
+                &self.history,
+                task,
+                entry,
+                tasks::Input {
+                    session: self.id.clone(),
+                    account: account.into(),
+                    model: input.draft.model,
+                    effort: input.draft.effort,
+                    binding: binding.clone(),
+                    context_fence: self.context_ledger()?.fence,
+                    request,
                 },
-            },
-        ).await?;
+            )
+            .await?;
         checkout::sync_hold(&self.index, self.git.as_ref(), &self.principal, &self.id).await;
         self.tasks.wait(&context, task).await?;
         let _ = self.refresh(&context).await;
@@ -659,6 +722,7 @@ struct RunningContext {
     context: Context,
     binding: Option<types::ExecutionContext>,
     execution: Option<swarmie_durable_tasks::Execution>,
+    sources: Option<swarmie_providers::ContextSources>,
 }
 
 struct Running<'a>(&'a RefCell<Option<RunningContext>>, Context);
@@ -675,9 +739,11 @@ impl Drop for Running<'_> {
     }
 }
 
-pub(crate) struct GitExecution {
+pub(crate) struct ExecutionPolicy {
     pub service: Option<swarmie_git::GitService>,
     pub authority: Option<std::sync::Arc<dyn swarmie_git::Authority>>,
+    pub owner: Option<Rc<dyn crate::ExecutionOwner>>,
+    pub project_context: Option<swarmie_project_context::Configuration>,
 }
 
 pub(crate) fn orbs(
@@ -687,42 +753,35 @@ pub(crate) fn orbs(
     principal: String,
     providers: Rc<NativeProviders>,
     catalog: Catalog,
-    git_execution: GitExecution,
+    policy: ExecutionPolicy,
 ) -> tembra::Result<Vec<Orb>> {
-    let GitExecution {
+    let ExecutionPolicy {
         service: git,
         authority: agent_git_authority,
-    } = git_execution;
+        owner: execution,
+        project_context,
+    } = policy;
     let owner = swarmie_storage::sqlite::SqliteOwner::new(path.join("conversations.sqlite"));
-    let storage: Rc<dyn swarmie_conversations::ConversationStorage> =
-        Rc::new(owner.conversations()?);
-    let task_storage: Rc<dyn swarmie_durable_tasks::TaskStorage> =
-        Rc::new(owner.tasks().map_err(|error| failure(&error.to_string()))?);
     let options = swarmie_durable_tasks::Options::new(
         tasks::Executor,
         std::num::NonZeroU64::new(5_000).unwrap(),
         Rc::new(|duration| async move { tokio::time::sleep(duration).await }.boxed_local()),
     );
-    let tasks = Rc::new(tasks::Tasks {
-        storage: task_storage.clone(),
-        host: host.clone(),
-    });
     let scheduler = swarmie_durable_tasks::orb(
         host.clone(),
-        Rc::new(move || {
-            let storage = task_storage.clone();
-            async move { Ok(storage) }.boxed_local()
-        }),
-        swarmie_durable_tasks::Definitions::new([tasks::definition()])
-            .map_err(|error| failure(&error.to_string()))?,
+        owner.task_factory(),
+        swarmie_durable_tasks::Definitions::new([
+            tasks::definition(),
+            swarmie_context::durable::definition(),
+        ])
+        .map_err(|error| failure(&error.to_string()))?,
         options,
     );
     let handler = tasks::handler(host.clone());
-    let history = Conversations::new(storage.clone());
-    let history_orb = swarmie_conversations::orb(Rc::new(move || {
-        let storage = storage.clone();
-        async move { Ok(storage) }.boxed_local()
-    }));
+    let context_handler = context::handler(host.clone());
+    let context_orb = context_service::orb(host.clone(), principal.clone());
+    let commands = context_service::commands(host.clone(), principal.clone());
+    let history_orb = swarmie_conversations::orb(owner.conversation_factory());
     let index = Rc::new(index::Index {
         path: path.join("conversations.json"),
         lifecycle: tokio::sync::Mutex::new(()),
@@ -775,167 +834,271 @@ pub(crate) fn orbs(
             },
         ),
     );
-    let sessions =
-        Orb::new(SERVICE, 1).service(
-            Service::new(SERVICE, move |declaration| {
-                let address = declaration.address()?;
-                let [id] = address.key.as_slice() else {
-                    return Err(tembra::Error::invalid(
-                        "conversation.key",
-                        "invalid conversation key",
-                    ));
-                };
-                if address.principal != principal || id.is_empty() || id.len() > 255 {
-                    return Err(tembra::Error::new(
-                        tembra::Code::Forbidden,
-                        "conversation.principal",
-                        "conversation access refused",
-                    ));
-                }
-                let history_id = uuid::Uuid::new_v5(
+    let sessions = Orb::new(SERVICE, 1).service(
+        Service::new(SERVICE, move |declaration| {
+            let address = declaration.address()?;
+            let [id] = address.key.as_slice() else {
+                return Err(tembra::Error::invalid(
+                    "conversation.key",
+                    "invalid conversation key",
+                ));
+            };
+            if address.principal != principal || id.is_empty() || id.len() > 255 {
+                return Err(tembra::Error::new(
+                    tembra::Code::Forbidden,
+                    "conversation.principal",
+                    "conversation access refused",
+                ));
+            }
+            let history_id = uuid::Uuid::new_v5(
+                &uuid::Uuid::NAMESPACE_URL,
+                format!("{node}/{principal}/{id}").as_bytes(),
+            )
+            .to_string()
+            .parse::<ConversationId>()
+            .map_err(|_| failure("invalid conversation identity"))?;
+            let owner_conversation_id = execution.as_ref().map(|_| {
+                uuid::Uuid::new_v5(
                     &uuid::Uuid::NAMESPACE_URL,
                     format!("{node}/{principal}/{id}").as_bytes(),
                 )
-                .to_string()
-                .parse::<ConversationId>()
-                .map_err(|_| failure("invalid conversation identity"))?;
-                let state = declaration.state(
-                    Snapshot {
-                        conversation_id: id.clone(),
-                        messages: vec![],
-                        phase: Phase::Idle,
-                        label: String::new(),
-                        admitted: vec![],
-                        omitted_messages: 0,
-                        can_acknowledge: false,
-                        execution_context: index
-                            .get(id)?
-                            .as_ref()
-                            .and_then(|record| record.execution_context.clone()),
-                        lifecycle_warning: index
-                            .get(id)?
-                            .and_then(|record| record.lifecycle_warning)
-                            .map(checkout::bounded_warning),
-                    },
-                    1,
-                    |value| {
-                        if serde_json::to_vec(value)
-                            .map_err(|_| failure("conversation projection could not be encoded"))?
-                            .len()
-                            > 48 * 1024
-                        {
-                            return Err(failure(
-                                "the conversation preview exceeds the current transport limit",
-                            ));
-                        }
-                        Ok(())
-                    },
-                )?;
-                Ok(Session {
-                    id: id.clone(),
-                    node: node.clone(),
-                    principal: principal.clone(),
-                    history_id,
-                    history: history.clone(),
-                    tasks: tasks.clone(),
-                    agent_history: History::bind(
-                        &declaration,
-                        host.clone(),
-                        swarmie_conversations::SERVICE,
-                        vec!["main".into()],
-                    )?,
-                    providers: providers.clone(),
-                    tools: Rc::new(CatalogService::bind(
-                        &declaration,
-                        host.clone(),
-                        swarmie_tools::SERVICE,
-                        vec!["main".into()],
-                    )?),
-                    catalog: catalog.clone(),
-                    git: git.clone(),
-                    agent_git_authority: agent_git_authority.clone(),
-                    index: index.clone(),
-                    state,
-                    running: RefCell::new(None),
-                    stop_epoch: std::cell::Cell::new(0),
-                    serial: tokio::sync::Mutex::new(()),
-                })
-            })
-            .lifetime(tembra::core::Lifetime::Referenced, 30_000)
-            .method("snapshot", |session, context, (): ()| async move {
-                session.refresh(&context).await?;
-                if session.running.borrow().is_none()
-                    && session.state.value()?.phase == Phase::Unknown
-                {
-                    let _serial = session.serial.lock().await;
-                    if session.state.value()?.phase == Phase::Unknown {
-                        session.settle(&context, false).await?;
+            });
+            let state = declaration.state(
+                Snapshot {
+                    context: swarmie_context::Snapshot::default(),
+                    conversation_id: id.clone(),
+                    owner_conversation_id,
+                    messages: vec![],
+                    phase: Phase::Idle,
+                    label: String::new(),
+                    admitted: vec![],
+                    omitted_messages: 0,
+                    can_acknowledge: false,
+                    execution_context: index
+                        .get(id)?
+                        .as_ref()
+                        .and_then(|record| record.execution_context.clone()),
+                    lifecycle_warning: index
+                        .get(id)?
+                        .and_then(|record| record.lifecycle_warning)
+                        .map(checkout::bounded_warning),
+                },
+                1,
+                |value| {
+                    if serde_json::to_vec(value)
+                        .map_err(|_| failure("conversation projection could not be encoded"))?
+                        .len()
+                        > 48 * 1024
+                    {
+                        return Err(failure(
+                            "the conversation preview exceeds the current transport limit",
+                        ));
                     }
-                }
-                checkout::sync_hold(
-                    &session.index,
-                    session.git.as_ref(),
-                    &session.principal,
-                    &session.id,
-                )
-                .await;
-                session.refresh(&context).await?;
-                Ok(())
-            })
-            .method(
-                "run",
-                |session, context, (input,): (Submission,)| async move {
-                    session.run(context, input).await
+                    Ok(())
                 },
-            )
-            .method(
-                "execute_task",
-                |session, context, execution: swarmie_durable_tasks::Execution| async move {
-                    session.execute_task(context, execution).await
+            )?;
+            let agent_history = History::bind(
+                &declaration,
+                host.clone(),
+                swarmie_conversations::SERVICE,
+                vec!["main".into()],
+            )?;
+            let execution = execution
+                .as_ref()
+                .map(|owner| {
+                    owner.clone().conversation(
+                        &principal,
+                        owner_conversation_id.ok_or_else(|| {
+                            failure("native conversation identity is unavailable")
+                        })?,
+                    )
+                })
+                .transpose()?;
+            let tools = Rc::new(CatalogService::bind(
+                &declaration,
+                host.clone(),
+                swarmie_tools::SERVICE,
+                vec!["main".into()],
+            )?);
+            let history_factory = owner.conversation_factory();
+            let task_factory = owner.task_factory();
+            let (id, node, principal) = (id.clone(), node.clone(), principal.clone());
+            let (host, providers, catalog) = (host.clone(), providers.clone(), catalog.clone());
+            let project_context = project_context.clone();
+            let (git, agent_git_authority, index) =
+                (git.clone(), agent_git_authority.clone(), index.clone());
+            declaration.resource_async(
+                "conversation.session",
+                1,
+                &[],
+                move |signal| {
+                    async move {
+                        signal.check()?;
+                        let history = Conversations::new(history_factory().await?);
+                        let storage = task_factory()
+                            .await
+                            .map_err(|error| failure(&error.to_string()))?;
+                        signal.check()?;
+                        Ok(Session {
+                            id: id.clone(),
+                            node,
+                            principal,
+                            history_id,
+                            history,
+                            tasks: Rc::new(tasks::Tasks { storage, host }),
+                            agent_history,
+                            providers,
+                            execution,
+                            tools,
+                            catalog,
+                            git,
+                            project_configuration: project_context,
+                            agent_git_authority,
+                            index,
+                            state,
+                            running: RefCell::new(None),
+                            stop_epoch: std::cell::Cell::new(0),
+                            serial: tokio::sync::Mutex::new(()),
+                            compaction_running: RefCell::new(None),
+                        })
+                    }
+                    .boxed_local()
                 },
+                |session, _| async move { session.close().await }.boxed_local(),
             )
-            .method("acknowledge", |session, context, (): ()| async move {
-                if session.running.borrow().is_some() {
-                    return Err(failure("the request is still physically running"));
-                }
+        })
+        .lifetime(tembra::core::Lifetime::Referenced, 30_000)
+        .method("project_skills", |session, context, (binding,): (types::ExecutionContext,)| async move {
+            session.value()?.project_inventory(&context, &binding).await
+        })
+        .method("validate", |session, context, (spec, call): (swarmie_tools::ToolSpec, swarmie_tools::ToolCall)| async move {
+            session.value()?.validate_skill(&context, &spec, &call)
+        })
+        .method("execute", |session, context, (_operation, call): (swarmie_providers::OperationId, swarmie_tools::ToolCall)| async move {
+            session.value()?.read_skill(&context, &call).await
+        })
+        .method("recover", |session, context, (_operation, call): (swarmie_providers::OperationId, swarmie_tools::ToolCall)| async move {
+            let session = session.value()?;
+            context.check()?;
+            if context.principal()? != session.principal || call.name.as_str() != sources::TOOL { return Err(failure("skill recovery is not authorized")); }
+            Ok(swarmie_tools::Recovery::<swarmie_tools::ToolResult>::Unknown)
+        })
+        .method("context_inspect", |session, context, (): ()| async move {
+            session.value()?.context_inspect(&context).await
+        })
+        .method(
+            "context_compact",
+            |session, context, (request,): (swarmie_context::CompactionRequest,)| async move {
+                session.value()?.context_compact(&context, request).await
+            },
+        )
+        .method(
+            "context_stop",
+            |session, context, (operation,): (swarmie_providers::OperationId,)| async move {
+                session.value()?.context_stop(&context, operation).await
+            },
+        )
+        .method(
+            "execute_compaction",
+            |session, context, execution: swarmie_durable_tasks::Execution| async move {
+                session
+                    .value()?
+                    .execute_compaction(&context, execution)
+                    .await
+            },
+        )
+        .method("snapshot", |session, context, (): ()| async move {
+            let session = session.value()?;
+            session.refresh(&context).await?;
+            if session.running.borrow().is_none() && session.state.value()?.phase == Phase::Unknown
+            {
                 let _serial = session.serial.lock().await;
-                session.refresh(&context).await?;
-                session.settle(&context, true).await?;
-                checkout::sync_hold(
-                    &session.index,
-                    session.git.as_ref(),
-                    &session.principal,
-                    &session.id,
-                )
-                .await;
-                session.refresh(&context).await
-            })
-            .method("stop", |session, context, (): ()| async move {
-                session.stop_epoch.set(
-                    session
-                        .stop_epoch
-                        .get()
-                        .checked_add(1)
-                        .ok_or_else(|| failure("the stop sequence is exhausted"))?,
-                );
-                session.request_stop().await?;
-                let _serial = session.serial.lock().await;
-                // The task retains physical ownership even after its observer is gone.
-                session.wait_turn(&context).await?;
-                session.refresh(&context).await?;
                 if session.state.value()?.phase == Phase::Unknown {
                     session.settle(&context, false).await?;
                 }
-                checkout::sync_hold(
-                    &session.index,
-                    session.git.as_ref(),
-                    &session.principal,
-                    &session.id,
-                )
-                .await;
-                session.refresh(&context).await?;
-                Ok(())
-            }),
-        );
-    Ok(vec![history_orb, scheduler, handler, listing, sessions])
+            }
+            checkout::sync_hold(
+                &session.index,
+                session.git.as_ref(),
+                &session.principal,
+                &session.id,
+            )
+            .await;
+            session.refresh(&context).await?;
+            Ok(())
+        })
+        .method(
+            "run",
+            |session, context, (input,): (Submission,)| async move {
+                session.value()?.run(context, input).await
+            },
+        )
+        .method(
+            "execute_task",
+            |session, context, execution: swarmie_durable_tasks::Execution| async move {
+                session.value()?.execute_task(context, execution).await
+            },
+        )
+        .method("acknowledge", |session, context, (): ()| async move {
+            let session = session.value()?;
+            if session.running.borrow().is_some() {
+                return Err(failure("the request is still physically running"));
+            }
+            let _serial = session.serial.lock().await;
+            session.refresh(&context).await?;
+            session.settle(&context, true).await?;
+            checkout::sync_hold(
+                &session.index,
+                session.git.as_ref(),
+                &session.principal,
+                &session.id,
+            )
+            .await;
+            session.refresh(&context).await
+        })
+        .method("stop", |session, context, (): ()| async move {
+            let session = session.value()?;
+            session.stop_epoch.set(
+                session
+                    .stop_epoch
+                    .get()
+                    .checked_add(1)
+                    .ok_or_else(|| failure("the stop sequence is exhausted"))?,
+            );
+            if session.compaction_running.borrow().is_none()
+                && session.index.get(&session.id)?.is_some()
+            {
+                let mut ledger = session.context_ledger()?;
+                ledger.fence = uuid::Uuid::new_v4().try_into()?;
+                session.save_context_ledger(ledger)?;
+            }
+            session.request_stop(&context).await?;
+            let _serial = session.serial.lock().await;
+            // The task retains physical ownership even after its observer is gone.
+            session.wait_turn(&context).await?;
+            session.refresh(&context).await?;
+            if session.state.value()?.phase == Phase::Unknown {
+                session.settle(&context, false).await?;
+            }
+            checkout::sync_hold(
+                &session.index,
+                session.git.as_ref(),
+                &session.principal,
+                &session.id,
+            )
+            .await;
+            session.refresh(&context).await?;
+            Ok(())
+        }),
+    );
+    Ok(vec![
+        history_orb,
+        scheduler,
+        handler,
+        context_handler,
+        context_orb,
+        commands,
+        listing,
+        sessions,
+    ])
 }

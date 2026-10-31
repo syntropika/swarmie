@@ -5,7 +5,11 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+ai = ["dep:swarmie-ai"]
+
 [dependencies]
+swarmie-ai = { path = "../../crates/ai", optional = true }
 base64 = "0.22"
 jsonwebtoken = { version = "=10.4.0", default-features = false, features = ["rust_crypto"] }
 oauth2 = { version = "=5.0.0", default-features = false, features = ["timing-resistant-secret-traits"] }

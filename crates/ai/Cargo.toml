@@ -1,0 +1,44 @@
+[package]
+name = "swarmie-ai"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Immutable provider protocol requests with explicit admission and execution ownership"
+
+[features]
+telemetry = []
+
+[dependencies]
+async-openai = { version = "=0.42.2", default-features = false, features = ["response-types", "chat-completion-types"] }
+swarmie-model-catalog.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
+sha2 = "0.10"
+uuid.workspace = true
+thiserror.workspace = true
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "stream"] }
+tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+zeroize = "1"
+serde = { workspace = true, features = ["rc"] }
+futures.workspace = true
+futures-timer.workspace = true
+base64 = "0.22"
+bytes = "1"
+http = "1"
+httpdate = "1"
+mime = "0.3"
+mime_guess = "2"
+ordered-float = "5"
+schemars = { version = "1", features = ["derive"] }
+tracing = "0.1"
+url = "2"
+fastrand = "2"
+web-time = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "sync", "time", "macros", "net", "io-util"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
+
+[lints]
+workspace = true

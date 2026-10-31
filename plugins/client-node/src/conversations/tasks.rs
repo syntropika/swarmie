@@ -28,6 +28,7 @@ pub(super) struct Input {
     pub effort: String,
     pub binding: Option<ExecutionContext>,
     pub request: Request,
+    pub context_fence: swarmie_context::WorkFence,
 }
 
 #[derive(Serialize, Deserialize)]

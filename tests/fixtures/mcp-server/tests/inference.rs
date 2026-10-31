@@ -14,8 +14,8 @@ use swarmie_fixture_mcp_server::{Counter, serve_http};
 use swarmie_mcp::{
     self as mcp, Configuration, Endpoint, Limits, Observation, Protocol, ServerBinding, ServerId,
 };
-use swarmie_model_provider_genai::{
-    Connection, ConnectionId, Credentials, GenaiModel, ModelId, Provider,
+use swarmie_model_provider_ai::{
+    AiModel, Connection, ConnectionId, Credentials, ModelId, Provider,
 };
 use swarmie_providers::{AgentContext, Message, Progress, ToolResult};
 use swarmie_tools::{self as tools, Catalog, CatalogService};
@@ -31,8 +31,22 @@ impl LocalSpawn for Executor {
 }
 struct Secrets;
 impl Credentials for Secrets {
-    fn resolve(&self, _: &str) -> Option<String> {
-        Some("synthetic-secret".into())
+    fn acquire<'a>(
+        &'a self,
+        context: &'a tembra::Context,
+        _admitted: &'a swarmie_model_provider_ai::AdmittedAttempt,
+        _key: &'a str,
+    ) -> futures::future::LocalBoxFuture<
+        'a,
+        tembra::Result<swarmie_model_provider_ai::ModelCredential>,
+    > {
+        Box::pin(async move {
+            context.check()?;
+            swarmie_model_provider_ai::ModelCredential::new(
+                "synthetic-secret".into(),
+                "[secret]".into(),
+            )
+        })
     }
 }
 async fn call<A: 'static, R: 'static>(
@@ -73,6 +87,62 @@ fn mount(configuration: Configuration, catalog: &Catalog) -> (Host, Rc<Reference
             .unwrap(),
     );
     (host, reference)
+}
+
+fn qualified_snapshot(
+    connection: &Connection,
+    model: &ModelId,
+) -> tembra::Result<std::sync::Arc<swarmie_model_provider_ai::catalog::Snapshot>> {
+    use std::num::NonZeroU64;
+    use swarmie_model_provider_ai::catalog::*;
+    let identity = connection.model_identity(model)?;
+    let evidence = Evidence {
+        source: "explicit synthetic HTTP qualification".into(),
+        revision: "1".into(),
+        layer: Layer::Adapter,
+        observed_at_ms: 0,
+        expires_at_ms: None,
+    };
+    let claim = |tokens| LimitClaim {
+        tokens: NonZeroU64::new(tokens).unwrap(),
+        precision: Precision::Reported,
+        evidence: Evidence {
+            layer: Layer::Provider,
+            ..evidence.clone()
+        },
+    };
+    let mut catalog = Catalog::new(4);
+    catalog
+        .replace_sources(vec![SourceRecord {
+            identity: identity.clone(),
+            limits: Limits {
+                context: vec![claim(1_000_000)],
+                input: vec![],
+                output: vec![claim(4_000)],
+            },
+            tools: Capability::Supported {
+                evidence: evidence.clone(),
+                value: (),
+            },
+            streaming: Capability::Supported {
+                evidence,
+                value: (),
+            },
+            native_compaction: Capability::default(),
+            native_output_maximum: Capability::default(),
+        }])
+        .unwrap();
+    catalog
+        .prepare(
+            Preparation {
+                identity,
+                configuration_revision: connection.configuration_revision(model, None)?,
+                requirements: Requirements::default(),
+                allow_stale_for_ms: 0,
+            },
+            0,
+        )
+        .map_err(|_| tembra::Error::invalid("fixture.metadata", "invalid synthetic snapshot"))
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -144,7 +214,7 @@ async fn inference(
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn stdio_mcp_catalog_routes_a_real_genai_tool_call_once_and_preserves_canonical_history() {
+async fn stdio_mcp_catalog_routes_a_real_ai_tool_call_once_and_preserves_canonical_history() {
     tokio::task::LocalSet::new()
         .run_until(async {
             let captured: Captured = Arc::default();
@@ -184,7 +254,18 @@ async fn stdio_mcp_catalog_routes_a_real_genai_tool_call_once_and_preserves_cano
             );
             connection.endpoint = Some(endpoint);
             connection.credential_key = Some("fixture".into());
-            let model = Rc::new(GenaiModel::new(connection, id, &Secrets).unwrap());
+            let metadata = qualified_snapshot(&connection, &id).unwrap();
+            let model = Rc::new(
+                AiModel::new(
+                    connection,
+                    id,
+                    Rc::new(Secrets),
+                    swarmie_model_provider_ai::ModelProtection::Unprotected,
+                )
+                .unwrap()
+                .with_metadata(metadata)
+                .unwrap(),
+            );
             let binding = host.clone();
             host.install(vec![agent::orb(move |declaration| {
                 Ok(Agent::new(
@@ -209,6 +290,7 @@ async fn stdio_mcp_catalog_routes_a_real_genai_tool_call_once_and_preserves_cano
                 agent::Method::Execute.as_str(),
                 agent::Request {
                     context: AgentContext {
+                        sources: None,
                         instructions: "Use the counter tool.".into(),
                         messages: vec![Message::User {
                             content: "Add seven.".into(),

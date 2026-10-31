@@ -7,11 +7,11 @@ use axum::{
     routing::{get, post},
 };
 use std::{path::PathBuf, sync::Arc};
-use swarmie_desktop_runtime::{DesktopNode, swarmie_desktop_runtime_exchange};
+use swarmie_desktop_runtime::{Node, swarmie_desktop_runtime_exchange};
 
 #[derive(Clone)]
 struct Application {
-    node: Arc<DesktopNode>,
+    node: Arc<Node>,
     vite: String,
     origin: String,
 }
@@ -78,7 +78,7 @@ async fn main() {
             .expect("supply an isolated fixture state directory"),
     );
     let vite = args.next().expect("supply the local Vite origin");
-    let node = Arc::new(DesktopNode::open(state).expect("native fixture node"));
+    let node = Arc::new(Node::open(state).expect("native fixture node"));
     let (server, _stop, _task) = swarmie_fixture_mcp_server::serve_http(Default::default()).await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();

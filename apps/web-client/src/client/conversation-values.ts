@@ -12,6 +12,7 @@ function text(value: unknown): value is string {
 }
 type ConversationProjection = {
   conversationId: string;
+  ownerConversationId: string | undefined;
   phase: Execution["phase"];
   label: string;
   messages: Message[];
@@ -108,6 +109,13 @@ export function conversationProjection(value: unknown): ConversationProjection {
     throw new Error("The node returned an invalid conversation projection.");
   }
   const phase = executionPhase(value.phase);
+  if (
+    value.ownerConversationId !== undefined &&
+    value.ownerConversationId !== null &&
+    !text(value.ownerConversationId)
+  ) {
+    throw new Error("The node returned an invalid private conversation identity.");
+  }
   const messages = value.messages.map<Message>((message: unknown) => {
     if (
       !object(message) ||
@@ -146,6 +154,8 @@ export function conversationProjection(value: unknown): ConversationProjection {
   }
   return {
     conversationId: value.conversationId,
+    ownerConversationId:
+      typeof value.ownerConversationId === "string" ? value.ownerConversationId : undefined,
     phase,
     label: value.label,
     messages,

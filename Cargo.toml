@@ -2,20 +2,33 @@
 members = [
     "apps/desktop-client/updater",
     "apps/desktop-client/runtime",
-    "runtime",
+    "crates/runtime",
+    "crates/runtime/node",
+    "crates/runtime/node-host",
     "plugins/client-node",
-    "storage",
-    "storage/core",
+    "crates/storage",
+    "crates/storage/core",
     "plugins/providers",
+    "crates/model-catalog",
+    "crates/ai",
+    "xtask",
     "plugins/provider-auth",
+    "plugins/vault",
+    "plugins/cloud-account",
+    "plugins/device-linking",
+    "plugins/permissions",
+    "plugins/model-submission-protection",
     "plugins/plugin-manager",
     "plugins/tools",
     "plugins/mcp",
     "plugins/git",
-    "plugins/model-provider-genai",
+    "plugins/model-provider-ai",
     "plugins/durable-tasks",
     "plugins/agent-loop",
     "plugins/conversations",
+    "plugins/context",
+    "plugins/project-context",
+    "plugins/commands",
     "tests/fixtures/foundation-counter",
     "tests/fixtures/durable-documents",
     "tests/fixtures/atomic-journal",
@@ -23,7 +36,6 @@ members = [
     "tests/fixtures/mcp-settings-host",
     "tests/fixtures/performance",
 ]
-exclude = ["vendor/genai-0.7.0"]
 resolver = "2"
 
 [workspace.package]
@@ -33,6 +45,7 @@ rust-version = "1.99"
 license = "Apache-2.0"
 
 [workspace.dependencies]
+swarmie-ai = { path = "crates/ai" }
 tembra = { version = "=0.2.0", features = ["hooks", "subscriptions", "views"] }
 futures = "0.3"
 futures-timer = "3"
@@ -42,28 +55,33 @@ serde_json = "1"
 thiserror = "2"
 rusqlite = { version = "0.37", features = ["bundled"] }
 tempfile = "3"
+swarmie-vault = { path = "plugins/vault" }
 swarmie-tools = { path = "plugins/tools" }
 swarmie-mcp = { path = "plugins/mcp" }
 swarmie-git = { path = "plugins/git" }
 swarmie-providers = { path = "plugins/providers" }
-swarmie-storage = { path = "storage" }
-swarmie-storage-core = { path = "storage/core" }
+swarmie-model-catalog = { path = "crates/model-catalog" }
+swarmie-storage = { path = "crates/storage" }
+swarmie-storage-core = { path = "crates/storage/core" }
 swarmie-conversations = { path = "plugins/conversations" }
+swarmie-context = { path = "plugins/context" }
+swarmie-project-context = { path = "plugins/project-context" }
+swarmie-commands = { path = "plugins/commands" }
 swarmie-durable-tasks = { path = "plugins/durable-tasks" }
 swarmie-plugin-manager = { path = "plugins/plugin-manager" }
 swarmie-provider-auth = { path = "plugins/provider-auth" }
-swarmie-model-provider-genai = { path = "plugins/model-provider-genai" }
+swarmie-model-provider-ai = { path = "plugins/model-provider-ai" }
 swarmie-agent-loop = { path = "plugins/agent-loop" }
-swarmie-runtime = { path = "runtime" }
+swarmie-runtime = { path = "crates/runtime" }
 swarmie-client-node = { path = "plugins/client-node" }
+swarmie-node = { path = "crates/runtime/node" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 
 [workspace.lints.clippy]
+await_holding_lock = "deny"
+await_holding_refcell_ref = "deny"
 dbg_macro = "deny"
 todo = "deny"
 unimplemented = "deny"
-
-[patch.crates-io]
-genai = { path = "vendor/genai-0.7.0" }

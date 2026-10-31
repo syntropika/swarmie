@@ -1,0 +1,26 @@
+{
+  "name": "@swarmie/plugin-context-browser",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./views": "./src/panel.tsx"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@swarmie/client-ui": "workspace:*",
+    "@swarmie/plugin-connections-browser": "workspace:*",
+    "@swarmie/plugin-conversations-browser": "workspace:*",
+    "@swarmie/ui-web": "workspace:*",
+    "@syntropika/tembra-sdk": "0.2.0"
+  },
+  "devDependencies": {
+    "@swarmie/config": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "19.3.0"
+  }
+}

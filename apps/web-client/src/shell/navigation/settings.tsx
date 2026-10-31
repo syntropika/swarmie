@@ -1,6 +1,6 @@
 import { useSource } from "@swarmie/client-ui";
 import { ChromeButton, SearchField } from "@swarmie/ui-web";
-import { GitBranch, MessageCircle, Monitor, Puzzle, Settings } from "lucide-react";
+import { GitBranch, LockKeyhole, MessageCircle, Monitor, Puzzle, Settings } from "lucide-react";
 import { useState } from "react";
 
 import { useClient } from "../../client/context";
@@ -9,6 +9,7 @@ import { iconStyle } from "../../controls";
 import { shellSettings } from "./state";
 
 const sections = [
+  { id: "vault", icon: LockKeyhole, title: "Vault", terms: "secrets credentials access" },
   { id: "general", icon: Settings, title: "General", terms: "appearance theme system dark light" },
   {
     id: "conversation",

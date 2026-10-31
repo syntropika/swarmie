@@ -16,6 +16,9 @@ futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
+swarmie-model-catalog.workspace = true
+zeroize = "1"
+sha2 = "0.10"
 
 [lints]
 workspace = true

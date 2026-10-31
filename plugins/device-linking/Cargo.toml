@@ -1,0 +1,38 @@
+[package]
+name = "swarmie-device-linking"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Account device identity and authenticated node linking"
+
+[features]
+default = []
+cloud-client = ["dep:swarmie-cloud-account", "dep:futures", "dep:tokio"]
+native-keyring = ["cloud-client", "dep:keyring"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+serde_jcs = "=0.1.0"
+ed25519-dalek = { version = "=2.2.0", features = ["rand_core"] }
+rand = "=0.8.5"
+sha2 = "0.10"
+hmac = "=0.12.1"
+hkdf = "=0.12.4"
+base64 = "0.22"
+zeroize = { version = "1", features = ["derive"] }
+swarmie-permissions = { path = "../permissions", features = ["tls"] }
+swarmie-cloud-account = { path = "../cloud-account", optional = true }
+futures = { workspace = true, optional = true }
+keyring = { version = "=3.6.3", optional = true, default-features = false, features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+
+tokio = { version = "1", optional = true, features = ["io-util", "rt", "time", "macros"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "io-util"] }
+
+[lints]
+workspace = true

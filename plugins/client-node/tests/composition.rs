@@ -3,10 +3,17 @@ use futures::{
     task::{LocalFutureObj, LocalSpawn, SpawnError},
 };
 use std::{path::PathBuf, rc::Rc};
-use swarmie_client_node::{NodeConfiguration, install};
+use swarmie_client_node::NodeConfiguration;
 use swarmie_providers::settings::ProviderCatalog;
 use swarmie_runtime::{NODE_KEY, NODE_SERVICE, NodeId, NodeIdentity};
 use tembra::Host;
+
+fn install_fixture(host: &Host, configuration: NodeConfiguration) -> tembra::Result<()> {
+    let identity = swarmie_runtime::node_orb(configuration.node.clone());
+    let mut definitions = swarmie_client_node::orbs(host, configuration, None)?;
+    definitions.push(identity);
+    host.install(definitions)
+}
 
 #[derive(Clone, Copy)]
 struct Executor;
@@ -18,14 +25,93 @@ impl LocalSpawn for Executor {
 }
 
 #[tokio::test]
+async fn storage_opens_only_when_declared_capabilities_activate() {
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let profile = tempfile::tempdir().unwrap();
+            let host = Host::new(Executor);
+            let definitions = swarmie_client_node::orbs(
+                &host,
+                NodeConfiguration {
+                    project_context: None,
+                    state: profile.path().into(),
+                    node: NodeId::new("embedded-fixture").unwrap(),
+                    oauth_host: uuid::Uuid::new_v4(),
+                    principal: "embedded-user".into(),
+                    directory_root: None,
+                    git: None,
+                    agent_git_authority: None,
+                },
+                None,
+            )
+            .unwrap();
+            assert_eq!(std::fs::read_dir(profile.path()).unwrap().count(), 0);
+            host.install(definitions).unwrap();
+            assert_eq!(std::fs::read_dir(profile.path()).unwrap().count(), 0);
+            swarmie_client_node::start(&host).await.unwrap();
+            assert!(profile.path().join("conversations.sqlite").is_file());
+            let session = host
+                .get(
+                    "swarmie.conversation.session",
+                    vec!["lazy".into()],
+                    "embedded-user",
+                )
+                .unwrap();
+            host.root("embedded-user", move |context| {
+                async move { session.call::<_, ()>(&context, "snapshot", ()).await }.boxed_local()
+            })
+            .await
+            .unwrap();
+            host.close().await.unwrap();
+            assert_eq!(host.kernel().diagnostics().resources, 0);
+        })
+        .await;
+}
+
+#[tokio::test]
+async fn invalid_storage_fails_in_managed_activation_and_preserves_existing_bytes() {
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let profile = tempfile::tempdir().unwrap();
+            let path = profile.path().join("conversations.sqlite");
+            let original = b"existing invalid database; preserve this file";
+            std::fs::write(&path, original).unwrap();
+            let host = Host::new(Executor);
+            let definitions = swarmie_client_node::orbs(
+                &host,
+                NodeConfiguration {
+                    project_context: None,
+                    state: profile.path().into(),
+                    node: NodeId::new("embedded-fixture").unwrap(),
+                    oauth_host: uuid::Uuid::new_v4(),
+                    principal: "embedded-user".into(),
+                    directory_root: None,
+                    git: None,
+                    agent_git_authority: None,
+                },
+                None,
+            )
+            .unwrap();
+            assert_eq!(std::fs::read(&path).unwrap(), original);
+            host.install(definitions).unwrap();
+            assert_eq!(std::fs::read(&path).unwrap(), original);
+            assert!(swarmie_client_node::start(&host).await.is_err());
+            host.close().await.unwrap();
+            assert_eq!(host.kernel().diagnostics().resources, 0);
+            assert_eq!(std::fs::read(&path).unwrap(), original);
+        })
+        .await;
+}
+
+#[tokio::test]
 async fn a_non_desktop_host_composes_services_with_its_own_identity_and_principal() {
     tokio::task::LocalSet::new()
         .run_until(async {
             let profile = tempfile::tempdir().unwrap();
             let host = Host::new(Executor);
-            let invalid = install(
+            let invalid = install_fixture(
                 &host,
-                NodeConfiguration {
+                NodeConfiguration { project_context: None,
                     state: PathBuf::from(profile.path()),
                     node: NodeId::new("embedded-fixture").unwrap(),
                     oauth_host: uuid::Uuid::nil(),
@@ -40,9 +126,9 @@ async fn a_non_desktop_host_composes_services_with_its_own_identity_and_principa
                 host.get(NODE_SERVICE, vec![NODE_KEY.into()], "embedded-user")
                     .is_err()
             );
-            install(
+            install_fixture(
                 &host,
-                NodeConfiguration {
+                NodeConfiguration { project_context: None,
                     state: PathBuf::from(profile.path()),
                     node: NodeId::new("embedded-fixture").unwrap(),
                     oauth_host: uuid::Uuid::new_v4(),
@@ -172,9 +258,10 @@ async fn an_embedding_without_agent_mutation_policy_contributes_only_git_reads()
             )
             .unwrap();
             let host = Host::new(Executor);
-            install(
+            install_fixture(
                 &host,
                 NodeConfiguration {
+                    project_context: None,
                     state: profile.path().into(),
                     node: NodeId::new("read-only-embedding").unwrap(),
                     oauth_host: uuid::Uuid::new_v4(),
@@ -236,7 +323,7 @@ async fn a_non_desktop_host_observes_and_stops_a_held_turn_without_provider_disp
     tokio::task::LocalSet::new().run_until(async {
         let profile = tempfile::tempdir().unwrap();
         let host = Host::new(Executor);
-        install(&host, NodeConfiguration {
+        install_fixture(&host, NodeConfiguration { project_context: None,
             state: profile.path().into(), node: NodeId::new("embedded-fixture").unwrap(),
             oauth_host: uuid::Uuid::new_v4(), principal: "embedded-user".into(),
             directory_root: None, git: None, agent_git_authority: None,
@@ -248,7 +335,7 @@ async fn a_non_desktop_host_observes_and_stops_a_held_turn_without_provider_disp
         host.root("embedded-user", move |context| async move {
             scheduler.call::<_, TaskId>(&context, Method::Create.as_str(), (TaskSpec {
                 id, definition: tasks::TaskDefinition::new("swarmie.conversation.turn", std::num::NonZeroU32::new(1).unwrap()).unwrap(),
-                input: json!({"session":"held-turn","account":"unconfigured-account","model":"unconfigured-model","effort":"","binding":null,
+                input: json!({"session":"held-turn","account":"unconfigured-account","model":"unconfigured-model","effort":"","binding":null,"context_fence":uuid::Uuid::new_v4(),
                     "request":{"at":{"conversation":history_id,"entry":null},"instructions":"","tools":[],"max_turns":1}}),
             },)).await
         }.boxed_local()).await.unwrap();
@@ -300,9 +387,10 @@ async fn an_embedding_cannot_bind_a_user_to_the_reserved_host_principal() {
             for principal in ["", swarmie_durable_tasks::HOST_PRINCIPAL] {
                 let profile = tempfile::tempdir().unwrap();
                 let host = Host::new(Executor);
-                let result = install(
+                let result = install_fixture(
                     &host,
                     NodeConfiguration {
+                        project_context: None,
                         state: profile.path().into(),
                         node: NodeId::new("embedded-fixture").unwrap(),
                         oauth_host: uuid::Uuid::new_v4(),
@@ -322,4 +410,108 @@ async fn an_embedding_cannot_bind_a_user_to_the_reserved_host_principal() {
             }
         })
         .await;
+}
+
+#[tokio::test]
+async fn execution_owner_refusal_settles_the_durable_turn_without_retry_or_model_dispatch() {
+    use serde_json::json;
+    use swarmie_client_node::{ConversationExecution, ExecutionOwner, ExecutionScope};
+    use swarmie_durable_tasks::{
+        self as tasks, Method, TaskId, TaskObservation, TaskRecord, TaskSpec, TaskStatus,
+    };
+    struct Refused(std::cell::Cell<usize>);
+    impl ExecutionOwner for Refused {
+        fn conversation(
+            self: Rc<Self>,
+            _: &str,
+            _: uuid::Uuid,
+        ) -> tembra::Result<Rc<dyn ConversationExecution>> {
+            Ok(self)
+        }
+        fn tools(&self) -> tembra::Result<Vec<swarmie_tools::ToolDefinition>> {
+            Ok(vec![])
+        }
+    }
+    impl ConversationExecution for Refused {
+        fn enter(&self, _: &tembra::Context) -> tembra::Result<ExecutionScope> {
+            self.0.set(self.0.get() + 1);
+            Err(tembra::Error::new(
+                tembra::Code::Unavailable,
+                "fixture.owner",
+                "The native owner is unavailable.",
+            ))
+        }
+    }
+    tokio::task::LocalSet::new().run_until(async {
+        let profile = tempfile::tempdir().unwrap();
+        let host = Host::new(Executor);
+        let owner = Rc::new(Refused(std::cell::Cell::new(0)));
+        host.install(swarmie_client_node::orbs(&host, NodeConfiguration { project_context: None,
+            state: profile.path().into(), node: NodeId::new("embedded-fixture").unwrap(),
+            oauth_host: uuid::Uuid::new_v4(), principal: "embedded-user".into(),
+            directory_root: None, git: None, agent_git_authority: None,
+        }, Some(owner.clone())).unwrap()).unwrap();
+        let id = TaskId::new();
+        let history_id = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, b"embedded-fixture/embedded-user/refused-turn");
+        let scheduler = Rc::new(host.get(tasks::SERVICE, vec![tasks::INSTANCE_KEY.into()], tasks::HOST_PRINCIPAL).unwrap());
+        let reference = scheduler.clone();
+        host.root("embedded-user", move |context| async move {
+            reference.call::<_, TaskId>(&context, Method::Create.as_str(), (TaskSpec {
+                id, definition: tasks::TaskDefinition::new("swarmie.conversation.turn", std::num::NonZeroU32::new(1).unwrap()).unwrap(),
+                input: json!({"session":"refused-turn","account":"unconfigured-account","model":"unconfigured-model","effort":"","binding":null,"context_fence":uuid::Uuid::new_v4(),
+                    "request":{"at":{"conversation":history_id,"entry":null},"instructions":"","tools":[],"max_turns":1}}),
+            },)).await
+        }.boxed_local()).await.unwrap();
+        let index = profile.path().join("conversations.json");
+        std::fs::write(&index, serde_json::to_vec(&json!([{
+            "id":"refused-turn","title":"Refused turn","principal":"embedded-user","node":"embedded-fixture",
+            "account":"unconfigured-account","model":"unconfigured-model","effort":"","archived":false,"pinned":false,
+            "receipts":[],"phase":"working","task":id,"stopRequested":false
+        }])).unwrap()).unwrap();
+        swarmie_client_node::start(&host).await.unwrap();
+        let reference = scheduler.clone();
+        let observation: TaskObservation = host.root("embedded-user", move |context| async move {
+            reference.call(&context, Method::Wait.as_str(), (id,)).await
+        }.boxed_local()).await.unwrap();
+        assert_eq!(observation, TaskObservation::Settled);
+        let mut metadata: serde_json::Value = serde_json::from_slice(&std::fs::read(&index).unwrap()).unwrap();
+        assert_eq!(metadata[0]["phase"], "failed");
+        let record: Option<TaskRecord> = host.root("embedded-user", move |context| async move {
+            scheduler.call(&context, Method::Get.as_str(), (id,)).await
+        }.boxed_local()).await.unwrap();
+        assert_eq!(record.unwrap().status, TaskStatus::Completed(json!({"status":"settled","phase":"failed"})));
+        swarmie_client_node::start(&host).await.unwrap();
+        assert_eq!(owner.0.get(), 1, "a refused native owner must not become an automatic retry");
+        let storage = Rc::new(swarmie_storage::sqlite::SqliteOwner::new(profile.path().join("conversations.sqlite")).conversations().unwrap());
+        let history = swarmie_conversations::Conversations::new(storage.clone());
+        host.root("embedded-user", move |context| async move {
+            let id = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, b"embedded-fixture/embedded-user/unknown-turn").to_string().parse().unwrap();
+            history.create(&context, id).await?;
+            let at = history.get(&context, id).await?.unwrap().head;
+            let record = swarmie_agent_loop::conversation::Record::Message(swarmie_agent_loop::Message::Assistant(swarmie_agent_loop::AssistantMessage {
+            provider: None,
+                content: String::new(),
+                tool_calls: vec![swarmie_tools::ToolCall { id: swarmie_tools::ToolCallId::new("unrecognized-call")?, name: swarmie_tools::ToolName::new("vault_list")?, arguments: json!({}) }],
+            }));
+            history.append(&context, at, vec![swarmie_conversations::EntryDraft::encode(record)?]).await?;
+            Ok(())
+        }.boxed_local()).await.unwrap();
+        metadata.as_array_mut().unwrap().push(json!({
+            "id":"unknown-turn","title":"Unknown turn","principal":"embedded-user","node":"embedded-fixture",
+            "account":"unconfigured-account","model":"unconfigured-model","effort":"","archived":false,"pinned":false,
+            "receipts":[],"phase":"unknown"
+        }));
+        std::fs::write(&index, serde_json::to_vec(&metadata).unwrap()).unwrap();
+        for method in ["snapshot", "acknowledge"] {
+            let session = host.get("swarmie.conversation.session", vec!["unknown-turn".into()], "embedded-user").unwrap();
+            host.root("embedded-user", move |context| async move {
+                session.call::<_, ()>(&context, method, ()).await
+            }.boxed_local()).await.unwrap();
+            let metadata: serde_json::Value = serde_json::from_slice(&std::fs::read(&index).unwrap()).unwrap();
+            assert_eq!(metadata[1]["phase"], if method == "snapshot" { "unknown" } else { "stopped" });
+        }
+        assert_eq!(owner.0.get(), 1, "history-only acknowledgement must not require native execution authority");
+        swarmie_conversations::ConversationStorage::close(storage.as_ref()).await.unwrap();
+        host.close().await.unwrap();
+    }).await;
 }

@@ -273,12 +273,12 @@ fn history_and_task_recovery_reopen_with_the_saved_route_after_catalog_withdrawa
                 (tasks::TaskSpec {
                     id: task,
                     definition: history::durable::definition(),
-                    input: serde_json::to_value(history::Request {
-                        at: written.head,
-                        instructions: base.context.instructions,
-                        tools: base.tools,
-                        max_turns: base.max_turns,
-                    })
+                    input: serde_json::to_value(history::Request::new(
+                        written.head,
+                        base.context.instructions,
+                        base.tools,
+                        base.max_turns,
+                    ))
                     .unwrap(),
                 },),
             );

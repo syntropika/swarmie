@@ -54,3 +54,8 @@
 .dev.vars
 .dev.vars.*
 !.dev.vars.example
+
+# Deliberately public synthetic local-HTTPS test material; never production credentials.
+!/tests/fixtures/vault-contract/https-ca-fixture.pem
+!/tests/fixtures/vault-contract/https-certificate-fixture.pem
+!/tests/fixtures/vault-contract/https-private-key-fixture.pem

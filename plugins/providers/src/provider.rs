@@ -12,6 +12,41 @@ pub enum Recovery<T> {
 }
 
 pub trait Model {
+    /// Recognize a frozen prepared operation without forwarding its saved payload
+    /// to a replacement route. Unknown is the safe default for unsupported lookup.
+    fn recover_prepared<'a>(
+        &'a self,
+        context: &'a Context,
+        _description: &'a crate::PreparedDescription,
+    ) -> LocalBoxFuture<'a, tembra::Result<Recovery<ModelResponse>>> {
+        async move {
+            context.check()?;
+            Ok(Recovery::Unknown)
+        }
+        .boxed_local()
+    }
+
+    /// Optional qualified preparation. Context-enabled consumers require this
+    /// boundary; direct completion remains usable by independent compositions.
+    /// The returned handle retains the adapter's exact final bytes until execution.
+    fn prepare<'a>(
+        &'a self,
+        context: &'a Context,
+        _operation: OperationId,
+        _request: ModelRequest,
+        _progress: Option<Progress>,
+    ) -> LocalBoxFuture<'a, tembra::Result<crate::PreparedModelRequest<'a>>> {
+        async move {
+            context.check()?;
+            Err(tembra::Error::new(
+                tembra::Code::Unavailable,
+                "swarmie.models.preparation",
+                "this model does not expose qualified request preparation",
+            ))
+        }
+        .boxed_local()
+    }
+
     fn complete<'a>(
         &'a self,
         context: &'a Context,
@@ -32,6 +67,7 @@ pub trait Model {
             progress.publish(
                 context,
                 ModelProgress {
+                    protection: crate::SubmissionProtection::Unprotected,
                     operation,
                     content: String::new(),
                 },
@@ -41,6 +77,7 @@ pub trait Model {
             progress.publish(
                 context,
                 ModelProgress {
+                    protection: crate::SubmissionProtection::Unprotected,
                     operation,
                     content: response.message.content.clone(),
                 },

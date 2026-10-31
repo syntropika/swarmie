@@ -111,6 +111,7 @@ impl Model for MockModel {
             progress.publish(
                 context,
                 ModelProgress {
+                    protection: crate::SubmissionProtection::Unprotected,
                     operation,
                     content: String::new(),
                 },
@@ -126,6 +127,7 @@ impl Model for MockModel {
                 progress.publish(
                     context,
                     ModelProgress {
+                        protection: crate::SubmissionProtection::Unprotected,
                         operation,
                         content: content.clone(),
                     },
@@ -136,6 +138,7 @@ impl Model for MockModel {
                 progress.publish(
                     context,
                     ModelProgress {
+                        protection: crate::SubmissionProtection::Unprotected,
                         operation,
                         content: response.message.content.clone(),
                     },

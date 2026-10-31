@@ -56,7 +56,9 @@ mod tests {
     #[test]
     fn escaped_large_history_keeps_recent_messages_with_explicit_omissions() {
         let snapshot = Snapshot {
+            context: swarmie_context::Snapshot::default(),
             conversation_id: "projection-fixture".into(),
+            owner_conversation_id: None,
             phase: Phase::Completed,
             label: String::new(),
             admitted: vec!["receipt".into()],

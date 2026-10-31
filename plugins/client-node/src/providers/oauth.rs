@@ -434,7 +434,7 @@ mod tests {
                             if f.load(Ordering::SeqCst) {
                                 (503, "{}".into())
                             } else {
-                                (200, json!({"models":[{"slug":"fixture-model","visibility":"list","display_name":"  ","supported_reasoning_levels":[{"effort":"medium"}]},{"slug":"fixture-model","visibility":"list"}]}).to_string())
+                                (200, json!({"models":[{"slug":"fixture-model","visibility":"list","display_name":"  ","limit":{"context":128000,"output":8192},"swarmie_capabilities":{"profile":"swarmie.text-tools.v1","tools":true,"streaming":true},"supported_reasoning_levels":[{"effort":"medium"}]},{"slug":"fixture-model","visibility":"list"}]}).to_string())
                             }
                         };
                         let _ = stream.write_all(format!("HTTP/1.1 {status} Fixture\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes()).await;
@@ -692,40 +692,19 @@ mod tests {
                     1,
                     "the same verified account must not create duplicate rows"
                 );
-                // Keep a rotated credential until durable custody succeeds.
-                let mut stored =
-                    swarmie_provider_auth::decode(&secrets.values.lock().unwrap()[&account.id])
-                        .unwrap()
-                        .unwrap();
-                stored.expires_at_ms = 0;
-                secrets.values.lock().unwrap().insert(
-                    account.id.clone(),
-                    swarmie_provider_auth::encode(&stored).unwrap(),
-                );
-                secrets.refuse_write.store(true, Ordering::SeqCst);
-                assert!(
-                    source
-                        .model("fixture", &account.id, "fixture-model", "medium")
-                        .await
-                        .is_err()
-                );
+                // Selecting an unqualified inference profile must not renew or
+                // read credentials. Authorization remains independently usable.
                 let exchanged = fixture.exchanges.load(Ordering::SeqCst);
-                secrets.refuse_write.store(false, Ordering::SeqCst);
+                let writes = secrets.writes.load(Ordering::SeqCst);
+                let catalogs = fixture.catalogs.load(Ordering::SeqCst);
                 let (first, second_model) = futures::join!(
                     source.model("fixture", &account.id, "fixture-model", "medium"),
                     source.model("fixture", &account.id, "fixture-model", "medium")
                 );
-                assert!(first.is_ok() && second_model.is_ok());
-                assert_eq!(
-                    fixture.exchanges.load(Ordering::SeqCst),
-                    exchanged,
-                    "persistence retry must reuse the delivered rotated credential"
-                );
-                let saved =
-                    swarmie_provider_auth::decode(&secrets.values.lock().unwrap()[&account.id])
-                        .unwrap()
-                        .unwrap();
-                assert!(saved.expires_at_ms > swarmie_provider_auth::now_ms() + 60_000);
+                assert!(first.is_err() && second_model.is_err());
+                assert_eq!(fixture.exchanges.load(Ordering::SeqCst), exchanged);
+                assert_eq!(fixture.catalogs.load(Ordering::SeqCst), catalogs);
+                assert_eq!(secrets.writes.load(Ordering::SeqCst), writes);
                 drop(second);
                 drop(reference);
                 host.close().await.unwrap();

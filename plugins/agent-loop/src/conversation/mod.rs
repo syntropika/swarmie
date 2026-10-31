@@ -24,6 +24,8 @@
 
 mod checkpoint;
 mod driver;
+#[cfg(feature = "context-projection")]
+mod projection;
 mod restore;
 mod settlement;
 mod writer;

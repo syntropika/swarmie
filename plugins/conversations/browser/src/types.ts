@@ -38,6 +38,8 @@ export type Message = {
 };
 export type Input = { id: string; text: string; mode: "queue" | "steer" };
 export type Execution = {
+  /** Node-issued identity for private cards; this value grants no authority. */
+  ownerConversationId?: string | undefined;
   phase:
     | "idle"
     | "queued"

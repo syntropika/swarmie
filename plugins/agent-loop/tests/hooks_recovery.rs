@@ -304,12 +304,12 @@ fn history_restart_restores_prepared_tool_evidence_without_rewriting_assistant_a
                 &host,
                 &agent,
                 Method::Execute.as_str(),
-                history::Request {
-                    at: head.unwrap(),
-                    instructions: base.context.instructions,
-                    tools: base.tools,
-                    max_turns: base.max_turns,
-                },
+                history::Request::new(
+                    head.unwrap(),
+                    base.context.instructions,
+                    base.tools,
+                    base.max_turns,
+                ),
             );
             checkpoint = Some(*result.unwrap_err().checkpoint.unwrap());
         }

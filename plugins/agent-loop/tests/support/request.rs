@@ -5,6 +5,7 @@ use swarmie_agent_loop::*;
 pub fn request() -> Request {
     Request {
         context: AgentContext {
+            sources: None,
             instructions: "Use the supplied tools.".into(),
             messages: vec![Message::User {
                 content: "Add one.".into(),

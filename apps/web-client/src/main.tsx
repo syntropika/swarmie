@@ -8,6 +8,7 @@ import { createRoot } from "react-dom/client";
 import { browserNode } from "./browser-node";
 import { ClientContext } from "./client/context";
 import { initializeClient } from "./client/initialize";
+import { nativeVault } from "./client/native-vault";
 import { desktopNode } from "./desktop-node";
 import { App } from "./shell/layout";
 
@@ -60,6 +61,14 @@ async function start() {
       <App />
     </ClientContext>,
   );
+  // Local presentation remains usable while the private native owner opens its protected store.
+  nativeVault()
+    .then((backend) => {
+      if (backend) {
+        client.vault.attach(backend);
+      }
+    })
+    .catch(() => undefined);
   function stop() {
     stopTheme();
     root.unmount();

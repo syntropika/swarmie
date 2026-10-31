@@ -9,8 +9,44 @@ use swarmie_conversations::{EntryId, Head};
 pub struct Request {
     pub at: Head,
     pub instructions: String,
+    /// Immutable project sources. Restore binds placement to the admitted User.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sources: Option<swarmie_providers::ContextSources>,
     pub tools: Vec<ToolSpec>,
     pub max_turns: NonZeroU32,
+    #[cfg(feature = "context-projection")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projection: Option<swarmie_context::Projection>,
+}
+
+impl Request {
+    pub fn new(
+        at: Head,
+        instructions: String,
+        tools: Vec<ToolSpec>,
+        max_turns: NonZeroU32,
+    ) -> Self {
+        Self {
+            at,
+            instructions,
+            sources: None,
+            tools,
+            max_turns,
+            #[cfg(feature = "context-projection")]
+            projection: None,
+        }
+    }
+}
+
+impl Request {
+    pub fn with_sources(
+        mut self,
+        sources: swarmie_providers::ContextSources,
+    ) -> tembra::Result<Self> {
+        sources.validate()?;
+        self.sources = Some(sources.at(0));
+        Ok(self)
+    }
 }
 
 /// Typed agent records inside a generic conversation. Prepared requests are evidence,
@@ -27,11 +63,19 @@ pub enum Record {
     PreparedRequest {
         operation: OperationId,
         request: ModelRequest,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<Box<swarmie_providers::PreparedDescription>>,
     },
     PreparedTool {
         operation: OperationId,
         call: ToolCall,
         provider: Option<crate::ToolProvider>,
+    },
+    #[cfg(feature = "context-projection")]
+    ContextResult {
+        operation: OperationId,
+        plan: swarmie_context::Plan,
+        response: crate::ModelResponse,
     },
 }
 
@@ -45,6 +89,15 @@ pub struct Checkpoint {
     pub(crate) usage: Usage,
     pub(crate) available_tools: Vec<ToolName>,
     pub(crate) phase: Phase,
+    #[cfg(feature = "context-projection")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    projection: Option<swarmie_context::Projection>,
+    #[cfg(feature = "context-projection")]
+    #[serde(default)]
+    context_progress: swarmie_context::Checkpoint,
+    #[cfg(feature = "context-projection")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    context_fence: Option<swarmie_context::WorkFence>,
 }
 
 impl Checkpoint {
@@ -56,12 +109,96 @@ impl Checkpoint {
             turn: 0,
             usage: Usage::default(),
             phase: Phase::PrepareTurn,
+            #[cfg(feature = "context-projection")]
+            projection: None,
+            #[cfg(feature = "context-projection")]
+            context_progress: swarmie_context::Checkpoint::default(),
+            #[cfg(feature = "context-projection")]
+            context_fence: None,
         }
+    }
+
+    /// Construct the initial checkpoint for an owner-validated immutable request.
+    /// This value is not a persistence receipt or execution authority.
+    pub fn from_request(input: Request) -> Self {
+        Self::start(input)
+    }
+
+    #[cfg(feature = "context-projection")]
+    pub fn context_progress(&self) -> &swarmie_context::Checkpoint {
+        &self.context_progress
+    }
+
+    /// The original admission fence for the current compaction. Recovery must not
+    /// replace it with a later conversation fence.
+    #[cfg(feature = "context-projection")]
+    pub fn context_fence(&self) -> Option<swarmie_context::WorkFence> {
+        self.context_fence
+    }
+
+    /// Bind a newly admitted compaction while the turn is paused.
+    #[cfg(feature = "context-projection")]
+    pub fn with_context_admission(
+        self,
+        progress: swarmie_context::Checkpoint,
+        fence: swarmie_context::WorkFence,
+    ) -> tembra::Result<Self> {
+        let mut checkpoint = self.with_context_progress(progress)?;
+        checkpoint.context_fence = Some(fence);
+        Ok(checkpoint)
+    }
+
+    /// Retain compaction recognition alongside a paused turn on the same task.
+    /// Progress cannot be attached across a pending model/tool operation.
+    #[cfg(feature = "context-projection")]
+    pub fn with_context_progress(
+        mut self,
+        progress: swarmie_context::Checkpoint,
+    ) -> tembra::Result<Self> {
+        progress.validate()?;
+        if self.phase != Phase::PrepareTurn {
+            return Err(crate::model::invalid(
+                "context progress requires a paused turn",
+            ));
+        }
+        self.context_progress = progress;
+        Ok(self)
+    }
+
+    /// Captured source selection for provider reconciliation. This grants no access.
+    pub fn sources(&self) -> Option<&swarmie_providers::ContextSources> {
+        self.input.sources.as_ref()
     }
 
     /// Return the last confirmed history selection.
     pub fn head(&self) -> Head {
         self.head
+    }
+
+    /// The selected projection is checkpoint data, never the current global active
+    /// value. Only a safe PrepareTurn can explicitly adopt a recognized successor.
+    #[cfg(feature = "context-projection")]
+    pub(super) fn with_projection(
+        mut self,
+        projection: swarmie_context::Projection,
+    ) -> tembra::Result<Self> {
+        projection.validate()?;
+        if self.phase != Phase::PrepareTurn
+            || projection.plan.through.conversation != self.input.at.conversation
+            || projection.plan.previous
+                != self.projection().map(|selected| selected.artifact.entry())
+        {
+            return Err(crate::model::invalid(
+                "checkpoint cannot adopt this context projection",
+            ));
+        }
+        self.projection = Some(projection);
+        Ok(self)
+    }
+
+    #[cfg(feature = "context-projection")]
+    pub fn projection(&self) -> Option<&swarmie_context::Projection> {
+        self.projection.as_ref().or(self.input.projection.as_ref())
     }
 
     /// Return whether confirmed assistant calls still need terminal tool results.

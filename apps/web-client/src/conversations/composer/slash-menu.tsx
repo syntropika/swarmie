@@ -5,13 +5,15 @@ import { Surface } from "@swarmie/ui-web";
 import { useClient } from "../../client/context";
 import { useSelection } from "../../client/use-selection";
 import { Caption, Item } from "../../controls";
+import { executeSlashCommand } from "./actions";
 import type { ComposerActions } from "./actions";
-import { draftText, isSlashCommand, patchDraft } from "./state";
+import { draftText, isSlashCommand } from "./state";
 
 export function ComposerSlashMenu({
   chat,
-  executeAction,
-}: { chat: Conversation } & Pick<ComposerActions, "executeAction">) {
+  executeConfirmed,
+  actionContext,
+}: { chat: Conversation } & Pick<ComposerActions, "executeConfirmed" | "actionContext">) {
   const { conversationsUi } = useClient();
   const text = useSelection(chat.draft, draftText);
   const commands = useSource(conversationsUi.composer.slashCommands);
@@ -29,9 +31,9 @@ export function ComposerSlashMenu({
             key={command.id}
             icon={command.icon}
             detail={`/${command.command}`}
+            disabled={command.enabled?.(actionContext()) === false}
             onClick={() => {
-              patchDraft(chat, { text: "" });
-              executeAction(command);
+              executeSlashCommand(chat, text, command, executeConfirmed).catch(() => undefined);
             }}
           >
             {command.label}

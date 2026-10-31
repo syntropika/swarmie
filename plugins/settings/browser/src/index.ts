@@ -19,6 +19,8 @@ export type PluginSetting = {
   required: boolean;
   errors: string[];
   uses: string[];
+  core: boolean;
+  permissions: string[];
   version: string;
   category: string;
 };

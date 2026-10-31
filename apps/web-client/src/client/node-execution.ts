@@ -128,6 +128,7 @@ export function createNodeExecution(
       messages: value.messages,
       execution: {
         ...record.execution,
+        ownerConversationId: value.ownerConversationId,
         phase: value.phase,
         label: value.label,
         omittedMessages: value.omittedMessages,
@@ -376,7 +377,7 @@ export function createNodeExecution(
   const detach = nodes.subscribe(changed);
   changed();
   return {
-    limits: { maxTextBytes: 16 * 1024, attachments: false },
+    limits: { maxTextScalars: 1_048_576, attachments: false },
     factory: factory satisfies ExecutionFactory,
     async observe(nodeId: string, id: string) {
       const connection = await connections.open(nodeId);

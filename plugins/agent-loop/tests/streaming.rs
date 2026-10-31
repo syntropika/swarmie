@@ -33,6 +33,7 @@ fn concurrent_native_generations_filter_progress_by_operation() {
                     progress.publish(
                         &ctx,
                         ModelProgress {
+                            protection: swarmie_providers::SubmissionProtection::Unprotected,
                             operation,
                             content: content.clone(),
                         },
@@ -42,12 +43,15 @@ fn concurrent_native_generations_filter_progress_by_operation() {
                     progress.publish(
                         &ctx,
                         ModelProgress {
+                            protection: swarmie_providers::SubmissionProtection::Unprotected,
                             operation,
                             content: content.clone(),
                         },
                     );
                     Ok(ModelResponse {
+                        protection: swarmie_providers::SubmissionProtection::Unprotected,
                         message: AssistantMessage {
+                            provider: None,
                             content,
                             tool_calls: vec![],
                         },
@@ -159,7 +163,9 @@ fn scripted_streaming_uses_the_native_model_contract_without_tasks_or_history() 
     let model = Rc::new(MockModel::new([Step::Stream {
         chunks: vec!["hel".into(), "lo".into()],
         response: ModelResponse {
+            protection: swarmie_providers::SubmissionProtection::Unprotected,
             message: AssistantMessage {
+                provider: None,
                 content: "hello".into(),
                 tool_calls: vec![],
             },

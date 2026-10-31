@@ -1,0 +1,26 @@
+[package]
+name = "swarmie-context"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Model context projections and compaction operation transitions"
+
+[features]
+default = []
+durable-tasks = ["dep:swarmie-durable-tasks"]
+
+[dependencies]
+tembra.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+swarmie-commands.workspace = true
+swarmie-conversations.workspace = true
+swarmie-providers.workspace = true
+swarmie-model-catalog.workspace = true
+swarmie-durable-tasks = { workspace = true, optional = true }
+
+[lints]
+workspace = true

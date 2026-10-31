@@ -263,7 +263,13 @@ explicit submission. Unfinished tools retain uncertainty until a recorded result
 reconciled or the user explicitly acknowledges the unknown outcome. Recovery never
 dispatches the tool again. It does not resume queued input automatically.
 
-The transport bounds input to 16 KiB and each conversation to 1,024 submission receipts.
+Conversation admission accepts at most 1,048,576 Unicode scalar values per text
+entry. The client checks the same limit before dispatch. It rejects unpaired UTF-16
+surrogates and preserves refused drafts. It does not normalize or truncate text.
+The encoded transport frame and the prepared model token budget have
+separate limits. The current public frame budget is 64 KiB; this path cannot yet
+carry every maximum-size entry. Each conversation retains at most 1,024 submission
+receipts. See [Node hosting](node-hosting.md) for the current carrier limits.
 Presentation snapshots stay below 48 KiB by retaining recent messages and truncating long
 display text, with explicit omission and truncation indicators. Canonical history remains
 unchanged. Conversation and provider catalogs use bounded pages whose cursors refuse a

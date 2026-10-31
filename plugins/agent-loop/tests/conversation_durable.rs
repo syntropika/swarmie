@@ -222,12 +222,12 @@ fn create(
         conversations::Method::Append.as_str(),
         (created.head, entries),
     );
-    let request = history::Request {
-        at: appended.head,
-        instructions: base.context.instructions,
-        tools: base.tools,
-        max_turns: base.max_turns,
-    };
+    let request = history::Request::new(
+        appended.head,
+        base.context.instructions,
+        base.tools,
+        base.max_turns,
+    );
     call(
         pool,
         host,
@@ -414,7 +414,9 @@ fn prepared_tool_and_checkpoint_commit_together_and_reopen_with_exact_arguments(
     scenario.uncertain_tool.set(true);
     let model = Rc::new(MockModel::new([
         Step::Reply(ModelResponse {
+            protection: swarmie_providers::SubmissionProtection::Unprotected,
             message: AssistantMessage {
+                provider: None,
                 content: String::new(),
                 tool_calls: vec![ToolCall {
                     id: ToolCallId::new("call-1").unwrap(),
@@ -425,7 +427,9 @@ fn prepared_tool_and_checkpoint_commit_together_and_reopen_with_exact_arguments(
             usage: Usage::default(),
         }),
         Step::Reply(ModelResponse {
+            protection: swarmie_providers::SubmissionProtection::Unprotected,
             message: AssistantMessage {
+                provider: None,
                 content: "Done".into(),
                 tool_calls: vec![],
             },

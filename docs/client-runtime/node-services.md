@@ -6,7 +6,8 @@ It does not start a host worker, listener, process or desktop shell.
 
 ## Configuration and ownership
 
-Call `install(&host, NodeConfiguration)` with these values:
+Declare `orbs(&host, NodeConfiguration, execution_owner)` and mount the returned
+capabilities through the runtime Plugin Manager. Supply these configuration values:
 
 | Field | Meaning |
 | --- | --- |
@@ -14,6 +15,7 @@ Call `install(&host, NodeConfiguration)` with these values:
 | `node` | Validated `NodeId` persisted by the embedding. |
 | `oauth_host` | Non-nil OAuth host UUID persisted by the embedding. Independent of the node name. |
 | `principal` | User identity authenticated by the embedding's transport. |
+| `project_context` | Optional host configuration for native skills and project instruction sources. |
 | `directory_root` | Optional permitted directory root. `None` omits the directory service. |
 
 The embedding must hold an exclusive writer lock for the profile. It owns the host,
@@ -27,12 +29,15 @@ The composition does not expose a listener or a transport allowlist.
 
 ## Installed capabilities
 
-The composition installs node identity, provider settings, provider authorization,
-Tools, MCP settings, conversation catalog and conversation session services.
+The composition declares provider settings, provider authorization, Tools, MCP
+settings, conversation catalog, conversation session, Context and Commands services.
+The runtime supplies node identity through its separate managed plugin.
 It also installs directory browsing when `directory_root` is present.
 
 Provider settings use the common provider catalog. Configuration reads the provider or local server model catalog.
-Execution uses the existing model adapters. ChatGPT browser
+Execution uses `swarmie-model-provider-ai` with one operational model catalog cache.
+Context preparation reads metadata without credential access. Content admission
+precedes credential custody and physical model dispatch. ChatGPT browser
 sign-in uses `swarmie-provider-auth`. Credentials remain in the OS credential store.
 The profile stores public account metadata in `providers.json`.
 
@@ -47,10 +52,12 @@ and current conversation admission limits.
 
 ## Desktop embedding
 
-`apps/desktop-client/runtime` supplies the Desktop worker and C ABI. It creates the
-profile directory, holds its writer lock and persists the node identity. It selects
-the user directory root, passes the UUID from its existing identity file, and installs this composition with its bound principal.
-It then serves bounded Tembra channels. It owns channel replacement and worker shutdown.
+`swarmie-node` supplies the shared worker, profile locks, persistent identity and
+protected native composition. `apps/desktop-client/runtime` supplies the Desktop C
+ABI and origin-restricted WebView adapters. Desktop selects its public and protected
+profile roots and retains the shared node until application shutdown. The explicit
+independent executable uses the same library. See [Node hosting](node-hosting.md)
+for lifecycle, local authentication and current transport limits.
 
 Other embeddings can use this composition with their own identity, principal, profile
 and transport. No Desktop type or FFI call is required. The minimal
@@ -66,3 +73,6 @@ The composition does not supply hosted account enrollment, device linking, vault
 control, a public listener or transport authentication. The embedding supplies its
 own authenticated channel. Provider credentials and ordinary node capability access
 are separate from private secret-entry authority.
+
+See [Skills and project instructions](../plugins/project-context.md) for source capture,
+explicit skill selection and native session reads.

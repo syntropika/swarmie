@@ -1,0 +1,20 @@
+{
+  "name": "@swarmie/plugin-vault-browser",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@swarmie/client-ui": "workspace:*",
+    "@swarmie/config": "workspace:*",
+    "@syntropika/tembra-sdk": "0.2.0"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}
