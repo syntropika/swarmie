@@ -3,20 +3,38 @@ name = "swarmie-tools"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
-description = "Scoped tool registration and provider routing over Tembra"
+license = "Apache-2.0 AND MIT"
+description = "Tool authoring, native coding capabilities and provider routing over Tembra"
 
 [features]
 default = []
 plugin-manager = ["dep:swarmie-plugin-manager"]
+coding = ["dep:ignore", "dep:regex", "dep:similar", "dep:unicode-width", "dep:libc", "dep:windows-sys"]
 
 [dependencies]
 tembra.workspace = true
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+schemars.workspace = true
+thiserror.workspace = true
+ignore = { version = "0.4", optional = true }
+regex = { version = "1", optional = true }
+similar = { version = "2", optional = true }
+unicode-width = { version = "0.2", optional = true }
+sha2 = "0.10"
 swarmie-providers.workspace = true
 swarmie-plugin-manager = { workspace = true, optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { version = "0.2", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", optional = true, features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+futures-timer.workspace = true
 
 [lints]
 workspace = true
