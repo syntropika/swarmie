@@ -59,6 +59,17 @@ struct Active {
     _client: ManagementStream<tokio::io::DuplexStream>,
     _server: ManagementStream<tokio::io::DuplexStream>,
 }
+
+struct OwnerLock(std::fs::File);
+
+impl Drop for OwnerLock {
+    fn drop(&mut self) {
+        // Forked descriptors share the lock until exec. The settled owner must
+        // release it explicitly instead of waiting for an unrelated child.
+        let _ = self.0.unlock();
+    }
+}
+
 pub struct Control {
     pub cards: crate::cards::Cards,
     pub jobs: RefCell<Vec<swarmie_vault::executors::CaptureJob>>,
@@ -82,7 +93,7 @@ pub struct Control {
     needs_sign_in: Cell<bool>,
     nodes: RefCell<std::collections::BTreeMap<(VaultIdentity, Uuid), VaultNode>>,
     attachments: RefCell<std::collections::BTreeMap<VaultIdentity, std::rc::Weak<Active>>>,
-    _owner: std::fs::File,
+    _owner: OwnerLock,
     detector_available: bool,
     active: RefCell<Option<Rc<Active>>>,
     shell: RefCell<HumanSession>,
@@ -101,6 +112,7 @@ impl Control {
             .open(root.join("vault-owner.lock"))
             .map_err(failure)?;
         owner.try_lock().map_err(failure)?;
+        let owner = OwnerLock(owner);
         configuration::save(&root, &configuration).map_err(failure)?;
         let authority = Authority::new();
         let shell = authority.authenticate_shell(ShellIdentity {
@@ -470,5 +482,27 @@ fn native_bash() -> PathBuf {
     #[cfg(not(unix))]
     {
         PathBuf::new()
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dropping_the_last_private_owner_releases_an_inherited_file_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let control = Control::open(root.path().into(), PrivateEntries::default()).unwrap();
+        // A fork retains this same open-file description until exec closes it.
+        let inherited = control._owner.0.try_clone().unwrap();
+        assert!(Control::open(root.path().into(), PrivateEntries::default()).is_err());
+        drop(control);
+        let reopened = Control::open(root.path().into(), PrivateEntries::default());
+        assert!(
+            reopened.is_ok(),
+            "the settled owner must release its lock before a child's exec: {:?}",
+            reopened.err()
+        );
+        drop(inherited);
     }
 }
