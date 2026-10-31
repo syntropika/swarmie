@@ -16,5 +16,7 @@ rmcp = { version = "=3.8.0", default-features = false, features = ["client", "tr
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 tokio = { version = "1", features = ["time", "process", "macros"] }
 
+tempfile.workspace = true
+
 [lints]
 workspace = true

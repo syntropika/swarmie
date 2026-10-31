@@ -4,6 +4,14 @@ Conversations stores immutable, caller-defined records. It does not require Agen
 Loop, Durable Tasks, or PluginManager. Agent Loop provides a separate adapter that
 uses these records as model history.
 
+The separate `swarmie-conversation-runtime` package in `plugins/conversations/runtime`
+composes managed sessions with the existing history, Agent Loop, Context, Providers
+and Tools capabilities. It owns session admission, projection and recovery integration.
+It does not add an execution engine. Install its `orbs` on the owning Tembra host,
+then call `start` after the complete composition is installed. The host supplies
+authenticated identity, profile ownership, model configuration and execution authority.
+See [Node capability composition](../client-runtime/node-capabilities.md).
+
 ## Select history
 
 A `ConversationId` identifies a history. An `EntryId` identifies one immutable record.

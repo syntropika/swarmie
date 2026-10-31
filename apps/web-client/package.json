@@ -13,7 +13,6 @@
     "@swarmie/config": "workspace:*",
     "@swarmie/plugin-app-state-browser": "workspace:*",
     "@swarmie/plugin-browser": "workspace:*",
-    "@swarmie/plugin-client-node-browser": "workspace:*",
     "@swarmie/plugin-context-browser": "workspace:*",
     "@swarmie/plugin-conversations-browser": "workspace:*",
     "@swarmie/plugin-git-browser": "workspace:*",

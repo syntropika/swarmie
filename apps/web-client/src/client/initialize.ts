@@ -1,6 +1,15 @@
 import type { Snapshot, StateReference } from "@swarmie/client-ui";
 import { bindState } from "@swarmie/client-ui";
 import { appStateOrb } from "@swarmie/plugin-app-state-browser";
+import type { Connector, Node } from "@swarmie/plugin-browser/connections";
+import {
+  Connections,
+  connectionsOrb,
+  connectWebSocket,
+  ConnectionPhase,
+  ConnectionFailureKind,
+  unconfiguredNode,
+} from "@swarmie/plugin-browser/connections";
 import { onboardingOrb } from "@swarmie/plugin-browser/onboarding";
 import { loadToolDetails, settingsOrb } from "@swarmie/plugin-browser/settings";
 import type { ToolDetailsPersistence } from "@swarmie/plugin-browser/settings";
@@ -12,15 +21,6 @@ import {
 } from "@swarmie/plugin-browser/shell";
 import type { BuiltinTab, CapabilityView } from "@swarmie/plugin-browser/views";
 import { createViewsApi, viewsOrb } from "@swarmie/plugin-browser/views";
-import type { Connector, Node } from "@swarmie/plugin-client-node-browser";
-import {
-  Connections,
-  connectionsOrb,
-  connectWebSocket,
-  ConnectionPhase,
-  ConnectionFailureKind,
-  unconfiguredNode,
-} from "@swarmie/plugin-client-node-browser";
 import { contextUiOrb, createContextPresentation } from "@swarmie/plugin-context-browser";
 import type { Conversation, ConversationsUiApi } from "@swarmie/plugin-conversations-browser";
 import {

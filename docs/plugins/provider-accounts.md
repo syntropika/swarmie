@@ -136,7 +136,7 @@ See [Model catalog](model-catalog.md) for model facts and route qualification.
 
 ## Native file and I/O mechanics
 
-`swarmie_client_node::NativeAccountFile::new(path)` captures an unbound native
+`swarmie_providers::native::NativeAccountFile::new(path)` captures an unbound native
 metadata file without I/O. Its typed methods below preserve private extensions
 and use an explicitly supplied physical I/O owner. This mechanical helper does
 not implement the recovery `AccountStore` port: visible bytes alone do not supply

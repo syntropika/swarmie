@@ -1,5 +1,5 @@
 import { useSource } from "../../../packages/client-ui/src/index";
-import { NodeProtocol } from "../../../plugins/client-node/browser/src/index";
+import { NodeProtocol } from "@swarmie/plugin-browser/connections";
 import { browserToolDetailsPersistence } from "../../../plugins/browser/src/settings/index";
 import { Button } from "@swarmie/ui-web";
 import { setThemePreference } from "@swarmie/ui-web/theme";

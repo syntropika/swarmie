@@ -26,6 +26,7 @@ application root.
 The base Browser package is `@swarmie/plugin-browser` in `plugins/browser`.
 Its `/shell`, `/views`, `/settings` and `/onboarding` exports retain separate State,
 commands and Tembra services. The `/onboarding/views` export contains the guide.
+The `/connections` export owns connection, reconnection and node session fencing.
 Feature plugins contribute sections and configuration through these contracts.
 
 Conversations owns stable record projections and metadata updates. Application Shell owns

@@ -81,7 +81,7 @@ contain the inserted source message. Source labels do not grant filesystem acces
 
 ## Use the native node
 
-Set `NodeConfiguration.environment` to `Some(Configuration)` to enable acquisition
+Set `ServicesConfiguration.environment` to `Some(Configuration)` to enable acquisition
 for conversations with a validated Git checkout. `swarmie-node` enables the default
 configuration. This configuration adds no personal roots. The native working directory
 is the captured checkout root.

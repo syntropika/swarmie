@@ -189,8 +189,8 @@ impl Node {
             Some((service, authority)) => (Some(service), Some(authority)),
             None => (None, None),
         };
-        let configuration = swarmie_client_node::NodeConfiguration {
-            environment: Some(swarmie_client_node::EnvironmentConfiguration::default()),
+        let configuration = crate::composition::ServicesConfiguration {
+            environment: Some(swarmie_context::environment::Configuration::default()),
             state,
             node: NodeId::new(id.clone()).map_err(|_| "native identity is invalid")?,
             oauth_host,
@@ -380,7 +380,7 @@ impl Drop for Node {
 async fn serve(
     transport: Transport,
     ready: mpsc::SyncSender<Result<(), String>>,
-    configuration: swarmie_client_node::NodeConfiguration,
+    configuration: crate::composition::ServicesConfiguration,
     vault_root: PathBuf,
 ) {
     let Transport {
@@ -411,7 +411,7 @@ async fn serve(
                 context.index,
             );
             let mut definitions = vec![owner.private_ui(), execution.tools()];
-            definitions.extend(swarmie_client_node::orbs(
+            definitions.extend(crate::composition::orbs(
                 &context.host,
                 configuration.clone(),
                 Some(execution),
@@ -436,7 +436,7 @@ async fn serve(
         }
     };
     let host = runtime.host();
-    if let Err(error) = swarmie_client_node::start(host).await {
+    if let Err(error) = swarmie_conversation_runtime::start(host).await {
         let _ = runtime.close().await;
         native.close();
         let _ = ready.send(Err(error.to_string()));
@@ -655,7 +655,7 @@ impl Drop for Channel {
 }
 
 fn permits_service(service: &str, key: Option<&[String]>) -> bool {
-    (service == swarmie_client_node::AUTHORIZATION_SERVICE
+    (service == swarmie_providers::native::AUTHORIZATION_SERVICE
         && key.is_none_or(|key| matches!(key.len(), 2 | 3)))
         || (matches!(
             service,
@@ -688,7 +688,7 @@ mod tests {
 
     #[test]
     fn authorization_allows_new_and_returning_sessions_only() {
-        let service = swarmie_client_node::AUTHORIZATION_SERVICE;
+        let service = swarmie_providers::native::AUTHORIZATION_SERVICE;
         assert!(permits_service(service, None));
         for size in 0..=4 {
             let key = vec!["value".to_owned(); size];

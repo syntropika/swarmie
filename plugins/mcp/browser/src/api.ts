@@ -3,7 +3,7 @@ import type {
   Connections,
   ConnectionsState,
   NodeConnection,
-} from "@swarmie/plugin-client-node-browser";
+} from "@swarmie/plugin-browser/connections";
 import type { DynamicReference } from "@syntropika/tembra-sdk";
 
 import type { McpDefinition, McpState } from "./types";

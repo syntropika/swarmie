@@ -9,7 +9,7 @@ license.workspace = true
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-swarmie-client-node.workspace = true
+swarmie-conversation-runtime.workspace = true
 swarmie-git = { path = "../../../plugins/git", features = ["tembra"] }
 swarmie-tools.workspace = true
 swarmie-runtime = { workspace = true, features = ["rpc"] }
@@ -24,8 +24,12 @@ swarmie-storage = { workspace = true, features = ["sqlite"] }
 swarmie-providers.workspace = true
 swarmie-cloud = { workspace = true, features = ["native-keyring"] }
 
-[dev-dependencies]
+swarmie-mcp.workspace = true
+swarmie-context.workspace = true
 swarmie-durable-tasks.workspace = true
+
+[dev-dependencies]
+swarmie-commands.workspace = true
 swarmie-conversations.workspace = true
 swarmie-agent-loop = { workspace = true, features = ["conversations"] }
 tempfile.workspace = true

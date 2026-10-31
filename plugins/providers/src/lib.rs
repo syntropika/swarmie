@@ -43,3 +43,6 @@ pub use sources::{
 pub mod ai;
 pub mod auth;
 pub mod protection;
+
+/// Native settings and host-supplied persistence adapters.
+pub mod native;

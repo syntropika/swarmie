@@ -2,16 +2,16 @@
 //! adoption authority and workflow interpretation remain outside this module.
 
 use super::{NativeAccountFile, failure, validate_path};
-use crate::NativeProviderIo;
+use crate::accounts::{
+    StoreWriteError,
+    recovery::{LegacyObservation, ProviderOwner, ProviderState, RecoveryLimits, StateLoad},
+};
+use crate::native::NativeProviderIo;
 use futures::future::BoxFuture;
 use std::{
     fs::File,
     io::{Read, Write},
     path::Path,
-};
-use swarmie_providers::accounts::{
-    StoreWriteError,
-    recovery::{LegacyObservation, ProviderOwner, ProviderState, RecoveryLimits, StateLoad},
 };
 use uuid::Uuid;
 
@@ -172,14 +172,14 @@ fn replace_state(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::NativeProviderLease;
-    #[cfg(unix)]
-    use futures::FutureExt;
-    use std::collections::BTreeMap;
-    use swarmie_providers::{
+    use crate::native::NativeProviderLease;
+    use crate::{
         AccountRecord,
         settings::{Account, ModelDefaults},
     };
+    #[cfg(unix)]
+    use futures::FutureExt;
+    use std::collections::BTreeMap;
     use tokio::runtime::Handle;
 
     fn owner() -> ProviderOwner {

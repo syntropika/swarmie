@@ -1,13 +1,13 @@
 //! The independent OAuth protocol owns PKCE and loopback I/O; Tembra owns each session.
 use super::{NativeProviders, failure};
+use crate::auth::BrowserLogin;
+use crate::settings::Account;
 use futures::FutureExt;
 use serde::{Deserialize, Serialize};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
 };
-use swarmie_providers::auth::BrowserLogin;
-use swarmie_providers::settings::Account;
 use tembra::{Context, Orb, Service, State};
 
 pub(crate) const SERVICE: &str = "swarmie.providers.authorization";
@@ -38,7 +38,7 @@ struct Authorization {
     principal: String,
     busy: Cell<bool>,
     cancelled: Cell<bool>,
-    pending: RefCell<Option<swarmie_providers::auth::Credential>>,
+    pending: RefCell<Option<crate::auth::Credential>>,
     operation: RefCell<Option<Context>>,
 }
 
@@ -453,9 +453,9 @@ mod tests {
                 task: task.abort_handle(),
             }
         }
-        fn options(&self) -> swarmie_providers::auth::ChatgptBrowserOptions {
-            swarmie_providers::auth::ChatgptBrowserOptions {
-                browser: swarmie_providers::auth::BrowserOptions {
+        fn options(&self) -> crate::auth::ChatgptBrowserOptions {
+            crate::auth::ChatgptBrowserOptions {
+                browser: crate::auth::BrowserOptions {
                     authorization_url: format!("{}/authorize", self.origin),
                     token_url: format!("{}/token", self.origin),
                     callback_port: 0,
@@ -486,7 +486,7 @@ mod tests {
                 .query_pairs()
                 .into_owned()
                 .collect();
-            let claims = json!({"iss":"https://auth.openai.com","sub":subject,"aud":"oaiapp_fixture","nonce":fields["nonce"],"exp":swarmie_providers::auth::now_ms()/1000+3600,"iat":swarmie_providers::auth::now_ms()/1000,"email":format!("{}@example.test","a".repeat(520)),"email_verified":true});
+            let claims = json!({"iss":"https://auth.openai.com","sub":subject,"aud":"oaiapp_fixture","nonce":fields["nonce"],"exp":crate::auth::now_ms()/1000+3600,"iat":crate::auth::now_ms()/1000,"email":format!("{}@example.test","a".repeat(520)),"email_verified":true});
             let mut header = Header::new(jsonwebtoken::Algorithm::RS256);
             header.kid = Some("native-fixture".into());
             let signed = jsonwebtoken::encode(&header, &claims, &keys().signer).unwrap();
@@ -613,7 +613,7 @@ mod tests {
                     .await
                     .unwrap()
                     .unwrap();
-                let stored = swarmie_providers::auth::encode(&credential).unwrap();
+                let stored = crate::auth::encode(&credential).unwrap();
                 assert!(source.decode_oauth(&stored, None).is_some());
                 let foreign = NativeProviders::new(
                     source.path.clone(),
@@ -908,11 +908,7 @@ mod tests {
                     let restored = super::super::secrets::get(source.secrets.clone(), repaired.id)
                         .await
                         .unwrap();
-                    assert!(
-                        swarmie_providers::auth::decode(&restored)
-                            .unwrap()
-                            .is_some()
-                    );
+                    assert!(crate::auth::decode(&restored).unwrap().is_some());
                     assert_eq!(
                         raw.values.lock().unwrap()["unrelated"].as_str(),
                         "unrelated synthetic value"

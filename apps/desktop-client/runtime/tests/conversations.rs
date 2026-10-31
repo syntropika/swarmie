@@ -1523,7 +1523,7 @@ fn admitted_turn_bootstrap_child() {
         .unwrap();
     tokio::task::LocalSet::new().block_on(&runtime, async {
         let host = tembra::Host::new(Executor);
-        host.install(swarmie_client_node::orbs(&host, swarmie_client_node::NodeConfiguration { environment: None,
+        host.install(swarmie_node::composition::orbs(&host, swarmie_node::composition::ServicesConfiguration { environment: None,
             state: profile.clone(), node: swarmie_runtime::NodeId::new(descriptor["id"].as_str().unwrap()).unwrap(),
             oauth_host: uuid::Uuid::new_v4(), principal: descriptor["principal"].as_str().unwrap().into(),
             directory_root: None, git: None, agent_git_authority: None,

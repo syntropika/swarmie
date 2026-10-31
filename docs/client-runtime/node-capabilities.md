@@ -1,12 +1,13 @@
-# Client node services
+# Node capability composition
 
-`swarmie-client-node` is the reusable node composition in `plugins/client-node`.
-It installs client-facing services on a Tembra host supplied by the embedding.
-It does not start a host worker, listener, process or desktop shell.
+`swarmie-node::composition` selects capability declarations and native adapters for the host.
+Each capability owns its service implementation and composition. The host chooses its
+profile, authenticated principal and permitted services. It does not implement model,
+conversation or Context behavior.
 
 ## Configuration and ownership
 
-Declare `orbs(&host, NodeConfiguration, execution_owner)` and mount the returned
+Declare `orbs(&host, ServicesConfiguration, execution_owner)` and mount the returned
 capabilities through the runtime Plugin Manager. Supply these configuration values:
 
 | Field | Meaning |
@@ -25,7 +26,26 @@ transport. On an installation error, close the host before releasing the profile
 
 Tembra owns service objects, References, State and physical invocation lifetime.
 The embedding chooses the services and keys exposed by its RPC channel.
-The composition does not expose a listener or a transport allowlist.
+The composition does not expose a listener or a transport allowlist. Native adapters
+use `swarmie_runtime::rpc`, the existing Tembra byte contract. Transport adapters
+move frames; service declarations retain operation behavior and physical lifetime.
+
+## Capability owners
+
+| Owner | Implementation |
+| --- | --- |
+| `swarmie_providers::native` | Provider settings, authorization, credential references and owned file I/O. |
+| `swarmie_mcp::settings` | Server definitions, administration and the host-selected file adapter. |
+| `swarmie-conversations` | Canonical conversation history. |
+| `swarmie-conversation-runtime` | Managed sessions that integrate existing history, Agent Loop, Context and Tools. |
+| `swarmie_context::environment` | Scoped instruction and skill acquisition. |
+| `swarmie_runtime` | Bootstrap, node identity, directory contract and the shared Tembra RPC contract. |
+| `swarmie-node` | Host-selected native adapters, profile ownership and physical hosting. |
+| `@swarmie/plugin-browser/connections` | Browser connection, reconnection and session fencing. |
+
+The conversation integration package lives in `plugins/conversations/runtime`. It
+uses the existing Agent Loop and history library. The history library does not depend
+on its execution consumer.
 
 ## Installed capabilities
 

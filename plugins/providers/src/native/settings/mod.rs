@@ -6,14 +6,14 @@ pub(crate) mod oauth;
 mod qualifications;
 mod secrets;
 
+use crate::ai::{AiModel, Connection, ConnectionId, Credentials, ModelId, Provider};
+use crate::settings::{
+    Account, ConfigureProvider, ModelDefaults, ProviderCatalog, ProviderSettings, SetModelDefaults,
+};
 use futures::future::LocalBoxFuture;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{io::Write, path::PathBuf, rc::Rc, sync::Arc};
-use swarmie_providers::ai::{AiModel, Connection, ConnectionId, Credentials, ModelId, Provider};
-use swarmie_providers::settings::{
-    Account, ConfigureProvider, ModelDefaults, ProviderCatalog, ProviderSettings, SetModelDefaults,
-};
 use zeroize::Zeroizing;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -28,18 +28,19 @@ struct SavedAccount {
     discovered_limits: Option<metadata::DiscoveredLimits>,
 }
 
-pub(crate) struct NativeProviders {
+/// Principal-bound native account configuration and model construction.
+/// Public metadata uses the host-selected file; credentials remain in native custody.
+pub struct NativeProviders {
     path: PathBuf,
     node: String,
     principal: String,
     oauth_host: uuid::Uuid,
-    renewal:
-        tokio::sync::Mutex<std::collections::BTreeMap<String, swarmie_providers::auth::Credential>>,
+    renewal: tokio::sync::Mutex<std::collections::BTreeMap<String, crate::auth::Credential>>,
     mutation: tokio::sync::Mutex<()>,
     secrets: Arc<dyn secrets::SecretStore>,
     metadata: metadata::ModelMetadata,
     #[cfg(test)]
-    oauth_options: Option<(swarmie_providers::auth::ChatgptBrowserOptions, String)>,
+    oauth_options: Option<(crate::auth::ChatgptBrowserOptions, String)>,
 }
 
 pub(super) fn failure(message: &str) -> tembra::Error {
@@ -47,15 +48,21 @@ pub(super) fn failure(message: &str) -> tembra::Error {
 }
 
 impl NativeProviders {
-    pub(crate) fn node_id(&self) -> String {
+    /// Declare the provider settings and authorization services for this bound owner.
+    pub fn orbs(self: Rc<Self>) -> Vec<tembra::Orb> {
+        vec![
+            crate::settings::settings_orb(self.clone()),
+            oauth::orb(self),
+        ]
+    }
+
+    pub fn node_id(&self) -> String {
         self.node.clone()
     }
-    pub(crate) fn new(
-        path: PathBuf,
-        node: String,
-        principal: String,
-        oauth_host: uuid::Uuid,
-    ) -> Self {
+
+    /// Bind settings to a trusted host identity, principal and profile file.
+    /// Construction does not authenticate a transport or grant filesystem access.
+    pub fn new(path: PathBuf, node: String, principal: String, oauth_host: uuid::Uuid) -> Self {
         let secrets = Arc::new(secrets::ChunkedStore::new(Arc::new(
             secrets::KeyringStore {
                 namespace: format!("{node}/{principal}"),
@@ -125,13 +132,15 @@ impl NativeProviders {
         .map_err(|_| failure("provider settings could not be saved"))?
     }
 
-    pub(crate) async fn model_with_protection(
+    /// Construct a configured model for the principal and retained protection owner.
+    /// Missing accounts, models, metadata or authorization refuse construction.
+    pub async fn model_with_protection(
         &self,
         principal: &str,
         account_id: &str,
         model_id: &str,
         effort: &str,
-        protection: swarmie_providers::ai::ModelProtection,
+        protection: crate::ai::ModelProtection,
     ) -> tembra::Result<AiModel> {
         self.authorize(principal)?;
         let saved = self
@@ -179,7 +188,7 @@ impl NativeProviders {
             &connection,
             &ModelId::new(model_id)?,
             effort,
-            swarmie_providers::auth::now_ms(),
+            crate::auth::now_ms(),
         )?;
         if saved.oauth {
             return Err(failure("the ChatGPT inference profile is not qualified"));
@@ -214,12 +223,12 @@ impl NativeProviders {
             account,
             model,
             effort,
-            swarmie_providers::ai::ModelProtection::Unprotected,
+            crate::ai::ModelProtection::Unprotected,
         )
         .await
     }
 
-    fn oauth_identity(identity: &swarmie_providers::auth::VerifiedIdentity) -> String {
+    fn oauth_identity(identity: &crate::auth::VerifiedIdentity) -> String {
         format!(
             "{:x}",
             Sha256::digest(format!("{}\0{}", identity.issuer, identity.subject).as_bytes())
@@ -230,9 +239,9 @@ impl NativeProviders {
         &self,
         stored: &str,
         expected_identity: Option<&str>,
-    ) -> Option<swarmie_providers::auth::Credential> {
-        let credential = swarmie_providers::auth::decode(stored).ok().flatten()?;
-        if credential.provider != swarmie_providers::auth::Provider::Chatgpt {
+    ) -> Option<crate::auth::Credential> {
+        let credential = crate::auth::decode(stored).ok().flatten()?;
+        if credential.provider != crate::auth::Provider::Chatgpt {
             return None;
         }
         let registration = credential.chatgpt.as_ref()?;
@@ -248,7 +257,7 @@ impl NativeProviders {
     async fn returning_credential(
         &self,
         id: &str,
-    ) -> tembra::Result<Option<swarmie_providers::auth::Credential>> {
+    ) -> tembra::Result<Option<crate::auth::Credential>> {
         let saved = self
             .read()
             .await?
@@ -264,14 +273,14 @@ impl NativeProviders {
     async fn begin_authorization(
         &self,
         returning: Option<&str>,
-    ) -> tembra::Result<swarmie_providers::auth::BrowserLogin> {
+    ) -> tembra::Result<crate::auth::BrowserLogin> {
         let credential = match returning {
             Some(id) => self.returning_credential(id).await?,
             None => None,
         };
         #[cfg(test)]
         if let Some((options, _)) = &self.oauth_options {
-            return swarmie_providers::auth::begin_chatgpt_browser_with_options(
+            return crate::auth::begin_chatgpt_browser_with_options(
                 self.oauth_host,
                 credential.as_ref(),
                 options.clone(),
@@ -281,7 +290,7 @@ impl NativeProviders {
                 failure("provider authorization could not start; check the local callback listener")
             });
         }
-        swarmie_providers::auth::begin_chatgpt_browser(self.oauth_host, credential.as_ref())
+        crate::auth::begin_chatgpt_browser(self.oauth_host, credential.as_ref())
             .await
             .map_err(|_| {
                 failure("provider authorization could not start; check the local callback listener")
@@ -292,7 +301,7 @@ impl NativeProviders {
         &self,
         context: &tembra::Context,
         principal: &str,
-        credential: &swarmie_providers::auth::Credential,
+        credential: &crate::auth::Credential,
         cancelled: &std::cell::Cell<bool>,
     ) -> tembra::Result<Account> {
         self.authorize(principal)?;
@@ -340,7 +349,7 @@ impl NativeProviders {
             available: true,
             models_truncated: false,
         };
-        let encoded = swarmie_providers::auth::encode(credential)
+        let encoded = crate::auth::encode(credential)
             .map_err(|_| failure("the authorized credential is invalid"))?;
         context.check()?;
         let previous = if existing.is_some() {
@@ -388,9 +397,9 @@ impl Credentials for LazyCredential {
     fn acquire<'a>(
         &'a self,
         context: &'a tembra::Context,
-        _admitted: &'a swarmie_providers::ai::AdmittedAttempt,
+        _admitted: &'a crate::ai::AdmittedAttempt,
         key: &'a str,
-    ) -> LocalBoxFuture<'a, tembra::Result<swarmie_providers::ai::ModelCredential>> {
+    ) -> LocalBoxFuture<'a, tembra::Result<crate::ai::ModelCredential>> {
         Box::pin(async move {
             context.check()?;
             if key != self.account {
@@ -398,7 +407,7 @@ impl Credentials for LazyCredential {
             }
             let secret = secrets::get(self.store.clone(), self.account.clone()).await?;
             context.check()?;
-            swarmie_providers::ai::ModelCredential::new(secret.to_string(), "[secret]".into())
+            crate::ai::ModelCredential::new(secret.to_string(), "[secret]".into())
         })
     }
 }
@@ -610,7 +619,7 @@ fn first_chunk(account: Account) -> Account {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use swarmie_providers::settings::ModelInfo;
+    use crate::settings::ModelInfo;
 
     pub(super) fn account(id: &str, count: usize) -> SavedAccount {
         SavedAccount {

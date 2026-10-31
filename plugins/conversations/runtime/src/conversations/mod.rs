@@ -10,7 +10,6 @@ mod sources;
 pub(crate) mod tasks;
 mod types;
 
-use crate::providers::NativeProviders;
 use futures::FutureExt;
 use sha2::{Digest, Sha256};
 use std::{cell::RefCell, num::NonZeroU32, path::PathBuf, rc::Rc};
@@ -19,6 +18,7 @@ use swarmie_agent_loop::{
     conversation::{History, Record, Request},
 };
 use swarmie_conversations::{ConversationId, Conversations, EntryDraft, EntryId, Read};
+use swarmie_providers::native::NativeProviders;
 use swarmie_tools::{Catalog, CatalogService};
 use tembra::{Context, Host, Orb, Service, State};
 use types::{Metadata, Phase, Receipt, RunResult, Snapshot, Submission};
@@ -739,14 +739,14 @@ impl Drop for Running<'_> {
     }
 }
 
-pub(crate) struct ExecutionPolicy {
+pub struct ExecutionPolicy {
     pub service: Option<swarmie_git::GitService>,
     pub authority: Option<std::sync::Arc<dyn swarmie_git::Authority>>,
     pub owner: Option<Rc<dyn crate::ExecutionOwner>>,
     pub environment: Option<swarmie_context::environment::Configuration>,
 }
 
-pub(crate) fn orbs(
+pub fn orbs(
     host: Host,
     path: PathBuf,
     node: String,

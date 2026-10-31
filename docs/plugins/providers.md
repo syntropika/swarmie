@@ -12,9 +12,16 @@ The package contains these modules:
 | `auth` | Native provider authorization and credential exchange. |
 | `protection` | Offline inspection and admission of final request content. |
 | `ai` | Native inference through the independent AI protocol library. |
+| `native` | Principal-bound settings, service composition, credential references and owned file I/O. |
 
 Vault supplies its credential adapter as `swarmie_vault::VaultCredentials` with
 the `provider-credentials` feature. Providers does not depend on Vault.
+
+`native::NativeProviders` binds the trusted host's profile file, node, principal
+and OAuth host identity. Its `orbs()` method declares provider settings and
+authorization on the same Tembra host. Model construction retains the configured
+account, current metadata and the supplied final-content protection owner.
+The host authenticates the channel before exposing these services.
 
 The shared Rust API lives in `plugins/providers/`, alongside its existing browser package.
 Agent Loop and provider implementations share these types directly. This dependency does

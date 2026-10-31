@@ -4,7 +4,7 @@ import type {
   Connections,
   ConnectionsState,
   NodeConnection,
-} from "@swarmie/plugin-client-node-browser";
+} from "@swarmie/plugin-browser/connections";
 import type { ProvidersBackend, ProvidersState } from "@swarmie/plugin-providers-browser";
 import { createProvidersApi } from "@swarmie/plugin-providers-browser";
 import type { DynamicReference } from "@syntropika/tembra-sdk";

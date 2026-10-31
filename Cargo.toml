@@ -5,7 +5,7 @@ members = [
     "crates/runtime",
     "crates/runtime/node",
     "crates/runtime/node-host",
-    "plugins/client-node",
+    "plugins/conversations/runtime",
     "crates/storage",
     "crates/storage/core",
     "plugins/providers",
@@ -65,7 +65,7 @@ swarmie-durable-tasks = { path = "plugins/durable-tasks" }
 swarmie-plugin-manager = { path = "plugins/plugin-manager" }
 swarmie-agent-loop = { path = "plugins/agent-loop" }
 swarmie-runtime = { path = "crates/runtime" }
-swarmie-client-node = { path = "plugins/client-node" }
+swarmie-conversation-runtime = { path = "plugins/conversations/runtime" }
 swarmie-node = { path = "crates/runtime/node" }
 
 [workspace.lints.rust]

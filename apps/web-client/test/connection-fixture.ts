@@ -1,5 +1,5 @@
-import type { Connector, Node } from "@swarmie/plugin-client-node-browser";
-import { NodeProtocol } from "@swarmie/plugin-client-node-browser";
+import type { Connector, Node } from "@swarmie/plugin-browser/connections";
+import { NodeProtocol } from "@swarmie/plugin-browser/connections";
 
 export const fixtureNode: Node = {
   id: "fixture-node",

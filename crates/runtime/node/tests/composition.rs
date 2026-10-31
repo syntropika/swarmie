@@ -3,14 +3,14 @@ use futures::{
     task::{LocalFutureObj, LocalSpawn, SpawnError},
 };
 use std::{path::PathBuf, rc::Rc};
-use swarmie_client_node::NodeConfiguration;
+use swarmie_node::composition::ServicesConfiguration;
 use swarmie_providers::settings::ProviderCatalog;
 use swarmie_runtime::{NODE_KEY, NODE_SERVICE, NodeId, NodeIdentity};
 use tembra::Host;
 
-fn install_fixture(host: &Host, configuration: NodeConfiguration) -> tembra::Result<()> {
+fn install_fixture(host: &Host, configuration: ServicesConfiguration) -> tembra::Result<()> {
     let identity = swarmie_runtime::node_orb(configuration.node.clone());
-    let mut definitions = swarmie_client_node::orbs(host, configuration, None)?;
+    let mut definitions = swarmie_node::composition::orbs(host, configuration, None)?;
     definitions.push(identity);
     host.install(definitions)
 }
@@ -30,9 +30,9 @@ async fn storage_opens_only_when_declared_capabilities_activate() {
         .run_until(async {
             let profile = tempfile::tempdir().unwrap();
             let host = Host::new(Executor);
-            let definitions = swarmie_client_node::orbs(
+            let definitions = swarmie_node::composition::orbs(
                 &host,
-                NodeConfiguration {
+                ServicesConfiguration {
                     environment: None,
                     state: profile.path().into(),
                     node: NodeId::new("embedded-fixture").unwrap(),
@@ -48,7 +48,7 @@ async fn storage_opens_only_when_declared_capabilities_activate() {
             assert_eq!(std::fs::read_dir(profile.path()).unwrap().count(), 0);
             host.install(definitions).unwrap();
             assert_eq!(std::fs::read_dir(profile.path()).unwrap().count(), 0);
-            swarmie_client_node::start(&host).await.unwrap();
+            swarmie_conversation_runtime::start(&host).await.unwrap();
             assert!(profile.path().join("conversations.sqlite").is_file());
             let session = host
                 .get(
@@ -77,9 +77,9 @@ async fn invalid_storage_fails_in_managed_activation_and_preserves_existing_byte
             let original = b"existing invalid database; preserve this file";
             std::fs::write(&path, original).unwrap();
             let host = Host::new(Executor);
-            let definitions = swarmie_client_node::orbs(
+            let definitions = swarmie_node::composition::orbs(
                 &host,
-                NodeConfiguration {
+                ServicesConfiguration {
                     environment: None,
                     state: profile.path().into(),
                     node: NodeId::new("embedded-fixture").unwrap(),
@@ -95,7 +95,7 @@ async fn invalid_storage_fails_in_managed_activation_and_preserves_existing_byte
             assert_eq!(std::fs::read(&path).unwrap(), original);
             host.install(definitions).unwrap();
             assert_eq!(std::fs::read(&path).unwrap(), original);
-            assert!(swarmie_client_node::start(&host).await.is_err());
+            assert!(swarmie_conversation_runtime::start(&host).await.is_err());
             host.close().await.unwrap();
             assert_eq!(host.kernel().diagnostics().resources, 0);
             assert_eq!(std::fs::read(&path).unwrap(), original);
@@ -111,7 +111,7 @@ async fn a_non_desktop_host_composes_services_with_its_own_identity_and_principa
             let host = Host::new(Executor);
             let invalid = install_fixture(
                 &host,
-                NodeConfiguration { environment: None,
+                ServicesConfiguration { environment: None,
                     state: PathBuf::from(profile.path()),
                     node: NodeId::new("embedded-fixture").unwrap(),
                     oauth_host: uuid::Uuid::nil(),
@@ -128,7 +128,7 @@ async fn a_non_desktop_host_composes_services_with_its_own_identity_and_principa
             );
             install_fixture(
                 &host,
-                NodeConfiguration { environment: None,
+                ServicesConfiguration { environment: None,
                     state: PathBuf::from(profile.path()),
                     node: NodeId::new("embedded-fixture").unwrap(),
                     oauth_host: uuid::Uuid::new_v4(),
@@ -139,7 +139,7 @@ async fn a_non_desktop_host_composes_services_with_its_own_identity_and_principa
                 },
             )
             .unwrap();
-            swarmie_client_node::start(&host).await.unwrap();
+            swarmie_conversation_runtime::start(&host).await.unwrap();
             let identity = host
                 .get(NODE_SERVICE, vec![NODE_KEY.into()], "embedded-user")
                 .unwrap();
@@ -260,7 +260,7 @@ async fn an_embedding_without_agent_mutation_policy_contributes_only_git_reads()
             let host = Host::new(Executor);
             install_fixture(
                 &host,
-                NodeConfiguration {
+                ServicesConfiguration {
                     environment: None,
                     state: profile.path().into(),
                     node: NodeId::new("read-only-embedding").unwrap(),
@@ -272,7 +272,7 @@ async fn an_embedding_without_agent_mutation_policy_contributes_only_git_reads()
                 },
             )
             .unwrap();
-            swarmie_client_node::start(&host).await.unwrap();
+            swarmie_conversation_runtime::start(&host).await.unwrap();
             let tools = host
                 .get(swarmie_tools::SERVICE, vec!["main".into()], "embedded-user")
                 .unwrap();
@@ -323,7 +323,7 @@ async fn a_non_desktop_host_observes_and_stops_a_held_turn_without_provider_disp
     tokio::task::LocalSet::new().run_until(async {
         let profile = tempfile::tempdir().unwrap();
         let host = Host::new(Executor);
-        install_fixture(&host, NodeConfiguration { environment: None,
+        install_fixture(&host, ServicesConfiguration { environment: None,
             state: profile.path().into(), node: NodeId::new("embedded-fixture").unwrap(),
             oauth_host: uuid::Uuid::new_v4(), principal: "embedded-user".into(),
             directory_root: None, git: None, agent_git_authority: None,
@@ -348,7 +348,7 @@ async fn a_non_desktop_host_observes_and_stops_a_held_turn_without_provider_disp
             scheduler.call::<_, TaskObservation>(&context, Method::Wait.as_str(), (id,)).await
         }.boxed_local()));
         assert!(futures::poll!(&mut waiting).is_pending());
-        swarmie_client_node::start(&host).await.unwrap();
+        swarmie_conversation_runtime::start(&host).await.unwrap();
         let observed = tokio::time::timeout(std::time::Duration::from_secs(5), waiting).await.unwrap().unwrap();
         assert_eq!(observed, TaskObservation::Interrupted);
         std::fs::remove_dir(&index).unwrap();
@@ -389,7 +389,7 @@ async fn an_embedding_cannot_bind_a_user_to_the_reserved_host_principal() {
                 let host = Host::new(Executor);
                 let result = install_fixture(
                     &host,
-                    NodeConfiguration {
+                    ServicesConfiguration {
                         environment: None,
                         state: profile.path().into(),
                         node: NodeId::new("embedded-fixture").unwrap(),
@@ -415,7 +415,7 @@ async fn an_embedding_cannot_bind_a_user_to_the_reserved_host_principal() {
 #[tokio::test]
 async fn execution_owner_refusal_settles_the_durable_turn_without_retry_or_model_dispatch() {
     use serde_json::json;
-    use swarmie_client_node::{ConversationExecution, ExecutionOwner, ExecutionScope};
+    use swarmie_conversation_runtime::{ConversationExecution, ExecutionOwner, ExecutionScope};
     use swarmie_durable_tasks::{
         self as tasks, Method, TaskId, TaskObservation, TaskRecord, TaskSpec, TaskStatus,
     };
@@ -446,7 +446,7 @@ async fn execution_owner_refusal_settles_the_durable_turn_without_retry_or_model
         let profile = tempfile::tempdir().unwrap();
         let host = Host::new(Executor);
         let owner = Rc::new(Refused(std::cell::Cell::new(0)));
-        host.install(swarmie_client_node::orbs(&host, NodeConfiguration { environment: None,
+        host.install(swarmie_node::composition::orbs(&host, ServicesConfiguration { environment: None,
             state: profile.path().into(), node: NodeId::new("embedded-fixture").unwrap(),
             oauth_host: uuid::Uuid::new_v4(), principal: "embedded-user".into(),
             directory_root: None, git: None, agent_git_authority: None,
@@ -468,7 +468,7 @@ async fn execution_owner_refusal_settles_the_durable_turn_without_retry_or_model
             "account":"unconfigured-account","model":"unconfigured-model","effort":"","archived":false,"pinned":false,
             "receipts":[],"phase":"working","task":id,"stopRequested":false
         }])).unwrap()).unwrap();
-        swarmie_client_node::start(&host).await.unwrap();
+        swarmie_conversation_runtime::start(&host).await.unwrap();
         let reference = scheduler.clone();
         let observation: TaskObservation = host.root("embedded-user", move |context| async move {
             reference.call(&context, Method::Wait.as_str(), (id,)).await
@@ -480,7 +480,7 @@ async fn execution_owner_refusal_settles_the_durable_turn_without_retry_or_model
             scheduler.call(&context, Method::Get.as_str(), (id,)).await
         }.boxed_local()).await.unwrap();
         assert_eq!(record.unwrap().status, TaskStatus::Completed(json!({"status":"settled","phase":"failed"})));
-        swarmie_client_node::start(&host).await.unwrap();
+        swarmie_conversation_runtime::start(&host).await.unwrap();
         assert_eq!(owner.0.get(), 1, "a refused native owner must not become an automatic retry");
         let storage = Rc::new(swarmie_storage::sqlite::SqliteOwner::new(profile.path().join("conversations.sqlite")).conversations().unwrap());
         let history = swarmie_conversations::Conversations::new(storage.clone());

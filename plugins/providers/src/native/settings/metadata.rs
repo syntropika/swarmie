@@ -2,6 +2,7 @@
 //! no credential access and performs no metadata network requests.
 
 use super::{SavedAccount, catalog, failure, qualifications};
+use crate::ai::{Connection, ModelId};
 use serde::{Deserialize, Serialize};
 use std::{
     cell::RefCell,
@@ -12,7 +13,6 @@ use swarmie_ai::catalog::{
     Capability, Catalog, Evidence, Layer, Limits, Preparation, Requirements, ResolutionError,
     Snapshot, SourceRecord, sources::ModelsDev,
 };
-use swarmie_providers::ai::{Connection, ModelId};
 
 /// Optional facts returned during account discovery. They stay private and do
 /// not enlarge the account/UI projection. The endpoint fences later rebinding.
@@ -157,8 +157,8 @@ impl ModelMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::{ConnectionId, Provider};
     use swarmie_ai::catalog::{LimitClaim, Precision};
-    use swarmie_providers::ai::{ConnectionId, Provider};
 
     fn fixture() -> (SavedAccount, Connection, ModelId) {
         let mut saved = super::super::tests::account("deployment", 1);
@@ -179,7 +179,7 @@ mod tests {
     fn selected_metadata_reuses_one_snapshot_and_cannot_cross_model_or_endpoint() {
         let (saved, connection, model) = fixture();
         let metadata = ModelMetadata::default();
-        let now = swarmie_providers::auth::now_ms();
+        let now = crate::auth::now_ms();
         let first = metadata
             .prepare(&saved, &connection, &model, "", now)
             .unwrap();

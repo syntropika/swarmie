@@ -1,9 +1,9 @@
 //! Pure immutable-generation key planning. This module neither accesses custody
 //! nor supplies profile ownership, initialization or physical settlement proof.
 
+use crate::accounts::recovery::{CredentialReference, CredentialSlot, ProviderOwner};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::Serialize;
-use swarmie_providers::accounts::recovery::{CredentialReference, CredentialSlot, ProviderOwner};
 
 const DOMAIN: &[u8] = b"swarmie.provider-generation.v2\0";
 const USERNAME_PREFIX: &str = "swarmie.immutable.v2:";

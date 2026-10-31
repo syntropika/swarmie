@@ -1,19 +1,17 @@
 [package]
-name = "swarmie-client-node"
+name = "swarmie-conversation-runtime"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Reusable node service composition for Swarmie clients"
+description = "Managed conversation session composition over history, context and agent execution"
 
 [dependencies]
-base64 = "0.22"
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-swarmie-mcp.workspace = true
 swarmie-tools.workspace = true
-swarmie-git = { path = "../git", features = ["tools"] }
+swarmie-git = { path = "../../git", features = ["tools"] }
 swarmie-providers.workspace = true
 swarmie-context = { workspace = true, features = ["durable-tasks"] }
 swarmie-commands.workspace = true
@@ -24,19 +22,9 @@ swarmie-conversations.workspace = true
 swarmie-storage.workspace = true
 sha2 = "0.10"
 uuid = { workspace = true, features = ["v5"] }
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
-keyring = { version = "=3.6.3", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
-zeroize = { version = "1", features = ["derive"] }
-swarmie-runtime.workspace = true
 tembra.workspace = true
 tokio = { version = "1", features = ["rt", "time", "net", "sync"] }
 tempfile.workspace = true
-
-[dev-dependencies]
-tembra = { workspace = true, features = ["rpc"] }
-tokio = { version = "1", features = ["macros"] }
-jsonwebtoken = { version = "=10.4.0", default-features = false, features = ["rust_crypto"] }
-rsa = { version = "=0.9.10", features = ["pem", "sha2"] }
 
 [lints]
 workspace = true

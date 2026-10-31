@@ -121,11 +121,12 @@ notarization and Windows Authenticode credentials are separate opt-in provisioni
 
 ## Local execution node
 
-`apps/desktop-client/runtime` supplies the worker and byte channels for the embedded
-local node. The native host owns its worker thread, Tokio executor, profile lock,
-node identity file and state directory. It installs the reusable
-[client node services](node-services.md) from `plugins/client-node`.
-That library composes provider, conversation, Tools and MCP capabilities.
+`swarmie-node` supplies the worker and byte channels for the embedded local node.
+`apps/desktop-client/runtime` supplies the Desktop C ABI and WebView adapters.
+The native host owns its worker thread, Tokio executor, profile lock,
+node identity file and state directory. It installs the
+[node capabilities](node-capabilities.md) from their owning capability packages.
+Each capability declares its own services; the host selects and installs them.
 Tembra owns capability resources and physical cleanup.
 No standalone runtime process or listener is required.
 

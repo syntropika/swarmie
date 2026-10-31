@@ -12,7 +12,7 @@ import {
   ConnectionPhase,
   NodeProtocol,
   connectWebSocket,
-} from "../src/index";
+} from "../src/connections/index";
 
 const cleanup: (() => void | Promise<void>)[] = [];
 afterEach(async () => {

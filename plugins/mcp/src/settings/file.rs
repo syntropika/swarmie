@@ -1,10 +1,10 @@
+use super::{Definition, DefinitionStore};
 use std::{collections::BTreeMap, io::Write, path::PathBuf};
-use swarmie_mcp::settings::{Definition, DefinitionStore};
 
 /// One native host owns writes to this file. The path belongs to the embedding.
-pub(crate) struct Definitions(pub PathBuf);
+pub struct FileDefinitions(pub PathBuf);
 
-impl Definitions {
+impl FileDefinitions {
     fn all(&self) -> tembra::Result<BTreeMap<String, Vec<Definition>>> {
         match std::fs::read(&self.0) {
             Ok(bytes) => serde_json::from_slice(&bytes).map_err(|_| failure()),
@@ -22,7 +22,7 @@ fn failure() -> tembra::Error {
     )
 }
 
-impl DefinitionStore for Definitions {
+impl DefinitionStore for FileDefinitions {
     fn load(&self, principal: &str) -> tembra::Result<Vec<Definition>> {
         Ok(self.all()?.remove(principal).unwrap_or_default())
     }

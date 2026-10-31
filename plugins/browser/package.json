@@ -8,7 +8,8 @@
     "./views": "./src/views/index.ts",
     "./settings": "./src/settings/index.ts",
     "./onboarding": "./src/onboarding/index.ts",
-    "./onboarding/views": "./src/onboarding/views.tsx"
+    "./onboarding/views": "./src/onboarding/views.tsx",
+    "./connections": "./src/connections/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"

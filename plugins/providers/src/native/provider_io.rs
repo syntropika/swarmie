@@ -1,9 +1,9 @@
 //! Physical serialization and local file-lock lifetime for native provider I/O.
 //! This is not profile initialization, workflow authority or a platform fence.
 
+use crate::accounts::StoreWriteError;
 use futures::future::BoxFuture;
 use std::{fs::File, path::Path, sync::Arc};
-use swarmie_providers::accounts::StoreWriteError;
 use tokio::{runtime::Handle, sync::Semaphore};
 
 fn failure(message: &str) -> tembra::Error {

@@ -1,12 +1,14 @@
-use crate::{definitions::Definitions, directories::NativeDirectories, providers::NativeProviders};
+use crate::directories::NativeDirectories;
 use std::{path::PathBuf, rc::Rc, sync::Arc};
+use swarmie_conversation_runtime::ExecutionOwner;
+use swarmie_providers::native::NativeProviders;
 use swarmie_runtime::NodeId;
 use swarmie_tools::Catalog;
 use tembra::Host;
 
 /// Configuration supplied by the embedding, independent of a desktop installation.
 #[derive(Clone)]
-pub struct NodeConfiguration {
+pub struct ServicesConfiguration {
     /// Optional native project content. The host chooses all additional roots.
     pub environment: Option<swarmie_context::environment::Configuration>,
     /// Existing profile directory. The embedding must hold its exclusive writer lock.
@@ -31,7 +33,7 @@ pub struct NodeConfiguration {
 /// I/O, time and blocking-task support. Credential custody uses the OS credential store;
 /// public account metadata and conversation history use the supplied profile directory.
 /// Conversation and task storage opens during managed resource activation.
-/// Task scheduling starts paused. Call [`crate::start`] after the runtime has
+/// Task scheduling starts paused. Call [`swarmie_conversation_runtime::start`] after the runtime has
 /// installed the complete composition to enable admitted work and recovery.
 /// The embedding supplies node identity through the runtime's node plugin.
 ///
@@ -40,10 +42,10 @@ pub struct NodeConfiguration {
 /// must close the host before it releases the profile's exclusive writer lock.
 pub fn orbs(
     host: &Host,
-    configuration: NodeConfiguration,
-    execution: Option<Rc<dyn crate::ExecutionOwner>>,
+    configuration: ServicesConfiguration,
+    execution: Option<Rc<dyn ExecutionOwner>>,
 ) -> tembra::Result<Vec<tembra::Orb>> {
-    let NodeConfiguration {
+    let ServicesConfiguration {
         state,
         node,
         principal,
@@ -55,13 +57,13 @@ pub fn orbs(
     } = configuration;
     if principal.is_empty() || principal == swarmie_durable_tasks::HOST_PRINCIPAL {
         return Err(tembra::Error::invalid(
-            "client-node.principal",
+            "node.principal",
             "a non-host user principal is required",
         ));
     }
     if oauth_host.is_nil() {
         return Err(tembra::Error::invalid(
-            "client-node.oauth_host",
+            "node.oauth_host",
             "OAuth host identity is required",
         ));
     }
@@ -87,34 +89,29 @@ pub fn orbs(
     ));
     let tools_principal = principal.clone();
     let settings_principal = principal.clone();
-    let mut definitions = vec![
-        swarmie_providers::settings::settings_orb(providers.clone()),
-        crate::providers::oauth::orb(providers.clone()),
+    let mut definitions = providers.clone().orbs();
+    definitions.extend([
         swarmie_tools::orb_with_catalog(host.clone(), move |caller| {
             if caller == tools_principal {
                 Ok(catalog.clone())
             } else {
-                Err(tembra::Error::invalid(
-                    "client-node.principal",
-                    "unbound user",
-                ))
+                Err(tembra::Error::invalid("node.principal", "unbound user"))
             }
         }),
         swarmie_mcp::settings::settings_orb(
             host.clone(),
-            Rc::new(Definitions(state.join("mcp.json"))),
+            Rc::new(swarmie_mcp::settings::FileDefinitions(
+                state.join("mcp.json"),
+            )),
             move |caller| {
                 if caller == settings_principal {
                     Ok(settings_catalog.clone())
                 } else {
-                    Err(tembra::Error::invalid(
-                        "client-node.principal",
-                        "unbound user",
-                    ))
+                    Err(tembra::Error::invalid("node.principal", "unbound user"))
                 }
             },
         ),
-    ];
+    ]);
     if let Some(service) = &git {
         definitions.push(swarmie_git::orb(service.clone()));
     }
@@ -123,14 +120,14 @@ pub fn orbs(
             NativeDirectories::new(root, principal.clone()),
         )));
     }
-    definitions.extend(crate::conversations::orbs(
+    definitions.extend(swarmie_conversation_runtime::orbs(
         host.clone(),
         state,
         providers.node_id(),
         principal,
         providers,
         conversation_catalog,
-        crate::conversations::ExecutionPolicy {
+        swarmie_conversation_runtime::ExecutionPolicy {
             service: git,
             authority: agent_git_authority,
             owner: execution,

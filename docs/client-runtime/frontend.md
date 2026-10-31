@@ -15,7 +15,7 @@ qualification fixtures use the same published Tembra SDK version.
 | `apps/web-client` | Compose the node client and coordinate its screens. |
 | `apps/mobile-client` | Present the mobile client and its platform integrations. |
 | `apps/desktop-client` | Host the shared web client in a native desktop window. |
-| `plugins/browser` | Own the base Shell, Views, Settings and Onboarding modules. |
+| `plugins/browser` | Own base Shell, Views, Settings, Onboarding and client Connections modules. |
 | `plugins/*/browser` | Provide frontend capabilities and local extension contracts. |
 | `packages/client-ui` | Adapt Tembra values for subscribed UI rendering. |
 | `packages/config` | Share compiler settings, fonts, theme behavior, and semantic tokens. |

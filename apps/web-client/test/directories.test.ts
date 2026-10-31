@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 
-import { NodeProtocol } from "@swarmie/plugin-client-node-browser";
+import { NodeProtocol } from "@swarmie/plugin-browser/connections";
 import { orb } from "@syntropika/tembra-sdk";
 import { createHost } from "@syntropika/tembra-sdk/node";
 

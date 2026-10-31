@@ -12,17 +12,17 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use swarmie_client_node::NodeConfiguration;
 use swarmie_git::{
     Authority, Cancellation, CommandOutput, CommandSpec, Git, GitService, NativeProcess,
     ProcessExecutor, Request, Response,
 };
+use swarmie_node::composition::ServicesConfiguration;
 use swarmie_runtime::NodeId;
 use tembra::Host;
 
-fn install_fixture(host: &Host, configuration: NodeConfiguration) -> tembra::Result<()> {
+fn install_fixture(host: &Host, configuration: ServicesConfiguration) -> tembra::Result<()> {
     let identity = swarmie_runtime::node_orb(configuration.node.clone());
-    let mut definitions = swarmie_client_node::orbs(host, configuration, None)?;
+    let mut definitions = swarmie_node::composition::orbs(host, configuration, None)?;
     definitions.push(identity);
     host.install(definitions)
 }
@@ -275,7 +275,7 @@ async fn concurrent_first(mode: &str, churn: bool, sources: bool) {
     let host = Host::new(Executor);
     install_fixture(
         &host,
-        NodeConfiguration {
+        ServicesConfiguration {
             environment: sources.then(Default::default),
             state: PathBuf::from(profile.path()),
             node: NodeId::new("fixture-node").unwrap(),
@@ -287,7 +287,7 @@ async fn concurrent_first(mode: &str, churn: bool, sources: bool) {
         },
     )
     .unwrap();
-    swarmie_client_node::start(&host).await.unwrap();
+    swarmie_conversation_runtime::start(&host).await.unwrap();
     let output = Rc::new(std::cell::RefCell::new(Vec::<Value>::new()));
     let outgoing = output.clone();
     let connection = tembra::rpc::serve(

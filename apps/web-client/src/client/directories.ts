@@ -1,4 +1,4 @@
-import type { Connections, NodeConnection } from "@swarmie/plugin-client-node-browser";
+import type { Connections, NodeConnection } from "@swarmie/plugin-browser/connections";
 import type { DirectoryBrowser, DirectoryPage } from "@swarmie/plugin-projects-browser";
 import type { DynamicReference } from "@syntropika/tembra-sdk";
 

@@ -2,9 +2,9 @@
 //! evidence. Each positive binding combines a publisher contract with the tested
 //! swarmie-ai request/stream/tool conversion under an exact model and reasoning configuration.
 
+use crate::ai::Provider;
 use serde::{Deserialize, Serialize};
 use swarmie_ai::catalog::{Capability, Evidence, Layer, UnknownReason};
-use swarmie_providers::ai::Provider;
 
 pub(super) const PROFILE: &str = "swarmie.text-tools.v1";
 pub(super) const REVIEWED_AT_MS: u64 = 1_793_389_892_000;

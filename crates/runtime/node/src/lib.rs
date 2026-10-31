@@ -13,3 +13,8 @@ pub use node::{HostConfiguration, MAX_FRAME_BYTES, Node, PrivatePort};
 
 /// Private control service. Ordinary byte channels cannot acquire this service.
 pub const PRIVATE_CONTROL_SERVICE: &str = control::SERVICE;
+
+/// Host-selected capabilities and native adapters.
+pub mod composition;
+
+mod directories;

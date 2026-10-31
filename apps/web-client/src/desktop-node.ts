@@ -1,5 +1,5 @@
-import type { Connector, Node, NodeIdentity } from "@swarmie/plugin-client-node-browser";
-import { NodeProtocol, connectWebSocket } from "@swarmie/plugin-client-node-browser";
+import type { Connector, Node, NodeIdentity } from "@swarmie/plugin-browser/connections";
+import { NodeProtocol, connectWebSocket } from "@swarmie/plugin-browser/connections";
 import { RemoteHost } from "@syntropika/tembra-sdk/rpc";
 import type { Transport } from "@syntropika/tembra-sdk/rpc";
 

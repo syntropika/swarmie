@@ -20,7 +20,7 @@ futures.workspace = true
 tembra.workspace = true
 uuid.workspace = true
 tokio = { version = "1", features = ["rt", "time", "net", "sync", "macros"] }
-swarmie-client-node.workspace = true
+swarmie-conversation-runtime.workspace = true
 swarmie-runtime.workspace = true
 swarmie-durable-tasks.workspace = true
 swarmie-conversations.workspace = true

@@ -22,7 +22,7 @@ capabilities, supplies I/O and owns the executor.
 | Tool discovery and provider routing | [Tools](plugins/tools.md) |
 | Local and HTTP MCP tool connections | [MCP](plugins/mcp.md) |
 | Node identity and remote destinations | [Node connections](client-runtime/node-connections.md) |
-| Reusable client node services | [Client node services](client-runtime/node-services.md) |
+| Reusable client node services | [Client node services](client-runtime/node-capabilities.md) |
 | Shared protected hosting and independent executable | [Node hosting](client-runtime/node-hosting.md) |
 | Browser composition and views | [Client UI](client-runtime/client-ui.md) |
 

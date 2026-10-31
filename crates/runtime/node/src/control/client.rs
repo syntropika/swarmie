@@ -1,7 +1,7 @@
 //! One native owner for the client engine, private cards and vault tool dispatch.
 use super::*;
 use std::{collections::BTreeMap, rc::Weak};
-use swarmie_client_node::{ConversationExecution, ExecutionOwner, ExecutionScope};
+use swarmie_conversation_runtime::{ConversationExecution, ExecutionOwner, ExecutionScope};
 
 pub(crate) struct ClientExecution {
     node: NativeNode,

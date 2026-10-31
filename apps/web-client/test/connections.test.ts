@@ -4,8 +4,8 @@ import {
   ConnectionFailureKind,
   ConnectionPhase,
   NodeConnectionError,
-} from "@swarmie/plugin-client-node-browser";
-import type { Connector } from "@swarmie/plugin-client-node-browser";
+} from "@swarmie/plugin-browser/connections";
+import type { Connector } from "@swarmie/plugin-browser/connections";
 import type { ConversationExecutionApi } from "@swarmie/plugin-conversations-browser";
 import { conversationsOrb, createConversationRecords } from "@swarmie/plugin-conversations-browser";
 import { createHost } from "@syntropika/tembra-sdk/node";

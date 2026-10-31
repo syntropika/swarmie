@@ -5,8 +5,8 @@ use futures::{
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use std::{cell::RefCell, rc::Rc, time::Duration};
-use swarmie_client_node::NodeConfiguration;
 use swarmie_context::{Admission, CompactionRequest, Phase, Receipt, Snapshot};
+use swarmie_node::composition::ServicesConfiguration;
 use swarmie_providers::OperationId;
 use swarmie_runtime::NodeId;
 use tembra::Host;
@@ -135,9 +135,9 @@ impl Fixture {
 
     async fn open(path: &std::path::Path) -> Host {
         let host = Host::new(Executor);
-        let mut orbs = swarmie_client_node::orbs(
+        let mut orbs = swarmie_node::composition::orbs(
             &host,
-            NodeConfiguration {
+            ServicesConfiguration {
                 environment: None,
                 state: path.into(),
                 node: NodeId::new("context-fixture").unwrap(),
@@ -154,7 +154,7 @@ impl Fixture {
             NodeId::new("context-fixture").unwrap(),
         ));
         host.install(orbs).unwrap();
-        swarmie_client_node::start(&host).await.unwrap();
+        swarmie_conversation_runtime::start(&host).await.unwrap();
         host
     }
 

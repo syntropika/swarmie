@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 
-import { NodeProtocol } from "@swarmie/plugin-client-node-browser";
+import { NodeProtocol } from "@swarmie/plugin-browser/connections";
 import type {
   ConversationExecutionApi,
   ConversationExecutionContext,

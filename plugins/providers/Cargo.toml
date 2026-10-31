@@ -15,7 +15,7 @@ tembra.workspace = true
 futures.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
-uuid.workspace = true
+uuid = { workspace = true, features = ["v5"] }
 zeroize = "1"
 sha2 = "0.10"
 swarmie-ai.workspace = true
@@ -29,6 +29,9 @@ swarmie-permissions = { path = "../permissions", features = ["tembra"] }
 secrets_scanner = { version = "=0.2.3", default-features = false }
 hmac = "0.12"
 rand = "0.8"
+
+tempfile.workspace = true
+keyring = { version = "=3.6.3", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 
 [lints]
 workspace = true

@@ -1,5 +1,5 @@
-use swarmie_providers::ai::Provider;
-use swarmie_providers::settings::Choice;
+use crate::ai::Provider;
+use crate::settings::Choice;
 
 pub(super) struct ProviderSpec {
     pub id: &'static str,
@@ -38,7 +38,7 @@ pub(super) fn specifications() -> [ProviderSpec; 4] {
 }
 
 pub(super) fn choices() -> Vec<Choice> {
-    swarmie_providers::settings::provider_catalog()
+    crate::settings::provider_catalog()
 }
 
 #[cfg(test)]

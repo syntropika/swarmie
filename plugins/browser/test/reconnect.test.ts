@@ -1,13 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
 
-import type { Connector, Node, NodeConnectionState, NodeSession } from "../src/index";
+import type { Connector, Node, NodeConnectionState, NodeSession } from "../src/connections/index";
 import {
   Connections,
   ConnectionFailureKind,
   ConnectionPhase,
   NodeConnectionError,
   NodeProtocol,
-} from "../src/index";
+} from "../src/connections/index";
 
 const coordinators: Connections[] = [];
 afterEach(() => {
